@@ -16,7 +16,7 @@ pub const HEAP_START: usize = 0o_000_001_000_000_0000;
 pub const HEAP_SIZE: usize = 1024 * 1024; 
 
 #[global_allocator]
-static ALLOCATOR : Locked<FixedSizedAllocator> = Locked::new(FixedSizedAllocator::new());
+static ALLOCATOR: Locked<FixedSizeBlockAllocator> = Locked::new(FixedSizeBlockAllocator::new());
 
 #[alloc_error_handler]
 fn alloc_error_handler(layout : Layout) -> ! {
