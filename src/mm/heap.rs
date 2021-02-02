@@ -1,5 +1,5 @@
 use core::{alloc::Layout, panic};
-use super::allocator::{FixedSizedAllocator, Locked};
+use super::allocator::{FixedSizeBlockAllocator, Locked};
 use x86_64::{
     VirtAddr, 
     structures::paging::{

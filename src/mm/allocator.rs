@@ -5,7 +5,7 @@ use spin::{Mutex, MutexGuard};
 
 const BLOCK_SIZES : &[usize] = &[8,16,32,64,128,256,512,1024,2045];
 
-pub struct FixedSizeAllocator {
+pub struct FixedSizeBlockAllocator {
     list_heads : [Option<&'static mut ListNode>; BLOCK_SIZES.len()],
     fallback_allocator : linked_list_allocator::Heap,
 } 
@@ -30,9 +30,9 @@ struct ListNode {
     next : Option<&'static mut ListNode>,
 }
 
-impl FixedSizeAllocator {
+impl FixedSizeBlockAllocator {
     pub const fn new() -> Self {
-        FixedSizeAllocator {
+        FixedSizeBlockAllocator {
             list_heads : [None; BLOCK_SIZES.len()],
             fallback_allocator : linked_list_allocator::Heap::empty(),
         }
@@ -55,7 +55,7 @@ fn list_index(layout : &Layout) -> Option<usize> {
     BLOCK_SIZES.iter().position(|&s| s >= required_block_size)
 }
 
-unsafe impl GlobalAlloc for Locked<FixedSizeAllocator> {
+unsafe impl GlobalAlloc for Locked<FixedSizeBlockAllocator> {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         let mut allocator = self.lock();
         match list_index(&layout) {
