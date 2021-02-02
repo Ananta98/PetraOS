@@ -1,27 +1,45 @@
 #![no_std]
 #![no_main]
 #![feature(abi_x86_interrupt)]
+#![feature(alloc_error_handler)]
+#![feature(const_mut_refs)]
+#![feature(const_in_array_repeat_expressions)]
 
-mod driver;
+extern crate alloc;
+
 mod arch;
+mod mm;
 
 use core::panic::PanicInfo;
-use arch::idt::initialize_idt;
-use arch::gdt::initialize_gdt;
+use bootloader::{BootInfo, entry_point};
+use x86_64::VirtAddr;
+use mm::{frame::BootInfoFrameAllocator, heap, paging};
 
-#[panic_handler]
-fn panic(_info : &PanicInfo) -> ! {
-    println!("{}",_info);
-    loop {}
+#[macro_use]
+mod drivers;
+
+fn hlt_loop() -> ! {
+    loop {
+        x86_64::instructions::hlt();
+    }
 }
 
-#[no_mangle]
-pub extern "C" fn _start() -> ! {
-    initialize_gdt();
-    initialize_idt();
+#[panic_handler]
+fn panic(info: &PanicInfo) -> ! {
+    println!("PANIC : {}", info);
+    hlt_loop();
+}
+
+entry_point!(kernel_main);
+
+fn kernel_main(boot_info : &'static BootInfo) -> ! {
+    arch::gdt_tss::initialize();
+    arch::interrupts::initialize_idt();
+    unsafe { arch::interrupts::PICS.lock().initialize() };
     x86_64::instructions::interrupts::enable();
-    unsafe {
-        *(0xdeadbeef as *mut u64) = 42;
-    };
-    loop {}
-}   
+    let phys_mem_offset = VirtAddr::new(boot_info.physical_memory_offset);
+    let mut mapper = unsafe { paging::initialize_paging(phys_mem_offset)};
+    let mut frame_allocator = BootInfoFrameAllocator::initialize_frame_allocator(&boot_info.memory_map);
+    heap::initialize_heap(&mut mapper, &mut frame_allocator).expect("Heap initialization failed");
+    hlt_loop();
+}
