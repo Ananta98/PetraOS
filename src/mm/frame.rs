@@ -31,14 +31,3 @@ unsafe impl FrameAllocator<Size4KiB> for BootInfoFrameAllocator {
         frame
     }
 }
-
-impl FrameDeallocator<Size4KiB> for BootInfoFrameAllocator{
-    unsafe fn deallocate_frame(&mut self, frame: PhysFrame<Size4KiB>) {
-        let index = frame.start_address().as_u64() / Size4KiB::SIZE;
-        if index == 0 {
-            self.next = 0;
-        } else {
-            self.next = index as usize - 1;
-        }
-    }
-}
