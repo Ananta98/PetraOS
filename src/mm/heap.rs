@@ -1,5 +1,4 @@
 use core::{alloc::Layout, panic};
-use super::allocator::{FixedSizeBlockAllocator, Locked};
 use x86_64::{
     VirtAddr, 
     structures::paging::{
@@ -11,16 +10,17 @@ use x86_64::{
         mapper::MapToError
     }
 };
+use super::allocator::{Locked, FixedSizeBlockAllocator};
 
 pub const HEAP_START: usize = 0o_000_001_000_000_0000;
 pub const HEAP_SIZE: usize = 1024 * 1024; 
 
 #[global_allocator]
-static ALLOCATOR: Locked<FixedSizeBlockAllocator> = Locked::new(FixedSizeBlockAllocator::new());
+static mut ALLOCATOR: Locked<FixedSizeBlockAllocator> = Locked::new(FixedSizeBlockAllocator::new());
 
 #[alloc_error_handler]
 fn alloc_error_handler(layout : Layout) -> ! {
-    panic!("Allocation Error : {:?}",layout);
+    panic!("Allocation Error : {:?}", layout);
 }
 
 pub fn initialize_heap(mapper : &mut impl Mapper<Size4KiB>, 

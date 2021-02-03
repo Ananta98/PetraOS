@@ -15,7 +15,7 @@ pub struct Locked<A> {
 }
 
 impl<A> Locked<A> {
-    pub fn new(inner : A) -> Self {
+    pub const fn new(inner : A) -> Self {
         Locked {
             inner : Mutex::new(inner),
         }

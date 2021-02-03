@@ -1,8 +1,9 @@
+#![feature(const_mut_refs)]
 #![no_std]
 #![no_main]
+#![allow(dead_code)]
 #![feature(abi_x86_interrupt)]
 #![feature(alloc_error_handler)]
-#![feature(const_mut_refs)]
 #![feature(const_in_array_repeat_expressions)]
 
 extern crate alloc;
