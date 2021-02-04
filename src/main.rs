@@ -39,7 +39,7 @@ fn kernel_main(boot_info : &'static BootInfo) -> ! {
     unsafe { arch::interrupts::PICS.lock().initialize() };
     x86_64::instructions::interrupts::enable();
     let phys_mem_offset = VirtAddr::new(boot_info.physical_memory_offset);
-    let mut mapper = unsafe { paging::initialize_paging(phys_mem_offset)};
+    let mut mapper = unsafe { mm::initialize_paging(phys_mem_offset)};
     let mut frame_allocator = BootInfoFrameAllocator::initialize_frame_allocator(&boot_info.memory_map);
     heap::initialize_heap(&mut mapper, &mut frame_allocator).expect("Heap initialization failed");
     hlt_loop();
