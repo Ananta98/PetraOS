@@ -15,7 +15,7 @@ mod mm;
 use core::{panic::PanicInfo};
 use bootloader::{BootInfo, entry_point};
 use x86_64::VirtAddr;
-use mm::heap;
+use mm::{frame::BootInfoFrameAllocator, heap};
 
 #[macro_use]
 mod drivers;
@@ -41,6 +41,7 @@ fn kernel_main(boot_info : &'static BootInfo) -> ! {
     x86_64::instructions::interrupts::enable();
     let phys_mem_offset = VirtAddr::new(boot_info.physical_memory_offset);
     let mut mapper = unsafe { mm::initialize_paging(phys_mem_offset)};
-    heap::initialize_heap(&mut mapper,&boot_info.memory_map).expect("Heap initialization failed");
+    let mut boot_frame_allocator= BootInfoFrameAllocator::initialize_frame_allocator(&boot_info.memory_map);
+    heap::initialize_heap(&mut mapper,&mut boot_frame_allocator).expect("Heap initialization failed");
     hlt_loop();
 }
