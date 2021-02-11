@@ -1,25 +1,72 @@
-use crate::print;
-use spin::Mutex;
-use lazy_static::lazy_static;
-use x86_64::instructions::port::Port;
+use crate::{print,println};
+use crossbeam_queue::ArrayQueue;
+use conquer_once::spin::OnceCell;
+use futures_util::task::AtomicWaker;
+use core::{pin::Pin, task::{Poll, Context}};
+use futures_util::{StreamExt, stream::Stream};
 use pc_keyboard::{DecodedKey, HandleControl, Keyboard, ScancodeSet1, layouts};
 
-lazy_static! {
-    static ref KEYBOARD : Mutex<Keyboard<layouts::Us104Key, ScancodeSet1>> = Mutex::new(
-        Keyboard::new(layouts::Us104Key,ScancodeSet1,HandleControl::Ignore)
-    );
+static SCANCODE_QUEUE : OnceCell<ArrayQueue<u8>> = OnceCell::uninit();
+static WAKER : AtomicWaker = AtomicWaker::new();
+
+pub struct ScancodeStream {
+    _private : (),
 }
 
-pub fn keyboard_pressed() {
-    let mut keyboard = KEYBOARD.lock();
-    let mut port = Port::new(0x60);
-    let scancode : u8 = unsafe { port.read() };
-    if let Ok(Some(key_event)) = keyboard.add_byte(scancode) {
-        if let Some(key) = keyboard.process_keyevent(key_event) {
-            match key {
-                DecodedKey::Unicode(character) => print!("{}",character),
-                DecodedKey::RawKey(key) => print!("{:?}",key),
+impl ScancodeStream {
+    pub fn new() -> Self {
+        SCANCODE_QUEUE
+            .try_init_once(|| ArrayQueue::new(100))
+            .expect("ScancodeStream::new should only be called once");
+        ScancodeStream { _private : () }
+    }
+}
+
+impl Stream for ScancodeStream {
+    type Item = u8;
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let queue = SCANCODE_QUEUE
+                                  .try_get()
+                                  .expect("scancode queue not initialized");
+        if let Some(scancode) = queue.pop() {
+            return Poll::Ready(Some(scancode));
+        }
+
+        WAKER.register(&cx.waker());
+        match queue.pop() {
+            Some(scancode) => {
+                WAKER.take();
+                Poll::Ready(Some(scancode))
+            }
+            _  => Poll::Pending,
+        }
+
+    }
+}
+
+pub async fn keyboard_pressed() {
+    let mut scancodes = ScancodeStream::new();
+    let mut keyboard = Keyboard::new(layouts::Uk105Key,ScancodeSet1, HandleControl::Ignore);
+    while let Some(scancode) = scancodes.next().await {
+        if let Ok(Some(key_event)) = keyboard.add_byte(scancode) {
+            if let Some(key) = keyboard.process_keyevent(key_event) {
+                match key {
+                    DecodedKey::Unicode(character) => print!("{}", character),
+                    DecodedKey::RawKey(key) => print!("{:?}",key),
+                }
             }
         }
-    };
+    }
+}
+
+pub(crate) fn add_scancode(scancode : u8) {
+    if let Ok(queue) = SCANCODE_QUEUE.try_get() {
+        if let Err(_) = queue.push(scancode) {
+            println!("WARNING: scancode queue full; dropping keyboard input");
+        } else {
+            WAKER.wake();
+        }
+    } else {
+        println!("WARNING: scancode queue uninitialized");
+    }
 }

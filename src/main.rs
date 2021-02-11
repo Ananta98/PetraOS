@@ -6,16 +6,21 @@
 #![feature(abi_x86_interrupt)]
 #![feature(alloc_error_handler)]
 #![feature(const_in_array_repeat_expressions)]
+#![feature(wake_trait)]
 
 extern crate alloc;
 
 mod arch;
 mod mm;
+mod task;
 
 use core::{panic::PanicInfo};
 use bootloader::{BootInfo, entry_point};
+use task::executor::Executor;
 use x86_64::VirtAddr;
-use mm::heap;
+use mm::{heap_allocator,boot_frame};
+use task::Task;
+use crate::drivers::keyboard::keyboard_pressed;
 
 #[macro_use]
 mod drivers;
@@ -40,7 +45,10 @@ fn kernel_main(boot_info : &'static BootInfo) -> ! {
     unsafe { arch::interrupts::PICS.lock().initialize() };
     x86_64::instructions::interrupts::enable();
     let phys_mem_offset = VirtAddr::new(boot_info.physical_memory_offset);
-    let mut mapper = unsafe { mm::initialize_paging(phys_mem_offset)};
-    heap::initialize_heap(&mut mapper,&mut boot_info.memory_map).expect("Heap initialization failed");
-    hlt_loop();
+    let mut mapper = unsafe { arch::paging::initialize_paging(phys_mem_offset)};
+    let mut boot_frame_allocator = boot_frame::BootInfoFrameAllocator::initialize(&boot_info.memory_map);
+    heap_allocator::initialize_heap(&mut mapper,&mut boot_frame_allocator).expect("Heap initialization failed");
+    let mut executor = Executor::new();
+    executor.spawn(Task::new(keyboard_pressed()));
+    executor.run();
 }

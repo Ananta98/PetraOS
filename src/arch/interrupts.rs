@@ -1,10 +1,10 @@
 use spin::Mutex;
-use crate::println;
+use crate::{println,print};
 use crate::hlt_loop;
 use crate::arch::gdt_tss;
 use lazy_static::lazy_static;
 use crate::arch::pic::ChainedPICs;
-use crate::drivers::keyboard::keyboard_pressed;
+use crate::drivers::keyboard::add_scancode;
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode};
 
 pub const PIC_1_OFFSET: u8 = 32;
@@ -64,13 +64,17 @@ extern "x86-interrupt" fn double_fault_handler(
 }
 
 extern "x86-interrupt" fn timer_interrupt_handler(_stack_frame: &mut InterruptStackFrame) {
+    print!(".");
     unsafe {
         PICS.lock().send_eoi(InterruptIndex::Timer.as_u8());
     }
 }
 
 extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: &mut InterruptStackFrame) {
-    keyboard_pressed();
+    use x86_64::instructions::port::Port;
+    let mut port = Port::new(0x60);
+    let scancode = unsafe { port.read() };
+    add_scancode(scancode);
     unsafe {
         PICS.lock().send_eoi(InterruptIndex::Keyboard.as_u8());
     }
