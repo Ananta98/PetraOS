@@ -18,7 +18,7 @@ use core::{panic::PanicInfo};
 use bootloader::{BootInfo, entry_point};
 use task::executor::Executor;
 use x86_64::VirtAddr;
-use mm::{heap_allocator,boot_frame};
+use mm::{heap_allocator,boot_frame, frame_allocator::*};
 use task::Task;
 use crate::drivers::keyboard::keyboard_pressed;
 
@@ -48,6 +48,7 @@ fn kernel_main(boot_info : &'static BootInfo) -> ! {
     let mut mapper = unsafe { arch::paging::initialize_paging(phys_mem_offset)};
     let mut boot_frame_allocator = boot_frame::BootInfoFrameAllocator::initialize(&boot_info.memory_map);
     heap_allocator::initialize_heap(&mut mapper,&mut boot_frame_allocator).expect("Heap initialization failed");
+    FRAME_ALLOCATOR.lock().initialize_frame_allocator(&boot_info.memory_map);
     let mut executor = Executor::new();
     executor.spawn(Task::new(keyboard_pressed()));
     executor.run();

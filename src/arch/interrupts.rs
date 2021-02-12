@@ -1,5 +1,5 @@
 use spin::Mutex;
-use crate::{println,print};
+use crate::println;
 use crate::hlt_loop;
 use crate::arch::gdt_tss;
 use lazy_static::lazy_static;
@@ -64,7 +64,6 @@ extern "x86-interrupt" fn double_fault_handler(
 }
 
 extern "x86-interrupt" fn timer_interrupt_handler(_stack_frame: &mut InterruptStackFrame) {
-    print!(".");
     unsafe {
         PICS.lock().send_eoi(InterruptIndex::Timer.as_u8());
     }
