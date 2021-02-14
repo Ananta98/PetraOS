@@ -83,7 +83,7 @@ impl ATA {
         self.poll();
     }   
 
-    pub fn read_sector(&mut self) {
+    pub fn read_sector(&mut self, sector : u8) {
         
     }
 }

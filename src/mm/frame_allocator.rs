@@ -3,7 +3,7 @@ use spin::Mutex;
 use bit_vec::BitVec;
 use lazy_static::lazy_static;
 use bootloader::bootinfo::{MemoryMap, MemoryRegionType};
-use x86_64::{PhysAddr, structures::paging::{FrameAllocator, FrameDeallocator, PageSize, PhysFrame, Size4KiB, page}};
+use x86_64::{PhysAddr, structures::paging::{FrameAllocator, FrameDeallocator, PageSize, PhysFrame, Size4KiB}};
 
 pub struct BitmapFrameAllocator {
     memory_map : BitVec,
@@ -18,10 +18,7 @@ impl BitmapFrameAllocator {
             if region.region_type == MemoryRegionType::Usable {
                 let start_address = region.range.start_addr() / Size4KiB::SIZE;
                 let end_address = region.range.end_addr() / Size4KiB::SIZE;
-                let mut page_count = (end_address - start_address) / Size4KiB::SIZE; 
-                if page_count % Size4KiB::SIZE == 0 {
-                    page_count += 1;
-                }
+                let mut page_count = ((end_address - start_address) / Size4KiB::SIZE) + 1; 
                 for index in start_address..start_address + page_count  {
                     self.memory_map.set(index as usize, true);
                 }
