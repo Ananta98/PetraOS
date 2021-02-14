@@ -15,6 +15,7 @@ mod mm;
 mod task;
 
 use core::{panic::PanicInfo};
+use arch::pit::PIT;
 use bootloader::{BootInfo, entry_point};
 use task::executor::Executor;
 use x86_64::VirtAddr;
@@ -47,6 +48,8 @@ fn kernel_main(boot_info : &'static BootInfo) -> ! {
     let phys_mem_offset = VirtAddr::new(boot_info.physical_memory_offset);
     let mut mapper = unsafe { arch::paging::initialize_paging(phys_mem_offset)};
     let mut boot_frame_allocator = boot_frame::BootInfoFrameAllocator::initialize(&boot_info.memory_map);
+    let mut pit = PIT::new();
+    pit.initialize(2685);
     heap_allocator::initialize_heap(&mut mapper,&mut boot_frame_allocator).expect("Heap initialization failed");
     FRAME_ALLOCATOR.lock().initialize_frame_allocator(&boot_info.memory_map);
     let mut executor = Executor::new();
