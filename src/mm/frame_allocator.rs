@@ -3,7 +3,7 @@ use spin::Mutex;
 use bit_vec::BitVec;
 use lazy_static::lazy_static;
 use bootloader::bootinfo::{MemoryMap, MemoryRegionType};
-use x86_64::{PhysAddr, structures::paging::{FrameAllocator, FrameDeallocator, PageSize, PhysFrame, Size4KiB}};
+use x86_64::{PhysAddr, structures::paging::{FrameAllocator, FrameDeallocator, PageSize, PhysFrame, Size4KiB, page}};
 
 pub struct BitmapFrameAllocator {
     memory_map : BitVec,
@@ -12,15 +12,18 @@ pub struct BitmapFrameAllocator {
 impl BitmapFrameAllocator {
     pub fn initialize_frame_allocator(&mut self,memory_map : &MemoryMap) {
         let bitmap_size = BitmapFrameAllocator::get_highest_phys_address(memory_map) / Size4KiB::SIZE / 8;
-        println!("Frame Allocator Max Size : {}", bitmap_size);
+        println!("Highest Address : {}", BitmapFrameAllocator::get_highest_phys_address(memory_map));
         self.memory_map = BitVec::from_elem(bitmap_size as usize,false);
         for region in memory_map.iter() {
             if region.region_type == MemoryRegionType::Usable {
                 let start_address = region.range.start_addr() / Size4KiB::SIZE;
                 let end_address = region.range.end_addr() / Size4KiB::SIZE;
-                let page_count = (end_address - start_address) / Size4KiB::SIZE; 
-                for index in 0..page_count {
-                    self.memory_map.set((start_address + index) as usize, true);
+                let mut page_count = (end_address - start_address) / Size4KiB::SIZE; 
+                if page_count % Size4KiB::SIZE == 0 {
+                    page_count += 1;
+                }
+                for index in start_address..start_address + page_count  {
+                    self.memory_map.set(index as usize, true);
                 }
             }
         }
