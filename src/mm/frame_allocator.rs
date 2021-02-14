@@ -6,21 +6,21 @@ use bootloader::bootinfo::{MemoryMap, MemoryRegionType};
 use x86_64::{PhysAddr, structures::paging::{FrameAllocator, FrameDeallocator, PageSize, PhysFrame, Size4KiB}};
 
 pub struct BitmapFrameAllocator {
-    memory_map : BitVec,
+    bitmap : BitVec,
 }
 
 impl BitmapFrameAllocator {
     pub fn initialize_frame_allocator(&mut self,memory_map : &MemoryMap) {
         let bitmap_size = BitmapFrameAllocator::get_highest_phys_address(memory_map) / Size4KiB::SIZE / 8;
         println!("Highest Address : {}", BitmapFrameAllocator::get_highest_phys_address(memory_map));
-        self.memory_map = BitVec::from_elem(bitmap_size as usize,false);
+        self.bitmap = BitVec::from_elem(bitmap_size as usize,false);
         for region in memory_map.iter() {
             if region.region_type == MemoryRegionType::Usable {
                 let start_address = region.range.start_addr() / Size4KiB::SIZE;
                 let end_address = region.range.end_addr() / Size4KiB::SIZE;
-                let mut page_count = ((end_address - start_address) / Size4KiB::SIZE) + 1; 
+                let page_count = ((end_address - start_address) / Size4KiB::SIZE) + 1; 
                 for index in start_address..start_address + page_count  {
-                    self.memory_map.set(index as usize, true);
+                    self.bitmap.set(index as usize, true);
                 }
             }
         }
@@ -40,7 +40,7 @@ impl BitmapFrameAllocator {
 
 unsafe impl FrameAllocator<Size4KiB> for BitmapFrameAllocator {
     fn allocate_frame(&mut self) -> Option<PhysFrame> {
-        let frame = self.memory_map
+        let frame = self.bitmap
                     .iter()
                     .enumerate()
                     .filter_map(|(index,unused)| {
@@ -53,7 +53,7 @@ unsafe impl FrameAllocator<Size4KiB> for BitmapFrameAllocator {
                     })
                     .next();
         if let Some((index,address)) = frame {
-            self.memory_map.set(index,false);
+            self.bitmap.set(index,false);
             Some(address)
         } else {
             None
@@ -64,12 +64,12 @@ unsafe impl FrameAllocator<Size4KiB> for BitmapFrameAllocator {
 impl FrameDeallocator<Size4KiB> for BitmapFrameAllocator {
     unsafe fn deallocate_frame(&mut self, frame: PhysFrame<Size4KiB>) {
         let index = frame.start_address().as_u64() / Size4KiB::SIZE;
-        self.memory_map.set(index as usize, true);
+        self.bitmap.set(index as usize, true);
     }
 }
 
 lazy_static! {
     pub static ref FRAME_ALLOCATOR: Mutex<BitmapFrameAllocator> = {
-        Mutex::new(BitmapFrameAllocator { memory_map : BitVec::new() })
+        Mutex::new(BitmapFrameAllocator { bitmap : BitVec::new() })
     };
 }
