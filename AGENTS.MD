@@ -172,6 +172,36 @@ All code modifications are subject to rigorous verification.
 
 * **Write Tests First/Simultaneously**: For every task or bug fix, write corresponding tests in the `tests/` directory.
 * **Kernel-Mode Testing**: Test kernel modules (e.g., memory allocator, scheduler, page table mapping) using unit tests in a simulated or mock environment, or integration tests inside QEMU.
+  * Automated tests for kernel space must be organized into subsystem-specific directories under the `kernel/src/tests/` folder, such as:
+    * `tests/mm/` for memory management tests.
+    * `tests/proc/` for process management tests.
+    * `tests/sched/` for scheduler tests.
+    * `tests/fs/` for filesystem tests.
+  * Test modules should utilize standard Rust unit testing structures with `#[cfg(test)]` and `mod tests`, keeping test cases clean, descriptive, and focused:
+    ```rust
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn test_frame_allocation_success() {
+            let mut bitmap = Bitmap::new(128);
+            // Ensure first frame allocation starts at index 0
+            assert_eq!(bitmap.alloc(), Some(0));
+        }
+
+        #[test]
+        fn test_frame_free_and_reallocate() {
+            let mut bitmap = Bitmap::new(128);
+            let frame = bitmap.alloc().expect("Failed to allocate initial frame");
+
+            bitmap.free(frame);
+            // Ensure the freed frame can be successfully reallocated
+            assert_eq!(bitmap.alloc(), Some(frame));
+        }
+    }
+    ```
+    * Please when test use please don't modify anything just do test in tests folder
 * **User-Mode Testing**: Verify system calls and process isolation using integration tests that execute specific user-space binaries and assert expected return codes and outputs.
 * **No Unverified Commits**: Do not consider a task complete until all tests run successfully and show zero regressions.
 

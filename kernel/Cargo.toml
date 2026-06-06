@@ -13,3 +13,21 @@ panic = "abort"
 
 [profile.release]
 panic = "abort"
+
+[[bin]]
+name = "petraos-kernel"
+path = "src/main.rs"
+test = false
+required-features = ["binary-only"]
+
+[[test]]
+name = "pmm"
+path = "tests/mm/pmm.rs"
+
+[[test]]
+name = "heap"
+path = "tests/mm/heap.rs"
+
+[[test]]
+name = "vma"
+path = "tests/mm/vma.rs"

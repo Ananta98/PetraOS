@@ -1,23 +1,13 @@
-#![no_std]
-#![no_main]
-#![feature(abi_x86_interrupt)]
-
-pub mod limine;
-pub mod arch;
-pub mod drivers;
-pub mod sync;
-pub mod logger;
-
-use arch::CpuArch;
+use arch::ArchImpl;
 use core::arch::asm;
 
 #[unsafe(no_mangle)]
 unsafe extern "C" fn kmain() -> ! {
-    arch::Arch::init_hardware();
-
+    ArchImpl::init_hardware();
     logger::init();
+    mm::init();
     drivers::framebuffer::init();
-    
+
     log::info!("PetraOS Kernel Scaffolding Initialized.");
     log::warn!("Testing warning log levels!");
     log::error!("Testing error log levels!");
