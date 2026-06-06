@@ -1,5 +1,9 @@
 use super::CpuArch;
 
+pub mod gdt;
+pub mod idt;
+pub mod interrupts;
+pub mod tss;
 pub struct X86_64;
 
 impl CpuArch for X86_64 {
@@ -12,7 +16,7 @@ impl CpuArch for X86_64 {
                 "pop {}",
                 "cli",
                 out(reg) flags,
-                options(nomem, preserves_flags)
+                options(nomem)
             );
         }
         (flags & (1 << 9)) != 0
@@ -33,7 +37,8 @@ impl CpuArch for X86_64 {
     }
 
     fn init_hardware() {
-        // Hardware initialization will occur here in subsequent tasks.
+        gdt::init();
+        interrupts::init();
     }
 }
 

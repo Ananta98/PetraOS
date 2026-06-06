@@ -8,17 +8,19 @@ pub mod drivers;
 pub mod sync;
 pub mod logger;
 
+use arch::CpuArch;
 use core::arch::asm;
 
 #[unsafe(no_mangle)]
 unsafe extern "C" fn kmain() -> ! {
+    arch::Arch::init_hardware();
+
     logger::init();
+    drivers::framebuffer::init();
+    
     log::info!("PetraOS Kernel Scaffolding Initialized.");
     log::warn!("Testing warning log levels!");
     log::error!("Testing error log levels!");
-
-    // Trigger a panic test (optional, but good to test the panic log handler)
-    // panic!("Testing panic logging!");
 
     hcf();
 }

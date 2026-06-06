@@ -1,14 +1,14 @@
-use crate::drivers::serial::SerialPort;
+use crate::drivers::serial::{SerialPort, PortIoBackend};
 use crate::drivers::{CharDevice, DeviceDriver};
-use crate::sync::Spinlock;
+use crate::sync::spinlock::Spinlock;
 use log::{Log, Metadata, Record, Level};
 use core::fmt::Write;
 
 struct Logger {
-    serial: Spinlock<Option<SerialPort>>,
+    serial: Spinlock<Option<SerialPort<PortIoBackend>>>,
 }
 
-struct SerialWriter<'a>(&'a mut SerialPort);
+struct SerialWriter<'a>(&'a mut SerialPort<PortIoBackend>);
 
 impl Write for SerialWriter<'_> {
     fn write_str(&mut self, s: &str) -> core::fmt::Result {
@@ -58,7 +58,7 @@ impl Log for Logger {
 }
 
 pub fn init() {
-    let mut serial = SerialPort::new(0x3F8); // COM1 port
+    let mut serial = SerialPort::new(PortIoBackend::new(0x3F8)); // COM1 port
     if serial.init().is_ok() {
         {
             let mut guard = LOGGER.serial.lock();
