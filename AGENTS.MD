@@ -1,6 +1,6 @@
 # AI Agent Coding Guidelines & Behavioral Standards for PetraOS
 
-This document defines the absolute standard of behavior, architecture, and coding practices for all AI agents collaborating on the development of **PetraOS**. PetraOS is a modular monolithic, UNIX-like Operating System written in Rust under strict `no_std` constraints.
+This document defines the absolute standard of behavior, architecture, and coding practices for all AI agents collaborating on the development of **PetraOS**. PetraOS is a modular monolithic, UNIX-like Operating System written in Rust under strict `no_std` constraints for kernel space and `std` for user space.
 
 ---
 
@@ -38,11 +38,18 @@ petraos/
 ├── kernel/
 │   ├── src/
 │   ├── arch/       # CPU architecture-specific code (e.g., x86_64, aarch64)
+|   ├── fs/         # File systems (e.g., FAT, NTFS, ext4)
+|   ├── ipc/        # Inter-process communication (e.g., pipes, message queues, shared memory)
 │   ├── drivers/    # Hardware device drivers (e.g., serial, vga, timer, keyboard)
 │   ├── sched/      # Process scheduling algorithms (e.g., Round Robin, Priority, CFS)
 │   ├── syscalls/   # Kernel system call interface and handlers
 │   ├── proc/       # Process and thread management (PCBs, context switching)
-│   └── mm/         # Memory management (physical, virtual, heap allocator)
+│   ├── sync/       # Synchronization primitives (e.g., mutexes, semaphores, condition variables)
+│   ├── net/        # Networking stack (e.g., TCP/IP, UDP, Ethernet)
+│   ├── mm/         # Memory management (physical, virtual, heap allocator)
+│   ├── limine.rs   # Limine protocol variables related
+|   ├── logger.rs   # Logging related
+│   └── main.rs     # Main entry for Petra operating system
 ├── userspace/      # User-space libraries, runtimes, and applications
 └── tests/          # Intensive kernel-mode and user-mode test suites
 ```
@@ -141,6 +148,11 @@ Code quality must be production-ready. Readability is paramount.
   ```
 * **Expressive Pattern Matching**: Use `match` or `if let` blocks rather than deep chain logic.
 * **Type-Driven Safety**: Leverage Rust's type system to enforce constraints (e.g., wrapping raw addresses in `PhysicalAddress` and `VirtualAddress` structs so they cannot be mixed up).
+
+### 5.3 Modularity & Module Splitting
+* **File Size & Separation**: If a module grows large (e.g., exceeding ~300-500 lines) or handles multiple distinct responsibilities (e.g., driver initialization vs. I/O processing vs. interrupt handling), split it into submodules and individual files.
+* **Avoid Monolithic Files**: Do not dump all subsystem logic inside a single file (like `mod.rs` or `lib.rs`). Use Rust's module hierarchy and subdirectory layout to split components cleanly (e.g., `arch/x86_64/gdt.rs` and `arch/x86_64/idt.rs` instead of one giant file).
+* **Clean Encapsulation & APIs**: Expose only the necessary minimal interface using `pub` or `pub(crate)`. Keep private implementation details hidden to facilitate easier debugging, testing, and isolated modifications.
 
 ---
 
