@@ -1,7 +1,9 @@
 [package]
-name = "limine-rust-template"
+name = "petraos-kernel"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
 limine = "0.5"
+log = "0.4"
+bitflags = "2.4"
