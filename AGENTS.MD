@@ -177,7 +177,32 @@ All code modifications are subject to rigorous verification.
 
 ---
 
-## 8. Git Version Control & Commit Integrity
+## 8. QEMU Testing & Execution Guidelines
+
+All agents must verify kernel-level changes by running and testing them in QEMU.
+
+### 8.1 How to Run QEMU Properly
+* **Headless/Serial Mode**: If you are executing in a headless environment, command-line sandbox, or terminal without GUI forwarding, run QEMU with the graphics display disabled and the serial output redirected to standard output. Override `QEMUFLAGS` to achieve this:
+  ```bash
+  make run QEMUFLAGS="-m 2G -display none -serial stdio"
+  ```
+  Or for BIOS boot:
+  ```bash
+  make run-bios QEMUFLAGS="-m 2G -display none -serial stdio"
+  ```
+* **Monitoring Output**: Pay close attention to standard output. Verify that the bootloader (Limine) successfully loads the kernel, that the kernel initializes, and that no panic occurs.
+* **Graceful Termination**: QEMU runs indefinitely until interrupted or exited via debug ports. Once you have verified the serial logs and confirmed successful execution, terminate the QEMU process. In the terminal or background task manager, send a SIGINT (`Ctrl+C`) or kill the process. Do not let orphaned QEMU processes run in the background.
+
+### 8.2 Declaring QEMU Test Results
+* **Required Test Statement**: Once testing is complete, you **must** explicitly report the status of the QEMU test in your final response or walkthrough.
+* **Format**: Include a clear declaration in your final response under a dedicated heading:
+  > **QEMU Test Verification**:
+  > * **Command Run**: `make run QEMUFLAGS="..."`
+  > * **Result**: Success / Failure / Panic (with a brief description of what was verified, e.g., "Serial logs successfully displayed GDT and IDT initialization messages without panic").
+
+---
+
+## 9. Git Version Control & Commit Integrity
 
 To preserve ownership and trace project accountability:
 * **Configured Git Author Only**: All commits must be authored strictly using the system's configured Git identity.
@@ -185,3 +210,4 @@ To preserve ownership and trace project accountability:
   * Let Git naturally use the user's configuration (`git config --global user.name` / `user.email`).
 * **Surgical Commits**: Commit messages must be clear, descriptive, and reference the specific subsystem modified (e.g., `mm: implement buddy allocator initialization`).
 * **Single Change per Commit**: Keep commits modular. Do not bundle unrelated modifications together.
+
