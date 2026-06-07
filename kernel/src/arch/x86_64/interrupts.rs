@@ -13,6 +13,10 @@ pub(crate) unsafe fn load_idt() {
     idt_ref.load();
 }
 
+unsafe extern "C" {
+    fn syscall_asm_entry();
+}
+
 pub fn init() {
     unsafe {
         // Set up exception handlers
@@ -28,6 +32,9 @@ pub fn init() {
         // LAPIC timer interrupt (vector 48)
         IDT.entries[lapic_timer::TIMER_VECTOR as usize]
             .set_handler_fn(timer_handler as *const () as u64);
+
+        // System call interrupt (vector 0x80)
+        IDT.entries[0x80].set_user_handler_fn(syscall_asm_entry as *const () as u64);
 
         // Spurious interrupt (vector 0xFF)
         IDT.entries[0xFF].set_handler_fn(spurious_interrupt_handler as *const () as u64);
@@ -92,10 +99,35 @@ extern "x86-interrupt" fn page_fault_handler(
 }
 
 extern "x86-interrupt" fn timer_handler(_stack_frame: &mut InterruptStackFrame) {
-    // Send End-Of-Interrupt to the Local APIC to acknowledge the timer interrupt.
-    // SAFETY: The LAPIC is initialized before interrupts are enabled.
+    // ── Determine which CPU we are running on ─────────────────────────────
+    //
+    // SAFETY: The LAPIC is fully initialised before any AP raises its first
+    // timer interrupt, so `get_lapic()` is always valid here.
+    let cpu_id = unsafe { super::lapic::get_lapic().id() };
+
+    // ── Acknowledge the interrupt ─────────────────────────────────────────
+    //
+    // SAFETY: EOI must be written to the LAPIC after every non-spurious
+    // interrupt. The LAPIC is guaranteed to be initialised at this point.
+    //
+    // We send EOI before the context switch so that the LAPIC is ready to
+    // accept new interrupts on the newly scheduled thread once it enables them.
     unsafe {
         super::lapic::get_lapic().end_of_interrupt();
+    }
+
+    // ── Drive the scheduler ────────────────────────────────────────────────
+    //
+    // Advance vruntime / RR time-slice accounting for `cpu_id` by one tick,
+    // then ask the scheduler which task should run next.
+    let _next = crate::sched::scheduler::tick_and_schedule(cpu_id);
+
+    // Perform the context switch
+    if let Some(next_id) = _next {
+        crate::proc::switch_to(cpu_id, next_id);
+    } else {
+        // Switch to the CPU's idle thread if no other tasks are runnable
+        crate::proc::switch_to(cpu_id, crate::sched::task::TaskId((cpu_id + 100) as u64));
     }
 }
 

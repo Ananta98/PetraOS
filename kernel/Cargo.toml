@@ -3,6 +3,10 @@ name = "petraos-kernel"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+binary-only = []
+sched-trace = []
+
 [dependencies]
 limine = "0.5"
 log = "0.4"
@@ -31,3 +35,23 @@ path = "tests/mm/heap.rs"
 [[test]]
 name = "vma"
 path = "tests/mm/vma.rs"
+
+[[test]]
+name = "sched_cfs"
+path = "tests/sched/cfs.rs"
+
+[[test]]
+name = "sched_rt"
+path = "tests/sched/rt.rs"
+
+[[test]]
+name = "sched_policy"
+path = "tests/sched/policy.rs"
+
+[[test]]
+name = "sched_scheduler"
+path = "tests/sched/scheduler.rs"
+
+[[test]]
+name = "proc_context_switch"
+path = "tests/proc/context_switch.rs"

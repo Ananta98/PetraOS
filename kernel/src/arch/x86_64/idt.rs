@@ -49,6 +49,16 @@ impl IdtEntry {
         self.reserved = 0;
     }
 
+    /// Set user-accessible handler function (DPL = 3).
+    pub fn set_user_handler_fn(&mut self, handler: u64) {
+        self.offset_low = handler as u16;
+        self.segment_selector = 0x08; // Kernel Code Segment
+        self.options = 0xEE00; // Present = 1, DPL = 3, Type = Interrupt Gate
+        self.offset_middle = (handler >> 16) as u16;
+        self.offset_high = (handler >> 32) as u32;
+        self.reserved = 0;
+    }
+
     /// Sets the Interrupt Stack Table (IST) index for this IDT entry (1-indexed).
     ///
     /// # Safety

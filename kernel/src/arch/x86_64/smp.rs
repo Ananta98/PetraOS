@@ -42,6 +42,9 @@ unsafe extern "C" fn ap_entry(cpu: &limine::mp::Cpu) -> ! {
     let timer = lapic_timer::LapicTimer::calibrate(&local_apic);
     timer.start_periodic(&local_apic, 100);
 
+    // Initialize the thread subsystem for this AP.
+    crate::proc::init_threads(cpu.lapic_id);
+
     // Enable interrupts on this AP.
     crate::arch::x86_64::X86_64::enable_interrupts();
 

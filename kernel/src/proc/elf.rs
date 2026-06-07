@@ -1,0 +1,326 @@
+use crate::mm::{AddrSpace, MapFlags, VmAreaKind, VirtAddr};
+use crate::arch::x86_64::paging::X86_64PageTable;
+use crate::mm::paging::PageTable;
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct Elf64Header {
+    pub e_ident: [u8; 16],
+    pub e_type: u16,
+    pub e_machine: u16,
+    pub e_version: u32,
+    pub e_entry: u64,
+    pub e_phoff: u64,
+    pub e_shoff: u64,
+    pub e_flags: u32,
+    pub e_ehsize: u16,
+    pub e_phentsize: u16,
+    pub e_phnum: u16,
+    pub e_shentsize: u16,
+    pub e_shnum: u16,
+    pub e_shstrndx: u16,
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct Elf64Phdr {
+    pub p_type: u32,
+    pub p_flags: u32,
+    pub p_offset: u64,
+    pub p_vaddr: u64,
+    pub p_paddr: u64,
+    pub p_filesz: u64,
+    pub p_memsz: u64,
+    pub p_align: u64,
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct Elf64Shdr {
+    pub sh_name: u32,
+    pub sh_type: u32,
+    pub sh_flags: u64,
+    pub sh_addr: u64,
+    pub sh_offset: u64,
+    pub sh_size: u64,
+    pub sh_link: u32,
+    pub sh_info: u32,
+    pub sh_addralign: u64,
+    pub sh_entsize: u64,
+}
+
+const ELF_MAGIC: [u8; 4] = [0x7f, b'E', b'L', b'F'];
+const ELF_CLASS_64: u8 = 2;
+const ELF_DATA_2LSB: u8 = 1;
+const ET_EXEC: u16 = 2;
+const ET_DYN: u16 = 3;
+const EM_X86_64: u16 = 0x3E;
+const PT_LOAD: u32 = 1;
+const SHT_STRTAB: u32 = 3;
+
+/// A loaded ELF executable's resources.
+pub struct LoadedElf {
+    pub entry_point: VirtAddr,
+    pub stack_pointer: VirtAddr,
+    pub addr_space: AddrSpace<X86_64PageTable>,
+}
+
+/// Object-Oriented ELF Parser and Loader.
+pub struct Elf<'a> {
+    data: &'a [u8],
+    header: &'a Elf64Header,
+}
+
+impl<'a> Elf<'a> {
+    /// Create a new Elf parser instance and validate the file headers.
+    pub fn new(data: &'a [u8]) -> Result<Self, &'static str> {
+        if data.len() < core::mem::size_of::<Elf64Header>() {
+            return Err("ELF data too short");
+        }
+
+        // SAFETY: We validated that the slice is long enough to contain the Elf64Header.
+        let header = unsafe { &*(data.as_ptr() as *const Elf64Header) };
+
+        let elf = Self { data, header };
+        elf.validate()?;
+        Ok(elf)
+    }
+
+    /// Retrieve the entry point virtual address from the ELF header.
+    pub fn entry_point(&self) -> VirtAddr {
+        VirtAddr(self.header.e_entry)
+    }
+
+    /// Retrieve the list of program headers.
+    pub fn program_headers(&self) -> Result<&'a [Elf64Phdr], &'static str> {
+        let ph_offset = self.header.e_phoff as usize;
+        let ph_num = self.header.e_phnum as usize;
+        let ph_size = self.header.e_phentsize as usize;
+
+        if ph_num == 0 {
+            return Ok(&[]);
+        }
+
+        if ph_size != core::mem::size_of::<Elf64Phdr>() {
+            return Err("Invalid program header entry size");
+        }
+
+        if ph_offset + ph_num * ph_size > self.data.len() {
+            return Err("Program headers out of bounds");
+        }
+
+        // SAFETY: Bounds checked, and data alignment is verified.
+        let ph_slice = unsafe {
+            core::slice::from_raw_parts(
+                self.data.as_ptr().add(ph_offset) as *const Elf64Phdr,
+                ph_num,
+            )
+        };
+        Ok(ph_slice)
+    }
+
+    /// Retrieve the list of section headers.
+    pub fn section_headers(&self) -> Result<&'a [Elf64Shdr], &'static str> {
+        let sh_offset = self.header.e_shoff as usize;
+        let sh_num = self.header.e_shnum as usize;
+        let sh_size = self.header.e_shentsize as usize;
+
+        if sh_num == 0 {
+            return Ok(&[]);
+        }
+
+        if sh_size != core::mem::size_of::<Elf64Shdr>() {
+            return Err("Invalid section header entry size");
+        }
+
+        if sh_offset + sh_num * sh_size > self.data.len() {
+            return Err("Section headers out of bounds");
+        }
+
+        // SAFETY: Bounds checked, and data alignment is verified.
+        let sh_slice = unsafe {
+            core::slice::from_raw_parts(
+                self.data.as_ptr().add(sh_offset) as *const Elf64Shdr,
+                sh_num,
+            )
+        };
+        Ok(sh_slice)
+    }
+
+    /// Retrieve the header of the section header string table.
+    pub fn shstrtab_header(&self) -> Result<&'a Elf64Shdr, &'static str> {
+        let sh_num = self.header.e_shnum as usize;
+        let sh_str_ndx = self.header.e_shstrndx as usize;
+        if sh_str_ndx >= sh_num {
+            return Err("Invalid shstrndx in ELF header");
+        }
+        let sections = self.section_headers()?;
+        Ok(&sections[sh_str_ndx])
+    }
+
+    /// Extract a null-terminated UTF-8 string from a string table section.
+    pub fn get_string(&self, table_shdr: &Elf64Shdr, offset: usize) -> Result<&'a str, &'static str> {
+        if table_shdr.sh_type != SHT_STRTAB {
+            return Err("Section is not a string table");
+        }
+        let table_offset = table_shdr.sh_offset as usize;
+        let table_size = table_shdr.sh_size as usize;
+        if offset >= table_size {
+            return Err("String offset out of bounds");
+        }
+        if table_offset + table_size > self.data.len() {
+            return Err("String table data out of bounds");
+        }
+
+        let start = table_offset + offset;
+        let mut end = start;
+        while end < table_offset + table_size && self.data[end] != 0 {
+            end += 1;
+        }
+
+        let slice = &self.data[start..end];
+        core::str::from_utf8(slice).map_err(|_| "Invalid UTF-8 string in table")
+    }
+
+    /// Get the name of a section header.
+    pub fn section_name(&self, shdr: &Elf64Shdr) -> Result<&'a str, &'static str> {
+        let shstrtab = self.shstrtab_header()?;
+        self.get_string(shstrtab, shdr.sh_name as usize)
+    }
+
+    /// Search for a section header by name.
+    pub fn find_section(&self, name: &str) -> Result<Option<&'a Elf64Shdr>, &'static str> {
+        let sections = self.section_headers()?;
+        for shdr in sections {
+            if self.section_name(shdr)? == name {
+                return Ok(Some(shdr));
+            }
+        }
+        Ok(None)
+    }
+
+    /// Maps the loadable segments, creates the user address space, allocates a user stack,
+    /// and returns the loaded image information.
+    pub fn load(&self) -> Result<LoadedElf, &'static str> {
+        // Create the page table and address space
+        let page_table = X86_64PageTable::new().map_err(|_| "Failed to create PML4 page table")?;
+        let mut addr_space = AddrSpace::new(page_table);
+
+        // Load segments
+        self.load_segments(&mut addr_space)?;
+
+        // Set up user space stack
+        let stack_size = 256 * 1024; // 256 KiB stack
+        let stack_top = VirtAddr(0x7FFF_FFFF_0000);
+        let stack_start = stack_top - stack_size;
+        addr_space.map_area(stack_start, stack_size, MapFlags::USER | MapFlags::READ | MapFlags::WRITE, VmAreaKind::Anonymous)
+            .map_err(|_| "Failed to map user stack VMA")?;
+
+        Ok(LoadedElf {
+            entry_point: self.entry_point(),
+            stack_pointer: stack_top,
+            addr_space,
+        })
+    }
+
+    /// Validate the header's identity, endianness, machine and type.
+    fn validate(&self) -> Result<(), &'static str> {
+        if self.header.e_ident[0..4] != ELF_MAGIC {
+            return Err("Invalid ELF magic");
+        }
+        if self.header.e_ident[4] != ELF_CLASS_64 {
+            return Err("Not a 64-bit ELF");
+        }
+        if self.header.e_ident[5] != ELF_DATA_2LSB {
+            return Err("Not little endian");
+        }
+        if self.header.e_machine != EM_X86_64 {
+            return Err("Not x86_64 architecture");
+        }
+        if self.header.e_type != ET_EXEC && self.header.e_type != ET_DYN {
+            return Err("Not an executable or dynamic binary");
+        }
+        Ok(())
+    }
+
+    /// Load and map all PT_LOAD segments.
+    fn load_segments(&self, addr_space: &mut AddrSpace<X86_64PageTable>) -> Result<(), &'static str> {
+        let ph_slice = self.program_headers()?;
+        for phdr in ph_slice {
+            if phdr.p_type == PT_LOAD {
+                self.load_segment(addr_space, phdr)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Map a single program segment and copy file data to allocated physical frames.
+    fn load_segment(&self, addr_space: &mut AddrSpace<X86_64PageTable>, phdr: &Elf64Phdr) -> Result<(), &'static str> {
+        let start_vaddr = VirtAddr(phdr.p_vaddr);
+        let end_vaddr = start_vaddr + phdr.p_memsz as usize;
+
+        let aligned_start = VirtAddr(phdr.p_vaddr & !4095);
+        let aligned_end = VirtAddr((end_vaddr.as_u64() + 4095) & !4095);
+        let aligned_size = (aligned_end - aligned_start) as usize;
+
+        if aligned_size == 0 {
+            return Ok(());
+        }
+
+        // Map segment flags
+        let mut flags = MapFlags::USER;
+        if (phdr.p_flags & 4) != 0 {
+            flags |= MapFlags::READ;
+        }
+        if (phdr.p_flags & 2) != 0 {
+            flags |= MapFlags::WRITE;
+        }
+        if (phdr.p_flags & 1) != 0 {
+            flags |= MapFlags::EXECUTE;
+        }
+
+        // Map the area as anonymous
+        addr_space.map_area(aligned_start, aligned_size, flags, VmAreaKind::Anonymous)
+            .map_err(|_| "Failed to map ELF segment VMA")?;
+
+        // Copy file content to mapped pages
+        let file_offset = phdr.p_offset as usize;
+        let file_size = phdr.p_filesz as usize;
+
+        if file_size > 0 {
+            if file_offset + file_size > self.data.len() {
+                return Err("ELF segment file offset out of bounds");
+            }
+
+            let hhdm = crate::mm::hhdm_offset();
+            for page_virt_u64 in (aligned_start.as_u64()..aligned_end.as_u64()).step_by(4096) {
+                let page_virt = VirtAddr(page_virt_u64);
+                let phys_addr = addr_space.page_table().translate(page_virt)
+                    .ok_or("Failed to translate user virtual page to physical page")?;
+
+                let page_start = page_virt_u64;
+                let page_end = page_start + 4096;
+                let data_start_v = start_vaddr.as_u64();
+                let data_end_v = data_start_v + file_size as u64;
+
+                let intersect_start = core::cmp::max(page_start, data_start_v);
+                let intersect_end = core::cmp::min(page_end, data_end_v);
+
+                if intersect_start < intersect_end {
+                    let copy_len = (intersect_end - intersect_start) as usize;
+                    let file_src_offset = file_offset + (intersect_start - data_start_v) as usize;
+                    let dest_offset = (intersect_start - page_start) as usize;
+
+                    let src_slice = &self.data[file_src_offset .. file_src_offset + copy_len];
+                    let dest_ptr = phys_addr.as_ptr::<u8>(hhdm);
+
+                    // SAFETY: Copying within bounds of checked src_slice and validated dest_ptr.
+                    unsafe {
+                        core::ptr::copy_nonoverlapping(src_slice.as_ptr(), dest_ptr.add(dest_offset), copy_len);
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+}

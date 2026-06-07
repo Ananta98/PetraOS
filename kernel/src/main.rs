@@ -9,7 +9,10 @@ pub mod drivers;
 pub mod limine;
 pub mod logger;
 pub mod mm;
+pub mod proc;
+pub mod sched;
 pub mod sync;
+pub mod syscalls;
 
 use arch::{ArchImpl, CpuArch};
 use core::arch::asm;
@@ -19,6 +22,7 @@ unsafe extern "C" fn kmain() -> ! {
     logger::init();
     mm::init();
     ArchImpl::init_hardware();
+
     drivers::framebuffer::init();
 
     log::info!("PetraOS Kernel Scaffolding Initialized.");
