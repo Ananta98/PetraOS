@@ -1,4 +1,5 @@
 use core::arch::asm;
+use alloc::boxed::Box;
 
 /// A GDT Segment Descriptor.
 #[derive(Debug, Clone, Copy)]
@@ -146,6 +147,56 @@ pub fn init() {
         
         gdt_mut.load();
         
+        // Reload segment registers and load the TSS selector (0x28).
+        asm!(
+            "push 0x08",
+            "lea rax, [rip + 2f]",
+            "push rax",
+            "retfq",
+            "2:",
+            "mov ax, 0x10",
+            "mov ds, ax",
+            "mov es, ax",
+            "mov fs, ax",
+            "mov gs, ax",
+            "mov ss, ax",
+            "mov ax, 0x28",
+            "ltr ax",
+            out("rax") _,
+            options(preserves_flags)
+        );
+    }
+}
+
+/// Initialises a fresh GDT and TSS for the calling CPU (used by APs).
+///
+/// Allocates heap-backed GDT and TSS so each AP has an independent copy.
+/// The allocated memory is intentionally leaked — each CPU lives for the
+/// duration of the kernel, so the memory is never freed.
+pub fn init_per_cpu() {
+    unsafe {
+        // Allocate a separate double-fault stack for this AP.
+        const STACK_SIZE: usize = 4096 * 5;
+        let df_stack: Box<[u8; STACK_SIZE]> = Box::new([0u8; STACK_SIZE]);
+        let stack_ptr = Box::into_raw(df_stack);
+        let stack_end = stack_ptr as u64 + STACK_SIZE as u64;
+
+        // Allocate and initialise TSS.
+        let tss = Box::new(super::tss::TaskStateSegment::new());
+        let tss_ptr = Box::into_raw(tss);
+        (*tss_ptr).ist[0] = stack_end;
+
+        // Allocate and build GDT with this AP's TSS.
+        let mut gdt = Box::new(GlobalDescriptorTable::new());
+        let base = tss_ptr as u64;
+        let limit = (core::mem::size_of::<super::tss::TaskStateSegment>() - 1) as u32;
+        let (tss_low, tss_high) = SegmentDescriptor::tss(base, limit);
+        gdt.entries[5] = tss_low;
+        gdt.entries[6] = tss_high;
+
+        let gdt_ptr = Box::into_raw(gdt);
+        (*gdt_ptr).load();
+
         // Reload segment registers and load the TSS selector (0x28).
         asm!(
             "push 0x08",

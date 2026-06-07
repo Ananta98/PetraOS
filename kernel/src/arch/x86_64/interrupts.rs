@@ -4,6 +4,15 @@ use core::arch::asm;
 
 static mut IDT: InterruptDescriptorTable = InterruptDescriptorTable::new();
 
+/// Load the shared IDT on the calling CPU.
+///
+/// # Safety
+/// Must only be called after `init()` has configured the IDT entries.
+pub(crate) unsafe fn load_idt() {
+    let idt_ref = unsafe { &*core::ptr::addr_of!(IDT) };
+    idt_ref.load();
+}
+
 pub fn init() {
     unsafe {
         // Set up exception handlers

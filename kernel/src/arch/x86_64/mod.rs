@@ -9,8 +9,9 @@ pub mod lapic;
 pub mod lapic_timer;
 pub mod paging;
 pub mod pic;
-pub mod tss;
 pub mod ports;
+pub mod smp;
+pub mod tss;
 
 pub struct X86_64;
 
@@ -82,6 +83,9 @@ impl CpuArch for X86_64 {
 
         X86_64::enable_interrupts();
         log::info!("APIC subsystem fully initialized.");
+
+        // Start Application Processors now that the BSP is fully online.
+        smp::start_aps();
     }
 }
 
