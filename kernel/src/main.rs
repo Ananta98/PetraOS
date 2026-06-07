@@ -1,11 +1,24 @@
-use arch::ArchImpl;
+#![no_std]
+#![no_main]
+#![feature(abi_x86_interrupt)]
+
+extern crate alloc;
+
+pub mod arch;
+pub mod drivers;
+pub mod limine;
+pub mod logger;
+pub mod mm;
+pub mod sync;
+
+use arch::{ArchImpl, CpuArch};
 use core::arch::asm;
 
 #[unsafe(no_mangle)]
 unsafe extern "C" fn kmain() -> ! {
-    ArchImpl::init_hardware();
     logger::init();
     mm::init();
+    ArchImpl::init_hardware();
     drivers::framebuffer::init();
 
     log::info!("PetraOS Kernel Scaffolding Initialized.");
@@ -23,13 +36,6 @@ fn rust_panic(info: &core::panic::PanicInfo) -> ! {
 
 fn hcf() -> ! {
     loop {
-        unsafe {
-            #[cfg(target_arch = "x86_64")]
-            asm!("hlt");
-            #[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
-            asm!("wfi");
-            #[cfg(target_arch = "loongarch64")]
-            asm!("idle 0");
-        }
+       <ArchImpl as CpuArch>::halt();
     }
 }
