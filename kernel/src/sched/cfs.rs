@@ -1,39 +1,39 @@
 //! Completely Fair Scheduler (CFS) run queue.
 //!
-//! Uses an [`alloc::collections::BTreeMap`] keyed on `(vruntime, TaskId)` to
-//! maintain tasks in virtual-runtime order with O(log n) enqueue and
+//! Uses an [`alloc::collections::BTreeMap`] keyed on `(vruntime, ThreadId)` to
+//! maintain threads in virtual-runtime order with O(log n) enqueue and
 //! O(log n) dequeue-min — functionally equivalent to Linux's per-CPU CFS
 //! red-black tree.
 //!
 //! # Virtual runtime formula
 //!
 //! ```text
-//! vruntime += delta_real_ns * NICE_0_WEIGHT / task_weight
+//! vruntime += delta_real_ns * NICE_0_WEIGHT / thread_weight
 //! ```
 //!
-//! Tasks with a higher CFS weight (lower nice value / higher priority) advance
+//! Threads with a higher CFS weight (lower nice value / higher priority) advance
 //! their vruntime more slowly, giving them a larger share of real CPU time.
 
 extern crate alloc;
 
 use alloc::collections::BTreeMap;
 
-use crate::sched::task::{Task, TaskId, NICE_0_WEIGHT};
+use crate::sched::sched_thread::{SchedThread, ThreadId, NICE_0_WEIGHT};
 
 // ── CFS run queue ─────────────────────────────────────────────────────────────
 
 /// A CFS run queue for a single CPU.
 ///
-/// Tasks are kept in a `BTreeMap` keyed by `(vruntime, TaskId)`. The composite
-/// key guarantees strict total order even when two tasks share the same
+/// Threads are kept in a `BTreeMap` keyed by `(vruntime, ThreadId)`. The composite
+/// key guarantees strict total order even when two threads share the same
 /// `vruntime`, which avoids accidental collisions (BTreeMap does not allow
 /// duplicate keys).
 pub struct CfsRunQueue {
-    /// Ordered map: (vruntime, id) → Task.
-    tree: BTreeMap<(u64, TaskId), Task>,
+    /// Ordered map: (vruntime, id) → SchedThread.
+    tree: BTreeMap<(u64, ThreadId), SchedThread>,
     /// The minimum vruntime ever dequeued from this run queue.
     ///
-    /// New tasks are placed at `max(0, min_vruntime)` so they do not
+    /// New threads are placed at `max(0, min_vruntime)` so they do not
     /// immediately monopolise the CPU after entering the run queue.
     min_vruntime: u64,
 }
@@ -49,13 +49,13 @@ impl CfsRunQueue {
 
     // ── Capacity ─────────────────────────────────────────────────────────────
 
-    /// Returns the number of runnable tasks.
+    /// Returns the number of runnable threads.
     #[inline]
     pub fn len(&self) -> usize {
         self.tree.len()
     }
 
-    /// Returns `true` if no tasks are runnable.
+    /// Returns `true` if no threads are runnable.
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.tree.is_empty()
@@ -63,49 +63,49 @@ impl CfsRunQueue {
 
     // ── Enqueueing ────────────────────────────────────────────────────────────
 
-    /// Insert a task into the run queue.
+    /// Insert a thread into the run queue.
     ///
-    /// If the task's `vruntime` is below the current [`min_vruntime`], it is
+    /// If the thread's `vruntime` is below the current [`min_vruntime`], it is
     /// lifted to `min_vruntime` so it does not jump ahead of already-running
-    /// tasks.
-    pub fn enqueue(&mut self, mut task: Task) {
-        // Lift new/returning tasks to the queue floor to ensure fairness.
-        if task.vruntime < self.min_vruntime {
-            task.vruntime = self.min_vruntime;
+    /// threads.
+    pub fn enqueue(&mut self, mut thread: SchedThread) {
+        // Lift new/returning threads to the queue floor to ensure fairness.
+        if thread.vruntime < self.min_vruntime {
+            thread.vruntime = self.min_vruntime;
         }
-        self.tree.insert((task.vruntime, task.id), task);
+        self.tree.insert((thread.vruntime, thread.id), thread);
     }
 
     // ── Dequeueing ────────────────────────────────────────────────────────────
 
-    /// Remove and return the task with the smallest `vruntime` (the next task
+    /// Remove and return the thread with the smallest `vruntime` (the next thread
     /// to run), or `None` if the queue is empty.
-    pub fn dequeue_min(&mut self) -> Option<Task> {
+    pub fn dequeue_min(&mut self) -> Option<SchedThread> {
         let key = *self.tree.keys().next()?;
-        let task = self.tree.remove(&key)?;
-        // Advance the floor so future tasks cannot exploit the old minimum.
-        self.min_vruntime = self.min_vruntime.max(task.vruntime);
-        Some(task)
+        let thread = self.tree.remove(&key)?;
+        // Advance the floor so future threads cannot exploit the old minimum.
+        self.min_vruntime = self.min_vruntime.max(thread.vruntime);
+        Some(thread)
     }
 
     // ── Peeking ───────────────────────────────────────────────────────────────
 
-    /// Return a reference to the task with the smallest `vruntime` without
+    /// Return a reference to the thread with the smallest `vruntime` without
     /// removing it, or `None` if the queue is empty.
-    pub fn pick_next(&self) -> Option<&Task> {
+    pub fn pick_next(&self) -> Option<&SchedThread> {
         self.tree.values().next()
     }
 
     // ── Virtual runtime updates ───────────────────────────────────────────────
 
-    /// Update the `vruntime` of a task identified by `id` and re-insert it at
+    /// Update the `vruntime` of a thread identified by `id` and re-insert it at
     /// its new position in the tree.
     ///
-    /// * `delta_ns` — real elapsed nanoseconds since the task was last
+    /// * `delta_ns` — real elapsed nanoseconds since the thread was last
     ///   scheduled.
-    /// * Returns `true` if the task was found and updated.
-    pub fn update_vruntime(&mut self, id: TaskId, delta_ns: u64) -> bool {
-        // Find the current key for this task (we must search by TaskId).
+    /// * Returns `true` if the thread was found and updated.
+    pub fn update_vruntime(&mut self, id: ThreadId, delta_ns: u64) -> bool {
+        // Find the current key for this thread (we must search by ThreadId).
         let key = self
             .tree
             .iter()
@@ -116,17 +116,17 @@ impl CfsRunQueue {
             return false;
         };
 
-        let Some(mut task) = self.tree.remove(&old_key) else {
+        let Some(mut thread) = self.tree.remove(&old_key) else {
             return false;
         };
 
-        // vruntime += delta_ns * NICE_0_WEIGHT / task_weight
-        let weight = task.priority.max(1) as u64;
-        task.vruntime = task
+        // vruntime += delta_ns * NICE_0_WEIGHT / thread_weight
+        let weight = thread.priority.max(1) as u64;
+        thread.vruntime = thread
             .vruntime
             .saturating_add(delta_ns.saturating_mul(NICE_0_WEIGHT) / weight);
 
-        self.tree.insert((task.vruntime, task.id), task);
+        self.tree.insert((thread.vruntime, thread.id), thread);
         true
     }
 
@@ -138,10 +138,10 @@ impl CfsRunQueue {
         self.min_vruntime
     }
 
-    /// Remove a task by `id` regardless of its position.
+    /// Remove a thread by `id` regardless of its position.
     ///
-    /// Returns the task if found.
-    pub fn remove(&mut self, id: TaskId) -> Option<Task> {
+    /// Returns the thread if found.
+    pub fn remove(&mut self, id: ThreadId) -> Option<SchedThread> {
         let key = self
             .tree
             .iter()

@@ -55,3 +55,35 @@ path = "tests/sched/scheduler.rs"
 [[test]]
 name = "proc_context_switch"
 path = "tests/proc/context_switch.rs"
+
+[[test]]
+name = "proc_syscall"
+path = "tests/proc/syscall.rs"
+
+[[test]]
+name = "fs_flags"
+path = "tests/fs/flags.rs"
+
+[[test]]
+name = "fs_fd_table"
+path = "tests/fs/fd_table.rs"
+
+[[test]]
+name = "fs_ramfs"
+path = "tests/fs/ramfs.rs"
+
+[[test]]
+name = "fs_devfs"
+path = "tests/fs/devfs.rs"
+
+[[test]]
+name = "fs_procfs"
+path = "tests/fs/procfs.rs"
+
+[[test]]
+name = "fs_tmpfs"
+path = "tests/fs/tmpfs.rs"
+
+[[test]]
+name = "fs_path_lookup"
+path = "tests/fs/path_lookup.rs"

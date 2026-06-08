@@ -1,9 +1,9 @@
-use crate::sched::task::TaskId;
-use crate::sync::spinlock::Spinlock;
-use alloc::collections::BTreeMap;
+use crate::sched::sched_thread::ThreadId;
 use alloc::vec::Vec;
 use crate::mm::AddrSpace;
 use crate::arch::x86_64::paging::X86_64PageTable;
+use alloc::sync::Arc;
+use crate::fs::fd::FdTable;
 
 /// Opaque, unique identifier for a process.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -12,7 +12,9 @@ pub struct ProcessId(pub u64);
 /// The execution state of a process.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProcessState {
+    Ready,
     Active,
+    Blocked,
     Zombie,
 }
 
@@ -21,10 +23,12 @@ pub struct Process {
     pid: ProcessId,
     ppid: Option<ProcessId>,
     state: ProcessState,
-    threads: Vec<TaskId>,
+    threads: Vec<ThreadId>,
     children: Vec<ProcessId>,
     exit_code: Option<i32>,
-    pub addr_space: Option<AddrSpace<X86_64PageTable>>,
+    addr_space: Option<AddrSpace<X86_64PageTable>>,
+    /// Per-process file descriptor table.
+    pub fd_table: Arc<FdTable>,
 }
 
 impl Process {
@@ -33,13 +37,20 @@ impl Process {
         Self {
             pid,
             ppid,
-            state: ProcessState::Active,
+            state: ProcessState::Ready,
             threads: Vec::new(),
             children: Vec::new(),
             exit_code: None,
             addr_space: None,
+            fd_table: Arc::new(FdTable::new()),
         }
     }
+
+    /// Set up standard file descriptors (0, 1, 2) referencing the console device.
+    pub fn setup_std_fds(&self, console_file: Arc<crate::fs::File>) {
+        self.fd_table.setup_std_fds(console_file);
+    }
+
 
     /// Returns the process ID.
     pub fn pid(&self) -> ProcessId {
@@ -51,13 +62,23 @@ impl Process {
         self.ppid
     }
 
+    /// Sets the parent process ID.
+    pub fn set_ppid(&mut self, ppid: Option<ProcessId>) {
+        self.ppid = ppid;
+    }
+
     /// Returns the current state of the process.
     pub fn state(&self) -> ProcessState {
         self.state
     }
 
+    /// Sets the state of the process.
+    pub fn set_state(&mut self, state: ProcessState) {
+        self.state = state;
+    }
+
     /// Returns the list of threads owned by this process.
-    pub fn threads(&self) -> &[TaskId] {
+    pub fn threads(&self) -> &[ThreadId] {
         &self.threads
     }
 
@@ -66,20 +87,39 @@ impl Process {
         &self.children
     }
 
+    /// Extract and clear the list of child processes.
+    pub fn take_children(&mut self) -> Vec<ProcessId> {
+        core::mem::take(&mut self.children)
+    }
+
+    /// Get a reference to the process's address space.
+    pub fn addr_space(&self) -> Option<&AddrSpace<X86_64PageTable>> {
+        self.addr_space.as_ref()
+    }
+
+    /// Set the process's address space.
+    pub fn set_addr_space(&mut self, addr_space: AddrSpace<X86_64PageTable>) {
+        self.addr_space = Some(addr_space);
+    }
+
     /// Returns the process exit code, if terminated.
     pub fn exit_code(&self) -> Option<i32> {
         self.exit_code
     }
 
     /// Associate a thread with this process.
-    pub fn add_thread(&mut self, tid: TaskId) {
+    pub fn add_thread(&mut self, tid: ThreadId) {
         if !self.threads.contains(&tid) {
             self.threads.push(tid);
+            // If the process was in the Ready state, transition to Active.
+            if self.state == ProcessState::Ready {
+                self.state = ProcessState::Active;
+            }
         }
     }
 
     /// Disassociate a thread from this process.
-    pub fn remove_thread(&mut self, tid: TaskId) {
+    pub fn remove_thread(&mut self, tid: ThreadId) {
         self.threads.retain(|&t| t != tid);
     }
 
@@ -101,127 +141,3 @@ impl Process {
         self.exit_code = Some(exit_code);
     }
 }
-
-/// The global process manager tracking process lifecycle, state, and hierarchy.
-pub struct ProcessManager {
-    processes: BTreeMap<ProcessId, Process>,
-    next_pid: u64,
-}
-
-impl ProcessManager {
-    /// Create a new process manager.
-    pub const fn new() -> Self {
-        Self {
-            processes: BTreeMap::new(),
-            next_pid: 1,
-        }
-    }
-
-    /// Create a new process, setting up the parent/child hierarchy.
-    pub fn create_process(&mut self, ppid: Option<ProcessId>) -> ProcessId {
-        let pid = ProcessId(self.next_pid);
-        self.next_pid += 1;
-
-        let proc = Process::new(pid, ppid);
-        self.processes.insert(pid, proc);
-
-        if let Some(parent_id) = ppid {
-            if let Some(parent) = self.processes.get_mut(&parent_id) {
-                parent.add_child(pid);
-            }
-        }
-
-        pid
-    }
-
-    /// Terminate a process, marking it as a Zombie, and reparenting its children to init (PID 1).
-    pub fn exit_process(&mut self, pid: ProcessId, exit_code: i32) -> Result<(), &'static str> {
-        let children_to_reparent = if let Some(proc) = self.processes.get_mut(&pid) {
-            proc.exit(exit_code);
-            let children = proc.children.clone();
-            proc.children.clear();
-            children
-        } else {
-            return Err("Process not found");
-        };
-
-        // Reparent children to PID 1 (init)
-        let init_pid = ProcessId(1);
-        for child_pid in children_to_reparent {
-            if let Some(child) = self.processes.get_mut(&child_pid) {
-                child.ppid = Some(init_pid);
-                if let Some(init_proc) = self.processes.get_mut(&init_pid) {
-                    init_proc.add_child(child_pid);
-                }
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Reap a zombie child process, retrieving its exit code and cleaning up its resources.
-    pub fn wait_pid(&mut self, ppid: ProcessId, target_pid: ProcessId) -> Result<i32, &'static str> {
-        let is_child = if let Some(child) = self.processes.get(&target_pid) {
-            child.ppid == Some(ppid)
-        } else {
-            return Err("Target process not found");
-        };
-
-        if !is_child {
-            return Err("Target process is not a child of the caller");
-        }
-
-        let is_zombie = self.processes.get(&target_pid)
-            .map(|c| c.state == ProcessState::Zombie)
-            .unwrap_or(false);
-
-        if !is_zombie {
-            return Err("Target process is not a zombie");
-        }
-
-        // Remove from parent's child list
-        if let Some(parent) = self.processes.get_mut(&ppid) {
-            parent.remove_child(target_pid);
-        }
-
-        // Remove the process from the global registry
-        if let Some(child) = self.processes.remove(&target_pid) {
-            Ok(child.exit_code.unwrap_or(0))
-        } else {
-            Err("Failed to remove process")
-        }
-    }
-
-    /// Add a thread to a process.
-    pub fn add_thread_to_process(&mut self, pid: ProcessId, tid: TaskId) -> Result<(), &'static str> {
-        if let Some(proc) = self.processes.get_mut(&pid) {
-            proc.add_thread(tid);
-            Ok(())
-        } else {
-            Err("Process not found")
-        }
-    }
-
-    /// Remove a thread from a process.
-    pub fn remove_thread_from_process(&mut self, pid: ProcessId, tid: TaskId) -> Result<(), &'static str> {
-        if let Some(proc) = self.processes.get_mut(&pid) {
-            proc.remove_thread(tid);
-            Ok(())
-        } else {
-            Err("Process not found")
-        }
-    }
-
-    /// Get a reference to a process in the registry.
-    pub fn get_process(&self, pid: ProcessId) -> Option<&Process> {
-        self.processes.get(&pid)
-    }
-
-    /// Get a mutable reference to a process in the registry.
-    pub fn get_process_mut(&mut self, pid: ProcessId) -> Option<&mut Process> {
-        self.processes.get_mut(&pid)
-    }
-}
-
-/// The global process manager singleton.
-pub static PROCESS_MANAGER: Spinlock<ProcessManager> = Spinlock::new(ProcessManager::new());

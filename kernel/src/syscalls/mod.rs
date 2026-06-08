@@ -31,6 +31,11 @@ pub fn handle_syscall(frame: &mut SyscallFrame) {
                 }
             }
         }
+        5 => { // SYS_WAITPID
+            let pid = arg1 as i64;
+            log::info!("Syscall: waitpid(pid={}) called", pid);
+            frame.set_return_value(process::waitpid::sys_waitpid(pid));
+        }
         _ => {
             log::warn!("Syscall: unknown syscall number {}", sys_num);
             frame.set_return_value(u64::MAX);

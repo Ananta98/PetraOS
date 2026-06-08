@@ -1,6 +1,6 @@
 use crate::arch::{ArchImpl, CpuArch};
-use crate::proc::process::PROCESS_MANAGER;
-use crate::proc::thread::THREAD_MANAGER;
+use crate::proc::process_manager::PROCESS_MANAGER;
+use crate::proc::thread_manager::THREAD_MANAGER;
 
 pub fn sys_fork() -> u64 {
     let cpu_id = ArchImpl::cpu_id();

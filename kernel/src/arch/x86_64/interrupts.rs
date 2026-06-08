@@ -127,7 +127,7 @@ extern "x86-interrupt" fn timer_handler(_stack_frame: &mut InterruptStackFrame) 
         crate::proc::switch_to(cpu_id, next_id);
     } else {
         // Switch to the CPU's idle thread if no other tasks are runnable
-        crate::proc::switch_to(cpu_id, crate::sched::task::TaskId((cpu_id + 100) as u64));
+        crate::proc::switch_to(cpu_id, crate::sched::sched_thread::ThreadId((cpu_id + 100) as u64));
     }
 }
 

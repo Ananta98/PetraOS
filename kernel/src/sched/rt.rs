@@ -1,7 +1,7 @@
 //! Real-Time (RT) scheduler run queue.
 //!
 //! Implements both **SCHED_FIFO** and **SCHED_RR** (Round-Robin) policies via
-//! a fixed-priority array of [`VecDeque<Task>`].
+//! a fixed-priority array of [`VecDeque<SchedThread>`].
 //!
 //! # Priority model
 //!
@@ -11,16 +11,16 @@
 //!
 //! # FIFO vs. Round-Robin
 //!
-//! * **FIFO** tasks run until they block or yield; no time-slice preemption.
-//! * **RR** tasks share the CPU with peers of the same priority via
-//!   [`RtRunQueue::tick`]. When the remaining slice reaches zero the task is
+//! * **FIFO** threads run until they block or yield; no time-slice preemption.
+//! * **RR** threads share the CPU with peers of the same priority via
+//!   [`RtRunQueue::tick`]. When the remaining slice reaches zero the thread is
 //!   moved to the back of its priority deque and a new slice is granted.
 
 extern crate alloc;
 
 use alloc::collections::VecDeque;
 
-use crate::sched::task::{SchedPolicy, Task, TaskId};
+use crate::sched::sched_thread::{SchedPolicy, SchedThread, ThreadId};
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -33,12 +33,12 @@ const RT_PRIORITIES: usize = 100;
 ///
 /// Internally backed by a fixed-size array of [`VecDeque`]s, one per priority
 /// level. This gives O(1) enqueue / dequeue for the common case where there
-/// are only a handful of RT tasks.
+/// are only a handful of RT threads.
 pub struct RtRunQueue {
-    /// `queues[p]` holds tasks at RT priority `p`.
+    /// `queues[p]` holds threads at RT priority `p`.
     /// Index 0 is unused (RT priority is 1-based).
-    queues: [VecDeque<Task>; RT_PRIORITIES],
-    /// Total number of tasks across all priority levels.
+    queues: [VecDeque<SchedThread>; RT_PRIORITIES],
+    /// Total number of threads across all priority levels.
     count: usize,
 }
 
@@ -54,13 +54,13 @@ impl RtRunQueue {
 
     // ── Capacity ─────────────────────────────────────────────────────────────
 
-    /// Total number of runnable RT tasks.
+    /// Total number of runnable RT threads.
     #[inline]
     pub fn len(&self) -> usize {
         self.count
     }
 
-    /// Returns `true` if no RT tasks are runnable.
+    /// Returns `true` if no RT threads are runnable.
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.count == 0
@@ -68,27 +68,27 @@ impl RtRunQueue {
 
     // ── Enqueueing ────────────────────────────────────────────────────────────
 
-    /// Add a task to the back of its priority deque.
+    /// Add a thread to the back of its priority deque.
     ///
-    /// `task.priority` must be in `[1, 99]`; values outside this range are
+    /// `thread.priority` must be in `[1, 99]`; values outside this range are
     /// clamped silently.
-    pub fn enqueue(&mut self, task: Task) {
-        let prio = task.priority.clamp(1, 99) as usize;
-        self.queues[prio].push_back(task);
+    pub fn enqueue(&mut self, thread: SchedThread) {
+        let prio = thread.priority.clamp(1, 99) as usize;
+        self.queues[prio].push_back(thread);
         self.count += 1;
     }
 
     // ── Dequeueing ────────────────────────────────────────────────────────────
 
-    /// Remove and return the highest-priority runnable task, breaking ties in
+    /// Remove and return the highest-priority runnable thread, breaking ties in
     /// FIFO order within the same priority level.
     ///
     /// Returns `None` if the run queue is empty.
-    pub fn dequeue_next(&mut self) -> Option<Task> {
+    pub fn dequeue_next(&mut self) -> Option<SchedThread> {
         for prio in (1..RT_PRIORITIES).rev() {
-            if let Some(task) = self.queues[prio].pop_front() {
+            if let Some(thread) = self.queues[prio].pop_front() {
                 self.count -= 1;
-                return Some(task);
+                return Some(thread);
             }
         }
         None
@@ -96,12 +96,12 @@ impl RtRunQueue {
 
     // ── Peeking ───────────────────────────────────────────────────────────────
 
-    /// Return a reference to the next task that would be dequeued without
+    /// Return a reference to the next thread that would be dequeued without
     /// removing it, or `None` if empty.
-    pub fn pick_next(&self) -> Option<&Task> {
+    pub fn pick_next(&self) -> Option<&SchedThread> {
         for prio in (1..RT_PRIORITIES).rev() {
-            if let Some(task) = self.queues[prio].front() {
-                return Some(task);
+            if let Some(thread) = self.queues[prio].front() {
+                return Some(thread);
             }
         }
         None
@@ -109,24 +109,24 @@ impl RtRunQueue {
 
     // ── Round-Robin tick ─────────────────────────────────────────────────────
 
-    /// Consume `delta_ns` nanoseconds from the currently running RT task's
+    /// Consume `delta_ns` nanoseconds from the currently running RT thread's
     /// time slice (identified by `id`).
     ///
-    /// If the task is a **RoundRobin** task and its slice expires:
-    /// 1. The task is removed from the front of its priority deque.
-    /// 2. Its slice is reset to `task.time_slice_ns`.
+    /// If the thread is a **RoundRobin** thread and its slice expires:
+    /// 1. The thread is removed from the front of its priority deque.
+    /// 2. Its slice is reset to `thread.time_slice_ns`.
     /// 3. It is re-inserted at the **back** of the same deque.
     ///
-    /// Returns `true` if the task was found, `false` otherwise.
-    pub fn tick(&mut self, id: TaskId, delta_ns: u64) -> bool {
-        // Find the priority level of the task.
+    /// Returns `true` if the thread was found, `false` otherwise.
+    pub fn tick(&mut self, id: ThreadId, delta_ns: u64) -> bool {
+        // Find the priority level of the thread.
         for prio in (1..RT_PRIORITIES).rev() {
             if let Some(front) = self.queues[prio].front_mut() {
                 if front.id != id {
                     continue;
                 }
                 if front.policy != SchedPolicy::RoundRobin {
-                    // FIFO tasks have no time-slice accounting.
+                    // FIFO threads have no time-slice accounting.
                     return true;
                 }
 
@@ -134,11 +134,11 @@ impl RtRunQueue {
 
                 if front.remaining_slice == 0 {
                     // Rotate to the back of the priority level.
-                    let mut task = self.queues[prio]
+                    let mut thread = self.queues[prio]
                         .pop_front()
                         .expect("front just verified; cannot be None");
-                    task.remaining_slice = task.time_slice_ns;
-                    self.queues[prio].push_back(task);
+                    thread.remaining_slice = thread.time_slice_ns;
+                    self.queues[prio].push_back(thread);
                 }
                 return true;
             }
@@ -148,15 +148,15 @@ impl RtRunQueue {
 
     // ── Removal ───────────────────────────────────────────────────────────────
 
-    /// Remove a task by `id` from any priority level.
+    /// Remove a thread by `id` from any priority level.
     ///
-    /// Returns the removed task if found.
-    pub fn remove(&mut self, id: TaskId) -> Option<Task> {
+    /// Returns the removed thread if found.
+    pub fn remove(&mut self, id: ThreadId) -> Option<SchedThread> {
         for prio in (1..RT_PRIORITIES).rev() {
             if let Some(pos) = self.queues[prio].iter().position(|t| t.id == id) {
-                let task = self.queues[prio].remove(pos)?;
+                let thread = self.queues[prio].remove(pos)?;
                 self.count -= 1;
-                return Some(task);
+                return Some(thread);
             }
         }
         None

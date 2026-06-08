@@ -3,16 +3,16 @@
 //! [`PerCpuScheduler`] owns one [`CfsRunQueue`] and one [`RtRunQueue`] for a
 //! single logical CPU. It implements the **scheduling policy**:
 //!
-//! > If any real-time task is runnable, the RT scheduler picks next.
+//! > If any real-time thread is runnable, the RT scheduler picks next.
 //! > Otherwise the CFS scheduler picks next.
 //!
 //! This mirrors Linux's classic RT-over-CFS hierarchy and ensures that
-//! real-time tasks always preempt normal ones.
+//! real-time threads always preempt normal ones.
 
 use crate::sched::{
     cfs::CfsRunQueue,
     rt::RtRunQueue,
-    task::{Task, TaskId},
+    sched_thread::{SchedThread, ThreadId},
 };
 
 // ── Per-CPU scheduler ────────────────────────────────────────────────────────
@@ -22,12 +22,12 @@ use crate::sched::{
 pub struct PerCpuScheduler {
     /// Logical CPU identifier (e.g. LAPIC ID or zero-based index).
     pub cpu_id: u32,
-    /// The CFS run queue for `Normal` tasks.
+    /// The CFS run queue for `Normal` threads.
     cfs: CfsRunQueue,
-    /// The RT run queue for `Fifo` / `RoundRobin` tasks.
+    /// The RT run queue for `Fifo` / `RoundRobin` threads.
     rt: RtRunQueue,
-    /// The `Task` descriptor that is currently occupying the CPU, if any.
-    pub running: Option<Task>,
+    /// The `SchedThread` descriptor that is currently occupying the CPU, if any.
+    pub running: Option<SchedThread>,
 }
 
 impl PerCpuScheduler {
@@ -41,25 +41,25 @@ impl PerCpuScheduler {
         }
     }
 
-    // ── Task management ───────────────────────────────────────────────────────
+    // ── Thread management ───────────────────────────────────────────────────────
 
-    /// Add a task to the appropriate run queue based on its scheduling policy.
-    pub fn add_task(&mut self, task: Task) {
-        if task.policy.is_realtime() {
-            self.rt.enqueue(task);
+    /// Add a thread to the appropriate run queue based on its scheduling policy.
+    pub fn add_thread(&mut self, thread: SchedThread) {
+        if thread.policy.is_realtime() {
+            self.rt.enqueue(thread);
         } else {
-            self.cfs.enqueue(task);
+            self.cfs.enqueue(thread);
         }
     }
 
-    /// Remove a task by `id` from whichever queue holds it.
+    /// Remove a thread by `id` from whichever queue holds it.
     ///
-    /// Also clears `running` if the task is the currently executing one.
-    pub fn remove_task(&mut self, id: TaskId) -> Option<Task> {
+    /// Also clears `running` if the thread is the currently executing one.
+    pub fn remove_thread(&mut self, id: ThreadId) -> Option<SchedThread> {
         if self.running.as_ref().map(|t| t.id) == Some(id) {
             return self.running.take();
         }
-        // Try RT first (more common to remove running RT tasks).
+        // Try RT first (more common to remove running RT threads).
         if let removed @ Some(_) = self.rt.remove(id) {
             return removed;
         }
@@ -68,18 +68,18 @@ impl PerCpuScheduler {
 
     // ── Scheduling decision ────────────────────────────────────────────────────
 
-    /// Select the next task to run on this CPU.
+    /// Select the next thread to run on this CPU.
     ///
     /// **Policy**:
-    /// 1. If there are any runnable RT tasks → dequeue from RT.
+    /// 1. If there are any runnable RT threads → dequeue from RT.
     /// 2. Otherwise → dequeue from CFS.
     ///
-    /// The chosen task is stored in `self.running` and its `id` is returned.
+    /// The chosen thread is stored in `self.running` and its `id` is returned.
     /// Returns `None` if both queues are empty (idle CPU).
-    pub fn schedule(&mut self) -> Option<TaskId> {
-        // Re-enqueue the currently running task if it is still active/runnable
-        if let Some(prev_task) = self.running.take() {
-            self.add_task(prev_task);
+    pub fn schedule(&mut self) -> Option<ThreadId> {
+        // Re-enqueue the currently running thread if it is still active/runnable
+        if let Some(prev_thread) = self.running.take() {
+            self.add_thread(prev_thread);
         }
 
         let next = if !self.rt.is_empty() {
@@ -89,10 +89,10 @@ impl PerCpuScheduler {
         };
 
         match next {
-            Some(task) => {
-                let id = task.id;
-                // The task has been dequeued — it is now "running".
-                self.running = Some(task);
+            Some(thread) => {
+                let id = thread.id;
+                // The thread has been dequeued — it is now "running".
+                self.running = Some(thread);
                 Some(id)
             }
             None => {
@@ -105,51 +105,51 @@ impl PerCpuScheduler {
     // ── Timer tick ────────────────────────────────────────────────────────────
 
     /// Advance scheduling state by `delta_ns` nanoseconds for the currently
-    /// running task.
+    /// running thread.
     ///
-    /// * For **CFS** tasks: increments `vruntime`.
-    /// * For **RR** tasks: decrements the remaining slice.
+    /// * For **CFS** threads: increments `vruntime`.
+    /// * For **RR** threads: decrements the remaining slice.
     ///
-    /// Has no effect if no task is currently running.
-    pub fn task_tick(&mut self, delta_ns: u64) {
-        let Some(ref mut task) = self.running else {
+    /// Has no effect if no thread is currently running.
+    pub fn thread_tick(&mut self, delta_ns: u64) {
+        let Some(ref mut thread) = self.running else {
             return;
         };
 
-        if task.policy.is_realtime() {
-            if task.policy == crate::sched::task::SchedPolicy::RoundRobin {
-                task.remaining_slice = task.remaining_slice.saturating_sub(delta_ns);
-                if task.remaining_slice == 0 {
-                    task.remaining_slice = task.time_slice_ns;
+        if thread.policy.is_realtime() {
+            if thread.policy == crate::sched::sched_thread::SchedPolicy::RoundRobin {
+                thread.remaining_slice = thread.remaining_slice.saturating_sub(delta_ns);
+                if thread.remaining_slice == 0 {
+                    thread.remaining_slice = thread.time_slice_ns;
                 }
             }
         } else {
-            // CFS tasks: vruntime += delta_ns * NICE_0_WEIGHT / task_weight
-            let weight = task.priority.max(1) as u64;
-            task.vruntime = task
+            // CFS threads: vruntime += delta_ns * NICE_0_WEIGHT / thread_weight
+            let weight = thread.priority.max(1) as u64;
+            thread.vruntime = thread
                 .vruntime
-                .saturating_add(delta_ns.saturating_mul(crate::sched::task::NICE_0_WEIGHT) / weight);
+                .saturating_add(delta_ns.saturating_mul(crate::sched::sched_thread::NICE_0_WEIGHT) / weight);
         }
     }
 
     // ── Introspection ─────────────────────────────────────────────────────────
 
-    /// Total number of runnable tasks (RT + CFS).
+    /// Total number of runnable threads (RT + CFS).
     pub fn runnable_count(&self) -> usize {
         self.rt.len() + self.cfs.len()
     }
 
-    /// The `TaskId` of the currently executing task, if any.
-    pub fn running_task(&self) -> Option<TaskId> {
+    /// The `ThreadId` of the currently executing thread, if any.
+    pub fn running_thread(&self) -> Option<ThreadId> {
         self.running.as_ref().map(|t| t.id)
     }
 
-    /// `true` if the RT run queue has any runnable tasks.
+    /// `true` if the RT run queue has any runnable threads.
     pub fn has_rt_tasks(&self) -> bool {
         !self.rt.is_empty()
     }
 
-    /// `true` if the CFS run queue has any runnable tasks.
+    /// `true` if the CFS run queue has any runnable threads.
     pub fn has_cfs_tasks(&self) -> bool {
         !self.cfs.is_empty()
     }

@@ -7,8 +7,8 @@ pub mod cfs;
 pub mod policy;
 pub mod rt;
 pub mod scheduler;
-pub mod task;
+pub mod sched_thread;
 
 pub use policy::PerCpuScheduler;
 pub use scheduler::{GlobalScheduler, MAX_CPUS};
-pub use task::{SchedPolicy, Task, TaskId};
+pub use sched_thread::{SchedPolicy, SchedThread, ThreadId};

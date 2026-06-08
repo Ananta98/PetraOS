@@ -1,6 +1,6 @@
 use crate::arch::{ArchImpl, CpuArch};
-use crate::proc::process::PROCESS_MANAGER;
-use crate::proc::thread::THREAD_MANAGER;
+use crate::proc::process_manager::PROCESS_MANAGER;
+use crate::proc::thread_manager::THREAD_MANAGER;
 use crate::syscalls::SyscallFrame;
 use crate::proc::elf::Elf;
 
@@ -31,14 +31,14 @@ pub fn sys_exec(frame: &mut SyscallFrame, elf_ptr: u64, elf_size: u64) -> Result
         let mut pm = PROCESS_MANAGER.lock();
         let proc = pm.get_process_mut(current_pid)
             .ok_or("Current process not found")?;
-        proc.addr_space = Some(addr_space);
+        proc.set_addr_space(addr_space);
     }
 
     // Activate the new address space
     {
         let pm = PROCESS_MANAGER.lock();
         let proc = pm.get_process(current_pid).unwrap();
-        if let Some(ref space) = proc.addr_space {
+        if let Some(space) = proc.addr_space() {
             // SAFETY: Activating a validated loaded ELF address space is safe.
             unsafe {
                 space.activate();

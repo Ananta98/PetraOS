@@ -12,8 +12,8 @@ pub mod sync {
 
 #[path = "."]
 pub mod sched {
-    #[path = "../../src/sched/task.rs"]
-    pub mod task;
+    #[path = "../../src/sched/sched_thread.rs"]
+    pub mod sched_thread;
 
     #[path = "../../src/sched/cfs.rs"]
     pub mod cfs;
@@ -28,17 +28,17 @@ pub mod sched {
     pub mod scheduler;
 }
 
-use sched::task::{Task, TaskId};
+use sched::sched_thread::{SchedThread, ThreadId};
 use sched::scheduler::{GlobalScheduler, tick_and_schedule, GLOBAL_SCHEDULER};
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-fn normal(id: u64) -> Task {
-    Task::new_normal(TaskId(id))
+fn normal(id: u64) -> SchedThread {
+    SchedThread::new_normal(ThreadId(id))
 }
 
-fn fifo(id: u64, prio: u32) -> Task {
-    Task::new_fifo(TaskId(id), prio)
+fn fifo(id: u64, prio: u32) -> SchedThread {
+    SchedThread::new_fifo(ThreadId(id), prio)
 }
 
 /// Build a two-CPU global scheduler ready for testing.
@@ -62,29 +62,29 @@ fn test_global_register_cpu() {
     assert_eq!(gs.cpu_count(), 2);
 }
 
-/// spawn_task with no preferred CPU uses the least-loaded CPU.
+/// spawn_thread with no preferred CPU uses the least-loaded CPU.
 #[test]
 fn test_global_spawn_load_balance() {
     let mut gs = two_cpu_scheduler();
 
-    // CPU 0 should get the first task; CPU 1 should get the second.
-    let cpu_a = gs.spawn_task(normal(1), None).expect("must place task");
-    let cpu_b = gs.spawn_task(normal(2), None).expect("must place task");
+    // CPU 0 should get the first thread; CPU 1 should get the second.
+    let cpu_a = gs.spawn_thread(normal(1), None).expect("must place thread");
+    let cpu_b = gs.spawn_thread(normal(2), None).expect("must place thread");
 
-    // Both CPUs are empty initially, so the first two tasks go to different CPUs.
-    assert_ne!(cpu_a, cpu_b, "load balancer must spread tasks across idle CPUs");
+    // Both CPUs are empty initially, so the first two threads go to different CPUs.
+    assert_ne!(cpu_a, cpu_b, "load balancer must spread threads across idle CPUs");
     assert_eq!(gs.total_runnable(), 2);
 }
 
-/// spawn_task honours a preferred CPU when it has equal or minimal load.
+/// spawn_thread honours a preferred CPU when it has equal or minimal load.
 #[test]
 fn test_global_spawn_preferred_cpu() {
     let mut gs = two_cpu_scheduler();
 
     let assigned = gs
-        .spawn_task(normal(1), Some(1))
-        .expect("must place task");
-    assert_eq!(assigned, 1, "task should land on the preferred CPU");
+        .spawn_thread(normal(1), Some(1))
+        .expect("must place thread");
+    assert_eq!(assigned, 1, "thread should land on the preferred CPU");
 }
 
 /// schedule on each CPU works independently.
@@ -92,43 +92,43 @@ fn test_global_spawn_preferred_cpu() {
 fn test_global_schedule_per_cpu_independent() {
     let mut gs = two_cpu_scheduler();
 
-    gs.spawn_task(normal(1), Some(0)).unwrap();
-    gs.spawn_task(normal(2), Some(1)).unwrap();
+    gs.spawn_thread(normal(1), Some(0)).unwrap();
+    gs.spawn_thread(normal(2), Some(1)).unwrap();
 
-    let chosen_0 = gs.schedule(0).expect("CPU 0 should schedule task 1");
-    let chosen_1 = gs.schedule(1).expect("CPU 1 should schedule task 2");
+    let chosen_0 = gs.schedule(0).expect("CPU 0 should schedule thread 1");
+    let chosen_1 = gs.schedule(1).expect("CPU 1 should schedule thread 2");
 
-    assert_eq!(chosen_0, TaskId(1));
-    assert_eq!(chosen_1, TaskId(2));
+    assert_eq!(chosen_0, ThreadId(1));
+    assert_eq!(chosen_1, ThreadId(2));
 }
 
-/// RT task on one CPU does not affect scheduling on another CPU.
+/// RT thread on one CPU does not affect scheduling on another CPU.
 #[test]
 fn test_global_rt_isolation_between_cpus() {
     let mut gs = two_cpu_scheduler();
 
-    gs.spawn_task(normal(1), Some(0)).unwrap();
-    gs.spawn_task(fifo(2, 99), Some(1)).unwrap(); // RT on CPU 1 only
+    gs.spawn_thread(normal(1), Some(0)).unwrap();
+    gs.spawn_thread(fifo(2, 99), Some(1)).unwrap(); // RT on CPU 1 only
 
-    // CPU 0 has only a CFS task → should pick it.
-    let chosen_0 = gs.schedule(0).expect("CPU 0 should have a CFS task");
-    assert_eq!(chosen_0, TaskId(1), "CPU 0 CFS task must not be preempted by CPU 1 RT");
+    // CPU 0 has only a CFS thread → should pick it.
+    let chosen_0 = gs.schedule(0).expect("CPU 0 should have a CFS thread");
+    assert_eq!(chosen_0, ThreadId(1), "CPU 0 CFS thread must not be preempted by CPU 1 RT");
 
-    // CPU 1 has only an RT task → should pick it.
-    let chosen_1 = gs.schedule(1).expect("CPU 1 should have an RT task");
-    assert_eq!(chosen_1, TaskId(2));
+    // CPU 1 has only an RT thread → should pick it.
+    let chosen_1 = gs.schedule(1).expect("CPU 1 should have an RT thread");
+    assert_eq!(chosen_1, ThreadId(2));
 }
 
-/// remove_task works across CPUs.
+/// remove_thread works across CPUs.
 #[test]
 fn test_global_remove_task() {
     let mut gs = two_cpu_scheduler();
 
-    gs.spawn_task(normal(10), Some(0)).unwrap();
-    gs.spawn_task(normal(20), Some(1)).unwrap();
+    gs.spawn_thread(normal(10), Some(0)).unwrap();
+    gs.spawn_thread(normal(20), Some(1)).unwrap();
 
-    let (removed, cpu) = gs.remove_task(TaskId(10)).expect("task 10 must exist");
-    assert_eq!(removed.id, TaskId(10));
+    let (removed, cpu) = gs.remove_thread(ThreadId(10)).expect("thread 10 must exist");
+    assert_eq!(removed.id, ThreadId(10));
     assert_eq!(cpu, 0);
     assert_eq!(gs.total_runnable(), 1);
 }
@@ -143,37 +143,37 @@ fn test_global_schedule_unregistered_cpu_returns_none() {
     assert!(gs.schedule(7).is_none());
 }
 
-/// spawn_task with no registered CPUs returns None.
+/// spawn_thread with no registered CPUs returns None.
 #[test]
 fn test_global_spawn_no_cpus_returns_none() {
     let mut gs = GlobalScheduler::new();
-    let result = gs.spawn_task(normal(1), None);
+    let result = gs.spawn_thread(normal(1), None);
     assert!(result.is_none());
 }
 
-/// total_runnable tracks tasks correctly across multiple CPUs.
+/// total_runnable tracks threads correctly across multiple CPUs.
 #[test]
 fn test_global_total_runnable_count() {
     let mut gs = two_cpu_scheduler();
 
     assert_eq!(gs.total_runnable(), 0);
 
-    gs.spawn_task(normal(1), Some(0)).unwrap();
-    gs.spawn_task(normal(2), Some(0)).unwrap();
-    gs.spawn_task(fifo(3, 10), Some(1)).unwrap();
+    gs.spawn_thread(normal(1), Some(0)).unwrap();
+    gs.spawn_thread(normal(2), Some(0)).unwrap();
+    gs.spawn_thread(fifo(3, 10), Some(1)).unwrap();
 
     assert_eq!(gs.total_runnable(), 3);
 
-    gs.schedule(0); // dequeues one task from CPU 0
+    gs.schedule(0); // dequeues one thread from CPU 0
     assert_eq!(gs.total_runnable(), 2);
 }
 
-/// task_tick does not panic on an idle CPU.
+/// thread_tick does not panic on an idle CPU.
 #[test]
 fn test_global_task_tick_idle_cpu_no_panic() {
     let mut gs = two_cpu_scheduler();
-    // No task running — tick should be a safe no-op.
-    gs.task_tick(0, 1_000_000);
+    // No thread running — tick should be a safe no-op.
+    gs.thread_tick(0, 1_000_000);
 }
 
 /// tick_and_schedule on an idle CPU returns None.
@@ -181,19 +181,19 @@ fn test_global_task_tick_idle_cpu_no_panic() {
 fn test_tick_and_schedule_idle_returns_none() {
     // Register CPU 0 in the global singleton.
     GLOBAL_SCHEDULER.lock().register_cpu(0);
-    // No tasks — tick returns None.
+    // No threads — tick returns None.
     let result = tick_and_schedule(0);
     assert!(result.is_none(), "idle CPU must return None from tick_and_schedule");
 }
 
-/// tick_and_schedule advances vruntime and returns a task when one is queued.
+/// tick_and_schedule advances vruntime and returns a thread when one is queued.
 #[test]
 fn test_tick_and_schedule_with_task() {
     // CPU 1 must be registered; re-registration is silently ignored.
     GLOBAL_SCHEDULER.lock().register_cpu(1);
-    GLOBAL_SCHEDULER.lock().spawn_task(normal(100), Some(1));
+    GLOBAL_SCHEDULER.lock().spawn_thread(normal(100), Some(1));
 
     let chosen = tick_and_schedule(1);
-    assert!(chosen.is_some(), "tick_and_schedule must return Some when a task is queued");
-    assert_eq!(chosen.unwrap(), TaskId(100));
+    assert!(chosen.is_some(), "tick_and_schedule must return Some when a thread is queued");
+    assert_eq!(chosen.unwrap(), ThreadId(100));
 }

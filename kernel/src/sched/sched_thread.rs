@@ -1,20 +1,20 @@
-//! Task descriptor for the PetraOS scheduler.
+//! Thread descriptor for the PetraOS scheduler.
 //!
-//! Defines [`Task`], [`TaskId`], and [`SchedPolicy`] — the fundamental types
+//! Defines [`SchedThread`], [`ThreadId`], and [`SchedPolicy`] — the fundamental types
 //! shared between the CFS and Real-Time run queues.
 
 // ── Scheduling policy ────────────────────────────────────────────────────────
 
-/// The scheduling policy assigned to a task.
+/// The scheduling policy assigned to a thread.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SchedPolicy {
     /// Normal (CFS) — fair-share CPU time via virtual runtime.
     Normal,
-    /// Real-time FIFO — highest-priority runnable task runs to completion
+    /// Real-time FIFO — highest-priority runnable thread runs to completion
     /// (or until it voluntarily yields/blocks).
     Fifo,
     /// Real-time Round-Robin — like FIFO but with a fixed time slice.
-    /// When the slice expires the task is moved to the back of its priority
+    /// When the slice expires the thread is moved to the back of its priority
     /// level.
     RoundRobin,
 }
@@ -27,15 +27,15 @@ impl SchedPolicy {
     }
 }
 
-// ── Task identifier ──────────────────────────────────────────────────────────
+// ── Thread identifier ──────────────────────────────────────────────────────────
 
-/// Opaque, unique identifier for a task.
+/// Opaque, unique identifier for a thread.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct TaskId(pub u64);
+pub struct ThreadId(pub u64);
 
-// ── Task descriptor ──────────────────────────────────────────────────────────
+// ── SchedThread descriptor ──────────────────────────────────────────────────────────
 
-/// Default time slice for `RoundRobin` tasks, in nanoseconds (10 ms).
+/// Default time slice for `RoundRobin` threads, in nanoseconds (10 ms).
 pub const DEFAULT_RR_SLICE_NS: u64 = 10_000_000;
 
 /// Weight corresponding to `nice = 0` in the CFS weight table.
@@ -43,27 +43,26 @@ pub const DEFAULT_RR_SLICE_NS: u64 = 10_000_000;
 /// Used to normalise virtual runtime: `vruntime += delta_ns * NICE_0_WEIGHT / weight`.
 pub const NICE_0_WEIGHT: u64 = 1024;
 
-/// A lightweight task descriptor consumed by the scheduler subsystem.
+/// A lightweight thread descriptor consumed by the scheduler subsystem.
 ///
 /// This is intentionally minimal: real PCB / thread state lives in the `proc`
-/// module (not yet implemented). The scheduler only needs what is shown here
-/// to make pick-next decisions.
+/// module. The scheduler only needs what is shown here to make pick-next decisions.
 #[derive(Debug, Clone)]
-pub struct Task {
-    /// Unique task identifier.
-    pub id: TaskId,
+pub struct SchedThread {
+    /// Unique thread identifier.
+    pub id: ThreadId,
     /// Scheduling policy.
     pub policy: SchedPolicy,
     /// Priority level.
     ///
-    /// * For `Normal` tasks this maps to a CFS weight (lower nice → higher weight).
+    /// * For `Normal` threads this maps to a CFS weight (lower nice → higher weight).
     ///   Stored as a raw weight value (1–88761); use [`nice_to_weight`] to convert.
-    /// * For RT tasks (Fifo / RoundRobin) this is an RT priority in `[1, 99]`
+    /// * For RT threads (Fifo / RoundRobin) this is an RT priority in `[1, 99]`
     ///   where **99 is the highest** (POSIX convention).
     pub priority: u32,
     /// Accumulated virtual runtime in nanoseconds (CFS only).
     ///
-    /// RT tasks leave this at `0` — it is never read by the RT run queue.
+    /// RT threads leave this at `0` — it is never read by the RT run queue.
     pub vruntime: u64,
     /// Configured time slice in nanoseconds (RoundRobin only).
     pub time_slice_ns: u64,
@@ -71,9 +70,9 @@ pub struct Task {
     pub remaining_slice: u64,
 }
 
-impl Task {
-    /// Create a new `Normal` (CFS) task with a default weight of [`NICE_0_WEIGHT`].
-    pub fn new_normal(id: TaskId) -> Self {
+impl SchedThread {
+    /// Create a new `Normal` (CFS) thread with a default weight of [`NICE_0_WEIGHT`].
+    pub fn new_normal(id: ThreadId) -> Self {
         Self {
             id,
             policy: SchedPolicy::Normal,
@@ -84,8 +83,8 @@ impl Task {
         }
     }
 
-    /// Create a new `Normal` (CFS) task with an explicit weight.
-    pub fn new_normal_with_weight(id: TaskId, weight: u32) -> Self {
+    /// Create a new `Normal` (CFS) thread with an explicit weight.
+    pub fn new_normal_with_weight(id: ThreadId, weight: u32) -> Self {
         Self {
             id,
             policy: SchedPolicy::Normal,
@@ -96,10 +95,10 @@ impl Task {
         }
     }
 
-    /// Create a new FIFO real-time task.
+    /// Create a new FIFO real-time thread.
     ///
     /// `rt_priority` must be in `[1, 99]`; higher values are scheduled first.
-    pub fn new_fifo(id: TaskId, rt_priority: u32) -> Self {
+    pub fn new_fifo(id: ThreadId, rt_priority: u32) -> Self {
         Self {
             id,
             policy: SchedPolicy::Fifo,
@@ -110,8 +109,8 @@ impl Task {
         }
     }
 
-    /// Create a new RoundRobin real-time task.
-    pub fn new_rr(id: TaskId, rt_priority: u32) -> Self {
+    /// Create a new RoundRobin real-time thread.
+    pub fn new_rr(id: ThreadId, rt_priority: u32) -> Self {
         Self {
             id,
             policy: SchedPolicy::RoundRobin,
@@ -122,8 +121,8 @@ impl Task {
         }
     }
 
-    /// Create a new RoundRobin task with an explicit slice duration.
-    pub fn new_rr_with_slice(id: TaskId, rt_priority: u32, slice_ns: u64) -> Self {
+    /// Create a new RoundRobin thread with an explicit slice duration.
+    pub fn new_rr_with_slice(id: ThreadId, rt_priority: u32, slice_ns: u64) -> Self {
         Self {
             id,
             policy: SchedPolicy::RoundRobin,

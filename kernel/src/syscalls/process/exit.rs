@@ -1,6 +1,6 @@
 use crate::arch::{ArchImpl, CpuArch};
-use crate::proc::process::PROCESS_MANAGER;
-use crate::proc::thread::{THREAD_MANAGER, exit_current_thread};
+use crate::proc::process_manager::PROCESS_MANAGER;
+use crate::proc::thread_manager::{THREAD_MANAGER, exit_current_thread};
 
 pub fn sys_exit(exit_code: i32) -> ! {
     let cpu_id = ArchImpl::cpu_id();
