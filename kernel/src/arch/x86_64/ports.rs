@@ -1,5 +1,3 @@
-use core::arch::asm;
-
 pub struct Ports;
 
 impl Ports {
