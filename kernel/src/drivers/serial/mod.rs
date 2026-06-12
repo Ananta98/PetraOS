@@ -1,4 +1,4 @@
-use super::{DeviceDriver, CharDevice, DriverError};
+use super::{Device, DeviceType, CharDevice, DriverError};
 
 pub mod mmio;
 pub mod portio;
@@ -6,7 +6,7 @@ pub mod portio;
 pub use mmio::MmioBackend;
 pub use portio::PortIoBackend;
 
-pub trait SerialBackend {
+pub trait SerialBackend: Send + Sync {
     fn read_reg(&self, offset: u16) -> u8;
     fn write_reg(&self, offset: u16, val: u8);
 }
@@ -21,7 +21,11 @@ impl<B: SerialBackend> SerialPort<B> {
     }
 }
 
-impl<B: SerialBackend> DeviceDriver for SerialPort<B> {
+impl<B: SerialBackend + Send + Sync> Device for SerialPort<B> {
+    fn dev_type(&self) -> DeviceType {
+        DeviceType::Char
+    }
+
     fn name(&self) -> &'static str {
         "16550 UART Serial Port"
     }
@@ -38,7 +42,7 @@ impl<B: SerialBackend> DeviceDriver for SerialPort<B> {
     }
 }
 
-impl<B: SerialBackend> CharDevice for SerialPort<B> {
+impl<B: SerialBackend + Send + Sync> CharDevice for SerialPort<B> {
     fn read_byte(&mut self) -> Result<u8, DriverError> {
         while (self.backend.read_reg(5) & 1) == 0 {
             // Spin waiting for data to receive

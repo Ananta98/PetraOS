@@ -3,11 +3,7 @@
 //! Parses the RSDP → RSDT/XSDT → MADT chain to locate the Local APIC base
 //! address, I/O APIC entries, and Interrupt Source Override entries needed
 //! for interrupt controller initialization.
-
-use crate::arch::x86_64::paging::X86_64PageTable;
-use crate::mm::address::{PhysAddr, VirtAddr};
-use crate::mm::paging::MapFlags;
-use crate::mm::paging::PageTable;
+use super::paging::ensure_mapped;
 
 /// Standard ACPI System Description Table header (36 bytes).
 #[derive(Debug, Clone, Copy)]
@@ -65,52 +61,6 @@ impl MadtInfo {
     }
 }
 
-/// Helper to ensure a physical memory range is mapped in the active page table.
-pub(crate) fn ensure_mapped(phys_addr: u64, size: usize) {
-    let hhdm = crate::mm::hhdm_offset();
-    unsafe {
-        let active_table_phys = crate::arch::x86_64::paging::active_cr3();
-        let mut page_table = X86_64PageTable::from_root(active_table_phys);
-
-        let start_page_phys = phys_addr & !4095;
-        let end_page_phys = (phys_addr + size as u64 - 1) & !4095;
-
-        let mut curr_phys = start_page_phys;
-        while curr_phys <= end_page_phys {
-            let curr_virt = curr_phys + hhdm;
-            let _ = page_table.map(
-                VirtAddr(curr_virt),
-                PhysAddr(curr_phys),
-                MapFlags::WRITE | MapFlags::EXECUTE,
-            );
-            curr_phys += 4096;
-        }
-    }
-}
-
-/// Helper to map an MMIO physical memory range.
-pub(crate) fn map_mmio(phys_addr: u64, size: usize) {
-    let hhdm = crate::mm::hhdm_offset();
-    unsafe {
-        let active_table_phys = crate::arch::x86_64::paging::active_cr3();
-        let mut page_table = X86_64PageTable::from_root(active_table_phys);
-        
-        let start_page_phys = phys_addr & !4095;
-        let end_page_phys = (phys_addr + size as u64 - 1) & !4095;
-        
-        let mut curr_phys = start_page_phys;
-        while curr_phys <= end_page_phys {
-            let curr_virt = curr_phys + hhdm;
-            let _ = page_table.map(
-                VirtAddr(curr_virt),
-                PhysAddr(curr_phys),
-                MapFlags::WRITE | MapFlags::NO_CACHE,
-            );
-            curr_phys += 4096;
-        }
-    }
-}
-
 /// Object representing the Root System Description Pointer (RSDP).
 pub struct Rsdp {
     virt_addr: *const u8,
@@ -152,15 +102,18 @@ impl Sdt {
     pub fn new(phys_addr: u64) -> Self {
         // Map first 36 bytes (header size) to read the actual length
         ensure_mapped(phys_addr, core::mem::size_of::<SdtHeader>());
-        
+
         let hhdm = crate::mm::hhdm_offset();
         let virt_addr = (phys_addr + hhdm) as *const u8;
-        
+
         // Read header length and map the full table
         let header = unsafe { *(virt_addr as *const SdtHeader) };
         ensure_mapped(phys_addr, header.length as usize);
-        
-        Self { phys_addr, virt_addr }
+
+        Self {
+            phys_addr,
+            virt_addr,
+        }
     }
 
     /// Access the standard SDT header.
@@ -185,7 +138,7 @@ impl Sdt {
         let header_size = core::mem::size_of::<SdtHeader>();
         let data_len = self.length().saturating_sub(header_size);
         let ptr_size = if use_64bit { 8 } else { 4 };
-        
+
         TablePointers {
             virt_base: unsafe { self.virt_addr.add(header_size) },
             count: data_len / ptr_size,
@@ -214,7 +167,8 @@ impl Iterator for TablePointers {
         let addr = if self.use_64bit {
             unsafe { core::ptr::read_unaligned((self.virt_base as *const u64).add(self.index)) }
         } else {
-            (unsafe { core::ptr::read_unaligned((self.virt_base as *const u32).add(self.index)) }) as u64
+            (unsafe { core::ptr::read_unaligned((self.virt_base as *const u32).add(self.index)) })
+                as u64
         };
 
         self.index += 1;
@@ -287,10 +241,14 @@ impl Iterator for MadtEntries {
                 if entry_length >= 12 {
                     let id = unsafe { *self.virt_addr.add(current_offset + 2) };
                     let address = unsafe {
-                        core::ptr::read_unaligned(self.virt_addr.add(current_offset + 4) as *const u32)
+                        core::ptr::read_unaligned(
+                            self.virt_addr.add(current_offset + 4) as *const u32
+                        )
                     };
                     let gsi_base = unsafe {
-                        core::ptr::read_unaligned(self.virt_addr.add(current_offset + 8) as *const u32)
+                        core::ptr::read_unaligned(
+                            self.virt_addr.add(current_offset + 8) as *const u32
+                        )
                     };
                     Some(MadtEntry::IoApic(IoApicEntry {
                         id,
@@ -298,7 +256,10 @@ impl Iterator for MadtEntries {
                         gsi_base,
                     }))
                 } else {
-                    Some(MadtEntry::Unsupported { entry_type, length: entry_length })
+                    Some(MadtEntry::Unsupported {
+                        entry_type,
+                        length: entry_length,
+                    })
                 }
             }
             // Type 2: Interrupt Source Override
@@ -307,30 +268,44 @@ impl Iterator for MadtEntries {
                     let bus_source = unsafe { *self.virt_addr.add(current_offset + 2) };
                     let irq_source = unsafe { *self.virt_addr.add(current_offset + 3) };
                     let gsi = unsafe {
-                        core::ptr::read_unaligned(self.virt_addr.add(current_offset + 4) as *const u32)
+                        core::ptr::read_unaligned(
+                            self.virt_addr.add(current_offset + 4) as *const u32
+                        )
                     };
                     let flags = unsafe {
-                        core::ptr::read_unaligned(self.virt_addr.add(current_offset + 8) as *const u16)
+                        core::ptr::read_unaligned(
+                            self.virt_addr.add(current_offset + 8) as *const u16
+                        )
                     };
-                    Some(MadtEntry::InterruptSourceOverride(InterruptSourceOverride {
-                        bus_source,
-                        irq_source,
-                        gsi,
-                        flags,
-                    }))
+                    Some(MadtEntry::InterruptSourceOverride(
+                        InterruptSourceOverride {
+                            bus_source,
+                            irq_source,
+                            gsi,
+                            flags,
+                        },
+                    ))
                 } else {
-                    Some(MadtEntry::Unsupported { entry_type, length: entry_length })
+                    Some(MadtEntry::Unsupported {
+                        entry_type,
+                        length: entry_length,
+                    })
                 }
             }
             // Type 5: Local APIC Address Override (64-bit)
             5 => {
                 if entry_length >= 12 {
                     let address = unsafe {
-                        core::ptr::read_unaligned(self.virt_addr.add(current_offset + 4) as *const u64)
+                        core::ptr::read_unaligned(
+                            self.virt_addr.add(current_offset + 4) as *const u64
+                        )
                     };
                     Some(MadtEntry::LocalApicAddressOverride(address))
                 } else {
-                    Some(MadtEntry::Unsupported { entry_type, length: entry_length })
+                    Some(MadtEntry::Unsupported {
+                        entry_type,
+                        length: entry_length,
+                    })
                 }
             }
             _ => Some(MadtEntry::Unsupported {
@@ -368,7 +343,7 @@ pub fn parse_madt() -> Option<MadtInfo> {
     };
 
     let parent_table = Sdt::new(parent_table_phys);
-    
+
     // Iterate over child tables to find MADT ("APIC")
     for child_phys in parent_table.table_pointers(use_64bit) {
         let child_table = Sdt::new(child_phys);

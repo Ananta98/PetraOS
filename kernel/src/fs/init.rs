@@ -6,6 +6,7 @@ use crate::fs::ramfs::RamFs;
 
 use crate::fs::devfs::DevFs;
 use crate::fs::devfs::console::ConsoleInode;
+use crate::fs::devfs::block::BlockDeviceInode;
 use crate::fs::tmpfs::TmpFs;
 use crate::fs::procfs::ProcFs;
 use crate::fs::flags::O_RDWR;
@@ -63,6 +64,33 @@ pub fn init() {
 
         // Add to the devfs root dentry so path resolution finds it.
         Dentry::add_child(&dev_mount.root_dentry, "console".into(), console_inode);
+
+        // Scan DEVICE_MANAGER and register block devices dynamically in devfs!
+        {
+            let dm = crate::drivers::DEVICE_MANAGER.lock();
+            for dev_arc in dm.get_devices() {
+                let dev_lock = dev_arc.lock();
+                if dev_lock.dev_type() == crate::drivers::DeviceType::Block {
+                    let dev_name = dev_lock.name();
+                    let vfs_name = if dev_name.contains("AHCI") {
+                        "sda"
+                    } else if dev_name.contains("NVMe") {
+                        "nvme0n1"
+                    } else {
+                        continue;
+                    };
+
+                    let block_ino = dev_mount.superblock.alloc_ino();
+                    let block_inode = Arc::new(crate::fs::vfs::inode::Inode {
+                        ino: block_ino,
+                        inode_type: crate::fs::vfs::inode::InodeType::BlockDevice,
+                        ops: Arc::new(BlockDeviceInode { device_name: dev_name }),
+                    });
+                    Dentry::add_child(&dev_mount.root_dentry, vfs_name.into(), block_inode);
+                    log::info!("Registered block device: /dev/{} ({})", vfs_name, dev_name);
+                }
+            }
+        }
     }
     log::info!("Mounted devfs at /dev with console device.");
 

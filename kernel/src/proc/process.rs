@@ -1,9 +1,9 @@
-use crate::sched::sched_thread::ThreadId;
-use alloc::vec::Vec;
-use crate::mm::AddrSpace;
 use crate::arch::x86_64::paging::X86_64PageTable;
-use alloc::sync::Arc;
 use crate::fs::fd::FdTable;
+use crate::mm::AddrSpace;
+use crate::sched::sched_thread::ThreadId;
+use alloc::sync::Arc;
+use alloc::vec::Vec;
 
 /// Opaque, unique identifier for a process.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -50,7 +50,6 @@ impl Process {
     pub fn setup_std_fds(&self, console_file: Arc<crate::fs::File>) {
         self.fd_table.setup_std_fds(console_file);
     }
-
 
     /// Returns the process ID.
     pub fn pid(&self) -> ProcessId {

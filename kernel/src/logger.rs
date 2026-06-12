@@ -1,5 +1,5 @@
 use crate::drivers::serial::{SerialPort, PortIoBackend};
-use crate::drivers::{CharDevice, DeviceDriver};
+use crate::drivers::{CharDevice, Device};
 use crate::sync::spinlock::Spinlock;
 use log::{Log, Metadata, Record, Level};
 use core::fmt::Write;

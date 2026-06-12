@@ -61,7 +61,7 @@ pub unsafe fn enable_nxe() {
     }
 }
 
-unsafe fn free_table_recursive(paddr: PhysAddr, level: usize, hhdm: u64) {
+fn free_table_recursive(paddr: PhysAddr, level: usize, hhdm: u64) {
     if level == 1 {
         crate::mm::PMM.free_page(paddr);
         return;
@@ -78,9 +78,7 @@ unsafe fn free_table_recursive(paddr: PhysAddr, level: usize, hhdm: u64) {
                 continue;
             }
             let child_phys = PhysAddr(entry & 0x000F_FFFF_FFFF_F000);
-            unsafe {
-                free_table_recursive(child_phys, level - 1, hhdm);
-            }
+            free_table_recursive(child_phys, level - 1, hhdm);
         }
     }
 
@@ -91,9 +89,7 @@ impl Drop for X86_64PageTable {
     fn drop(&mut self) {
         if self.is_owned {
             let hhdm = hhdm_offset();
-            unsafe {
-                free_table_recursive(self.pml4_phys, 4, hhdm);
-            }
+            free_table_recursive(self.pml4_phys, 4, hhdm);
         }
     }
 }
@@ -362,6 +358,52 @@ impl PageTable for X86_64PageTable {
         // SAFETY: Switch CR3 register to reload the active page tables.
         unsafe {
             core::arch::asm!("mov cr3, {}", in(reg) self.pml4_phys.as_u64());
+        }
+    }
+}
+
+/// Helper to ensure a physical memory range is mapped in the active page table.
+pub fn ensure_mapped(phys_addr: u64, size: usize) {
+    let hhdm = hhdm_offset();
+    unsafe {
+        let active_table_phys = active_cr3();
+        let mut page_table = X86_64PageTable::from_root(active_table_phys);
+
+        let start_page_phys = phys_addr & !4095;
+        let end_page_phys = (phys_addr + size as u64 - 1) & !4095;
+
+        let mut curr_phys = start_page_phys;
+        while curr_phys <= end_page_phys {
+            let curr_virt = curr_phys + hhdm;
+            let _ = page_table.map(
+                VirtAddr(curr_virt),
+                PhysAddr(curr_phys),
+                MapFlags::WRITE | MapFlags::EXECUTE,
+            );
+            curr_phys += 4096;
+        }
+    }
+}
+
+/// Helper to map an MMIO physical memory range.
+pub fn map_mmio(phys_addr: u64, size: usize) {
+    let hhdm = hhdm_offset();
+    unsafe {
+        let active_table_phys = active_cr3();
+        let mut page_table = X86_64PageTable::from_root(active_table_phys);
+        
+        let start_page_phys = phys_addr & !4095;
+        let end_page_phys = (phys_addr + size as u64 - 1) & !4095;
+        
+        let mut curr_phys = start_page_phys;
+        while curr_phys <= end_page_phys {
+            let curr_virt = curr_phys + hhdm;
+            let _ = page_table.map(
+                VirtAddr(curr_virt),
+                PhysAddr(curr_phys),
+                MapFlags::WRITE | MapFlags::NO_CACHE,
+            );
+            curr_phys += 4096;
         }
     }
 }

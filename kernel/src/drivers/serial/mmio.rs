@@ -4,8 +4,9 @@ pub struct MmioBackend {
     base_addr: *mut u8,
 }
 
-// SAFETY: Assuming MMIO addresses are safe to send across threads.
+// SAFETY: Assuming MMIO addresses are safe to send and share across threads.
 unsafe impl Send for MmioBackend {}
+unsafe impl Sync for MmioBackend {}
 
 impl MmioBackend {
     pub const fn new(base_addr: *mut u8) -> Self {

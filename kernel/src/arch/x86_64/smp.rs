@@ -34,7 +34,7 @@ unsafe extern "C" fn ap_entry(cpu: &limine::mp::Cpu) -> ! {
         .map(|m| m.local_apic_address)
         .unwrap_or(0xFEE0_0000);
 
-    crate::arch::x86_64::acpi::map_mmio(lapic_phys, 4096);
+    crate::arch::x86_64::paging::map_mmio(lapic_phys, 4096);
     let local_apic = lapic::LocalApic::new(lapic_phys);
     local_apic.enable();
 

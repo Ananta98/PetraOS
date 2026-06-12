@@ -1,11 +1,12 @@
 pub mod console;
+pub mod block;
 
-use alloc::sync::Arc;
-use core::sync::atomic::AtomicU64;
 use crate::fs::errno::VfsError;
+use crate::fs::ramfs::inode::RamDirInode;
 use crate::fs::vfs::filesystem::{FileSystem, SuperBlock};
 use crate::fs::vfs::inode::{Inode, InodeType};
-use crate::fs::ramfs::inode::RamDirInode;
+use alloc::sync::Arc;
+use core::sync::atomic::AtomicU64;
 
 /// Device filesystem, mounted at `/dev`.
 ///

@@ -63,14 +63,14 @@ impl CpuArch for X86_64 {
             madt_info.iso_count
         );
 
-        acpi::map_mmio(madt_info.local_apic_address, 4096);
+        paging::map_mmio(madt_info.local_apic_address, 4096);
         let local_apic = lapic::LocalApic::new(madt_info.local_apic_address);
         local_apic.enable();
         let lapic_id = local_apic.id();
 
         for i in 0..madt_info.io_apic_count {
             if let Some(entry) = &madt_info.io_apics[i] {
-                acpi::map_mmio(entry.address as u64, 4096);
+                paging::map_mmio(entry.address as u64, 4096);
                 let io_apic = ioapic::IoApic::new(entry.address, entry.gsi_base);
                 io_apic.configure_isa_irqs(lapic_id, &madt_info.isos, madt_info.iso_count);
             }

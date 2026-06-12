@@ -13,6 +13,8 @@ pub enum InodeType {
     Directory,
     /// Character device (e.g., /dev/console).
     CharDevice,
+    /// Block device (e.g., /dev/sda).
+    BlockDevice,
     /// Symbolic link (reserved for future use).
     Symlink,
 }
