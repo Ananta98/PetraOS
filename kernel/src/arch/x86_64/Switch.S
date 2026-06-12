@@ -40,38 +40,4 @@ thread_bootstrapper:
   call r12
   call thread_exit
 
-.global syscall_asm_entry
-.extern syscall_rust_handler
-syscall_asm_entry:
-  # 1. Save all registers (SyscallFrame structure)
-  push rax
-  push rbp
-  push rdi
-  push rsi
-  push rdx
-  push rcx
-  push r8
-  push r9
-  push r10
-  push r11
-
-  # 2. Pass pointer to the SyscallFrame as the first argument (rdi)
-  mov rdi, rsp
-
-  # Call Rust handler
-  call syscall_rust_handler
-
-  # 3. Restore all registers
-  pop r11
-  pop r10
-  pop r9
-  pop r8
-  pop rcx
-  pop rdx
-  pop rsi
-  pop rdi
-  pop rbp
-  pop rax
-
-  iretq
 

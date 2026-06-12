@@ -1,3 +1,5 @@
+core::arch::global_asm!(include_str!("syscall_entry.S"));
+
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct SyscallFrame {
