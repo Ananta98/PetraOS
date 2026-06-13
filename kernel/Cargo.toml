@@ -1,0 +1,11 @@
+[package]
+name = "kernel"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+log.workspace = true
+spin.workspace = true
+
+[dependencies.ostd]
+version = "0.18.0"
