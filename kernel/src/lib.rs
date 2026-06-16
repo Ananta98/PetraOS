@@ -3,9 +3,9 @@
 
 extern crate alloc;
 
-use ostd::prelude::*;
+pub mod vm;
 
 #[ostd::main]
 fn kernel_main() {
-    println!("Hello World");
+    vm::init();
 }
