@@ -2,6 +2,7 @@ use crate::vm::region::VmaRegion;
 use crate::vm::vma::VmaManager;
 use alloc::sync::Arc;
 use ostd::Error;
+use ostd::arch::cpu::context::PageFaultErrorCode;
 use ostd::mm::vm_space::VmQueriedItem;
 use ostd::mm::{CachePolicy, PAGE_SIZE, PageFlags, PageProperty};
 use ostd::task::disable_preempt;
@@ -139,7 +140,6 @@ mod tests {
         drop(guard);
 
         // 4. Manually trigger the COW fault allocation on the child
-        use ostd::arch::cpu::context::PageFaultErrorCode;
         child_manager
             .alloc_frame_for_fault(
                 0x50000,
