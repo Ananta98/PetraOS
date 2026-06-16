@@ -73,8 +73,8 @@ impl VmaManager {
 #[cfg(ktest)]
 mod tests {
     use super::*;
-    use ostd::prelude::ktest;
     use ostd::mm::HasPaddr;
+    use ostd::prelude::ktest;
 
     #[ktest]
     fn test_fork_cow_manual() {
@@ -131,16 +131,20 @@ mod tests {
         // Parent and child must point to the same physical frame
         assert_eq!(parent_frame.paddr(), child_frame.paddr());
 
-        // Frame reference count must be 4:
-        // 1 in parent pt, 1 in child pt, 1 in parent_frame variable, 1 in child_frame variable
-        assert_eq!(parent_frame.reference_count(), 4);
+        // Frame reference count must be 5:
+        // 1 in parent pt, 1 in child pt, 1 in parent_frame variable, 1 in child_frame variable,
+        // and 1 queued in the RCU grace period deferred drop queue from the parent's unmap step.
+        assert_eq!(parent_frame.reference_count(), 5);
 
         drop(guard);
 
         // 4. Manually trigger the COW fault allocation on the child
         use ostd::arch::cpu::context::PageFaultErrorCode;
         child_manager
-            .alloc_frame_for_fault(0x50000, PageFaultErrorCode::PRESENT | PageFaultErrorCode::WRITE)
+            .alloc_frame_for_fault(
+                0x50000,
+                PageFaultErrorCode::PRESENT | PageFaultErrorCode::WRITE,
+            )
             .unwrap();
 
         // 5. Verify child's mapping after fault
@@ -177,7 +181,10 @@ mod tests {
         };
 
         // They must point to DIFFERENT frames now!
-        assert_ne!(parent_frame_after_fault.paddr(), child_frame_after_fault.paddr());
+        assert_ne!(
+            parent_frame_after_fault.paddr(),
+            child_frame_after_fault.paddr()
+        );
         assert_eq!(parent_frame_after_fault.paddr(), parent_frame.paddr());
 
         drop(guard2);
