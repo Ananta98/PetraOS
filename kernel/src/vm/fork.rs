@@ -74,54 +74,113 @@ impl VmaManager {
 mod tests {
     use super::*;
     use ostd::prelude::ktest;
+    use ostd::mm::HasPaddr;
 
     #[ktest]
-    fn test_fork_cow() {
+    fn test_fork_cow_manual() {
         // Initialize VM system
         crate::vm::init();
         let parent_manager = crate::vm::VMA_MANAGER.get().unwrap().clone();
         parent_manager.activate();
 
-        // Map parent region and write parent data
+        // 1. Map parent region and write parent data
         parent_manager
             .map_region(0x50000, 0x1000, PageFlags::RW)
             .unwrap();
-        let parent_data = b"Parent Shared Data!";
-        parent_manager.copy_to_user(0x50000, parent_data).unwrap();
+        let original_data = b"Fork Parent Data!";
+        parent_manager.copy_to_user(0x50000, original_data).unwrap();
 
-        // Fork VM space
+        // 2. Fork VM space
         let child_manager = parent_manager.fork_vm_space().unwrap();
 
-        // Activate child
-        child_manager.activate();
+        // 3. Inspect page table state under guard
+        let guard = disable_preempt();
 
-        // Verify child can read parent's data
-        let mut child_read_back = [0u8; 19];
+        // Parent query
+        let parent_frame = {
+            let mut cursor = parent_manager
+                .vm_space
+                .cursor_mut(&guard, &(0x50000..0x51000))
+                .unwrap();
+            cursor.jump(0x50000).unwrap();
+            let (_range, item) = cursor.query().unwrap();
+            let VmQueriedItem::MappedRam { frame, prop } = item.unwrap() else {
+                panic!("Expected MappedRam in parent");
+            };
+            // Parent should be Read-Only now after fork!
+            assert_eq!(prop.flags, PageFlags::R);
+            (*frame).clone()
+        };
+
+        // Child query
+        let child_frame = {
+            let mut cursor = child_manager
+                .vm_space
+                .cursor_mut(&guard, &(0x50000..0x51000))
+                .unwrap();
+            cursor.jump(0x50000).unwrap();
+            let (_range, item) = cursor.query().unwrap();
+            let VmQueriedItem::MappedRam { frame, prop } = item.unwrap() else {
+                panic!("Expected MappedRam in child");
+            };
+            // Child should also be Read-Only!
+            assert_eq!(prop.flags, PageFlags::R);
+            (*frame).clone()
+        };
+
+        // Parent and child must point to the same physical frame
+        assert_eq!(parent_frame.paddr(), child_frame.paddr());
+
+        // Frame reference count must be 4:
+        // 1 in parent pt, 1 in child pt, 1 in parent_frame variable, 1 in child_frame variable
+        assert_eq!(parent_frame.reference_count(), 4);
+
+        drop(guard);
+
+        // 4. Manually trigger the COW fault allocation on the child
+        use ostd::arch::cpu::context::PageFaultErrorCode;
         child_manager
-            .copy_from_user(0x50000, &mut child_read_back)
+            .alloc_frame_for_fault(0x50000, PageFaultErrorCode::PRESENT | PageFaultErrorCode::WRITE)
             .unwrap();
-        assert_eq!(parent_data, &child_read_back);
 
-        // Write child data (triggers COW in child)
-        let child_data = b"Child Modified Data";
-        child_manager.copy_to_user(0x50000, child_data).unwrap();
+        // 5. Verify child's mapping after fault
+        let guard2 = disable_preempt();
+        let child_frame_after_fault = {
+            let mut cursor = child_manager
+                .vm_space
+                .cursor_mut(&guard2, &(0x50000..0x51000))
+                .unwrap();
+            cursor.jump(0x50000).unwrap();
+            let (_range, item) = cursor.query().unwrap();
+            let VmQueriedItem::MappedRam { frame, prop } = item.unwrap() else {
+                panic!("Expected MappedRam in child after fault");
+            };
+            // Child should now be RW!
+            assert_eq!(prop.flags, PageFlags::RW);
+            (*frame).clone()
+        };
 
-        // Verify child reads child data
-        let mut child_read_modified = [0u8; 19];
-        child_manager
-            .copy_from_user(0x50000, &mut child_read_modified)
-            .unwrap();
-        assert_eq!(child_data, &child_read_modified);
+        // Parent should still be pointing to the original frame
+        let parent_frame_after_fault = {
+            let mut cursor = parent_manager
+                .vm_space
+                .cursor_mut(&guard2, &(0x50000..0x51000))
+                .unwrap();
+            cursor.jump(0x50000).unwrap();
+            let (_range, item) = cursor.query().unwrap();
+            let VmQueriedItem::MappedRam { frame, prop } = item.unwrap() else {
+                panic!("Expected MappedRam in parent after fault");
+            };
+            // Parent remains Read-Only
+            assert_eq!(prop.flags, PageFlags::R);
+            (*frame).clone()
+        };
 
-        // Activate parent again
-        parent_manager.activate();
+        // They must point to DIFFERENT frames now!
+        assert_ne!(parent_frame_after_fault.paddr(), child_frame_after_fault.paddr());
+        assert_eq!(parent_frame_after_fault.paddr(), parent_frame.paddr());
 
-        // Verify parent still reads original parent data
-        let mut parent_read_back = [0u8; 19];
-        parent_manager
-            .copy_from_user(0x50000, &mut parent_read_back)
-            .unwrap();
-        assert_eq!(parent_data, &parent_read_back);
+        drop(guard2);
 
         // Clean up child and parent regions
         child_manager.unmap_region(0x50000, 0x1000).unwrap();
