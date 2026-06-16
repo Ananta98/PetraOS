@@ -12,9 +12,6 @@ impl VmaManager {
         fault_addr: Vaddr,
         error_code: PageFaultErrorCode,
     ) -> Result<(), Error> {
-        use ostd::mm::io::util::HasVmReaderWriter;
-        use ostd::mm::vm_space::VmQueriedItem;
-
         let guard = disable_preempt();
         let regions = self.regions.lock();
 

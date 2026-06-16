@@ -30,7 +30,6 @@ impl VmaManager {
                 let page_vaddr = region.start + (page_idx * PAGE_SIZE);
                 let vaddr_range = page_vaddr..page_vaddr + PAGE_SIZE;
 
-                // Open cursor in parent VM space
                 let mut parent_cursor = self
                     .vm_space
                     .cursor_mut(&guard, &vaddr_range)
@@ -39,18 +38,15 @@ impl VmaManager {
                     .jump(page_vaddr)
                     .map_err(|_| Error::InvalidArgs)?;
 
-                // Query parent's mapping
                 let (_range, item) = parent_cursor.query().map_err(|_| Error::InvalidArgs)?;
                 if let Some(VmQueriedItem::MappedRam { frame, prop: _ }) = item {
                     let old_frame = (*frame).clone();
 
-                    // Unmap parent's current mapping and map back as Read-Only (COW)
                     let ro_property = PageProperty::new_user(PageFlags::R, CachePolicy::Writeback);
                     parent_cursor.unmap(PAGE_SIZE);
                     parent_cursor.jump(page_vaddr).unwrap();
                     parent_cursor.map(old_frame.clone(), ro_property);
 
-                    // Map in child as Read-Only
                     let mut child_cursor = child_manager
                         .vm_space
                         .cursor_mut(&guard, &vaddr_range)
@@ -78,7 +74,7 @@ mod tests {
     use ostd::prelude::ktest;
 
     #[ktest]
-    fn test_fork_cow_manual() {
+    fn test_fork_cow() {
         // Initialize VM system
         crate::vm::init();
         let parent_manager = crate::vm::VMA_MANAGER.get().unwrap().clone();

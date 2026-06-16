@@ -1,5 +1,6 @@
 pub mod fault;
 pub mod fork;
+pub mod protect;
 pub mod region;
 pub mod vma;
 
