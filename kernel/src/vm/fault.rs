@@ -15,25 +15,13 @@ impl VmaManager {
         use ostd::mm::io::util::HasVmReaderWriter;
         use ostd::mm::vm_space::VmQueriedItem;
 
-        ostd::early_println!(
-            "alloc_frame_for_fault: fault_addr={:#x}, error_code={:?}",
-            fault_addr,
-            error_code
-        );
-
         let guard = disable_preempt();
         let regions = self.regions.lock();
 
         let region = regions
             .values()
             .find(|r| r.contains(fault_addr))
-            .ok_or_else(|| {
-                ostd::early_println!(
-                    "alloc_frame_for_fault: region not found for {:#x}",
-                    fault_addr
-                );
-                Error::InvalidArgs
-            })?;
+            .ok_or(Error::InvalidArgs)?;
 
         let page_vaddr = fault_addr & !(PAGE_SIZE - 1);
         let vaddr_range = page_vaddr..page_vaddr + PAGE_SIZE;
@@ -41,20 +29,13 @@ impl VmaManager {
         let mut cursor = self
             .vm_space
             .cursor_mut(&guard, &vaddr_range)
-            .map_err(|e| {
-                ostd::early_println!("alloc_frame_for_fault: failed to get cursor: {:?}", e);
-                Error::NoMemory
-            })?;
+            .map_err(|_| Error::NoMemory)?;
 
         let is_present = error_code.contains(PageFaultErrorCode::PRESENT);
         let is_write = error_code.contains(PageFaultErrorCode::WRITE);
 
         // If page is not present, allocate a new frame and map it.
         if !is_present {
-            ostd::early_println!(
-                "alloc_frame_for_fault: page not present at {:#x}, allocating new frame",
-                page_vaddr
-            );
             let frame: UFrame = FrameAllocOptions::new()
                 .zeroed(true)
                 .alloc_frame()
@@ -63,19 +44,11 @@ impl VmaManager {
             let property = PageProperty::new_user(region.flags, CachePolicy::Writeback);
             cursor.map(frame, property);
 
-            ostd::early_println!(
-                "alloc_frame_for_fault: mapped new frame at {:#x}",
-                page_vaddr
-            );
             return Ok(());
         }
 
         // If page is present and has write do Copy on Write
         if is_present && is_write {
-            ostd::early_println!(
-                "alloc_frame_for_fault: present and write fault at {:#x}, doing COW",
-                page_vaddr
-            );
             let (_range, item) = cursor.query().map_err(|_| InvalidArgs)?;
             let item = item.ok_or(InvalidArgs)?;
 
@@ -87,7 +60,6 @@ impl VmaManager {
                 // Get the original ref count and clone the frame to release borrow on cursor
                 let ref_count = old_frame_ref.reference_count();
                 let old_frame = (*old_frame_ref).clone();
-                ostd::early_println!("alloc_frame_for_fault: ref_count={}", ref_count);
 
                 if ref_count > 1 {
                     let new_frame: UFrame = FrameAllocOptions::new()
@@ -105,10 +77,6 @@ impl VmaManager {
                     cursor.jump(page_vaddr).unwrap();
                     cursor.map(new_frame, property);
 
-                    ostd::early_println!(
-                        "alloc_frame_for_fault: COW duplicated frame at {:#x}",
-                        page_vaddr
-                    );
                     return Ok(());
                 } else {
                     let property = PageProperty::new_user(region.flags, CachePolicy::Writeback);
@@ -116,22 +84,16 @@ impl VmaManager {
                     cursor.jump(page_vaddr).unwrap();
                     cursor.map(old_frame, property);
 
-                    ostd::early_println!(
-                        "alloc_frame_for_fault: COW reused frame with write permissions at {:#x}",
-                        page_vaddr
-                    );
                     return Ok(());
                 }
             }
         }
 
-        ostd::early_println!("alloc_frame_for_fault: unhandled page fault case");
         Err(InvalidArgs)
     }
 }
 
 pub fn handle_page_fault(info: &CpuException) -> Result<(), ()> {
-    ostd::early_println!("handle_page_fault: exception={:?}", info);
     if let CpuException::PageFault(pf_info) = info {
         if let Some(manager) = VMA_MANAGER.get() {
             if manager
@@ -174,5 +136,86 @@ mod tests {
 
         // Clean up
         vma_manager.unmap_region(0x10000, 0x1000).unwrap();
+    }
+
+    #[ktest]
+    fn test_cow() {
+        // Initialize the VM system to register page fault handler
+        crate::vm::init();
+        let vma_manager = crate::vm::VMA_MANAGER.get().unwrap().clone();
+        vma_manager.activate();
+
+        // 1. Allocate a page and write initial data
+        vma_manager
+            .map_region(0x30000, 0x1000, PageFlags::RW)
+            .unwrap();
+        let original_data = b"COW Share Test Data!";
+        vma_manager.copy_to_user(0x30000, original_data).unwrap();
+
+        let guard = disable_preempt();
+        let old_frame = {
+            let mut cursor = vma_manager
+                .vm_space
+                .cursor_mut(&guard, &(0x30000..0x31000))
+                .unwrap();
+            cursor.jump(0x30000).unwrap();
+            let (_range, item) = cursor.query().unwrap();
+            let item = item.unwrap();
+            if let VmQueriedItem::MappedRam { frame, prop: _ } = item {
+                (*frame).clone()
+            } else {
+                panic!("Expected MappedRam");
+            }
+        };
+
+        // Simulate sharing the frame: Map the same frame at 0x30000 and 0x40000 as Read-Only
+        let mut cursor = vma_manager
+            .vm_space
+            .cursor_mut(&guard, &(0x30000..0x31000))
+            .unwrap();
+        cursor.jump(0x30000).unwrap();
+        cursor.unmap(0x1000);
+        cursor.jump(0x30000).unwrap();
+        let ro_property = PageProperty::new_user(PageFlags::R, CachePolicy::Writeback);
+        cursor.map(old_frame.clone(), ro_property);
+        drop(cursor);
+
+        vma_manager
+            .map_region_lazy(0x40000, 0x1000, PageFlags::RW)
+            .unwrap();
+        let mut cursor2 = vma_manager
+            .vm_space
+            .cursor_mut(&guard, &(0x40000..0x41000))
+            .unwrap();
+        cursor2.jump(0x40000).unwrap();
+        cursor2.map(old_frame.clone(), ro_property);
+        drop(cursor2);
+
+        drop(guard);
+
+        // Ensure refcount is 4 (1 at 0x30000, 1 at 0x40000, 1 in the local `old_frame` variable, and 1 deferred in RCU)
+        assert_eq!(old_frame.reference_count(), 4);
+
+        // Write to 0x40000 (triggers COW fault, duplicates frame)
+        let cow_data = b"COW Modified Data!";
+        vma_manager.copy_to_user(0x40000, cow_data).unwrap();
+
+        // Verify the written page has the modified data
+        let mut cow_read_back = [0u8; 18];
+        vma_manager
+            .copy_from_user(0x40000, &mut cow_read_back)
+            .unwrap();
+        assert_eq!(cow_data, &cow_read_back);
+
+        // Verify the original page (0x30000) remains unchanged
+        let mut original_read_back = [0u8; 20];
+        vma_manager
+            .copy_from_user(0x30000, &mut original_read_back)
+            .unwrap();
+        assert_eq!(original_data, &original_read_back);
+
+        // Clean up
+        vma_manager.unmap_region(0x30000, 0x1000).unwrap();
+        vma_manager.unmap_region(0x40000, 0x1000).unwrap();
     }
 }
