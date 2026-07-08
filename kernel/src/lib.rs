@@ -3,9 +3,11 @@
 
 extern crate alloc;
 
-pub mod vm;
+mod proc;
+mod vm;
 
 #[ostd::main]
 fn kernel_main() {
     vm::init();
+    proc::init();
 }

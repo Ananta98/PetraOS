@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 log.workspace = true
 spin.workspace = true
+xmas-elf = "0.10.0"
 
 [dependencies.ostd]
 version = "0.18.0"
