@@ -107,6 +107,7 @@ pub fn handle_page_fault(info: &CpuException) -> Result<(), ()> {
 #[cfg(ktest)]
 mod tests {
     use super::*;
+    use crate::vm::VMA_MANAGER;
     use ostd::mm::vm_space::VmQueriedItem;
     use ostd::prelude::ktest;
 
@@ -114,7 +115,7 @@ mod tests {
     fn test_demand_paging() {
         // Initialize the VM system to register page fault handler
         crate::vm::init();
-        let vma_manager = crate::vm::VMA_MANAGER.get().unwrap().clone();
+        let vma_manager = VMA_MANAGER.get().unwrap().clone();
         vma_manager.activate();
 
         vma_manager
@@ -139,7 +140,7 @@ mod tests {
     fn test_cow() {
         // Initialize the VM system to register page fault handler
         crate::vm::init();
-        let vma_manager = crate::vm::VMA_MANAGER.get().unwrap().clone();
+        let vma_manager = VMA_MANAGER.get().unwrap().clone();
         vma_manager.activate();
 
         // 1. Allocate a page and write initial data

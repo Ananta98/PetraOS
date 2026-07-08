@@ -15,7 +15,7 @@ pub fn init() {
 
 /// Fallback executable paths probed for the init process, in order.
 ///
-/// Matches the Linux v6.19 `kernel_init()` probe sequence: 
+/// Matches the Linux v6.19 `kernel_init()` probe sequence:
 /// `/sbin/init` → `/etc/init` → `/bin/init` → `/bin/sh`.
 const DEFAULT_INIT_EXEC_PATHS: &[&str] = &["/sbin/init", "/etc/init", "/bin/init", "/bin/sh"];
 

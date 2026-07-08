@@ -1,11 +1,11 @@
-use crate::proc::elf::{load_elf_image, LoadedElf};
+use crate::proc::elf::{LoadedElf, load_elf_image};
 use crate::proc::pid_table::{PROCESS_TABLE, Pid};
 use crate::vm::vma::VmaManager;
 use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-use ostd::sync::SpinLock;
 use ostd::Error;
+use ostd::sync::SpinLock;
 
 // ---------------------------------------------------------------------------
 // ProcessState

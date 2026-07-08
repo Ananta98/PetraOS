@@ -115,9 +115,9 @@ impl VmaManager {
 #[cfg(ktest)]
 mod tests {
     use super::*;
+    use crate::vm::VMA_MANAGER;
     use alloc::sync::Arc;
     use ostd::prelude::ktest;
-    use crate::vm::VMA_MANAGER;
 
     #[ktest]
     fn test_mprotect_perfect_match() {
