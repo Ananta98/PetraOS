@@ -117,11 +117,12 @@ mod tests {
     use super::*;
     use alloc::sync::Arc;
     use ostd::prelude::ktest;
+    use crate::vm::VMA_MANAGER;
 
     #[ktest]
     fn test_mprotect_perfect_match() {
         crate::vm::init();
-        let vma_manager = crate::vm::VMA_MANAGER.get().unwrap().clone();
+        let vma_manager = VMA_MANAGER.get().unwrap().clone();
         vma_manager.activate();
 
         // Map a 1-page RW region
@@ -147,7 +148,7 @@ mod tests {
     #[ktest]
     fn test_mprotect_split_middle() {
         crate::vm::init();
-        let vma_manager = crate::vm::VMA_MANAGER.get().unwrap().clone();
+        let vma_manager = VMA_MANAGER.get().unwrap().clone();
         vma_manager.activate();
 
         // Map a 3-page RW region from 0x70000 to 0x73000
@@ -185,7 +186,7 @@ mod tests {
     #[ktest]
     fn test_mprotect_split_left_and_right() {
         crate::vm::init();
-        let vma_manager = crate::vm::VMA_MANAGER.get().unwrap().clone();
+        let vma_manager = VMA_MANAGER.get().unwrap().clone();
         vma_manager.activate();
 
         // Map a 2-page RW region from 0x80000 to 0x82000
