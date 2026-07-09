@@ -112,6 +112,48 @@ impl InodeOps for RamfsInode {
             inner: self.inner.clone(),
         }))
     }
+
+    fn as_any(&self) -> &dyn core::any::Any {
+        self
+    }
+
+    fn unlink(&self, name: &str) -> Result<()> {
+        let mut inner = self.inner.lock();
+        if inner.metadata.file_type != FileType::Directory {
+            return Err(Error::InvalidArgs);
+        }
+        if inner.entries.remove(name).is_some() {
+            Ok(())
+        } else {
+            Err(Error::InvalidArgs)
+        }
+    }
+
+    fn rename(&self, old_name: &str, new_parent: &Arc<dyn InodeOps>, new_name: &str) -> Result<()> {
+        let mut inner = self.inner.lock();
+        if inner.metadata.file_type != FileType::Directory {
+            return Err(Error::InvalidArgs);
+        }
+        let child = inner.entries.remove(old_name).ok_or(Error::InvalidArgs)?;
+        
+        let new_parent_any = new_parent.as_any();
+        if let Some(target_parent) = new_parent_any.downcast_ref::<RamfsInode>() {
+            let mut target_inner = target_parent.inner.lock();
+            if target_inner.metadata.file_type != FileType::Directory {
+                inner.entries.insert(String::from(old_name), child); // restore
+                return Err(Error::InvalidArgs);
+            }
+            if target_inner.entries.contains_key(new_name) {
+                inner.entries.insert(String::from(old_name), child); // restore
+                return Err(Error::InvalidArgs);
+            }
+            target_inner.entries.insert(String::from(new_name), child);
+            Ok(())
+        } else {
+            inner.entries.insert(String::from(old_name), child); // restore
+            Err(Error::InvalidArgs)
+        }
+    }
 }
 
 pub struct RamfsFile {

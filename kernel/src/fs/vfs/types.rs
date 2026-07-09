@@ -67,6 +67,15 @@ pub trait InodeOps: Send + Sync {
 
     /// Open a file descriptor, producing file operations.
     fn open(&self, flags: u32) -> Result<Box<dyn FileOps>>;
+
+    /// Get the dyn Any reference to the concrete type.
+    fn as_any(&self) -> &dyn core::any::Any;
+
+    /// Remove a directory entry by name.
+    fn unlink(&self, name: &str) -> Result<()>;
+
+    /// Rename a directory entry.
+    fn rename(&self, old_name: &str, new_parent: &Arc<dyn InodeOps>, new_name: &str) -> Result<()>;
 }
 
 /// Interface for open file operations, analogous to `file_operations` in Linux.
