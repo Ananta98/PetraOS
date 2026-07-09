@@ -1,9 +1,12 @@
+use crate::fs::vfs::SeekFrom;
+use crate::fs::fd_table::FdTable;
 use crate::proc::elf::{LoadedElf, load_elf_image};
 use crate::proc::pid_table::{PROCESS_TABLE, Pid};
 use crate::vm::vma::VmaManager;
 use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
+use alloc::collections::BTreeMap;
 use ostd::Error;
 use ostd::sync::SpinLock;
 
@@ -67,6 +70,9 @@ pub struct Process {
     /// Short process name — the basename of the executable path
     /// (analogous to `comm` / `TASK_COMM_LEN` in Linux).
     name: String,
+
+    /// File descriptor table mapping file descriptor numbers to open files.
+    pub(crate) fd_table: Arc<SpinLock<FdTable>>,
 }
 
 // ---------------------------------------------------------------------------
@@ -92,6 +98,7 @@ impl Process {
             exit_code: 0,
             vm,
             name: String::from(name),
+            fd_table: Arc::new(SpinLock::new(FdTable::new())),
         };
 
         PROCESS_TABLE.register_process(proc.clone());
@@ -114,6 +121,7 @@ impl Process {
             vm,
             // Inherit parent name; execve will overwrite this later.
             name: parent.name.clone(),
+            fd_table: Arc::new(SpinLock::new(parent.fd_table.lock().clone())),
         };
 
         PROCESS_TABLE.register_process(child.clone());
@@ -295,6 +303,58 @@ impl Process {
             PROCESS_TABLE.update_process(self.pid, |p| p.state = ProcessState::Ready);
         }
     }
+
+    // -----------------------------------------------------------------------
+    // File descriptor operations
+    // -----------------------------------------------------------------------
+
+    /// Open a file at `path` with `flags` and `mode`, and allocate a new file descriptor.
+    pub fn open(&self, path: &str, flags: u32, mode: u32) -> Result<i32, Error> {
+        self.fd_table.lock().open(path, flags, mode)
+    }
+
+    /// Close the file descriptor `fd`.
+    pub fn close(&self, fd: i32) -> Result<(), Error> {
+        self.fd_table.lock().close(fd)
+    }
+
+    /// Duplicate the file descriptor `oldfd`, returning a new descriptor.
+    pub fn dup(&self, oldfd: i32) -> Result<i32, Error> {
+        self.fd_table.lock().dup(oldfd)
+    }
+
+    /// Duplicate `oldfd` onto `newfd`. If `newfd` is already open, it is silently closed.
+    pub fn dup2(&self, oldfd: i32, newfd: i32) -> Result<i32, Error> {
+        self.fd_table.lock().dup2(oldfd, newfd)
+    }
+
+    /// Read up to `buf.len()` bytes from file descriptor `fd` into `buf`.
+    pub fn read(&self, fd: i32, buf: &mut [u8]) -> Result<usize, Error> {
+        self.fd_table.lock().read(fd, buf)
+    }
+
+    /// Write up to `buf.len()` bytes from `buf` to file descriptor `fd`.
+    pub fn write(&self, fd: i32, buf: &[u8]) -> Result<usize, Error> {
+        self.fd_table.lock().write(fd, buf)
+    }
+
+    /// Reposition the read/write offset of the file descriptor `fd`.
+    pub fn lseek(&self, fd: i32, offset: isize, whence: i32) -> Result<usize, Error> {
+        self.fd_table.lock().lseek(fd, offset, whence)
+    }
+
+    /// Get the current process executing in the current task context, or fall back to PID 1 (init).
+    pub fn current() -> Process {
+        if let Some(task) = ostd::task::Task::current() {
+            if let Some(task_data) = task.data().downcast_ref::<crate::proc::scheduler::TaskData>() {
+                if let Some(proc) = PROCESS_TABLE.get_process(task_data.pid) {
+                    return proc;
+                }
+            }
+        }
+        // Fallback: return PID 1 (init).
+        PROCESS_TABLE.get_process(Pid::from_raw(1)).expect("init process not found")
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -364,5 +424,67 @@ mod tests {
 
         // ── 6. wait_child on empty list returns None ────────────────────────
         assert!(init.wait_child(None).is_none());
+    }
+
+    #[ktest]
+    fn test_file_descriptors() {
+        use crate::fs::ramfs::RamFs;
+        use crate::fs::vfs::{register_filesystem, init_root_fs};
+
+        // 1. Initialize filesystem if not already done
+        let ramfs = Arc::new(RamFs);
+        let _ = register_filesystem(ramfs);
+        let _ = init_root_fs("ramfs", &[]);
+
+        // 2. Create process
+        let vm = vm();
+        let proc = Process::new(vm, "test_fd_proc");
+
+        // 3. Open a file for writing with O_CREAT
+        // 0x40 is O_CREAT. Mode 0o644.
+        let fd = proc.open("/test_fd.txt", 0x40, 0o644).expect("open failed");
+        assert!(fd >= 0);
+
+        // 4. Write some bytes
+        let data = b"hello world";
+        let written = proc.write(fd, data).expect("write failed");
+        assert_eq!(written, data.len());
+
+        // 5. Seek back to the beginning
+        let offset = proc.lseek(fd, 0, 0).expect("lseek failed");
+        assert_eq!(offset, 0);
+
+        // 6. Read bytes back
+        let mut buf = [0u8; 11];
+        let read_len = proc.read(fd, &mut buf).expect("read failed");
+        assert_eq!(read_len, 11);
+        assert_eq!(&buf, data);
+
+        // 7. Dup the file descriptor
+        let fd2 = proc.dup(fd).expect("dup failed");
+        assert_ne!(fd, fd2);
+
+        // 8. Seek on first fd, read from second fd (shared offset test)
+        let _ = proc.lseek(fd, 6, 0).expect("lseek failed");
+        let mut buf2 = [0u8; 5];
+        let read_len2 = proc.read(fd2, &mut buf2).expect("read failed");
+        assert_eq!(read_len2, 5);
+        assert_eq!(&buf2, b"world");
+
+        // 9. Dup2 test
+        let fd3 = proc.dup2(fd, 100).expect("dup2 failed");
+        assert_eq!(fd3, 100);
+        let offset3 = proc.lseek(100, 0, 1).expect("lseek current failed"); // seek current to verify offset is shared (should be 11)
+        assert_eq!(offset3, 11);
+
+        // 10. Close all
+        proc.close(fd).expect("close fd failed");
+        proc.close(fd2).expect("close fd2 failed");
+        proc.close(fd3).expect("close fd3 failed");
+
+        // 11. Verify they are closed
+        assert!(proc.read(fd, &mut buf).is_err());
+        assert!(proc.read(fd2, &mut buf).is_err());
+        assert!(proc.read(fd3, &mut buf).is_err());
     }
 }

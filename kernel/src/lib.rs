@@ -3,6 +3,7 @@
 
 extern crate alloc;
 
+mod fs;
 mod proc;
 mod vm;
 
