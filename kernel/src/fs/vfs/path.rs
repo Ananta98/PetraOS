@@ -1,8 +1,8 @@
-use crate::fs::vfs::types::{Dentry, Result, FileType};
-use crate::fs::vfs::mount::{ROOT_DENTRY, CWD_DENTRY};
 use crate::fs::vfs::dcache::DENTRY_CACHE;
-use alloc::sync::Arc;
+use crate::fs::vfs::mount::{CWD_DENTRY, ROOT_DENTRY};
+use crate::fs::vfs::types::{Dentry, FileType, Result};
 use alloc::string::String;
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 use ostd::Error;
 
@@ -19,9 +19,17 @@ fn resolve_path_ext(path: &str, symlink_depth: usize) -> Result<Arc<Dentry>> {
     }
 
     let mut current = if path.starts_with('/') {
-        ROOT_DENTRY.lock().as_ref().cloned().ok_or(Error::InvalidArgs)?
+        ROOT_DENTRY
+            .lock()
+            .as_ref()
+            .cloned()
+            .ok_or(Error::InvalidArgs)?
     } else {
-        CWD_DENTRY.lock().as_ref().cloned().ok_or(Error::InvalidArgs)?
+        CWD_DENTRY
+            .lock()
+            .as_ref()
+            .cloned()
+            .ok_or(Error::InvalidArgs)?
     };
 
     let components: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
@@ -68,25 +76,27 @@ fn resolve_path_ext(path: &str, symlink_depth: usize) -> Result<Arc<Dentry>> {
                 }
 
                 // Check cache first
-                let next = if let Some(cached_dentry) = DENTRY_CACHE.lookup(metadata.inode_num, name) {
-                    cached_dentry
-                } else {
-                    // Lock children, lookup inode, populate children cache, and drop locks.
-                    let child = {
-                        let mut children = current.children.lock();
-                        if let Some(child) = children.get(name) {
-                            child.clone()
-                        } else {
-                            let child_inode = current.inode.lookup(name)?;
-                            let child_dentry = Dentry::new(name, child_inode, Some(Arc::downgrade(&current)));
-                            children.insert(String::from(name), child_dentry.clone());
-                            child_dentry
-                        }
+                let next =
+                    if let Some(cached_dentry) = DENTRY_CACHE.lookup(metadata.inode_num, name) {
+                        cached_dentry
+                    } else {
+                        // Lock children, lookup inode, populate children cache, and drop locks.
+                        let child = {
+                            let mut children = current.children.lock();
+                            if let Some(child) = children.get(name) {
+                                child.clone()
+                            } else {
+                                let child_inode = current.inode.lookup(name)?;
+                                let child_dentry =
+                                    Dentry::new(name, child_inode, Some(Arc::downgrade(&current)));
+                                children.insert(String::from(name), child_dentry.clone());
+                                child_dentry
+                            }
+                        };
+                        // Insert to global dcache AFTER releasing the children spinlock to prevent lock ordering deadlocks
+                        DENTRY_CACHE.insert(metadata.inode_num, name, child.clone());
+                        child
                     };
-                    // Insert to global dcache AFTER releasing the children spinlock to prevent lock ordering deadlocks
-                    DENTRY_CACHE.insert(metadata.inode_num, name, child.clone());
-                    child
-                };
 
                 let child_metadata = next.inode.metadata()?;
                 if child_metadata.file_type == FileType::Symlink {
@@ -129,7 +139,11 @@ fn resolve_path_from(start: Arc<Dentry>, path: &str, symlink_depth: usize) -> Re
     }
 
     let mut current = if path.starts_with('/') {
-        ROOT_DENTRY.lock().as_ref().cloned().ok_or(Error::InvalidArgs)?
+        ROOT_DENTRY
+            .lock()
+            .as_ref()
+            .cloned()
+            .ok_or(Error::InvalidArgs)?
     } else {
         start
     };
@@ -175,23 +189,25 @@ fn resolve_path_from(start: Arc<Dentry>, path: &str, symlink_depth: usize) -> Re
                 }
 
                 // Check cache first
-                let next = if let Some(cached_dentry) = DENTRY_CACHE.lookup(metadata.inode_num, name) {
-                    cached_dentry
-                } else {
-                    let child = {
-                        let mut children = current.children.lock();
-                        if let Some(child) = children.get(name) {
-                            child.clone()
-                        } else {
-                            let child_inode = current.inode.lookup(name)?;
-                            let child_dentry = Dentry::new(name, child_inode, Some(Arc::downgrade(&current)));
-                            children.insert(String::from(name), child_dentry.clone());
-                            child_dentry
-                        }
+                let next =
+                    if let Some(cached_dentry) = DENTRY_CACHE.lookup(metadata.inode_num, name) {
+                        cached_dentry
+                    } else {
+                        let child = {
+                            let mut children = current.children.lock();
+                            if let Some(child) = children.get(name) {
+                                child.clone()
+                            } else {
+                                let child_inode = current.inode.lookup(name)?;
+                                let child_dentry =
+                                    Dentry::new(name, child_inode, Some(Arc::downgrade(&current)));
+                                children.insert(String::from(name), child_dentry.clone());
+                                child_dentry
+                            }
+                        };
+                        DENTRY_CACHE.insert(metadata.inode_num, name, child.clone());
+                        child
                     };
-                    DENTRY_CACHE.insert(metadata.inode_num, name, child.clone());
-                    child
-                };
 
                 let child_metadata = next.inode.metadata()?;
                 if child_metadata.file_type == FileType::Symlink {

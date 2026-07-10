@@ -1,3 +1,4 @@
+use crate::proc::pid_table::Pid;
 use alloc::boxed::Box;
 use alloc::collections::{BTreeMap, VecDeque};
 use alloc::sync::Arc;
@@ -9,7 +10,6 @@ use ostd::task::scheduler::info::CommonSchedInfo;
 use ostd::task::scheduler::{EnqueueFlags, LocalRunQueue, Scheduler, UpdateFlags};
 use ostd::task::{Task, disable_preempt};
 use ostd::util::id_set::Id;
-use crate::proc::pid_table::Pid;
 
 /// Linux/Unix priority-to-weight conversion table for nice values [-20 .. 19].
 const SCHED_NICE_TO_WEIGHT: [u64; 40] = [
@@ -319,9 +319,9 @@ pub fn init() {
 #[cfg(ktest)]
 mod tests {
     use super::*;
+    use crate::proc::pid_table::Pid;
     use ostd::prelude::*;
     use ostd::task::TaskOptions;
-    use crate::proc::pid_table::Pid;
 
     #[ktest]
     fn test_fair_runqueue_uses_eevdf_deadline_order() {
@@ -329,14 +329,20 @@ mod tests {
 
         let task_fast = Arc::new(
             TaskOptions::new(|| {})
-                .data(TaskData::new(SchedClass::Fair { nice: 0 }, Pid::from_raw(1)))
+                .data(TaskData::new(
+                    SchedClass::Fair { nice: 0 },
+                    Pid::from_raw(1),
+                ))
                 .build()
                 .unwrap(),
         );
 
         let task_slow = Arc::new(
             TaskOptions::new(|| {})
-                .data(TaskData::new(SchedClass::Fair { nice: 3 }, Pid::from_raw(1)))
+                .data(TaskData::new(
+                    SchedClass::Fair { nice: 3 },
+                    Pid::from_raw(1),
+                ))
                 .build()
                 .unwrap(),
         );
@@ -357,13 +363,19 @@ mod tests {
 
         let current = Arc::new(
             TaskOptions::new(|| {})
-                .data(TaskData::new(SchedClass::Fair { nice: 0 }, Pid::from_raw(1)))
+                .data(TaskData::new(
+                    SchedClass::Fair { nice: 0 },
+                    Pid::from_raw(1),
+                ))
                 .build()
                 .unwrap(),
         );
         let newcomer = Arc::new(
             TaskOptions::new(|| {})
-                .data(TaskData::new(SchedClass::Fair { nice: 0 }, Pid::from_raw(1)))
+                .data(TaskData::new(
+                    SchedClass::Fair { nice: 0 },
+                    Pid::from_raw(1),
+                ))
                 .build()
                 .unwrap(),
         );

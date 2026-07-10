@@ -135,7 +135,7 @@ impl InodeOps for RamfsInode {
             return Err(Error::InvalidArgs);
         }
         let child = inner.entries.remove(old_name).ok_or(Error::InvalidArgs)?;
-        
+
         let new_parent_any = new_parent.as_any();
         if let Some(target_parent) = new_parent_any.downcast_ref::<RamfsInode>() {
             let mut target_inner = target_parent.inner.lock();

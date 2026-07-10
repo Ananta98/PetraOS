@@ -1,12 +1,12 @@
-use crate::fs::vfs::SeekFrom;
 use crate::fs::fd_table::FdTable;
+use crate::fs::vfs::SeekFrom;
 use crate::proc::elf::{LoadedElf, load_elf_image};
 use crate::proc::pid_table::{PROCESS_TABLE, Pid};
 use crate::vm::vma::VmaManager;
+use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-use alloc::collections::BTreeMap;
 use ostd::Error;
 use ostd::sync::SpinLock;
 
@@ -346,14 +346,19 @@ impl Process {
     /// Get the current process executing in the current task context, or fall back to PID 1 (init).
     pub fn current() -> Process {
         if let Some(task) = ostd::task::Task::current() {
-            if let Some(task_data) = task.data().downcast_ref::<crate::proc::scheduler::TaskData>() {
+            if let Some(task_data) = task
+                .data()
+                .downcast_ref::<crate::proc::scheduler::TaskData>()
+            {
                 if let Some(proc) = PROCESS_TABLE.get_process(task_data.pid) {
                     return proc;
                 }
             }
         }
         // Fallback: return PID 1 (init).
-        PROCESS_TABLE.get_process(Pid::from_raw(1)).expect("init process not found")
+        PROCESS_TABLE
+            .get_process(Pid::from_raw(1))
+            .expect("init process not found")
     }
 }
 
@@ -429,7 +434,7 @@ mod tests {
     #[ktest]
     fn test_file_descriptors() {
         use crate::fs::ramfs::RamFs;
-        use crate::fs::vfs::{register_filesystem, init_root_fs};
+        use crate::fs::vfs::{init_root_fs, register_filesystem};
 
         // 1. Initialize filesystem if not already done
         let ramfs = Arc::new(RamFs);

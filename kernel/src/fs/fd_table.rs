@@ -1,9 +1,9 @@
 use crate::fs::vfs::{FileOps, SeekFrom};
 use alloc::boxed::Box;
-use alloc::sync::Arc;
-use ostd::sync::SpinLock;
-use ostd::Error;
 use alloc::collections::BTreeMap;
+use alloc::sync::Arc;
+use ostd::Error;
+use ostd::sync::SpinLock;
 
 /// An open file description in the VFS.
 /// Contains the underlying `FileOps` implementation, the current offset,
@@ -62,7 +62,8 @@ impl FdTable {
         let dentry = match crate::fs::vfs::resolve_path(path) {
             Ok(d) => d,
             Err(e) => {
-                if (flags & 0x40) != 0 { // O_CREAT
+                if (flags & 0x40) != 0 {
+                    // O_CREAT
                     let (parent_path, filename) = Self::split_path(path);
                     let parent_dentry = crate::fs::vfs::resolve_path(parent_path)?;
                     parent_dentry.inode.create(filename, mode)?;
@@ -114,7 +115,9 @@ impl FdTable {
     pub fn read(&self, fd: i32, buf: &mut [u8]) -> Result<usize, Error> {
         let fd_entry = self.fds.get(&fd).cloned().ok_or(Error::InvalidArgs)?;
         let mut open_file = fd_entry.open_file.lock();
-        let OpenFile { file_ops, offset, .. } = &mut *open_file;
+        let OpenFile {
+            file_ops, offset, ..
+        } = &mut *open_file;
         let bytes_read = file_ops.read(buf, offset)?;
         Ok(bytes_read)
     }
@@ -123,7 +126,9 @@ impl FdTable {
     pub fn write(&self, fd: i32, buf: &[u8]) -> Result<usize, Error> {
         let fd_entry = self.fds.get(&fd).cloned().ok_or(Error::InvalidArgs)?;
         let mut open_file = fd_entry.open_file.lock();
-        let OpenFile { file_ops, offset, .. } = &mut *open_file;
+        let OpenFile {
+            file_ops, offset, ..
+        } = &mut *open_file;
         let bytes_written = file_ops.write(buf, offset)?;
         Ok(bytes_written)
     }
@@ -143,7 +148,11 @@ impl FdTable {
         };
         let fd_entry = self.fds.get(&fd).cloned().ok_or(Error::InvalidArgs)?;
         let mut open_file = fd_entry.open_file.lock();
-        let OpenFile { file_ops, offset: file_offset, .. } = &mut *open_file;
+        let OpenFile {
+            file_ops,
+            offset: file_offset,
+            ..
+        } = &mut *open_file;
         let new_offset = file_ops.seek(pos, file_offset)?;
         Ok(new_offset)
     }

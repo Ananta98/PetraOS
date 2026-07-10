@@ -126,7 +126,12 @@ impl InodeOps for DevfsInode {
         Err(Error::InvalidArgs)
     }
 
-    fn rename(&self, _old_name: &str, _new_parent: &Arc<dyn InodeOps>, _new_name: &str) -> Result<()> {
+    fn rename(
+        &self,
+        _old_name: &str,
+        _new_parent: &Arc<dyn InodeOps>,
+        _new_name: &str,
+    ) -> Result<()> {
         Err(Error::InvalidArgs)
     }
 }
@@ -221,6 +226,40 @@ pub fn register_device(
     Ok(())
 }
 
+pub fn unregister_device(path: &str) -> Result<()> {
+    let root = get_devfs_root();
+    let mut current = root;
+    let parts: Vec<&str> = path.split('/').filter(|p| !p.is_empty()).collect();
+    if parts.is_empty() {
+        return Err(Error::InvalidArgs);
+    }
+
+    for (i, part) in parts.iter().enumerate() {
+        let is_last = i == parts.len() - 1;
+        let mut inner = current.inner.lock();
+        if inner.metadata.file_type != FileType::Directory {
+            return Err(Error::InvalidArgs);
+        }
+
+        if is_last {
+            if inner.entries.remove(*part).is_some() {
+                break;
+            } else {
+                return Err(Error::InvalidArgs);
+            }
+        } else {
+            let next = inner
+                .entries
+                .get(*part)
+                .cloned()
+                .ok_or(Error::InvalidArgs)?;
+            drop(inner);
+            current = next;
+        }
+    }
+    Ok(())
+}
+
 pub struct NullInode;
 
 impl InodeOps for NullInode {
@@ -257,7 +296,12 @@ impl InodeOps for NullInode {
     fn unlink(&self, _name: &str) -> Result<()> {
         Err(Error::InvalidArgs)
     }
-    fn rename(&self, _old_name: &str, _new_parent: &Arc<dyn InodeOps>, _new_name: &str) -> Result<()> {
+    fn rename(
+        &self,
+        _old_name: &str,
+        _new_parent: &Arc<dyn InodeOps>,
+        _new_name: &str,
+    ) -> Result<()> {
         Err(Error::InvalidArgs)
     }
 }
@@ -315,7 +359,12 @@ impl InodeOps for ZeroInode {
     fn unlink(&self, _name: &str) -> Result<()> {
         Err(Error::InvalidArgs)
     }
-    fn rename(&self, _old_name: &str, _new_parent: &Arc<dyn InodeOps>, _new_name: &str) -> Result<()> {
+    fn rename(
+        &self,
+        _old_name: &str,
+        _new_parent: &Arc<dyn InodeOps>,
+        _new_name: &str,
+    ) -> Result<()> {
         Err(Error::InvalidArgs)
     }
 }
@@ -383,7 +432,11 @@ mod tests {
         let devfs = Arc::new(DevFs);
         register_filesystem(devfs).unwrap();
 
-        let root = crate::fs::vfs::ROOT_DENTRY.lock().as_ref().cloned().unwrap();
+        let root = crate::fs::vfs::ROOT_DENTRY
+            .lock()
+            .as_ref()
+            .cloned()
+            .unwrap();
         root.inode.mkdir("dev", 0o755).unwrap();
 
         mount("devfs", "/dev", 0, &[]).unwrap();
@@ -412,5 +465,12 @@ mod tests {
         let zero_read_len = zero_ops.read(&mut zero_buf, &mut zero_read_offset).unwrap();
         assert_eq!(zero_read_len, 5);
         assert_eq!(zero_buf, [0u8; 5]);
+
+        // Clean up to keep other tests isolated and prevent double-registration errors
+        crate::fs::vfs::unregister_filesystem("devfs").unwrap();
+        crate::fs::vfs::unregister_filesystem("ramfs").unwrap();
+        *crate::fs::vfs::ROOT_DENTRY.lock() = None;
+        *crate::fs::vfs::CWD_DENTRY.lock() = None;
+        crate::fs::vfs::DENTRY_CACHE.clear();
     }
 }

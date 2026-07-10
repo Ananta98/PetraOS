@@ -1,18 +1,24 @@
-pub mod types;
 pub mod dcache;
 pub mod mount;
 pub mod path;
+pub mod types;
 
-pub use types::{FileType, Metadata, DirEntry, SeekFrom, InodeOps, FileOps, Dentry, SuperBlock, FileSystem, Result};
-pub use mount::{register_filesystem, unregister_filesystem, get_filesystem, init_root_fs, mount, ROOT_DENTRY, CWD_DENTRY};
-pub use path::resolve_path;
 pub use dcache::DENTRY_CACHE;
+pub use mount::{
+    CWD_DENTRY, ROOT_DENTRY, get_filesystem, init_root_fs, mount, register_filesystem,
+    unregister_filesystem,
+};
+pub use path::resolve_path;
+pub use types::{
+    Dentry, DirEntry, FileOps, FileSystem, FileType, InodeOps, Metadata, Result, SeekFrom,
+    SuperBlock,
+};
 
 #[cfg(ktest)]
 mod tests {
-    use super::types::{FileType, SeekFrom};
-    use super::mount::{register_filesystem, init_root_fs, mount, ROOT_DENTRY};
+    use super::mount::{ROOT_DENTRY, init_root_fs, mount, register_filesystem};
     use super::path::resolve_path;
+    use super::types::{FileType, SeekFrom};
     use crate::fs::ramfs::RamFs;
     use alloc::sync::Arc;
     use ostd::prelude::{ktest, println};
@@ -20,7 +26,7 @@ mod tests {
     #[ktest]
     fn test_vfs_full() {
         println!("[VFS TEST] Starting test_vfs_full");
-        
+
         // 1. Register and initialize root fs
         let ramfs = Arc::new(RamFs);
         println!("[VFS TEST] Registering ramfs");
@@ -37,7 +43,7 @@ mod tests {
         let etc_inode = root.inode.mkdir("etc", 0o755).unwrap();
         println!("[VFS TEST] Creating /etc/resolv.conf");
         let file_inode = etc_inode.create("resolv.conf", 0o644).unwrap();
-        
+
         // Write to file
         println!("[VFS TEST] Opening /etc/resolv.conf for writing");
         let mut file_ops = file_inode.open(0).unwrap();
@@ -79,7 +85,9 @@ mod tests {
         let mut test_ops = test_inode.open(0).unwrap();
         let mut test_offset = 0;
         println!("[VFS TEST] Writing to /mnt/test.txt");
-        test_ops.write(b"hello mountpoint", &mut test_offset).unwrap();
+        test_ops
+            .write(b"hello mountpoint", &mut test_offset)
+            .unwrap();
 
         // Resolve /mnt/test.txt
         println!("[VFS TEST] Resolving path /mnt/test.txt");
@@ -104,7 +112,7 @@ mod tests {
         println!("[VFS TEST] Resolving /etc/hosts_abs");
         let sym_abs_resolved = resolve_path("/etc/hosts_abs").unwrap();
         assert_eq!(sym_abs_resolved.name, "resolv.conf");
-        
+
         println!("[VFS TEST] All VFS tests passed successfully!");
     }
 }
