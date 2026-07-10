@@ -41,7 +41,7 @@ pub fn register_block_device(name: &str, device: Arc<dyn BlockDevice>) -> Result
 }
 
 pub struct BlockDeviceInode {
-    device: Arc<dyn BlockDevice>,
+    pub device: Arc<dyn BlockDevice>,
 }
 
 impl BlockDeviceInode {

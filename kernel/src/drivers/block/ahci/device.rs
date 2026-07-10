@@ -1,3 +1,4 @@
+use super::command;
 /// AHCI Block Device
 ///
 /// Provides the `AhciBlockDevice` type that implements the `BlockDevice` trait,
@@ -9,7 +10,6 @@ use ostd::io::IoMem;
 use ostd::mm::VmIo;
 use ostd::mm::dma::DmaCoherent;
 use ostd::sync::SpinLock;
-use super::command;
 
 /// An AHCI block device that can be backed by real hardware or simulated storage.
 pub struct AhciBlockDevice {

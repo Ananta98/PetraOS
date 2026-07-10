@@ -65,6 +65,10 @@ impl DevfsInode {
             })),
         })
     }
+
+    pub fn device(&self) -> Option<Arc<dyn InodeOps>> {
+        self.inner.lock().device.clone()
+    }
 }
 
 impl InodeOps for DevfsInode {

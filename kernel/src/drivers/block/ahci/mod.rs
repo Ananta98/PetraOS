@@ -35,16 +35,11 @@ fn init_physical_port(abar: &IoMem, port: usize) -> Result<Arc<AhciBlockDevice>,
     hba::init_port(abar, port, cmd_list.daddr() as u64, fis.daddr() as u64)?;
 
     // Query device geometry using IDENTIFY DEVICE
-    let (num_blocks, block_size) = match command::identify_device(
-        abar,
-        port,
-        &cmd_list,
-        &cmd_table,
-        &dma_buf,
-    ) {
-        Ok(identity) => (identity.sector_count as usize, identity.sector_size),
-        Err(_) => (1024, 512), // Fallback defaults
-    };
+    let (num_blocks, block_size) =
+        match command::identify_device(abar, port, &cmd_list, &cmd_table, &dma_buf) {
+            Ok(identity) => (identity.sector_count as usize, identity.sector_size),
+            Err(_) => (1024, 512), // Fallback defaults
+        };
 
     let name = alloc::format!("ahci-port{}", port);
     Ok(Arc::new(AhciBlockDevice {
