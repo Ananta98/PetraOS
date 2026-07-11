@@ -2,6 +2,7 @@ pub mod elf;
 pub mod pid_table;
 pub mod process;
 pub mod scheduler;
+pub mod user;
 
 use crate::proc::elf::LoadedElf;
 use crate::vm::VMA_MANAGER;

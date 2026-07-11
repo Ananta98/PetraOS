@@ -57,9 +57,13 @@ pub fn load_elf_image(vm: &Arc<VmaManager>, elf_image: &[u8]) -> Result<LoadedEl
         let map_end = align_up(segment_end)?;
         let map_size = map_end.checked_sub(map_start).ok_or(Error::InvalidArgs)?;
 
-        vm.map_region(map_start, map_size, page_flags_from_elf(ph))?;
+        let original_flags = page_flags_from_elf(ph);
+        vm.map_region(map_start, map_size, original_flags | PageFlags::W)?;
         if file_size > 0 {
             vm.copy_to_user(segment_start, &elf_image[file_offset..file_end])?;
+        }
+        if !original_flags.contains(PageFlags::W) {
+            vm.mprotect(map_start, map_size, original_flags)?;
         }
 
         load_start = cmp::min(load_start, map_start);
