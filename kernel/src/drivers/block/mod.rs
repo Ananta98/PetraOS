@@ -6,6 +6,10 @@ use alloc::sync::Arc;
 use alloc::vec::Vec;
 pub mod ahci;
 
+pub fn init() {
+    ahci::init();
+}
+
 pub trait BlockDevice: Send + Sync {
     fn block_size(&self) -> usize;
     fn num_blocks(&self) -> usize;

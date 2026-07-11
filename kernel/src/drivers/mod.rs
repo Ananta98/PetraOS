@@ -80,7 +80,8 @@ pub fn unregister_device(name: &str) -> Result<(), ostd::Error> {
 }
 
 pub fn init() {
-    block::ahci::init();
+    block::init();
+    char::init();
 }
 
 #[cfg(ktest)]
