@@ -6,11 +6,13 @@ extern crate alloc;
 mod drivers;
 mod fs;
 mod proc;
+mod syscall;
 mod vm;
 
 #[ostd::main]
 fn kernel_main() {
     vm::init();
     drivers::init();
+    fs::init().expect("failed to initialize filesystem");
     proc::init();
 }
