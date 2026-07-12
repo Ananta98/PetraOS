@@ -58,9 +58,9 @@ impl VmaManager {
         for (_, region) in regions.iter() {
             let region_end = region.start + region.size;
             if region.start >= end_addr || region_end <= start_addr {
-                continue; // No overlap
+                continue;
             }
-            overlapping_vmas.push(VmaRegion::new(region.start, region.size, region.flags));
+            overlapping_vmas.push(region.clone());
         }
 
         if overlapping_vmas.is_empty() {
@@ -80,6 +80,9 @@ impl VmaManager {
                         size: vma.size,
                         flags: new_flags,
                         guard_size: vma.guard_size,
+                        file_backing: vma.file_backing.clone(),
+                        file_offset: vma.file_offset,
+                        is_shared: vma.is_shared,
                     },
                 );
             } else if vma.start < start_addr && end > end_addr {
@@ -91,6 +94,9 @@ impl VmaManager {
                         size: start_addr - vma.start,
                         flags: vma.flags,
                         guard_size: vma.guard_size,
+                        file_backing: vma.file_backing.clone(),
+                        file_offset: vma.file_offset,
+                        is_shared: vma.is_shared,
                     },
                 );
                 regions.insert(
@@ -100,6 +106,9 @@ impl VmaManager {
                         size,
                         flags: new_flags,
                         guard_size: 0,
+                        file_backing: vma.file_backing.clone(),
+                        file_offset: vma.file_offset + (start_addr - vma.start),
+                        is_shared: vma.is_shared,
                     },
                 );
                 regions.insert(
@@ -109,6 +118,9 @@ impl VmaManager {
                         size: end - end_addr,
                         flags: vma.flags,
                         guard_size: 0,
+                        file_backing: vma.file_backing.clone(),
+                        file_offset: vma.file_offset + (end_addr - vma.start),
+                        is_shared: vma.is_shared,
                     },
                 );
             } else if vma.start < start_addr && end <= end_addr {
@@ -120,6 +132,9 @@ impl VmaManager {
                         size: start_addr - vma.start,
                         flags: vma.flags,
                         guard_size: vma.guard_size,
+                        file_backing: vma.file_backing.clone(),
+                        file_offset: vma.file_offset,
+                        is_shared: vma.is_shared,
                     },
                 );
                 regions.insert(
@@ -129,6 +144,9 @@ impl VmaManager {
                         size: end - start_addr,
                         flags: new_flags,
                         guard_size: 0,
+                        file_backing: vma.file_backing.clone(),
+                        file_offset: vma.file_offset + (start_addr - vma.start),
+                        is_shared: vma.is_shared,
                     },
                 );
             } else if vma.start >= start_addr && end > end_addr {
@@ -140,6 +158,9 @@ impl VmaManager {
                         size: end_addr - vma.start,
                         flags: new_flags,
                         guard_size: vma.guard_size,
+                        file_backing: vma.file_backing.clone(),
+                        file_offset: vma.file_offset,
+                        is_shared: vma.is_shared,
                     },
                 );
                 regions.insert(
@@ -149,6 +170,9 @@ impl VmaManager {
                         size: end - end_addr,
                         flags: vma.flags,
                         guard_size: 0,
+                        file_backing: vma.file_backing.clone(),
+                        file_offset: vma.file_offset + (end_addr - vma.start),
+                        is_shared: vma.is_shared,
                     },
                 );
             }
@@ -171,17 +195,14 @@ mod tests {
         let vma_manager = VMA_MANAGER.get().unwrap().clone();
         vma_manager.activate();
 
-        // Map a 1-page RW region
         vma_manager
             .map_region(0x60000, PAGE_SIZE, PageFlags::RW)
             .unwrap();
 
-        // Change to Read-Only
         vma_manager
             .mprotect(0x60000, PAGE_SIZE, PageFlags::R)
             .unwrap();
 
-        // Verify metadata
         let regions = vma_manager.regions.lock();
         let region = regions.get(&0x60000).unwrap();
         assert_eq!(region.flags, PageFlags::R);
@@ -197,17 +218,14 @@ mod tests {
         let vma_manager = VMA_MANAGER.get().unwrap().clone();
         vma_manager.activate();
 
-        // Map a 3-page RW region from 0x70000 to 0x73000
         vma_manager
             .map_region(0x70000, PAGE_SIZE * 3, PageFlags::RW)
             .unwrap();
 
-        // Protect only the middle page (0x71000) as Read-Only
         vma_manager
             .mprotect(0x71000, PAGE_SIZE, PageFlags::R)
             .unwrap();
 
-        // Verify split regions: [0x70000: RW, size=1], [0x71000: R, size=1], [0x72000: RW, size=1]
         let regions = vma_manager.regions.lock();
         assert_eq!(regions.len(), 3);
 
@@ -235,12 +253,10 @@ mod tests {
         let vma_manager = VMA_MANAGER.get().unwrap().clone();
         vma_manager.activate();
 
-        // Map a 2-page RW region from 0x80000 to 0x82000
         vma_manager
             .map_region(0x80000, PAGE_SIZE * 2, PageFlags::RW)
             .unwrap();
 
-        // Protect the first page (overlaps left side of VMA)
         vma_manager
             .mprotect(0x80000, PAGE_SIZE, PageFlags::R)
             .unwrap();

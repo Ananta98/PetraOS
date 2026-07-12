@@ -50,7 +50,33 @@ pub fn spawn_init_process() {
 
     for &path in DEFAULT_INIT_EXEC_PATHS {
         let executable_name = path.rfind('/').map_or(path, |i| &path[i + 1..]);
-        if let Ok(result) = try_load_init_exec(vm.clone(), path, executable_name) {
+        if let Ok((process, loaded)) =
+            try_load_init_exec(vm.clone(), path, executable_name)
+        {
+            let entry = loaded.entry;
+
+            // Set up the user-space stack (argv, envp, auxv per System V ABI).
+            let stack_ptr = crate::proc::user::setup_user_stack(
+                process.vm(),
+                &[path],
+                &[],
+                entry,
+            )
+            .expect("failed to setup user stack");
+
+            // Spawn the main thread.  Its body activates the process VM
+            // and enters user mode, executing the init program.
+            let mut process_for_thread = process.clone();
+            process
+                .spawn_thread("main", move || {
+                    let _ = crate::proc::user::run_process_user_mode(
+                        &mut process_for_thread,
+                        entry,
+                        stack_ptr,
+                    );
+                })
+                .expect("failed to spawn init thread");
+
             return;
         }
     }

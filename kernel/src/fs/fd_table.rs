@@ -167,6 +167,11 @@ impl FdTable {
         }
     }
 
+    /// Get a clone of the file descriptor entry for a given fd.
+    pub fn get_fd(&self, fd: i32) -> Result<FileDescriptor, Error> {
+        self.fds.get(&fd).cloned().ok_or(Error::InvalidArgs)
+    }
+
     fn alloc_fd(&self, start: i32) -> Result<i32, Error> {
         let mut fd = start;
         while self.fds.contains_key(&fd) {

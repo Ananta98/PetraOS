@@ -22,21 +22,6 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use ostd::Error;
 
-fn to_continue(result: Result<usize, Error>) -> SyscallResult {
-    match result {
-        Ok(value) => SyscallResult::Continue(value),
-        Err(error) => SyscallResult::Continue(-(error as isize) as usize),
-    }
-}
-
-fn to_continue_i32(result: Result<i32, Error>) -> SyscallResult {
-    to_continue(result.map(|value| value as usize))
-}
-
-fn to_continue_unit(result: Result<(), Error>) -> SyscallResult {
-    to_continue(result.map(|()| 0))
-}
-
 /// Helper to read a null-terminated string from user space.
 pub(crate) fn read_user_string(vm: &VmaManager, user_ptr: usize) -> Result<String, Error> {
     let mut buf = Vec::new();

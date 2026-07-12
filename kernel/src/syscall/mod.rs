@@ -1,4 +1,5 @@
 pub mod fs;
+pub(crate) mod mm;
 pub(crate) mod proc;
 
 use crate::vm::vma::VmaManager;
@@ -66,6 +67,8 @@ syscall_table! {
     2   => fs::syscall_open,    // SYS_open
     3   => fs::syscall_close,   // SYS_close
     8   => fs::syscall_lseek,   // SYS_lseek
+    9   => mm::syscall_mmap,    // SYS_mmap
+    11  => mm::syscall_munmap,  // SYS_munmap
     32  => fs::syscall_dup,     // SYS_dup
     33  => fs::syscall_dup2,    // SYS_dup2
     60  => proc::syscall_exit,  // SYS_exit

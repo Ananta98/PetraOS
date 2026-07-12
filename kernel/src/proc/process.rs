@@ -191,6 +191,13 @@ impl Process {
         }
 
         let loaded = load_elf_image(&self.vm, elf_image)?;
+
+        // Set the initial program break right after the loaded ELF image
+        // (end of BSS), page-aligned.
+        let page = ostd::mm::PAGE_SIZE;
+        let heap_start = (loaded.load_end + page - 1) & !(page - 1);
+        self.vm.set_brk_initial(heap_start);
+
         let executable_name = path.rfind('/').map_or(path, |i| &path[i + 1..]);
         self.name = String::from(executable_name);
         self.state = ProcessState::Ready;

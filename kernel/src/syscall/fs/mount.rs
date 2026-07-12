@@ -1,6 +1,7 @@
 use crate::fs::vfs::mount;
 use crate::syscall::SyscallResult;
 use crate::vm::vma::VmaManager;
+use crate::syscall::to_continue_unit;
 use ostd::Error;
 
 /// System call entry: mount a filesystem.
@@ -24,9 +25,9 @@ pub(crate) fn syscall_mount(
 
     match (fs_type_res, target_path_res, data_res) {
         (Ok(fs_type), Ok(target_path), Ok(data)) => {
-            super::to_continue_unit(mount(&fs_type, &target_path, flags, &data))
+            to_continue_unit(mount(&fs_type, &target_path, flags, &data))
         }
-        _ => super::to_continue_unit(Err(Error::AccessDenied)),
+        _ => to_continue_unit(Err(Error::AccessDenied)),
     }
 }
 

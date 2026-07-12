@@ -8,6 +8,7 @@ use crate::vm::vma::VmaManager;
 use alloc::sync::Arc;
 use fault::handle_page_fault;
 use ostd::arch::trap::inject_user_page_fault_handler;
+pub use region::MmapFileBacking;
 use spin::Once;
 
 pub static VMA_MANAGER: Once<Arc<VmaManager>> = Once::new();

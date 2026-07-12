@@ -1,5 +1,6 @@
 use crate::proc::process::Process;
 use crate::syscall::SyscallResult;
+use crate::syscall::to_continue_unit;
 
 /// System call entry: close a file descriptor.
 pub(crate) fn syscall_close(
@@ -11,5 +12,5 @@ pub(crate) fn syscall_close(
     _: usize,
     _: &crate::vm::vma::VmaManager,
 ) -> SyscallResult {
-    super::to_continue_unit(Process::current().fd_table().lock().close(arg0 as i32))
+    to_continue_unit(Process::current().fd_table().lock().close(arg0 as i32))
 }

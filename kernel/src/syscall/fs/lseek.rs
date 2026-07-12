@@ -1,5 +1,6 @@
 use crate::proc::process::Process;
 use crate::syscall::SyscallResult;
+use crate::syscall::to_continue;
 
 /// System call entry: adjust the file offset.
 pub(crate) fn syscall_lseek(
@@ -14,7 +15,7 @@ pub(crate) fn syscall_lseek(
     let fd = arg0 as i32;
     let offset = arg1 as isize;
     let whence = arg2 as i32;
-    super::to_continue(
+    to_continue(
         Process::current()
             .fd_table()
             .lock()
