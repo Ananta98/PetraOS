@@ -12,7 +12,9 @@ pub use thread::{KernelThread, spawn_kernel_thread};
 pub use tid_table::{THREAD_TABLE, Tid};
 
 use crate::proc::elf::LoadedElf;
+use crate::vm::vma::VmaManager;
 use crate::vm::VMA_MANAGER;
+use alloc::sync::Arc;
 use ostd::Error;
 use process::Process;
 
@@ -20,18 +22,6 @@ pub fn init() {
     scheduler::init();
     spawn_init_process();
 }
-
-/// Fallback executable paths probed for the init process, in order.
-///
-/// Matches the Linux v6.19 `kernel_init()` probe sequence:
-/// `/sbin/init` → `/etc/init` → `/bin/init` → `/bin/sh`.
-const DEFAULT_INIT_EXEC_PATHS: &[&str] = &["/sbin/init", "/etc/init", "/bin/init", "/bin/sh"];
-
-/// Optional in-kernel init image.
-///
-/// Keep this as `None` until the boot/module layer can provide real init
-/// bytes; when wired, [`spawn_init_process`] will execute it with `xmas-elf`.
-const EMBEDDED_INIT_ELF: Option<&[u8]> = None;
 
 /// Spawn the **init** process (PID 1).
 ///
@@ -43,37 +33,51 @@ const EMBEDDED_INIT_ELF: Option<&[u8]> = None;
 /// 2. Otherwise probe the canonical fallback list in order:
 ///    `/sbin/init` → `/etc/init` → `/bin/init` → `/bin/sh`.
 ///
-/// If an in-kernel init ELF image is available, PetraOS creates PID 1 and
-/// executes that image with `argv = [path]` and an empty `envp`. Otherwise,
-/// without a VFS, it falls back to registering the intended init process name.
+/// Each path is resolved through the VFS, read into memory, and loaded as
+/// an ELF executable.  The first path that resolves and loads successfully
+/// becomes PID 1.
 ///
 /// # Panics
-/// Panics if `vm::init()` has not been called before this function.
+/// Panics if `vm::init()` has not been called before this function, or if
+/// none of the probed paths can be loaded.
 pub fn spawn_init_process() {
-    spawn_init_process_with_path(None);
-}
+    const DEFAULT_INIT_EXEC_PATHS: &[&str] = &["/sbin/init"];
 
-/// Low-level init-process spawner used by [`spawn_init_process`] and
-/// future boot-parameter parsing.
-///
-/// * `executable_path` – explicit path (e.g. from `init=` cmdline arg).
-///   `None` means "probe the default list".
-pub fn spawn_init_process_with_path(executable_path: Option<&str>) {
     let vm = VMA_MANAGER
         .get()
         .expect("vm::init() must be called before spawning init")
         .clone();
 
-    // Without a VFS we cannot probe the fallback list yet, so choose the
-    // explicit init path or the first Linux-compatible default.
-    let path = executable_path.unwrap_or(DEFAULT_INIT_EXEC_PATHS[0]);
-    let executable_name = path.rfind('/').map_or(path, |i| &path[i + 1..]);
-    let mut init = Process::new(vm, executable_name);
-
-    if let Some(elf_image) = EMBEDDED_INIT_ELF {
-        kernel_execve(&mut init, path, elf_image, &[path], &[])
-            .expect("failed to execute init ELF image");
+    for &path in DEFAULT_INIT_EXEC_PATHS {
+        let executable_name = path.rfind('/').map_or(path, |i| &path[i + 1..]);
+        if let Ok(result) = try_load_init_exec(vm.clone(), path, executable_name) {
+            return;
+        }
     }
+}
+
+
+/// Try to load `path` as an ELF executable and exec it into a new init process.
+///
+/// Reads the file from the VFS, creates a fresh `Process`, and replaces its
+/// address space with the loaded ELF image.  Returns `Ok((process, loaded))`
+/// on success, or `Err` if the path could not be resolved, read, or loaded.
+fn try_load_init_exec(
+    vm: Arc<VmaManager>,
+    path: &str,
+    executable_name: &str,
+) -> core::result::Result<(Process, LoadedElf), ostd::Error> {
+    let dentry = crate::fs::vfs::resolve_path(path)?;
+    let meta = dentry.inode.metadata()?;
+    let mut file_ops = dentry.inode.open(0)?;
+    let mut elf_image = alloc::vec![0u8; meta.size];
+    let mut offset = 0;
+    file_ops.read(&mut elf_image, &mut offset)?;
+
+    let mut process = Process::new(vm, executable_name);
+    let loaded = process.exec(path, &elf_image, &[path], &[])?;
+
+    Ok((process, loaded))
 }
 
 /// Create PID 1 from an in-memory ELF image.
@@ -90,25 +94,9 @@ pub fn spawn_init_process_from_elf(
         .get()
         .expect("vm::init() must be called before spawning init")
         .clone();
-    let path = executable_path.unwrap_or(DEFAULT_INIT_EXEC_PATHS[0]);
-    let executable_name = path.rfind('/').map_or(path, |i| &path[i + 1..]);
-    let mut init = Process::new(vm, executable_name);
-    let image = kernel_execve(&mut init, path, elf_image, &[path], &[])?;
+    let executable_name = executable_path.unwrap().rfind('/').map_or(executable_path.unwrap(), |i| &executable_path.unwrap()[i + 1..]);
+    let mut process = Process::new(vm, executable_name);
+    let image = process.exec(executable_path.unwrap(), elf_image, &[executable_path.unwrap()], &[])?;
 
-    Ok((init, image))
-}
-
-/// Replace `process` with a new executable image.
-///
-/// This is PetraOS's current in-memory equivalent of `execve(path, argv, envp)`.
-/// The VFS layer will later use the same process method after reading `path`
-/// from storage.
-pub fn kernel_execve(
-    process: &mut Process,
-    path: &str,
-    elf_image: &[u8],
-    argv: &[&str],
-    envp: &[&str],
-) -> Result<LoadedElf, Error> {
-    process.exec(path, elf_image, argv, envp)
+    Ok((process, image))
 }
