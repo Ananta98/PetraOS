@@ -73,37 +73,83 @@ impl VmaManager {
 
             if start_addr <= vma.start && end_addr >= end {
                 // Case 1: Target fully covers the VMA
-                regions.insert(vma.start, VmaRegion::new(vma.start, vma.size, new_flags));
+                regions.insert(
+                    vma.start,
+                    VmaRegion {
+                        start: vma.start,
+                        size: vma.size,
+                        flags: new_flags,
+                        guard_size: vma.guard_size,
+                    },
+                );
             } else if vma.start < start_addr && end > end_addr {
                 // Case 2: Target is completely inside the VMA (splits into 3)
                 regions.insert(
                     vma.start,
-                    VmaRegion::new(vma.start, start_addr - vma.start, vma.flags),
+                    VmaRegion {
+                        start: vma.start,
+                        size: start_addr - vma.start,
+                        flags: vma.flags,
+                        guard_size: vma.guard_size,
+                    },
                 );
-                regions.insert(start_addr, VmaRegion::new(start_addr, size, new_flags));
+                regions.insert(
+                    start_addr,
+                    VmaRegion {
+                        start: start_addr,
+                        size,
+                        flags: new_flags,
+                        guard_size: 0,
+                    },
+                );
                 regions.insert(
                     end_addr,
-                    VmaRegion::new(end_addr, end - end_addr, vma.flags),
+                    VmaRegion {
+                        start: end_addr,
+                        size: end - end_addr,
+                        flags: vma.flags,
+                        guard_size: 0,
+                    },
                 );
             } else if vma.start < start_addr && end <= end_addr {
                 // Case 3: Target overlaps the right side of the VMA
                 regions.insert(
                     vma.start,
-                    VmaRegion::new(vma.start, start_addr - vma.start, vma.flags),
+                    VmaRegion {
+                        start: vma.start,
+                        size: start_addr - vma.start,
+                        flags: vma.flags,
+                        guard_size: vma.guard_size,
+                    },
                 );
                 regions.insert(
                     start_addr,
-                    VmaRegion::new(start_addr, end - start_addr, new_flags),
+                    VmaRegion {
+                        start: start_addr,
+                        size: end - start_addr,
+                        flags: new_flags,
+                        guard_size: 0,
+                    },
                 );
             } else if vma.start >= start_addr && end > end_addr {
                 // Case 4: Target overlaps the left side of the VMA
                 regions.insert(
                     vma.start,
-                    VmaRegion::new(vma.start, end_addr - vma.start, new_flags),
+                    VmaRegion {
+                        start: vma.start,
+                        size: end_addr - vma.start,
+                        flags: new_flags,
+                        guard_size: vma.guard_size,
+                    },
                 );
                 regions.insert(
                     end_addr,
-                    VmaRegion::new(end_addr, end - end_addr, vma.flags),
+                    VmaRegion {
+                        start: end_addr,
+                        size: end - end_addr,
+                        flags: vma.flags,
+                        guard_size: 0,
+                    },
                 );
             }
         }

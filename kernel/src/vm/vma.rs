@@ -47,8 +47,40 @@ impl VmaManager {
         }
 
         let mut regions = self.regions.lock();
-        regions.insert(start, VmaRegion { start, size, flags });
+        regions.insert(
+            start,
+            VmaRegion {
+                start,
+                size,
+                flags,
+                guard_size: 0,
+            },
+        );
 
+        Ok(())
+    }
+
+    pub fn map_stack(
+        &self,
+        start: Vaddr,
+        stack_size: usize,
+        guard_size: usize,
+    ) -> Result<(), Error> {
+        if start % PAGE_SIZE != 0 || stack_size % PAGE_SIZE != 0 || guard_size % PAGE_SIZE != 0 {
+            return Err(Error::InvalidArgs);
+        }
+
+        let total_size = stack_size + guard_size;
+        let mut regions = self.regions.lock();
+        regions.insert(
+            start,
+            VmaRegion {
+                start,
+                size: total_size,
+                flags: PageFlags::RW,
+                guard_size,
+            },
+        );
         Ok(())
     }
 
@@ -83,7 +115,15 @@ impl VmaManager {
         }
 
         let mut regions = self.regions.lock();
-        regions.insert(start, VmaRegion { start, size, flags });
+        regions.insert(
+            start,
+            VmaRegion {
+                start,
+                size,
+                flags,
+                guard_size: 0,
+            },
+        );
 
         Ok(())
     }
@@ -112,6 +152,7 @@ impl VmaManager {
 #[cfg(ktest)]
 mod tests {
     use super::*;
+    use crate::vm::VMA_MANAGER;
     use ostd::prelude::ktest;
 
     #[ktest]
@@ -148,5 +189,71 @@ mod tests {
         assert_eq!(data_to_write, &data_read_back);
 
         vma_manager.unmap_region(0x2000, 0x1000).unwrap();
+    }
+
+    #[ktest]
+    fn test_guard_page_blocks_access() {
+        crate::vm::init();
+        let vma_manager = VMA_MANAGER.get().unwrap().clone();
+        vma_manager.activate();
+
+        let guard_size = PAGE_SIZE;
+        let stack_size = PAGE_SIZE * 4;
+        let stack_start = 0x90000;
+
+        vma_manager
+            .map_stack(stack_start, stack_size, guard_size)
+            .unwrap();
+
+        // Guard page address is at the bottom of the stack region
+        let guard_addr = stack_start;
+        let data = b"should not write to guard";
+
+        // Writing to the guard page should fail
+        assert!(vma_manager.copy_to_user(guard_addr, data).is_err());
+
+        // Reading from the guard page should fail
+        let mut buf = [0u8; 4];
+        assert!(vma_manager.copy_from_user(guard_addr, &mut buf).is_err());
+
+        vma_manager
+            .unmap_region(stack_start, stack_size + guard_size)
+            .unwrap();
+    }
+
+    #[ktest]
+    fn test_stack_usable_area_works() {
+        crate::vm::init();
+        let vma_manager = VMA_MANAGER.get().unwrap().clone();
+        vma_manager.activate();
+
+        let guard_size = PAGE_SIZE;
+        let stack_size = PAGE_SIZE * 4;
+        let stack_start = 0xa0000;
+
+        vma_manager
+            .map_stack(stack_start, stack_size, guard_size)
+            .unwrap();
+
+        // Usable stack starts after the guard page
+        let usable_start = stack_start + guard_size;
+        let data = b"stack data works!";
+        let mut buf = [0u8; 17];
+
+        vma_manager.copy_to_user(usable_start, data).unwrap();
+        vma_manager.copy_from_user(usable_start, &mut buf).unwrap();
+        assert_eq!(data, &buf);
+
+        // Also test the top of the stack area
+        let top_addr = stack_start + guard_size + stack_size - PAGE_SIZE;
+        let top_data = b"top of stack!";
+        vma_manager.copy_to_user(top_addr, top_data).unwrap();
+        let mut top_buf = [0u8; 13];
+        vma_manager.copy_from_user(top_addr, &mut top_buf).unwrap();
+        assert_eq!(top_data, &top_buf);
+
+        vma_manager
+            .unmap_region(stack_start, stack_size + guard_size)
+            .unwrap();
     }
 }

@@ -20,6 +20,13 @@ impl VmaManager {
             .find(|r| r.contains(fault_addr))
             .ok_or(Error::InvalidArgs)?;
 
+        // Check if the fault address falls within the guard page region.
+        // Stack guard pages are unmapped and any access is a stack overflow.
+        let guard_end = region.start + region.guard_size;
+        if region.guard_size > 0 && fault_addr >= region.start && fault_addr < guard_end {
+            return Err(Error::InvalidArgs);
+        }
+
         let page_vaddr = fault_addr & !(PAGE_SIZE - 1);
         let vaddr_range = page_vaddr..page_vaddr + PAGE_SIZE;
 

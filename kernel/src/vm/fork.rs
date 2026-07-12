@@ -22,6 +22,7 @@ impl VmaManager {
                     start: region.start,
                     size: region.size,
                     flags: region.flags,
+                    guard_size: region.guard_size,
                 },
             );
 
