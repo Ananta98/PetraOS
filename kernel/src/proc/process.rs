@@ -1,6 +1,8 @@
 use crate::fs::fd_table::FdTable;
 use crate::proc::elf::{LoadedElf, load_elf_image};
 use crate::proc::pid_table::{PROCESS_TABLE, Pid};
+use crate::proc::thread::KernelThread;
+use crate::proc::tid_table::Tid;
 use crate::vm::vma::VmaManager;
 use alloc::collections::BTreeMap;
 use alloc::string::String;
@@ -45,6 +47,12 @@ pub enum ProcessState {
 /// # Memory ownership
 /// - The parent holds strong refs to children through `Process` handles.
 /// - Children keep only the parent PID, avoiding unnecessary weak refs.
+///
+/// # Thread model
+/// A process is the **owner** of one or more kernel threads.  The first
+/// thread (the main thread) is automatically created when a process is
+/// spawned.  Additional threads can be added with [`Process::spawn_thread`].
+/// All threads share the process's VM and FD table.
 #[derive(Clone)]
 pub struct Process {
     /// Unique process identifier.
@@ -72,6 +80,13 @@ pub struct Process {
 
     /// File descriptor table mapping file descriptor numbers to open files.
     fd_table: Arc<SpinLock<FdTable>>,
+
+    /// Kernel threads belonging to this process.
+    ///
+    /// Indexed by TID for O(log n) lookup.  The list is guarded by a
+    /// `SpinLock` so that concurrent `spawn_thread` / `join_thread` calls
+    /// are safe.
+    threads: Arc<SpinLock<BTreeMap<Tid, Arc<KernelThread>>>>,
 }
 
 // ---------------------------------------------------------------------------
@@ -98,6 +113,7 @@ impl Process {
             vm,
             name: String::from(name),
             fd_table: Arc::new(SpinLock::new(FdTable::new())),
+            threads: Arc::new(SpinLock::new(BTreeMap::new())),
         };
 
         PROCESS_TABLE.register_process(proc.clone());
@@ -121,6 +137,9 @@ impl Process {
             // Inherit parent name; execve will overwrite this later.
             name: parent.name.clone(),
             fd_table: Arc::new(SpinLock::new(parent.fd_table.lock().clone())),
+            // Child starts with its own empty thread list; threads are not
+            // inherited across fork() — they must be re-created in the child.
+            threads: Arc::new(SpinLock::new(BTreeMap::new())),
         };
 
         PROCESS_TABLE.register_process(child.clone());
@@ -278,6 +297,58 @@ impl Process {
     /// File descriptor table for this process.
     pub(crate) fn fd_table(&self) -> &Arc<SpinLock<FdTable>> {
         &self.fd_table
+    }
+
+    /// Snapshot of all kernel threads belonging to this process.
+    ///
+    /// Returns a `Vec` of cloned `Arc<KernelThread>` handles.  The snapshot
+    /// is taken under the `threads` lock and released before returning, so
+    /// callers do not need to hold any lock themselves.
+    pub fn threads(&self) -> Vec<Arc<KernelThread>> {
+        self.threads.lock().values().cloned().collect()
+    }
+
+    /// Number of live threads in this process.
+    pub fn thread_count(&self) -> usize {
+        self.threads.lock().len()
+    }
+
+    // -----------------------------------------------------------------------
+    // Thread management
+    // -----------------------------------------------------------------------
+
+    /// Spawn a new kernel thread belonging to this process.
+    ///
+    /// `name` is a human-readable label used in diagnostics.  `func` is the
+    /// thread body — it must be `Send + 'static` because the scheduler can
+    /// migrate it across CPUs.
+    ///
+    /// The thread is registered in the global [`THREAD_TABLE`][crate::proc::tid_table::THREAD_TABLE]
+    /// **and** in this process's `threads` map.  Call [`Process::join_thread`]
+    /// to wait for completion and clean up the map entry.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err` if the OSTD task allocation fails.
+    pub fn spawn_thread<F>(&self, name: &str, func: F) -> Result<Arc<KernelThread>, Error>
+    where
+        F: FnOnce() + Send + 'static,
+    {
+        let thread = KernelThread::spawn(self.pid, name, func)?;
+        self.threads.lock().insert(thread.tid(), thread.clone());
+        Ok(thread)
+    }
+
+    /// Block until the given thread finishes, then remove it from the
+    /// process's thread list.
+    ///
+    /// Returns the thread's exit code.  If the `tid` does not belong to this
+    /// process, returns `None`.
+    pub fn join_thread(&self, tid: Tid) -> Option<i32> {
+        let thread = self.threads.lock().get(&tid).cloned()?;
+        let code = thread.join();
+        self.threads.lock().remove(&tid);
+        Some(code)
     }
 
     // -----------------------------------------------------------------------
@@ -484,5 +555,70 @@ mod tests {
         assert!(proc.fd_table().lock().read(fd, &mut buf).is_err());
         assert!(proc.fd_table().lock().read(fd2, &mut buf).is_err());
         assert!(proc.fd_table().lock().read(fd3, &mut buf).is_err());
+    }
+
+    #[ktest]
+    fn test_process_spawn_and_join_thread() {
+        use alloc::sync::Arc;
+        use core::sync::atomic::{AtomicBool, Ordering};
+
+        let vm = vm();
+        let proc = Process::new(vm, "thread-test");
+
+        // Initially the process has no threads in its list.
+        assert_eq!(proc.thread_count(), 0);
+
+        let ran = Arc::new(AtomicBool::new(false));
+        let ran_clone = ran.clone();
+
+        let thread = proc
+            .spawn_thread("worker", move || {
+                ran_clone.store(true, Ordering::Release);
+            })
+            .expect("spawn_thread failed");
+
+        // The thread is now in the process's thread list.
+        assert_eq!(proc.thread_count(), 1);
+
+        let tid = thread.tid();
+        let exit_code = proc.join_thread(tid).expect("join_thread failed");
+
+        // Thread ran and exited cleanly.
+        assert!(ran.load(Ordering::Acquire));
+        assert_eq!(exit_code, 0);
+
+        // After joining, the thread is removed from the list.
+        assert_eq!(proc.thread_count(), 0);
+    }
+
+    #[ktest]
+    fn test_process_multiple_threads() {
+        use alloc::sync::Arc;
+        use core::sync::atomic::{AtomicU32, Ordering};
+
+        let vm = vm();
+        let proc = Process::new(vm, "multi-thread-test");
+
+        let counter = Arc::new(AtomicU32::new(0));
+        let mut tids = alloc::vec::Vec::new();
+
+        for _ in 0..4 {
+            let c = counter.clone();
+            let t = proc
+                .spawn_thread("counter", move || {
+                    c.fetch_add(1, Ordering::Relaxed);
+                })
+                .expect("spawn_thread failed");
+            tids.push(t.tid());
+        }
+
+        assert_eq!(proc.thread_count(), 4);
+
+        for tid in tids {
+            proc.join_thread(tid);
+        }
+
+        assert_eq!(counter.load(Ordering::Relaxed), 4);
+        assert_eq!(proc.thread_count(), 0);
     }
 }

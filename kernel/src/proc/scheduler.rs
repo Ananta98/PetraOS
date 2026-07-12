@@ -1,4 +1,5 @@
 use crate::proc::pid_table::Pid;
+use crate::proc::tid_table::Tid;
 use alloc::boxed::Box;
 use alloc::collections::{BTreeMap, VecDeque};
 use alloc::sync::Arc;
@@ -13,14 +14,10 @@ use ostd::util::id_set::Id;
 
 /// Linux/Unix priority-to-weight conversion table for nice values [-20 .. 19].
 const SCHED_NICE_TO_WEIGHT: [u64; 40] = [
- /* -20 */     88761,     71755,     56483,     46273,     36291,
- /* -15 */     29154,     23254,     18705,     14949,     11916,
- /* -10 */      9548,      7620,      6100,      4904,      3906,
- /*  -5 */      3121,      2501,      1991,      1586,      1277,
- /*   0 */      1024,       820,       655,       526,       414,
- /*   5 */       335,       272,       215,       172,       137,
- /*  10 */       110,        87,        70,        56,        45,
- /*  15 */        36,        29,        23,        18,        15,
+    /* -20 */ 88761, 71755, 56483, 46273, 36291, /* -15 */ 29154, 23254, 18705, 14949,
+    11916, /* -10 */ 9548, 7620, 6100, 4904, 3906, /*  -5 */ 3121, 2501, 1991, 1586,
+    1277, /*   0 */ 1024, 820, 655, 526, 414, /*   5 */ 335, 272, 215, 172, 137,
+    /*  10 */ 110, 87, 70, 56, 45, /*  15 */ 36, 29, 23, 18, 15,
 ];
 
 /// Helper to convert a nice value (-20 to 19) to standard CFS weight.
@@ -34,18 +31,30 @@ pub enum SchedClass {
     Fair { nice: i32 },
 }
 
+/// Per-task scheduling metadata attached to every `ostd::task::Task`.
+///
+/// Carries both the owning `Pid` (process group) and the thread `Tid` so that
+/// any code that receives a `&Task` reference can look up either the process or
+/// the thread descriptor without a separate lookup table.
 pub struct TaskData {
+    /// CFS scheduling class and parameters.
     pub class: SchedClass,
+    /// Accumulated virtual runtime (nanoseconds, CFS bookkeeping).
     pub vruntime: AtomicU64,
-    pub pid: crate::proc::pid_table::Pid,
+    /// Owning process identifier.
+    pub pid: Pid,
+    /// This thread's unique identifier.
+    pub tid: Tid,
 }
 
 impl TaskData {
-    pub fn new(class: SchedClass, pid: Pid) -> Self {
+    /// Create `TaskData` with an explicit scheduling class, `Pid`, and `Tid`.
+    pub fn new(class: SchedClass, pid: Pid, tid: Tid) -> Self {
         Self {
             class,
             vruntime: AtomicU64::new(0),
             pid,
+            tid,
         }
     }
 }
@@ -320,6 +329,7 @@ pub fn init() {
 mod tests {
     use super::*;
     use crate::proc::pid_table::Pid;
+    use crate::proc::tid_table::Tid;
     use ostd::prelude::*;
     use ostd::task::TaskOptions;
 
@@ -332,6 +342,7 @@ mod tests {
                 .data(TaskData::new(
                     SchedClass::Fair { nice: 0 },
                     Pid::from_raw(1),
+                    Tid::from_raw(1),
                 ))
                 .build()
                 .unwrap(),
@@ -342,6 +353,7 @@ mod tests {
                 .data(TaskData::new(
                     SchedClass::Fair { nice: 3 },
                     Pid::from_raw(1),
+                    Tid::from_raw(2),
                 ))
                 .build()
                 .unwrap(),
@@ -366,6 +378,7 @@ mod tests {
                 .data(TaskData::new(
                     SchedClass::Fair { nice: 0 },
                     Pid::from_raw(1),
+                    Tid::from_raw(3),
                 ))
                 .build()
                 .unwrap(),
@@ -375,6 +388,7 @@ mod tests {
                 .data(TaskData::new(
                     SchedClass::Fair { nice: 0 },
                     Pid::from_raw(1),
+                    Tid::from_raw(4),
                 ))
                 .build()
                 .unwrap(),
