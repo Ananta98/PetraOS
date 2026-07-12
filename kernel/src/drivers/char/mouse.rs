@@ -451,7 +451,7 @@ mod tests {
         let mouse = Mouse::new();
         // Start with an invalid byte (bit 3 clear), then a valid packet.
         // The decoder should drop the bad byte and sync on the valid one.
-        mouse.push_packets(&[0xFF, 0x08, 0x01, 0x02]);
+        mouse.push_packets(&[0x00, 0x08, 0x01, 0x02]);
         let out = collect_bytes(&mouse);
         assert_eq!(out, &[0x08, 0x01, 0x02]);
     }
