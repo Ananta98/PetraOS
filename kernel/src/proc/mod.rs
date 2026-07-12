@@ -12,8 +12,8 @@ pub use thread::{KernelThread, spawn_kernel_thread};
 pub use tid_table::{THREAD_TABLE, Tid};
 
 use crate::proc::elf::LoadedElf;
-use crate::vm::vma::VmaManager;
 use crate::vm::VMA_MANAGER;
+use crate::vm::vma::VmaManager;
 use alloc::sync::Arc;
 use ostd::Error;
 use process::Process;
@@ -50,19 +50,12 @@ pub fn spawn_init_process() {
 
     for &path in DEFAULT_INIT_EXEC_PATHS {
         let executable_name = path.rfind('/').map_or(path, |i| &path[i + 1..]);
-        if let Ok((process, loaded)) =
-            try_load_init_exec(vm.clone(), path, executable_name)
-        {
+        if let Ok((process, loaded)) = try_load_init_exec(vm.clone(), path, executable_name) {
             let entry = loaded.entry;
 
             // Set up the user-space stack (argv, envp, auxv per System V ABI).
-            let stack_ptr = crate::proc::user::setup_user_stack(
-                process.vm(),
-                &[path],
-                &[],
-                entry,
-            )
-            .expect("failed to setup user stack");
+            let stack_ptr = crate::proc::user::setup_user_stack(process.vm(), &[path], &[], entry)
+                .expect("failed to setup user stack");
 
             // Spawn the main thread.  Its body activates the process VM
             // and enters user mode, executing the init program.
@@ -81,7 +74,6 @@ pub fn spawn_init_process() {
         }
     }
 }
-
 
 /// Try to load `path` as an ELF executable and exec it into a new init process.
 ///
@@ -120,9 +112,19 @@ pub fn spawn_init_process_from_elf(
         .get()
         .expect("vm::init() must be called before spawning init")
         .clone();
-    let executable_name = executable_path.unwrap().rfind('/').map_or(executable_path.unwrap(), |i| &executable_path.unwrap()[i + 1..]);
+    let executable_name = executable_path
+        .unwrap()
+        .rfind('/')
+        .map_or(executable_path.unwrap(), |i| {
+            &executable_path.unwrap()[i + 1..]
+        });
     let mut process = Process::new(vm, executable_name);
-    let image = process.exec(executable_path.unwrap(), elf_image, &[executable_path.unwrap()], &[])?;
+    let image = process.exec(
+        executable_path.unwrap(),
+        elf_image,
+        &[executable_path.unwrap()],
+        &[],
+    )?;
 
     Ok((process, image))
 }

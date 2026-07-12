@@ -1,7 +1,7 @@
 use crate::proc::process::Process;
 use crate::syscall::SyscallResult;
-use crate::vm::vma::VmaManager;
 use crate::syscall::to_continue_i32;
+use crate::vm::vma::VmaManager;
 
 /// System call entry: open a file.
 pub(crate) fn syscall_open(

@@ -406,7 +406,10 @@ impl VmaManager {
         let old_page = align_up(old_brk, PAGE_SIZE);
 
         if new_page > old_page {
-            if self.map_region(old_page, new_page - old_page, PageFlags::RW).is_err() {
+            if self
+                .map_region(old_page, new_page - old_page, PageFlags::RW)
+                .is_err()
+            {
                 return old_brk;
             }
         } else if new_page < old_page {

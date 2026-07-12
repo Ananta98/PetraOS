@@ -61,8 +61,7 @@ impl VmaManager {
 
             // If this is a file-backed mapping, read the file data into the frame.
             if let Some(ref backing) = region_clone.file_backing {
-                let file_read_offset =
-                    region_clone.file_offset + (page_vaddr - region_clone.start);
+                let file_read_offset = region_clone.file_offset + (page_vaddr - region_clone.start);
                 let mut frame_writer = frame.writer();
                 let mut file_buf = alloc::vec![0u8; PAGE_SIZE];
 
@@ -143,9 +142,9 @@ pub fn handle_page_fault(info: &CpuException) -> Result<(), ()> {
 mod tests {
     use super::*;
     use crate::vm::VMA_MANAGER;
+    use ostd::mm::PageFlags;
     use ostd::mm::vm_space::VmQueriedItem;
     use ostd::prelude::ktest;
-    use ostd::mm::PageFlags;
 
     #[ktest]
     fn test_demand_paging() {

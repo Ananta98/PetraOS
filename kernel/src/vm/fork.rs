@@ -11,6 +11,11 @@ impl VmaManager {
         let guard = disable_preempt();
         let child_manager = Arc::new(VmaManager::new());
 
+        // Copy brk values early so the lock order (start_brk → current_brk)
+        // is compatible with VmaManager::brk() – avoids ABBA deadlock.
+        *child_manager.start_brk.lock() = *self.start_brk.lock();
+        *child_manager.current_brk.lock() = *self.current_brk.lock();
+
         let parent_regions = self.regions.lock();
         let mut child_regions = child_manager.regions.lock();
 

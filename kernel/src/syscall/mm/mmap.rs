@@ -1,11 +1,11 @@
 use crate::fs::fd_table::OpenFile;
 use crate::proc::process::Process;
 use crate::syscall::SyscallResult;
-use crate::vm::vma::VmaManager;
 use crate::vm::MmapFileBacking;
+use crate::vm::vma::VmaManager;
 use alloc::sync::Arc;
 use ostd::Error;
-use ostd::mm::{PageFlags, PAGE_SIZE};
+use ostd::mm::{PAGE_SIZE, PageFlags};
 use ostd::sync::SpinLock;
 
 pub(crate) struct MmapFileBackingImpl(pub Arc<SpinLock<OpenFile>>);
@@ -108,14 +108,7 @@ pub(crate) fn syscall_mmap(
 
         let backing = Arc::new(MmapFileBackingImpl(fd_entry.open_file.clone()));
 
-        vm.mmap_file(
-            addr_opt,
-            length,
-            page_flags,
-            backing,
-            offset,
-            is_shared,
-        )
+        vm.mmap_file(addr_opt, length, page_flags, backing, offset, is_shared)
     };
 
     match result {

@@ -1,7 +1,7 @@
 use crate::proc::process::Process;
 use crate::syscall::SyscallResult;
-use crate::vm::vma::VmaManager;
 use crate::syscall::to_continue;
+use crate::vm::vma::VmaManager;
 use ostd::Error;
 
 /// System call entry: write to a file descriptor.

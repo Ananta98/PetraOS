@@ -69,6 +69,7 @@ syscall_table! {
     8   => fs::syscall_lseek,   // SYS_lseek
     9   => mm::syscall_mmap,    // SYS_mmap
     11  => mm::syscall_munmap,  // SYS_munmap
+    12  => mm::syscall_brk,     // SYS_brk
     32  => fs::syscall_dup,     // SYS_dup
     33  => fs::syscall_dup2,    // SYS_dup2
     60  => proc::syscall_exit,  // SYS_exit
