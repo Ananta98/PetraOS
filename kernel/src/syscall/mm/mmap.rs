@@ -28,7 +28,6 @@ const PROT_EXEC: usize = 0x4;
 const PROT_NONE: usize = 0x0;
 
 const MAP_SHARED: usize = 0x01;
-const MAP_PRIVATE: usize = 0x02;
 const MAP_ANONYMOUS: usize = 0x20;
 const MAP_FIXED: usize = 0x10;
 const MAP_POPULATE: usize = 0x08000;

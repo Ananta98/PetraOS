@@ -98,33 +98,4 @@ fn try_load_init_exec(
     Ok((process, loaded))
 }
 
-/// Create PID 1 from an in-memory ELF image.
-///
-/// This is the init-process entry point to use while PetraOS has no VFS-backed
-/// `/sbin/init` lookup. The caller supplies the already available ELF bytes
-/// (for example from a boot module or an `include_bytes!` image), and this
-/// function executes it as PID 1.
-pub fn spawn_init_process_from_elf(
-    executable_path: Option<&str>,
-    elf_image: &[u8],
-) -> Result<(Process, LoadedElf), Error> {
-    let vm = VMA_MANAGER
-        .get()
-        .expect("vm::init() must be called before spawning init")
-        .clone();
-    let executable_name = executable_path
-        .unwrap()
-        .rfind('/')
-        .map_or(executable_path.unwrap(), |i| {
-            &executable_path.unwrap()[i + 1..]
-        });
-    let mut process = Process::new(vm, executable_name);
-    let image = process.exec(
-        executable_path.unwrap(),
-        elf_image,
-        &[executable_path.unwrap()],
-        &[],
-    )?;
 
-    Ok((process, image))
-}

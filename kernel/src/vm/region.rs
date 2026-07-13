@@ -35,17 +35,7 @@ impl VmaRegion {
         }
     }
 
-    pub fn new_with_guard(start: Vaddr, size: usize, flags: PageFlags, guard_size: usize) -> Self {
-        Self {
-            start,
-            size,
-            flags,
-            guard_size,
-            file_backing: None,
-            file_offset: 0,
-            is_shared: false,
-        }
-    }
+
 
     pub fn new_file_backed(
         start: Vaddr,

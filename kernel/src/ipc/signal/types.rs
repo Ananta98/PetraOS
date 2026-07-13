@@ -102,9 +102,6 @@ impl SigSet {
     /// An empty signal set (no signals pending / blocked).
     pub const EMPTY: Self = Self(0);
 
-    /// A signal set with every signal set (all bits = 1).
-    pub const FULL: Self = Self(u64::MAX);
-
     /// Create a `SigSet` with a single signal `signum` set.
     ///
     /// Returns `None` if `signum` is 0 or greater than 64.
@@ -281,15 +278,6 @@ pub struct SigAction {
 }
 
 impl SigAction {
-    /// Construct a `SigAction` with the kernel default disposition.
-    pub fn default_for(_signum: u32) -> Self {
-        Self {
-            handler: SigHandler::Default,
-            mask: SigSet::EMPTY,
-            flags: 0,
-        }
-    }
-
     /// Construct a `SigAction` that ignores the signal.
     pub fn ignore() -> Self {
         Self {
@@ -305,18 +293,6 @@ impl SigAction {
             handler: SigHandler::UserHandler(handler_address),
             mask,
             flags,
-        }
-    }
-
-    /// Construct a `SigAction` with an in-kernel callback.
-    pub fn kernel_handler<F>(callback: F) -> Self
-    where
-        F: Fn(u32) + Send + Sync + 'static,
-    {
-        Self {
-            handler: SigHandler::KernelHandler(Box::new(callback)),
-            mask: SigSet::EMPTY,
-            flags: 0,
         }
     }
 }

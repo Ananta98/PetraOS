@@ -29,10 +29,7 @@ impl Tid {
         Self(NEXT_TID.fetch_add(1, Ordering::Relaxed))
     }
 
-    /// Raw numeric value of this TID.
-    pub fn as_u32(&self) -> u32 {
-        self.0
-    }
+
 
     /// Construct a `Tid` from a known raw value.
     ///
