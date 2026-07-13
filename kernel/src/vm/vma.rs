@@ -13,11 +13,24 @@ use ostd::task::disable_preempt;
 const USER_SPACE_START: Vaddr = 0x0000_0000_1000;
 const USER_SPACE_END: Vaddr = 0x0000_7FFF_FFFF_0000;
 
+/// Heap-break bookkeeping for a process address space.
+///
+/// Both fields are always updated together under a single lock, which
+/// prevents races between concurrent `brk()` calls and eliminates the
+/// two-lock ordering hazard that existed when they were stored separately.
+#[derive(Clone, Copy, Default)]
+pub(crate) struct BrkState {
+    /// The lowest valid heap address, set once after ELF loading.
+    pub start: Vaddr,
+    /// The current program break (top of heap).
+    pub current: Vaddr,
+}
+
 pub struct VmaManager {
     pub vm_space: Arc<VmSpace>,
     pub regions: SpinLock<BTreeMap<Vaddr, VmaRegion>>,
-    pub(crate) start_brk: SpinLock<Vaddr>,
-    pub(crate) current_brk: SpinLock<Vaddr>,
+    /// Heap break state. Acquire after `regions` when both locks are needed.
+    pub(crate) brk: SpinLock<BrkState>,
 }
 
 impl VmaManager {
@@ -25,8 +38,7 @@ impl VmaManager {
         Self {
             vm_space: Arc::new(VmSpace::new()),
             regions: SpinLock::new(BTreeMap::new()),
-            start_brk: SpinLock::new(0),
-            current_brk: SpinLock::new(0),
+            brk: SpinLock::new(BrkState::default()),
         }
     }
 
@@ -374,36 +386,39 @@ impl VmaManager {
     // brk / sbrk helpers
     // ------------------------------------------------------------------
 
-    /// Set the initial program break (end of data / BSS segment).
+    /// Sets the initial program break to `addr`.
     ///
-    /// Called once after ELF loading.  Both `start_brk` and `current_brk`
-    /// are set to the same value – the first address past the loaded
+    /// Called once after ELF loading. Both `start` and `current` are
+    /// initialised to the same value — the first address past the loaded
     /// executable's BSS segment, rounded up to a page boundary.
     pub(crate) fn set_brk_initial(&self, addr: Vaddr) {
-        *self.start_brk.lock() = addr;
-        *self.current_brk.lock() = addr;
+        let mut brk = self.brk.lock();
+        brk.start = addr;
+        brk.current = addr;
     }
 
-    /// Adjust the program break (`brk` / `sbrk` syscall backend).
+    /// Adjusts the program break (`brk` / `sbrk` syscall backend).
     ///
-    /// * `0` – query only, returns the current break unchanged.
-    /// * `< start_brk` – invalid, returns the current break unchanged.
-    /// * `> current_brk` – grows the heap by mapping anonymous pages.
-    /// * `< current_brk` – shrinks the heap by unmapping pages.
+    /// * `0` — query only, returns the current break unchanged.
+    /// * `< start` — invalid, returns the current break unchanged.
+    /// * `> current` — grows the heap by mapping anonymous pages.
+    /// * `< current` — shrinks the heap by unmapping pages.
     ///
     /// Always returns the (possibly updated) program break.
     pub(crate) fn brk(&self, new_brk: Vaddr) -> Vaddr {
-        let start = *self.start_brk.lock();
+        let mut brk = self.brk.lock();
 
-        if new_brk == 0 || new_brk < start {
-            return *self.current_brk.lock();
+        if new_brk == 0 || new_brk < brk.start {
+            return brk.current;
         }
 
-        let mut cur = self.current_brk.lock();
-        let old_brk = *cur;
-
+        let old_brk = brk.current;
         let new_page = align_up(new_brk, PAGE_SIZE);
         let old_page = align_up(old_brk, PAGE_SIZE);
+
+        // Release the lock before calling map/unmap to avoid holding it
+        // across potentially slow page-table operations.
+        drop(brk);
 
         if new_page > old_page {
             if self
@@ -416,7 +431,7 @@ impl VmaManager {
             let _ = self.unmap_region(new_page, old_page - new_page);
         }
 
-        *cur = new_brk;
+        self.brk.lock().current = new_brk;
         new_brk
     }
 
