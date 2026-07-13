@@ -5,9 +5,11 @@ use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 pub mod ahci;
+pub mod nvme;
 
 pub fn init() {
     ahci::init();
+    nvme::init();
 }
 
 pub trait BlockDevice: Send + Sync {
