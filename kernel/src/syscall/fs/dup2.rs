@@ -11,6 +11,7 @@ pub(crate) fn syscall_dup2(
     _: usize,
     _: usize,
     _: &crate::vm::vma::VmaManager,
+    _: &mut ostd::arch::cpu::context::UserContext,
 ) -> SyscallResult {
     let oldfd = arg0 as i32;
     let newfd = arg1 as i32;

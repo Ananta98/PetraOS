@@ -9,6 +9,7 @@ pub(crate) fn syscall_munmap(
     _arg4: usize,
     _arg5: usize,
     vm: &VmaManager,
+    _: &mut ostd::arch::cpu::context::UserContext,
 ) -> SyscallResult {
     let addr = arg0;
     let length = arg1;

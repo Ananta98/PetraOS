@@ -8,6 +8,8 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use ostd::Error;
 
+use ostd::arch::cpu::context::UserContext;
+
 /// The result of a system call dispatch.
 pub enum SyscallResult {
     Continue(usize),
@@ -47,7 +49,7 @@ pub(crate) fn to_continue_unit(result: Result<(), Error>) -> SyscallResult {
 ///
 /// Each handler is responsible for marshalling raw user arguments (and copying
 /// data to/from user space via `vm`) and returning a [`SyscallResult`].
-type SyscallHandler = fn(usize, usize, usize, usize, usize, usize, &VmaManager) -> SyscallResult;
+type SyscallHandler = fn(usize, usize, usize, usize, usize, usize, &VmaManager, &mut UserContext) -> SyscallResult;
 
 /// Registers the system call dispatch table.
 ///
@@ -77,11 +79,15 @@ syscall_table! {
     32  => fs::syscall_dup,               // SYS_dup
     33  => fs::syscall_dup2,              // SYS_dup2
     34  => signal::syscall_rt_sigpending,  // SYS_rt_sigpending
+    57  => proc::syscall_fork,             // SYS_fork
+    59  => proc::syscall_execve,           // SYS_execve
     60  => proc::syscall_exit,            // SYS_exit
+    61  => proc::syscall_wait4,            // SYS_wait4
     62  => signal::syscall_kill,          // SYS_kill
     72  => signal::syscall_rt_sigsuspend, // SYS_rt_sigsuspend
     165 => fs::syscall_mount,             // SYS_mount
     234 => signal::syscall_tgkill,        // SYS_tgkill
+    293 => fs::syscall_pipe2,             // SYS_pipe2
 }
 
 /// Dispatch system calls from user mode to their corresponding kernel implementations.
@@ -98,9 +104,10 @@ pub fn dispatch_syscall(
     arg4: usize,
     arg5: usize,
     vm: &VmaManager,
+    context: &mut UserContext,
 ) -> SyscallResult {
     match SYSCALL_TABLE.binary_search_by_key(&num, |(number, _)| *number) {
-        Ok(index) => SYSCALL_TABLE[index].1(arg0, arg1, arg2, arg3, arg4, arg5, vm),
+        Ok(index) => SYSCALL_TABLE[index].1(arg0, arg1, arg2, arg3, arg4, arg5, vm, context),
         Err(_) => SyscallResult::Continue(-(Error::InvalidArgs as isize) as usize),
     }
 }

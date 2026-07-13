@@ -16,6 +16,7 @@ pub(crate) fn syscall_mount(
     arg4: usize,
     _: usize,
     vm: &VmaManager,
+    _: &mut ostd::arch::cpu::context::UserContext,
 ) -> SyscallResult {
     let flags = arg2 as u32;
 

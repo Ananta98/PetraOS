@@ -16,6 +16,7 @@ pub(crate) fn syscall_brk(
     _arg4: usize,
     _arg5: usize,
     vm: &VmaManager,
+    _: &mut ostd::arch::cpu::context::UserContext,
 ) -> SyscallResult {
     SyscallResult::Continue(vm.brk(arg0))
 }

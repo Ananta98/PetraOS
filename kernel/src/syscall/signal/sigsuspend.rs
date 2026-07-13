@@ -32,6 +32,7 @@ pub(crate) fn syscall_rt_sigsuspend(
     _: usize,
     _: usize,
     vm: &VmaManager,
+    _: &mut ostd::arch::cpu::context::UserContext,
 ) -> SyscallResult {
     let mask_ptr = arg0;
     let sigsetsize = arg1;

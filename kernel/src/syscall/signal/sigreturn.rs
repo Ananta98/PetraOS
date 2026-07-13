@@ -45,6 +45,7 @@ pub(crate) fn syscall_rt_sigreturn(
     _: usize,
     _: usize,
     _: &VmaManager,
+    _: &mut ostd::arch::cpu::context::UserContext,
 ) -> SyscallResult {
     let process = Process::current();
     let signals = process.signals();

@@ -12,6 +12,7 @@ pub(crate) fn syscall_open(
     _: usize,
     _: usize,
     vm: &VmaManager,
+    _: &mut ostd::arch::cpu::context::UserContext,
 ) -> SyscallResult {
     let flags = arg1 as u32;
     let mode = arg2 as u32;

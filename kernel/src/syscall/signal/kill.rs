@@ -26,6 +26,7 @@ pub(crate) fn syscall_kill(
     _: usize,
     _: usize,
     _: &VmaManager,
+    _: &mut ostd::arch::cpu::context::UserContext,
 ) -> SyscallResult {
     let pid_raw = arg0 as isize;
     let signum = arg1 as u32;

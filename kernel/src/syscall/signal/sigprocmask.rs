@@ -32,6 +32,7 @@ pub(crate) fn syscall_rt_sigprocmask(
     _: usize,
     _: usize,
     vm: &VmaManager,
+    _: &mut ostd::arch::cpu::context::UserContext,
 ) -> SyscallResult {
     let how = arg0;
     let set_ptr = arg1;

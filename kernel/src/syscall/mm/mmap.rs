@@ -57,6 +57,7 @@ pub(crate) fn syscall_mmap(
     arg4: usize,
     arg5: usize,
     vm: &VmaManager,
+    _: &mut ostd::arch::cpu::context::UserContext,
 ) -> SyscallResult {
     let addr = arg0;
     let length = arg1;

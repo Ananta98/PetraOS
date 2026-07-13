@@ -11,6 +11,7 @@ pub(crate) fn syscall_lseek(
     _: usize,
     _: usize,
     _: &crate::vm::vma::VmaManager,
+    _: &mut ostd::arch::cpu::context::UserContext,
 ) -> SyscallResult {
     let fd = arg0 as i32;
     let offset = arg1 as isize;

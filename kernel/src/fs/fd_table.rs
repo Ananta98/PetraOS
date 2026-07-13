@@ -172,7 +172,13 @@ impl FdTable {
         self.fds.get(&fd).cloned().ok_or(Error::InvalidArgs)
     }
 
-    fn alloc_fd(&self, start: i32) -> Result<i32, Error> {
+    /// Insert an open file descriptor entry into the table at `fd`.
+    pub fn insert(&mut self, fd: i32, fd_entry: FileDescriptor) {
+        self.fds.insert(fd, fd_entry);
+    }
+
+    /// Allocate a free file descriptor starting at `start`.
+    pub fn alloc_fd(&self, start: i32) -> Result<i32, Error> {
         let mut fd = start;
         while self.fds.contains_key(&fd) {
             fd += 1;

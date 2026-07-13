@@ -42,6 +42,7 @@ pub(crate) fn syscall_rt_sigaction(
     _: usize,
     _: usize,
     vm: &VmaManager,
+    _: &mut ostd::arch::cpu::context::UserContext,
 ) -> SyscallResult {
     let signum = arg0 as u32;
     let new_act_ptr = arg1;

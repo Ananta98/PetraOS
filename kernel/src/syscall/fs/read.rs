@@ -13,6 +13,7 @@ pub(crate) fn syscall_read(
     _: usize,
     _: usize,
     vm: &VmaManager,
+    _: &mut ostd::arch::cpu::context::UserContext,
 ) -> SyscallResult {
     let fd = arg0 as i32;
     let user_buf = arg1;

@@ -153,7 +153,7 @@ pub fn run_process_user_mode(
                 let arg5 = ctx.r9();
 
                 // Dispatch system call
-                match dispatch_syscall(num, arg0, arg1, arg2, arg3, arg4, arg5, process.vm()) {
+                match dispatch_syscall(num, arg0, arg1, arg2, arg3, arg4, arg5, process.vm(), &mut ctx) {
                     SyscallResult::Continue(retval) => {
                         let mut ctx = user_mode.context_mut();
                         ctx.set_rax(retval);

@@ -27,6 +27,7 @@ pub(crate) fn syscall_tgkill(
     _: usize,
     _: usize,
     _: &VmaManager,
+    _: &mut ostd::arch::cpu::context::UserContext,
 ) -> SyscallResult {
     let tgid = arg0 as u32;
     let _tid = arg1 as u32; // reserved for per-thread routing
