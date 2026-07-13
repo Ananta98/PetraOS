@@ -1,6 +1,7 @@
 pub mod fs;
 pub(crate) mod mm;
 pub(crate) mod proc;
+pub(crate) mod signal;
 
 use crate::vm::vma::VmaManager;
 use alloc::string::String;
@@ -62,18 +63,25 @@ macro_rules! syscall_table {
 }
 
 syscall_table! {
-    0   => fs::syscall_read,    // SYS_read
-    1   => fs::syscall_write,   // SYS_write
-    2   => fs::syscall_open,    // SYS_open
-    3   => fs::syscall_close,   // SYS_close
-    8   => fs::syscall_lseek,   // SYS_lseek
-    9   => mm::syscall_mmap,    // SYS_mmap
-    11  => mm::syscall_munmap,  // SYS_munmap
-    12  => mm::syscall_brk,     // SYS_brk
-    32  => fs::syscall_dup,     // SYS_dup
-    33  => fs::syscall_dup2,    // SYS_dup2
-    60  => proc::syscall_exit,  // SYS_exit
-    165 => fs::syscall_mount,   // SYS_mount
+    0   => fs::syscall_read,               // SYS_read
+    1   => fs::syscall_write,              // SYS_write
+    2   => fs::syscall_open,               // SYS_open
+    3   => fs::syscall_close,              // SYS_close
+    8   => fs::syscall_lseek,              // SYS_lseek
+    9   => mm::syscall_mmap,               // SYS_mmap
+    11  => mm::syscall_munmap,             // SYS_munmap
+    12  => mm::syscall_brk,               // SYS_brk
+    13  => signal::syscall_rt_sigaction,   // SYS_rt_sigaction
+    14  => signal::syscall_rt_sigprocmask, // SYS_rt_sigprocmask
+    15  => signal::syscall_rt_sigreturn,   // SYS_rt_sigreturn
+    32  => fs::syscall_dup,               // SYS_dup
+    33  => fs::syscall_dup2,              // SYS_dup2
+    34  => signal::syscall_rt_sigpending,  // SYS_rt_sigpending
+    60  => proc::syscall_exit,            // SYS_exit
+    62  => signal::syscall_kill,          // SYS_kill
+    72  => signal::syscall_rt_sigsuspend, // SYS_rt_sigsuspend
+    165 => fs::syscall_mount,             // SYS_mount
+    234 => signal::syscall_tgkill,        // SYS_tgkill
 }
 
 /// Dispatch system calls from user mode to their corresponding kernel implementations.

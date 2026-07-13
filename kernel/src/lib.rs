@@ -5,6 +5,7 @@ extern crate alloc;
 
 mod drivers;
 mod fs;
+mod ipc;
 mod proc;
 mod syscall;
 mod vm;

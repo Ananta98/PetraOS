@@ -1,4 +1,5 @@
 use crate::fs::fd_table::FdTable;
+use crate::ipc::ProcessSignals;
 use crate::proc::elf::{LoadedElf, load_elf_image};
 use crate::proc::pid_table::{PROCESS_TABLE, Pid};
 use crate::proc::thread::KernelThread;
@@ -87,6 +88,13 @@ pub struct Process {
     /// `SpinLock` so that concurrent `spawn_thread` / `join_thread` calls
     /// are safe.
     threads: Arc<SpinLock<BTreeMap<Tid, Arc<KernelThread>>>>,
+
+    /// Signal subsystem state: pending queue + installed action table.
+    ///
+    /// Wrapped in an `Arc` so that multiple handles to the same process (e.g.,
+    /// threads, the dispatcher) can share the same signal state without
+    /// cloning the entire `Process`.
+    signals: Arc<ProcessSignals>,
 }
 
 // ---------------------------------------------------------------------------
@@ -114,6 +122,7 @@ impl Process {
             name: String::from(name),
             fd_table: Arc::new(SpinLock::new(FdTable::new())),
             threads: Arc::new(SpinLock::new(BTreeMap::new())),
+            signals: Arc::new(ProcessSignals::new()),
         };
 
         PROCESS_TABLE.register_process(proc.clone());
@@ -140,6 +149,8 @@ impl Process {
             // Child starts with its own empty thread list; threads are not
             // inherited across fork() — they must be re-created in the child.
             threads: Arc::new(SpinLock::new(BTreeMap::new())),
+            // Each child gets a fresh, independent signal state.
+            signals: Arc::new(ProcessSignals::new()),
         };
 
         PROCESS_TABLE.register_process(child.clone());
@@ -201,6 +212,10 @@ impl Process {
         let executable_name = path.rfind('/').map_or(path, |i| &path[i + 1..]);
         self.name = String::from(executable_name);
         self.state = ProcessState::Ready;
+
+        // Reset signal dispositions on exec: user handlers → SIG_DFL,
+        // SIG_IGN is preserved (POSIX requirement).
+        self.signals.reset_on_exec();
 
         let name_clone = self.name.clone();
         PROCESS_TABLE.update_process(self.pid, |p| {
@@ -304,6 +319,14 @@ impl Process {
     /// File descriptor table for this process.
     pub(crate) fn fd_table(&self) -> &Arc<SpinLock<FdTable>> {
         &self.fd_table
+    }
+
+    /// Signal subsystem state (pending queue + action table).
+    ///
+    /// Returns a clone of the `Arc<ProcessSignals>` so callers can hold the
+    /// handle independently of the `Process` borrow.
+    pub fn signals(&self) -> Arc<ProcessSignals> {
+        self.signals.clone()
     }
 
     /// Snapshot of all kernel threads belonging to this process.
