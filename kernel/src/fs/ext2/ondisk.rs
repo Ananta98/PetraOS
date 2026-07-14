@@ -10,6 +10,7 @@ use alloc::vec::Vec;
 use ostd::Error;
 use ostd::sync::SpinLock;
 
+use super::bitmap::{BlockBitmap, InodeBitmap};
 use super::structs::{
     EXT2_FT_DIR, EXT2_FT_REG_FILE, EXT2_S_IFDIR, EXT2_S_IFREG, GroupDescriptor, Inode, Superblock,
 };
@@ -189,191 +190,20 @@ impl Ext2FsState {
         Ok(())
     }
 
-    // Allocate a block and return its physical block number
     pub fn alloc_block(&self) -> Result<u32> {
-        let mut descriptors = self.group_descriptors.lock();
-        let mut bitmap_buf = alloc::vec![0u8; self.block_size as usize];
-
-        for g in 0..self.groups_count {
-            if descriptors[g as usize].bg_free_blocks_count == 0 {
-                continue;
-            }
-
-            let bg = &mut descriptors[g as usize];
-            read_blocks(
-                &*self.block_dev,
-                self.block_size,
-                bg.bg_block_bitmap,
-                &mut bitmap_buf,
-            )?;
-
-            for i in 0..self.block_size {
-                let byte = bitmap_buf[i as usize];
-                if byte != 0xFF {
-                    for bit in 0..8 {
-                        if (byte & (1 << bit)) == 0 {
-                            let block_in_group = i * 8 + bit;
-                            let absolute_block = g * self.superblock.s_blocks_per_group
-                                + block_in_group
-                                + self.superblock.s_first_data_block;
-
-                            // Mark as used
-                            bitmap_buf[i as usize] |= 1 << bit;
-                            write_blocks(
-                                &*self.block_dev,
-                                self.block_size,
-                                bg.bg_block_bitmap,
-                                &bitmap_buf,
-                            )?;
-
-                            bg.bg_free_blocks_count -= 1;
-                            drop(descriptors);
-                            self.write_back_gdt()?;
-
-                            // Zero out the newly allocated block
-                            let zeros = alloc::vec![0u8; self.block_size as usize];
-                            write_blocks(
-                                &*self.block_dev,
-                                self.block_size,
-                                absolute_block,
-                                &zeros,
-                            )?;
-
-                            return Ok(absolute_block);
-                        }
-                    }
-                }
-            }
-        }
-        Err(Error::IoError)
+        BlockBitmap::new(self).alloc()
     }
 
-    // Free a block
     pub fn free_block(&self, block_id: u32) -> Result<()> {
-        if block_id == 0 {
-            return Ok(());
-        }
-        let block_idx_in_heap = block_id - self.superblock.s_first_data_block;
-        let group = block_idx_in_heap / self.superblock.s_blocks_per_group;
-        let block_in_group = block_idx_in_heap % self.superblock.s_blocks_per_group;
-
-        let mut descriptors = self.group_descriptors.lock();
-        let bg = &mut descriptors[group as usize];
-
-        let mut bitmap_buf = alloc::vec![0u8; self.block_size as usize];
-        read_blocks(
-            &*self.block_dev,
-            self.block_size,
-            bg.bg_block_bitmap,
-            &mut bitmap_buf,
-        )?;
-
-        let byte_offset = (block_in_group / 8) as usize;
-        let bit_offset = block_in_group % 8;
-        bitmap_buf[byte_offset] &= !(1 << bit_offset);
-
-        write_blocks(
-            &*self.block_dev,
-            self.block_size,
-            bg.bg_block_bitmap,
-            &bitmap_buf,
-        )?;
-
-        bg.bg_free_blocks_count += 1;
-        drop(descriptors);
-        self.write_back_gdt()?;
-        Ok(())
+        BlockBitmap::new(self).free(block_id)
     }
 
-    // Allocate an inode and return its index
     pub fn alloc_inode(&self, is_dir: bool) -> Result<u32> {
-        let mut descriptors = self.group_descriptors.lock();
-        let mut bitmap_buf = alloc::vec![0u8; self.block_size as usize];
-
-        for g in 0..self.groups_count {
-            if descriptors[g as usize].bg_free_inodes_count == 0 {
-                continue;
-            }
-
-            let bg = &mut descriptors[g as usize];
-            read_blocks(
-                &*self.block_dev,
-                self.block_size,
-                bg.bg_inode_bitmap,
-                &mut bitmap_buf,
-            )?;
-
-            for i in 0..self.superblock.s_inodes_per_group / 8 {
-                let byte = bitmap_buf[i as usize];
-                if byte != 0xFF {
-                    for bit in 0..8 {
-                        if (byte & (1 << bit)) == 0 {
-                            let inode_in_group = i * 8 + bit;
-                            let absolute_inode =
-                                g * self.superblock.s_inodes_per_group + inode_in_group + 1;
-
-                            // Mark as used
-                            bitmap_buf[i as usize] |= 1 << bit;
-                            write_blocks(
-                                &*self.block_dev,
-                                self.block_size,
-                                bg.bg_inode_bitmap,
-                                &bitmap_buf,
-                            )?;
-
-                            bg.bg_free_inodes_count -= 1;
-                            if is_dir {
-                                bg.bg_used_dirs_count += 1;
-                            }
-                            drop(descriptors);
-                            self.write_back_gdt()?;
-
-                            return Ok(absolute_inode);
-                        }
-                    }
-                }
-            }
-        }
-        Err(Error::IoError)
+        InodeBitmap::new(self).alloc(is_dir)
     }
 
-    // Free an inode
     pub fn free_inode(&self, inode_num: u32, is_dir: bool) -> Result<()> {
-        if inode_num == 0 {
-            return Ok(());
-        }
-        let group = (inode_num - 1) / self.superblock.s_inodes_per_group;
-        let index = (inode_num - 1) % self.superblock.s_inodes_per_group;
-
-        let mut descriptors = self.group_descriptors.lock();
-        let bg = &mut descriptors[group as usize];
-
-        let mut bitmap_buf = alloc::vec![0u8; self.block_size as usize];
-        read_blocks(
-            &*self.block_dev,
-            self.block_size,
-            bg.bg_inode_bitmap,
-            &mut bitmap_buf,
-        )?;
-
-        let byte_offset = (index / 8) as usize;
-        let bit_offset = index % 8;
-        bitmap_buf[byte_offset] &= !(1 << bit_offset);
-
-        write_blocks(
-            &*self.block_dev,
-            self.block_size,
-            bg.bg_inode_bitmap,
-            &bitmap_buf,
-        )?;
-
-        bg.bg_free_inodes_count += 1;
-        if is_dir && bg.bg_used_dirs_count > 0 {
-            bg.bg_used_dirs_count -= 1;
-        }
-        drop(descriptors);
-        self.write_back_gdt()?;
-        Ok(())
+        InodeBitmap::new(self).free(inode_num, is_dir)
     }
 
     // Block translation: logical block index in inode to physical block ID on disk

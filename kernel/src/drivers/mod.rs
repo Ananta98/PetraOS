@@ -7,6 +7,7 @@ use ostd::sync::SpinLock;
 pub mod block;
 pub mod char;
 pub mod pci;
+pub mod rtc;
 
 pub use block::{BlockDevice, register_block_device};
 pub use char::{CharDevice, register_char_device};
@@ -82,6 +83,7 @@ pub fn unregister_device(name: &str) -> Result<(), ostd::Error> {
 pub fn init() {
     block::init();
     char::init();
+    rtc::init();
 }
 
 #[cfg(ktest)]

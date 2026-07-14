@@ -1,3 +1,4 @@
+pub mod bitmap;
 pub mod ondisk;
 pub mod structs;
 pub mod vfs;
