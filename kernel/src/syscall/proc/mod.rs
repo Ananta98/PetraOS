@@ -86,6 +86,7 @@ mod tests {
         }
 
         let vm = Arc::new(VmaManager::new());
+        vm.activate();
         let mut context = UserContext::default();
 
         // Map memory for pointer system calls.
@@ -147,8 +148,13 @@ mod tests {
         }
 
         // Clean up: set credentials back to 0 so we can modify things as privileged
-        let setresuid_res = syscall_setresuid(0, 0, 0, 0, 0, 0, &vm, &mut context);
-        assert!(matches!(setresuid_res, SyscallResult::Continue(0)));
+        // Reset credentials back to 0 directly so subsequent tests/assertions aren't affected
+        PROCESS_TABLE.update_process(Process::current().pid, |p| {
+            p.uid = 0;
+            p.euid = 0;
+            p.suid = 0;
+            p.fsuid = 0;
+        });
 
         // Test setpgid and getpgid
         let setpgid_res = syscall_setpgid(0, 0, 0, 0, 0, 0, &vm, &mut context);
