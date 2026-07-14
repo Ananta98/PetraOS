@@ -47,6 +47,6 @@ pub(crate) fn syscall_tgkill(
         return to_continue_unit(Ok(()));
     }
 
-    let sender_pid = Process::current().pid().as_u32();
+    let sender_pid = Process::current().pid.as_u32();
     to_continue_unit(send_signal_to_pid(target, signum, sender_pid))
 }

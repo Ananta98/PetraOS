@@ -19,7 +19,7 @@ pub(crate) fn syscall_open(
     match super::read_user_string(vm, arg0) {
         Ok(path) => to_continue_i32(
             Process::current()
-                .fd_table()
+                .fd_table
                 .lock()
                 .open(&path, flags, mode),
         ),

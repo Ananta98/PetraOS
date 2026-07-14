@@ -77,7 +77,7 @@ pub enum DispatchOutcome {
 pub fn dispatch_pending(process: &mut Process) -> DispatchOutcome {
     // Obtain an Arc handle to signal state that is independent of the
     // &mut Process borrow, allowing us to call process.wake_up() etc.
-    let signals: Arc<ProcessSignals> = process.signals();
+    let signals: Arc<ProcessSignals> = process.signals.clone();
 
     loop {
         let info = match signals.queue.dequeue() {
@@ -132,7 +132,7 @@ pub fn dispatch_pending(process: &mut Process) -> DispatchOutcome {
                     DefaultAction::Stop => {
                         process.set_sleeping();
                         // Notify parent with SIGCHLD.
-                        notify_parent_sigchld(process.ppid(), process.pid());
+                        notify_parent_sigchld(process.ppid, process.pid);
                         return DispatchOutcome::Stopped { signum };
                     }
 
@@ -165,7 +165,7 @@ fn notify_parent_sigchld(ppid: Option<Pid>, child_pid: Pid) {
         code: 1, // CLD_STOPPED
     };
     if let Some(parent) = PROCESS_TABLE.get_process(parent_pid) {
-        parent.signals().queue.enqueue(info);
+        parent.signals.queue.enqueue(info);
     }
 }
 
@@ -192,7 +192,7 @@ pub fn send_signal_to_pid(
         .get_process(target_pid)
         .ok_or(ostd::Error::InvalidArgs)?;
     let info = SigInfo::user(signum, sender_pid);
-    process.signals().queue.enqueue(info);
+    process.signals.queue.enqueue(info);
     Ok(())
 }
 

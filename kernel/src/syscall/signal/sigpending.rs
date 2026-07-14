@@ -32,7 +32,7 @@ pub(crate) fn syscall_rt_sigpending(
     }
 
     let process = Process::current();
-    let signals = process.signals();
+    let signals = process.signals.clone();
 
     // POSIX: sigpending returns signals that are both pending AND blocked.
     let pending = signals.queue.pending_snapshot();

@@ -52,7 +52,7 @@ pub(crate) fn syscall_rt_sigsuspend(
     let temp_mask = SigSet::from_u64(u64::from_le_bytes(raw));
 
     let process = Process::current();
-    let signals = process.signals();
+    let signals = process.signals.clone();
 
     // ── Atomically save old mask and install temp mask ────────────────────
     let saved_mask = signals.queue.get_mask();

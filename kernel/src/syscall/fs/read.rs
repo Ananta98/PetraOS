@@ -19,7 +19,7 @@ pub(crate) fn syscall_read(
     let user_buf = arg1;
     let len = arg2;
     let mut kbuf = alloc::vec![0u8; len];
-    let bytes = match Process::current().fd_table().lock().read(fd, &mut kbuf) {
+    let bytes = match Process::current().fd_table.lock().read(fd, &mut kbuf) {
         Ok(bytes) => bytes,
         Err(error) => return to_continue(Err(error)),
     };

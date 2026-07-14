@@ -274,11 +274,11 @@ mod tests {
         let mut process = Process::new(vm, "sig-test");
 
         // Install an ignore handler for SIGHUP.
-        process.signals().table.set_action(SIGHUP, SigAction::ignore());
+        process.signals.table.set_action(SIGHUP, SigAction::ignore());
 
         // Send SIGHUP and SIGTERM.
-        process.signals().queue.enqueue(SigInfo::user(SIGHUP, 0));
-        process.signals().queue.enqueue(SigInfo::user(SIGTERM, 0));
+        process.signals.queue.enqueue(SigInfo::user(SIGHUP, 0));
+        process.signals.queue.enqueue(SigInfo::user(SIGTERM, 0));
 
         // Dispatch: SIGHUP should be ignored, SIGTERM's default action terminates.
         let outcome = dispatch_pending(&mut process);
@@ -296,11 +296,11 @@ mod tests {
 
         // Install a fake user-space handler at address 0x4000.
         process
-            .signals()
+            .signals
             .table
             .set_action(SIGUSR1, SigAction::user_handler(0x4000, SigSet::EMPTY, 0));
 
-        process.signals().queue.enqueue(SigInfo::user(SIGUSR1, 42));
+        process.signals.queue.enqueue(SigInfo::user(SIGUSR1, 42));
 
         let outcome = dispatch_pending(&mut process);
         assert!(matches!(

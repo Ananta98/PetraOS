@@ -31,7 +31,7 @@ pub(crate) fn syscall_fork(
         Err(err) => return to_continue_i32(Err(err)),
     };
 
-    let child_pid = child.pid();
+    let child_pid = child.pid;
     let mut child_context = context.clone();
 
     // The child process returns 0 from fork()
@@ -46,7 +46,7 @@ pub(crate) fn syscall_fork(
     let child_clone = child.clone();
     let spawn_res = child.spawn_thread("main", move || {
         let mut user_mode = UserMode::new(child_context);
-        child_clone.vm().activate();
+        child_clone.vm.activate();
 
         let mut exit_status = 0;
         loop {
@@ -62,7 +62,7 @@ pub(crate) fn syscall_fork(
                     let arg4 = ctx.r8();
                     let arg5 = ctx.r9();
 
-                    match dispatch_syscall(num, arg0, arg1, arg2, arg3, arg4, arg5, child_clone.vm(), &mut ctx) {
+                    match dispatch_syscall(num, arg0, arg1, arg2, arg3, arg4, arg5, &child_clone.vm, &mut ctx) {
                         SyscallResult::Continue(retval) => {
                             let mut ctx = user_mode.context_mut();
                             ctx.set_rax(retval);
@@ -88,7 +88,7 @@ pub(crate) fn syscall_fork(
         }
 
         // Cleanly exit the child process
-        PROCESS_TABLE.update_process(child_clone.pid(), |p| {
+        PROCESS_TABLE.update_process(child_clone.pid, |p| {
             p.exit(exit_status);
         });
     });

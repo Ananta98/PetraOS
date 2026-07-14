@@ -18,7 +18,7 @@ pub(crate) fn syscall_lseek(
     let whence = arg2 as i32;
     to_continue(
         Process::current()
-            .fd_table()
+            .fd_table
             .lock()
             .lseek(fd, offset, whence),
     )

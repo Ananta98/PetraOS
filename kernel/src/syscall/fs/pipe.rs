@@ -43,7 +43,7 @@ pub(crate) fn syscall_pipe2(
     let (read_ops, write_ops) = crate::ipc::create_pipe();
 
     let process = Process::current();
-    let mut fd_table = process.fd_table().lock();
+    let mut fd_table = process.fd_table.lock();
 
     // Allocate two file descriptors.
     let read_fd = match fd_table.alloc_fd(0) {

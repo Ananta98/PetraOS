@@ -39,7 +39,7 @@ impl ProcessTable {
 
     pub fn register_process(&self, proc: Process) {
         let mut table = self.table.lock();
-        table.insert(proc.pid(), proc);
+        table.insert(proc.pid, proc);
     }
 
     pub fn unregister_process(&self, pid: Pid) {

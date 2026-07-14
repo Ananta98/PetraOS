@@ -79,14 +79,35 @@ syscall_table! {
     32  => fs::syscall_dup,               // SYS_dup
     33  => fs::syscall_dup2,              // SYS_dup2
     34  => signal::syscall_rt_sigpending,  // SYS_rt_sigpending
+    39  => proc::syscall_getpid,           // SYS_getpid
     57  => proc::syscall_fork,             // SYS_fork
     59  => proc::syscall_execve,           // SYS_execve
     60  => proc::syscall_exit,            // SYS_exit
     61  => proc::syscall_wait4,            // SYS_wait4
     62  => signal::syscall_kill,          // SYS_kill
     72  => signal::syscall_rt_sigsuspend, // SYS_rt_sigsuspend
+    102 => proc::syscall_getuid,           // SYS_getuid
+    104 => proc::syscall_getgid,           // SYS_getgid
+    105 => proc::syscall_setuid,           // SYS_setuid
+    106 => proc::syscall_setgid,           // SYS_setgid
+    107 => proc::syscall_geteuid,          // SYS_geteuid
+    108 => proc::syscall_getegid,          // SYS_getegid
+    109 => proc::syscall_setpgid,          // SYS_setpgid
+    110 => proc::syscall_getppid,          // SYS_getppid
+    112 => proc::syscall_setsid,           // SYS_setsid
+    113 => proc::syscall_setreuid,         // SYS_setreuid
+    114 => proc::syscall_setregid,         // SYS_setregid
+    117 => proc::syscall_setresuid,        // SYS_setresuid
+    118 => proc::syscall_getresuid,        // SYS_getresuid
+    119 => proc::syscall_setresgid,        // SYS_setresgid
+    120 => proc::syscall_getresgid,        // SYS_getresgid
+    121 => proc::syscall_getpgid,          // SYS_getpgid
+    122 => proc::syscall_setfsuid,         // SYS_setfsuid
+    123 => proc::syscall_setfsgid,         // SYS_setfsgid
+    124 => proc::syscall_getsid,           // SYS_getsid
     165 => fs::syscall_mount,             // SYS_mount
     234 => signal::syscall_tgkill,        // SYS_tgkill
+    247 => proc::syscall_waitid,           // SYS_waitid
     293 => fs::syscall_pipe2,             // SYS_pipe2
 }
 
@@ -110,4 +131,37 @@ pub fn dispatch_syscall(
         Ok(index) => SYSCALL_TABLE[index].1(arg0, arg1, arg2, arg3, arg4, arg5, vm, context),
         Err(_) => SyscallResult::Continue(-(Error::InvalidArgs as isize) as usize),
     }
+}
+
+/// Helper to read a null-terminated string from user space.
+pub(crate) fn read_user_string(vm: &VmaManager, user_ptr: usize) -> Result<String, Error> {
+    let mut buf = Vec::new();
+    let mut offset = 0;
+    loop {
+        let mut char_buf = [0u8; 1];
+        vm.copy_from_user(user_ptr + offset, &mut char_buf)?;
+        if char_buf[0] == 0 {
+            break;
+        }
+        buf.push(char_buf[0]);
+        offset += 1;
+        if offset > 4096 {
+            return Err(Error::InvalidArgs);
+        }
+    }
+    String::from_utf8(buf).map_err(|_| Error::InvalidArgs)
+}
+
+/// Helper to read a byte slice from user space.
+pub(crate) fn read_user_slice(
+    vm: &VmaManager,
+    user_ptr: usize,
+    len: usize,
+) -> Result<Vec<u8>, Error> {
+    if len > 1024 * 1024 {
+        return Err(Error::InvalidArgs);
+    }
+    let mut buf = alloc::vec![0u8; len];
+    vm.copy_from_user(user_ptr, &mut buf)?;
+    Ok(buf)
 }

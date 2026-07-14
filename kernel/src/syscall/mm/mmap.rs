@@ -93,7 +93,7 @@ pub(crate) fn syscall_mmap(
     } else {
         // File-backed mapping
         let proc = Process::current();
-        let fd_table = proc.fd_table().lock();
+        let fd_table = proc.fd_table.lock();
 
         let fd_entry = match fd_table.get_fd(fd) {
             Ok(entry) => entry,

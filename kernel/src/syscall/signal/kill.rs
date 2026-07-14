@@ -31,7 +31,7 @@ pub(crate) fn syscall_kill(
     let pid_raw = arg0 as isize;
     let signum = arg1 as u32;
     let sender = Process::current();
-    let sender_pid = sender.pid().as_u32();
+    let sender_pid = sender.pid.as_u32();
 
     if signum > crate::ipc::SIGRTMAX && signum != 0 {
         return to_continue_unit(Err(Error::InvalidArgs));
@@ -52,7 +52,7 @@ pub(crate) fn syscall_kill(
         if signum == 0 {
             return to_continue_unit(Ok(()));
         }
-        to_continue_unit(send_signal_to_pid(sender.pid(), signum, sender_pid))
+        to_continue_unit(send_signal_to_pid(sender.pid, signum, sender_pid))
     } else if pid_raw < -1 {
         let pgid = (-pid_raw) as u32;
         if signum == 0 {

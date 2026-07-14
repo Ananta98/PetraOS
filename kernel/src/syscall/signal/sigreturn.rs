@@ -48,7 +48,7 @@ pub(crate) fn syscall_rt_sigreturn(
     _: &mut ostd::arch::cpu::context::UserContext,
 ) -> SyscallResult {
     let process = Process::current();
-    let signals = process.signals();
+    let signals = process.signals.clone();
 
     // Restore the signal mask that was saved before the handler was invoked.
     //

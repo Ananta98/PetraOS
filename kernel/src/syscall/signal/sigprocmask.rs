@@ -44,7 +44,7 @@ pub(crate) fn syscall_rt_sigprocmask(
     }
 
     let process = Process::current();
-    let signals = process.signals();
+    let signals = process.signals.clone();
 
     // ── Write current mask to user before modifying ───────────────────────
     if oldset_ptr != 0 {

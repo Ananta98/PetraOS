@@ -13,5 +13,5 @@ pub(crate) fn syscall_dup(
     _: &crate::vm::vma::VmaManager,
     _: &mut ostd::arch::cpu::context::UserContext,
 ) -> SyscallResult {
-    to_continue_i32(Process::current().fd_table().lock().dup(arg0 as i32))
+    to_continue_i32(Process::current().fd_table.lock().dup(arg0 as i32))
 }

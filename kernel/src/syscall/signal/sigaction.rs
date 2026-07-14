@@ -57,7 +57,7 @@ pub(crate) fn syscall_rt_sigaction(
     }
 
     let process = Process::current();
-    let signals = process.signals();
+    let signals = process.signals.clone();
 
     // ── Export old action before replacing it ─────────────────────────────
     if old_act_ptr != 0 {

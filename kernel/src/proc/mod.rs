@@ -54,7 +54,7 @@ pub fn spawn_init_process() {
             let entry = loaded.entry;
 
             // Set up the user-space stack (argv, envp, auxv per System V ABI).
-            let stack_ptr = crate::proc::user::setup_user_stack(process.vm(), &[path], &[], entry)
+            let stack_ptr = crate::proc::user::setup_user_stack(&process.vm, &[path], &[], entry)
                 .expect("failed to setup user stack");
 
             // Spawn the main thread.  Its body activates the process VM

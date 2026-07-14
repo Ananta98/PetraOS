@@ -7,7 +7,7 @@
 use crate::proc::pid_table::PROCESS_TABLE;
 use crate::proc::process::Process;
 use crate::proc::user::setup_user_stack;
-use crate::syscall::fs::read_user_string;
+use crate::syscall::read_user_string;
 use crate::syscall::{SyscallResult, to_continue_i32};
 use crate::vm::vma::VmaManager;
 use alloc::string::String;
@@ -77,7 +77,7 @@ pub(crate) fn syscall_execve(
     let mut entry = 0;
     let mut exec_err = None;
 
-    PROCESS_TABLE.update_process(current_process.pid(), |p| {
+    PROCESS_TABLE.update_process(current_process.pid, |p| {
         match p.exec(&path, &elf_image, &[], &[]) {
             Ok(loaded) => {
                 entry = loaded.entry;
@@ -96,7 +96,7 @@ pub(crate) fn syscall_execve(
     let argv_refs: Vec<&str> = argv.iter().map(|s| s.as_str()).collect();
     let envp_refs: Vec<&str> = envp.iter().map(|s| s.as_str()).collect();
 
-    let stack_ptr = match setup_user_stack(current_process.vm(), &argv_refs, &envp_refs, entry) {
+    let stack_ptr = match setup_user_stack(&current_process.vm, &argv_refs, &envp_refs, entry) {
         Ok(sp) => sp,
         Err(err) => return to_continue_i32(Err(err)),
     };

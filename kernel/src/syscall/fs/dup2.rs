@@ -15,5 +15,5 @@ pub(crate) fn syscall_dup2(
 ) -> SyscallResult {
     let oldfd = arg0 as i32;
     let newfd = arg1 as i32;
-    to_continue_i32(Process::current().fd_table().lock().dup2(oldfd, newfd))
+    to_continue_i32(Process::current().fd_table.lock().dup2(oldfd, newfd))
 }

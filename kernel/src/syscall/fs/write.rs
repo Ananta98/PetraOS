@@ -22,5 +22,5 @@ pub(crate) fn syscall_write(
     if vm.copy_from_user(user_buf, &mut kbuf).is_err() {
         return to_continue(Err(Error::AccessDenied));
     }
-    to_continue(Process::current().fd_table().lock().write(fd, &kbuf))
+    to_continue(Process::current().fd_table.lock().write(fd, &kbuf))
 }

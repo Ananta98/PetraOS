@@ -57,44 +57,74 @@ pub enum ProcessState {
 #[derive(Clone)]
 pub struct Process {
     /// Unique process identifier.
-    pid: Pid,
+    pub pid: Pid,
 
     /// Parent process ID (by value — no strong ref).
-    ppid: Option<Pid>,
+    pub ppid: Option<Pid>,
+
+    /// Real user ID.
+    pub uid: u32,
+
+    /// Effective user ID.
+    pub euid: u32,
+
+    /// Saved set-user-ID.
+    pub suid: u32,
+
+    /// Filesystem user ID.
+    pub fsuid: u32,
+
+    /// Real group ID.
+    pub gid: u32,
+
+    /// Effective group ID.
+    pub egid: u32,
+
+    /// Saved set-group-ID.
+    pub sgid: u32,
+
+    /// Filesystem group ID.
+    pub fsgid: u32,
+
+    /// Process group ID.
+    pub pgid: Pid,
+    
+    /// Session ID.
+    pub sid: Pid,
 
     /// Child processes waiting to be waited on.
-    pub(crate) children: Arc<SpinLock<Vec<Pid>>>,
+    pub children: Arc<SpinLock<Vec<Pid>>>,
 
     /// Current lifecycle state.
-    state: ProcessState,
+    pub state: ProcessState,
 
     /// Exit status set by `exit()`, harvested by the parent via
     /// `wait_child()`.
-    exit_code: i32,
+    pub exit_code: i32,
 
     /// Virtual memory address space.
-    vm: Arc<VmaManager>,
+    pub vm: Arc<VmaManager>,
 
     /// Short process name — the basename of the executable path
     /// (analogous to `comm` / `TASK_COMM_LEN` in Linux).
-    name: String,
+    pub name: String,
 
     /// File descriptor table mapping file descriptor numbers to open files.
-    fd_table: Arc<SpinLock<FdTable>>,
+    pub fd_table: Arc<SpinLock<FdTable>>,
 
     /// Kernel threads belonging to this process.
     ///
     /// Indexed by TID for O(log n) lookup.  The list is guarded by a
     /// `SpinLock` so that concurrent `spawn_thread` / `join_thread` calls
     /// are safe.
-    threads: Arc<SpinLock<BTreeMap<Tid, Arc<KernelThread>>>>,
+    pub threads: Arc<SpinLock<BTreeMap<Tid, Arc<KernelThread>>>>,
 
     /// Signal subsystem state: pending queue + installed action table.
     ///
     /// Wrapped in an `Arc` so that multiple handles to the same process (e.g.,
     /// threads, the dispatcher) can share the same signal state without
     /// cloning the entire `Process`.
-    signals: Arc<ProcessSignals>,
+    pub signals: Arc<ProcessSignals>,
 }
 
 // ---------------------------------------------------------------------------
@@ -112,9 +142,20 @@ impl Process {
     /// * `name` – Short executable name (basename of the path that will be
     ///            exec'd).  Analogous to Linux's `task_struct::comm`.
     pub fn new(vm: Arc<VmaManager>, name: &str) -> Process {
+        let pid = Pid::new();
         let proc = Process {
-            pid: Pid::new(),
+            pid,
             ppid: None,
+            uid: 0,
+            euid: 0,
+            suid: 0,
+            fsuid: 0,
+            gid: 0,
+            egid: 0,
+            sgid: 0,
+            fsgid: 0,
+            pgid: pid,
+            sid: pid,
             children: Arc::new(SpinLock::new(Vec::new())),
             state: ProcessState::Ready,
             exit_code: 0,
@@ -136,9 +177,20 @@ impl Process {
     /// program-loader layer exists). The new process is registered in
     /// `PROCESS_TABLE` and added to the parent's child list.
     fn new_child(parent: &Process, vm: Arc<VmaManager>) -> Process {
+        let child_pid = Pid::new();
         let child = Process {
-            pid: Pid::new(),
+            pid: child_pid,
             ppid: Some(parent.pid),
+            uid: parent.uid,
+            euid: parent.euid,
+            suid: parent.suid,
+            fsuid: parent.fsuid,
+            gid: parent.gid,
+            egid: parent.egid,
+            sgid: parent.sgid,
+            fsgid: parent.fsgid,
+            pgid: parent.pgid,
+            sid: parent.sid,
             children: Arc::new(SpinLock::new(Vec::new())),
             state: ProcessState::Ready,
             exit_code: 0,
@@ -274,7 +326,7 @@ impl Process {
         let pos = children.iter().position(|&child_pid| {
             let is_zombie = PROCESS_TABLE
                 .get_process(child_pid)
-                .map_or(false, |child| child.state() == ProcessState::Zombie);
+                .map_or(false, |child| child.state == ProcessState::Zombie);
             let pid_matches = pid.map_or(true, |p| child_pid == p);
             is_zombie && pid_matches
         })?;
@@ -285,62 +337,6 @@ impl Process {
             .map_or(0, |child| child.exit_code);
         PROCESS_TABLE.unregister_process(child_pid);
         Some((child_pid, code))
-    }
-
-    // -----------------------------------------------------------------------
-    // Accessors
-    // -----------------------------------------------------------------------
-
-    /// Process ID.
-    pub fn pid(&self) -> Pid {
-        self.pid
-    }
-
-    /// Parent process ID, or `None` for the init process.
-    pub fn ppid(&self) -> Option<Pid> {
-        self.ppid
-    }
-
-    /// Current lifecycle state snapshot.
-    pub fn state(&self) -> ProcessState {
-        self.state
-    }
-
-    /// Virtual memory manager for this process.
-    pub fn vm(&self) -> &Arc<VmaManager> {
-        &self.vm
-    }
-
-    /// Short process name (analogous to Linux `task_struct::comm`).
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-
-    /// File descriptor table for this process.
-    pub(crate) fn fd_table(&self) -> &Arc<SpinLock<FdTable>> {
-        &self.fd_table
-    }
-
-    /// Signal subsystem state (pending queue + action table).
-    ///
-    /// Returns a clone of the `Arc<ProcessSignals>` so callers can hold the
-    /// handle independently of the `Process` borrow.
-    pub fn signals(&self) -> Arc<ProcessSignals> {
-        self.signals.clone()
-    }
-
-    /// Snapshot of all kernel threads belonging to this process.
-    ///
-    /// Returns a `Vec` of cloned `Arc<KernelThread>` handles.  The snapshot
-    /// is taken under the `threads` lock and released before returning, so
-    /// callers do not need to hold any lock themselves.
-    pub fn threads(&self) -> Vec<Arc<KernelThread>> {
-        self.threads.lock().values().cloned().collect()
-    }
-
-    /// Number of live threads in this process.
-    pub fn thread_count(&self) -> usize {
-        self.threads.lock().len()
     }
 
     // -----------------------------------------------------------------------
@@ -450,36 +446,36 @@ mod tests {
         let vm = vm();
         let init = Process::new(vm.clone(), "init");
 
-        assert_eq!(init.name(), "init");
-        assert!(init.ppid().is_none());
-        assert_eq!(init.state(), ProcessState::Ready);
+        assert_eq!(init.name, "init");
+        assert!(init.ppid.is_none());
+        assert_eq!(init.state, ProcessState::Ready);
 
         // Verify it's in the global process table.
-        assert!(PROCESS_TABLE.get_process(init.pid()).is_some());
+        assert!(PROCESS_TABLE.get_process(init.pid).is_some());
 
         // ── 2. Fork a child ─────────────────────────────────────────────────
         let mut child = init.fork().expect("fork failed");
 
-        assert_ne!(child.pid(), init.pid());
-        assert_eq!(child.ppid(), Some(init.pid()));
+        assert_ne!(child.pid, init.pid);
+        assert_eq!(child.ppid, Some(init.pid));
         // Child inherits parent name until execve
-        assert_eq!(child.name(), "init");
+        assert_eq!(child.name, "init");
         assert_eq!(init.children.lock().len(), 1);
 
         // ── 3. State transitions ────────────────────────────────────────────
         child.set_running();
-        assert_eq!(child.state(), ProcessState::Running);
+        assert_eq!(child.state, ProcessState::Running);
 
         child.set_sleeping();
-        assert_eq!(child.state(), ProcessState::Sleeping);
+        assert_eq!(child.state, ProcessState::Sleeping);
 
         child.wake_up();
-        assert_eq!(child.state(), ProcessState::Ready);
+        assert_eq!(child.state, ProcessState::Ready);
 
         // ── 4. Child exits ──────────────────────────────────────────────────
-        let child_pid = child.pid();
+        let child_pid = child.pid;
         child.exit(42);
-        assert_eq!(child.state(), ProcessState::Zombie);
+        assert_eq!(child.state, ProcessState::Zombie);
 
         // ── 5. Parent reaps child via wait_child ────────────────────────────
         let result = init.wait_child(None);
@@ -514,7 +510,7 @@ mod tests {
         // 3. Open a file for writing with O_CREAT
         // 0x40 is O_CREAT. Mode 0o644.
         let fd = proc
-            .fd_table()
+            .fd_table
             .lock()
             .open("/test_fd.txt", 0x40, 0o644)
             .expect("open failed");
@@ -523,7 +519,7 @@ mod tests {
         // 4. Write some bytes
         let data = b"hello world";
         let written = proc
-            .fd_table()
+            .fd_table
             .lock()
             .write(fd, data)
             .expect("write failed");
@@ -531,7 +527,7 @@ mod tests {
 
         // 5. Seek back to the beginning
         let offset = proc
-            .fd_table()
+            .fd_table
             .lock()
             .lseek(fd, 0, 0)
             .expect("lseek failed");
@@ -540,7 +536,7 @@ mod tests {
         // 6. Read bytes back
         let mut buf = [0u8; 11];
         let read_len = proc
-            .fd_table()
+            .fd_table
             .lock()
             .read(fd, &mut buf)
             .expect("read failed");
@@ -548,18 +544,18 @@ mod tests {
         assert_eq!(&buf, data);
 
         // 7. Dup the file descriptor
-        let fd2 = proc.fd_table().lock().dup(fd).expect("dup failed");
+        let fd2 = proc.fd_table.lock().dup(fd).expect("dup failed");
         assert_ne!(fd, fd2);
 
         // 8. Seek on first fd, read from second fd (shared offset test)
         let _ = proc
-            .fd_table()
+            .fd_table
             .lock()
             .lseek(fd, 6, 0)
             .expect("lseek failed");
         let mut buf2 = [0u8; 5];
         let read_len2 = proc
-            .fd_table()
+            .fd_table
             .lock()
             .read(fd2, &mut buf2)
             .expect("read failed");
@@ -567,24 +563,24 @@ mod tests {
         assert_eq!(&buf2, b"world");
 
         // 9. Dup2 test
-        let fd3 = proc.fd_table().lock().dup2(fd, 100).expect("dup2 failed");
+        let fd3 = proc.fd_table.lock().dup2(fd, 100).expect("dup2 failed");
         assert_eq!(fd3, 100);
         let offset3 = proc
-            .fd_table()
+            .fd_table
             .lock()
             .lseek(100, 0, 1)
             .expect("lseek current failed"); // seek current to verify offset is shared (should be 11)
         assert_eq!(offset3, 11);
 
         // 10. Close all
-        proc.fd_table().lock().close(fd).expect("close fd failed");
-        proc.fd_table().lock().close(fd2).expect("close fd2 failed");
-        proc.fd_table().lock().close(fd3).expect("close fd3 failed");
+        proc.fd_table.lock().close(fd).expect("close fd failed");
+        proc.fd_table.lock().close(fd2).expect("close fd2 failed");
+        proc.fd_table.lock().close(fd3).expect("close fd3 failed");
 
         // 11. Verify they are closed
-        assert!(proc.fd_table().lock().read(fd, &mut buf).is_err());
-        assert!(proc.fd_table().lock().read(fd2, &mut buf).is_err());
-        assert!(proc.fd_table().lock().read(fd3, &mut buf).is_err());
+        assert!(proc.fd_table.lock().read(fd, &mut buf).is_err());
+        assert!(proc.fd_table.lock().read(fd2, &mut buf).is_err());
+        assert!(proc.fd_table.lock().read(fd3, &mut buf).is_err());
     }
 
     #[ktest]
@@ -596,7 +592,7 @@ mod tests {
         let proc = Process::new(vm, "thread-test");
 
         // Initially the process has no threads in its list.
-        assert_eq!(proc.thread_count(), 0);
+        assert_eq!(proc.threads.lock().len(), 0);
 
         let ran = Arc::new(AtomicBool::new(false));
         let ran_clone = ran.clone();
@@ -608,7 +604,7 @@ mod tests {
             .expect("spawn_thread failed");
 
         // The thread is now in the process's thread list.
-        assert_eq!(proc.thread_count(), 1);
+        assert_eq!(proc.threads.lock().len(), 1);
 
         let tid = thread.tid();
         let exit_code = proc.join_thread(tid).expect("join_thread failed");
@@ -618,7 +614,7 @@ mod tests {
         assert_eq!(exit_code, 0);
 
         // After joining, the thread is removed from the list.
-        assert_eq!(proc.thread_count(), 0);
+        assert_eq!(proc.threads.lock().len(), 0);
     }
 
     #[ktest]
@@ -642,13 +638,13 @@ mod tests {
             tids.push(t.tid());
         }
 
-        assert_eq!(proc.thread_count(), 4);
+        assert_eq!(proc.threads.lock().len(), 4);
 
         for tid in tids {
             proc.join_thread(tid);
         }
 
         assert_eq!(counter.load(Ordering::Relaxed), 4);
-        assert_eq!(proc.thread_count(), 0);
+        assert_eq!(proc.threads.lock().len(), 0);
     }
 }
