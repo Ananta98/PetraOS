@@ -6,6 +6,7 @@ use ostd::sync::SpinLock;
 
 pub mod block;
 pub mod char;
+pub mod gpu;
 pub mod pci;
 pub mod rtc;
 
@@ -84,6 +85,7 @@ pub fn init() {
     block::init();
     char::init();
     rtc::init();
+    gpu::init();
 }
 
 #[cfg(ktest)]
