@@ -188,4 +188,12 @@ impl FdTable {
         }
         Ok(fd)
     }
+
+    /// Return a sorted list of all currently open file descriptor numbers.
+    ///
+    /// Used by procfs to populate `/proc/<pid>/fd/`.
+    pub fn list_fds(&self) -> alloc::vec::Vec<i32> {
+        self.fds.keys().copied().collect()
+    }
 }
+

@@ -2,6 +2,8 @@ pub mod fs;
 pub(crate) mod mm;
 pub(crate) mod proc;
 pub(crate) mod signal;
+pub(crate) mod time;
+
 
 use crate::vm::vma::VmaManager;
 use alloc::string::String;
@@ -79,6 +81,7 @@ syscall_table! {
     32  => fs::syscall_dup,               // SYS_dup
     33  => fs::syscall_dup2,              // SYS_dup2
     34  => signal::syscall_rt_sigpending,  // SYS_rt_sigpending
+    35  => time::syscall_nanosleep,        // SYS_nanosleep
     39  => proc::syscall_getpid,           // SYS_getpid
     57  => proc::syscall_fork,             // SYS_fork
     59  => proc::syscall_execve,           // SYS_execve
@@ -86,6 +89,7 @@ syscall_table! {
     61  => proc::syscall_wait4,            // SYS_wait4
     62  => signal::syscall_kill,          // SYS_kill
     72  => signal::syscall_rt_sigsuspend, // SYS_rt_sigsuspend
+    96  => time::syscall_gettimeofday,     // SYS_gettimeofday
     102 => proc::syscall_getuid,           // SYS_getuid
     104 => proc::syscall_getgid,           // SYS_getgid
     105 => proc::syscall_setuid,           // SYS_setuid
@@ -106,6 +110,9 @@ syscall_table! {
     123 => proc::syscall_setfsgid,         // SYS_setfsgid
     124 => proc::syscall_getsid,           // SYS_getsid
     165 => fs::syscall_mount,             // SYS_mount
+    201 => time::syscall_time,             // SYS_time
+    228 => time::syscall_clock_gettime,    // SYS_clock_gettime
+    229 => time::syscall_clock_getres,     // SYS_clock_getres
     234 => signal::syscall_tgkill,        // SYS_tgkill
     247 => proc::syscall_waitid,           // SYS_waitid
     293 => fs::syscall_pipe2,             // SYS_pipe2
