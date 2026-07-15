@@ -138,14 +138,6 @@ impl RunQueue {
         total
     }
 
-    fn has_rt_tasks(&self) -> bool {
-        !self.rt.is_empty()
-    }
-
-    fn highest_rt_priority(&self) -> Option<u32> {
-        self.rt.highest_priority()
-    }
-
     pub fn enqueue_task(&mut self, task: Arc<Task>) {
         let (class, vruntime) = get_sched_data(&task);
         match class {

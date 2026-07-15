@@ -309,13 +309,15 @@ mod tests {
         let test_proc = Process::new(vm, "shm_test_proc");
         
         let thread = test_proc.spawn_thread("shm_thread", move || {
+            let current_process = Process::current();
+            current_process.vm.activate();
+            
             let key = 0x23456;
             let shmid = shm_get(key, PAGE_SIZE, IPC_CREAT).unwrap();
             
             let addr = shm_at(shmid, 0, 0).unwrap();
             assert!(addr > 0);
             
-            let current_process = Process::current();
             let test_data = b"Shared Memory content!";
             current_process.vm.copy_to_user(addr, test_data).unwrap();
             
@@ -332,32 +334,66 @@ mod tests {
 
     #[ktest]
     fn test_shm_sharing() {
-        let key = 0x34567;
-        let shmid = shm_get(key, PAGE_SIZE, IPC_CREAT).unwrap();
+        use ostd::sync::SpinLock as OstdSpinLock;
 
+        // `shm_get` internally calls `Process::current()` to record the
+        // creator PID.  Calling it outside a task context causes a panic when
+        // no init process (PID 1) is registered.  Run all registry operations
+        // inside spawned threads so that a valid process context is always
+        // available.
+        let shared_shmid: Arc<OstdSpinLock<u32>> = Arc::new(OstdSpinLock::new(0));
+
+        // ── Setup: create the segment inside a thread ─────────────────────
+        let vm_setup = Arc::new(VmaManager::new());
+        let proc_setup = Process::new(vm_setup, "shm_setup");
+        let shmid_ref = shared_shmid.clone();
+        let setup_thread = proc_setup
+            .spawn_thread("setup_thread", move || {
+                let key = 0x34567;
+                let id = shm_get(key, PAGE_SIZE, IPC_CREAT).unwrap();
+                *shmid_ref.lock() = id;
+            })
+            .unwrap();
+        proc_setup.join_thread(setup_thread.tid);
+
+        let shmid = *shared_shmid.lock();
+
+        // ── Writer: proc1 maps, writes data, then detaches ────────────────
         let vm1 = Arc::new(VmaManager::new());
         let proc1 = Process::new(vm1, "shm_proc1");
-        
-        let thread1 = proc1.spawn_thread("thread1", move || {
-            let addr1 = shm_at(shmid, 0, 0).unwrap();
-            let test_data = b"Sharing is caring!";
-            Process::current().vm.copy_to_user(addr1, test_data).unwrap();
-            shm_dt(addr1).unwrap();
-        }).unwrap();
+
+        let thread1 = proc1
+            .spawn_thread("thread1", move || {
+                let current_process = Process::current();
+                current_process.vm.activate();
+
+                let addr1 = shm_at(shmid, 0, 0).unwrap();
+                let test_data = b"Sharing is caring!";
+                current_process.vm.copy_to_user(addr1, test_data).unwrap();
+                shm_dt(addr1).unwrap();
+            })
+            .unwrap();
         proc1.join_thread(thread1.tid);
 
+        // ── Reader: proc2 maps, reads data, verifies, then detaches ───────
         let vm2 = Arc::new(VmaManager::new());
         let proc2 = Process::new(vm2, "shm_proc2");
-        
-        let thread2 = proc2.spawn_thread("thread2", move || {
-            let addr2 = shm_at(shmid, 0, 0).unwrap();
-            let mut buf = [0u8; 18];
-            Process::current().vm.copy_from_user(addr2, &mut buf).unwrap();
-            assert_eq!(&buf, b"Sharing is caring!");
-            shm_dt(addr2).unwrap();
-        }).unwrap();
+
+        let thread2 = proc2
+            .spawn_thread("thread2", move || {
+                let current_process = Process::current();
+                current_process.vm.activate();
+
+                let addr2 = shm_at(shmid, 0, 0).unwrap();
+                let mut buf = [0u8; 18];
+                current_process.vm.copy_from_user(addr2, &mut buf).unwrap();
+                assert_eq!(&buf, b"Sharing is caring!");
+                shm_dt(addr2).unwrap();
+            })
+            .unwrap();
         proc2.join_thread(thread2.tid);
 
+        // ── Teardown: mark the segment for deletion ────────────────────────
         shm_ctl(shmid, IPC_RMID).unwrap();
     }
 }

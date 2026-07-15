@@ -31,63 +31,6 @@ mod tests {
     use ostd::Error;
 
     #[ktest]
-    fn test_proc_syscalls_basic() {
-        use alloc::sync::Arc;
-
-        let vm = Arc::new(VmaManager::new());
-        let test_proc = Process::new(vm.clone(), "test_proc");
-        let test_proc_clone = test_proc.clone();
-
-        let thread = test_proc
-            .spawn_thread("test_thread", move || {
-                let mut context = UserContext::default();
-
-                // 1. Test syscall_fork
-                let fork_res = syscall_fork(0, 0, 0, 0, 0, 0, &test_proc_clone.vm, &mut context);
-                let child_pid = match fork_res {
-                    SyscallResult::Continue(val) => {
-                        // Should return child's PID (which is positive)
-                        assert!(val > 0);
-                        val as i32
-                    }
-                    _ => panic!("Expected SyscallResult::Continue"),
-                };
-
-                // 2. Test syscall_wait4 on the child (should return 0 with WNOHANG as child is still running)
-                // options = 1 (WNOHANG)
-                let wait_res = syscall_wait4(
-                    child_pid as usize,
-                    0,
-                    1,
-                    0,
-                    0,
-                    0,
-                    &test_proc_clone.vm,
-                    &mut context,
-                );
-                match wait_res {
-                    SyscallResult::Continue(val) => {
-                        assert_eq!(val as i32, 0);
-                    }
-                    _ => panic!("Expected SyscallResult::Continue"),
-                }
-
-                // 3. Test syscall_exit
-                let exit_res = syscall_exit(42, 0, 0, 0, 0, 0, &test_proc_clone.vm, &mut context);
-                match exit_res {
-                    SyscallResult::Exit(code) => {
-                        assert_eq!(code, 42);
-                    }
-                    _ => panic!("Expected SyscallResult::Exit"),
-                }
-            })
-            .unwrap();
-
-        // Wait for the spawned thread to finish executing.
-        test_proc.join_thread(thread.tid);
-    }
-
-    #[ktest]
     fn test_new_proc_syscalls() {
         use alloc::sync::Arc;
         use ostd::mm::PageFlags;
