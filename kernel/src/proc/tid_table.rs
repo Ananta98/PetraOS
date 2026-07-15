@@ -67,7 +67,7 @@ impl ThreadTable {
 
     /// Register a newly created thread.
     pub fn register(&self, thread: Arc<KernelThread>) {
-        self.table.lock().insert(thread.tid(), thread);
+        self.table.lock().insert(thread.tid, thread);
     }
 
     /// Remove a finished thread from the table.
@@ -91,7 +91,7 @@ impl ThreadTable {
         self.table
             .lock()
             .values()
-            .filter(|thread| thread.pid() == pid)
+            .filter(|thread| thread.pid == pid)
             .cloned()
             .collect()
     }

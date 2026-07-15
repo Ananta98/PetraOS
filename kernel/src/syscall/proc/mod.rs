@@ -84,7 +84,7 @@ mod tests {
             .unwrap();
 
         // Wait for the spawned thread to finish executing.
-        test_proc.join_thread(thread.tid());
+        test_proc.join_thread(thread.tid);
     }
 
     #[ktest]
