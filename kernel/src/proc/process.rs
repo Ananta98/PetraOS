@@ -290,23 +290,28 @@ impl Process {
         self.state = ProcessState::Zombie;
         self.exit_code = code;
 
+        // Clean up any shared memory attachments for this process.
+        crate::ipc::SHM_REGISTRY.detach_all_for_process(self.pid);
+
         PROCESS_TABLE.update_process(self.pid, |p| {
             p.state = ProcessState::Zombie;
             p.exit_code = code;
         });
 
-        // Reparent any children to init (PID 1).
+        // Reparent any children to init (PID 1), but avoid double-locking if this is init itself.
         let init_pid = Pid::from_raw(1);
-        if let Some(init) = PROCESS_TABLE.get_process(init_pid) {
-            let mut own_children = self.children.lock();
-            let mut init_children = init.children.lock();
-            for child_pid in own_children.drain(..) {
-                if let Some(_) = PROCESS_TABLE.get_process(child_pid) {
-                    PROCESS_TABLE.update_process(child_pid, |p| {
-                        p.ppid = Some(init_pid);
-                    });
+        if self.pid != init_pid {
+            if let Some(init) = PROCESS_TABLE.get_process(init_pid) {
+                let mut own_children = self.children.lock();
+                let mut init_children = init.children.lock();
+                for child_pid in own_children.drain(..) {
+                    if let Some(_) = PROCESS_TABLE.get_process(child_pid) {
+                        PROCESS_TABLE.update_process(child_pid, |p| {
+                            p.ppid = Some(init_pid);
+                        });
+                    }
+                    init_children.push(child_pid);
                 }
-                init_children.push(child_pid);
             }
         }
     }
@@ -361,7 +366,7 @@ impl Process {
         F: FnOnce() + Send + 'static,
     {
         let thread = KernelThread::spawn(self.pid, name, func)?;
-        self.threads.lock().insert(thread.tid(), thread.clone());
+        self.threads.lock().insert(thread.tid, thread.clone());
         Ok(thread)
     }
 
@@ -410,7 +415,7 @@ impl Process {
         if let Some(task) = ostd::task::Task::current() {
             if let Some(task_data) = task
                 .data()
-                .downcast_ref::<crate::proc::scheduler::TaskData>()
+                .downcast_ref::<crate::scheduler::TaskData>()
             {
                 if let Some(proc) = PROCESS_TABLE.get_process(task_data.pid) {
                     return proc;
@@ -606,7 +611,7 @@ mod tests {
         // The thread is now in the process's thread list.
         assert_eq!(proc.threads.lock().len(), 1);
 
-        let tid = thread.tid();
+        let tid = thread.tid;
         let exit_code = proc.join_thread(tid).expect("join_thread failed");
 
         // Thread ran and exited cleanly.
@@ -635,7 +640,7 @@ mod tests {
                     c.fetch_add(1, Ordering::Relaxed);
                 })
                 .expect("spawn_thread failed");
-            tids.push(t.tid());
+            tids.push(t.tid);
         }
 
         assert_eq!(proc.threads.lock().len(), 4);

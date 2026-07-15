@@ -140,7 +140,7 @@ impl FileOps for PipeWriteOps {
             if let Some(task) = ostd::task::Task::current() {
                 if let Some(task_data) = task
                     .data()
-                    .downcast_ref::<crate::proc::scheduler::TaskData>()
+                    .downcast_ref::<crate::scheduler::TaskData>()
                 {
                     let _ = crate::ipc::send_signal_to_pid(task_data.pid, crate::ipc::SIGPIPE, 0);
                 }
@@ -174,7 +174,7 @@ impl FileOps for PipeWriteOps {
                     if let Some(task) = ostd::task::Task::current() {
                         if let Some(task_data) = task
                             .data()
-                            .downcast_ref::<crate::proc::scheduler::TaskData>()
+                            .downcast_ref::<crate::scheduler::TaskData>()
                         {
                             let _ = crate::ipc::send_signal_to_pid(task_data.pid, crate::ipc::SIGPIPE, 0);
                         }

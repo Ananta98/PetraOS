@@ -7,6 +7,7 @@ mod drivers;
 mod fs;
 mod ipc;
 mod proc;
+mod scheduler;
 mod syscall;
 mod vm;
 
@@ -15,5 +16,6 @@ fn kernel_main() {
     vm::init();
     drivers::init();
     fs::init().expect("failed to initialize filesystem");
-    proc::init();
+    proc::spawn_init_process();
+    scheduler::init();
 }

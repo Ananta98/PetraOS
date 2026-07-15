@@ -1,7 +1,6 @@
 pub mod elf;
 pub mod pid_table;
 pub mod process;
-pub mod scheduler;
 pub mod thread;
 pub mod tid_table;
 pub mod user;
@@ -17,11 +16,6 @@ use crate::vm::vma::VmaManager;
 use alloc::sync::Arc;
 use ostd::Error;
 use process::Process;
-
-pub fn init() {
-    scheduler::init();
-    spawn_init_process();
-}
 
 /// Spawn the **init** process (PID 1).
 ///
@@ -97,5 +91,3 @@ fn try_load_init_exec(
 
     Ok((process, loaded))
 }
-
-

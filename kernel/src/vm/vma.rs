@@ -83,6 +83,50 @@ impl VmaManager {
 
         Ok(())
     }
+
+    /// Map a list of existing physical frames into the user address space.
+    pub fn map_shared_frames(
+        &self,
+        start: Vaddr,
+        frames: &[UFrame],
+        flags: PageFlags,
+    ) -> Result<(), Error> {
+        if start % PAGE_SIZE != 0 {
+            return Err(Error::InvalidArgs);
+        }
+        let size = frames.len() * PAGE_SIZE;
+        let guard = disable_preempt();
+        let vaddr_range = start..start + size;
+        let mut cursor = self
+            .vm_space
+            .cursor_mut(&guard, &vaddr_range)
+            .map_err(|_| Error::NoMemory)?;
+
+        let property = PageProperty::new_user(flags, CachePolicy::Writeback);
+
+        for (page_idx, frame) in frames.iter().enumerate() {
+            let page_vaddr = start + (page_idx * PAGE_SIZE);
+            cursor.jump(page_vaddr).map_err(|_| Error::InvalidArgs)?;
+            cursor.map(frame.clone(), property);
+        }
+
+        let mut regions = self.regions.lock();
+        regions.insert(
+            start,
+            VmaRegion {
+                start,
+                size,
+                flags,
+                guard_size: 0,
+                file_backing: None,
+                file_offset: 0,
+                is_shared: true,
+            },
+        );
+
+        Ok(())
+    }
+    
     pub fn map_stack(
         &self,
         start: Vaddr,

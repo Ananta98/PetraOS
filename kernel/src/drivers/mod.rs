@@ -8,7 +8,6 @@ pub mod block;
 pub mod char;
 pub mod gpu;
 pub mod pci;
-pub mod rtc;
 
 pub use block::{BlockDevice, register_block_device};
 pub use char::{CharDevice, register_char_device};
@@ -84,7 +83,6 @@ pub fn unregister_device(name: &str) -> Result<(), ostd::Error> {
 pub fn init() {
     block::init();
     char::init();
-    rtc::init();
     gpu::init();
 }
 

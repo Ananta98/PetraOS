@@ -6,7 +6,7 @@ use ostd::sync::WaitQueue;
 use ostd::task::{Task, TaskOptions};
 
 use crate::proc::pid_table::Pid;
-use crate::proc::scheduler::{SchedClass, TaskData};
+use crate::scheduler::{SchedClass, TaskData};
 use crate::proc::tid_table::{THREAD_TABLE, Tid};
 
 // ---------------------------------------------------------------------------
@@ -110,20 +110,20 @@ impl KernelThreadInner {
 /// execution and the join queue has been woken.
 pub struct KernelThread {
     /// Unique thread identifier.
-    tid: Tid,
+    pub(crate) tid: Tid,
 
     /// Owning process identifier.
-    pid: Pid,
+    pub(crate) pid: Pid,
 
     /// Human-readable thread name (defaults to the process name).
-    name: String,
+    pub(crate) name: String,
 
     /// Shared mutable state — also held by the task closure for zero-lookup
     /// updates from inside the running task.
-    inner: Arc<KernelThreadInner>,
+    pub(crate) inner: Arc<KernelThreadInner>,
 
     /// The underlying OSTD task.
-    task: Arc<Task>,
+    pub(crate) task: Arc<Task>,
 }
 
 impl KernelThread {
@@ -197,40 +197,6 @@ impl KernelThread {
             .ok();
 
         Ok(thread)
-    }
-
-    // -----------------------------------------------------------------------
-    // Accessors
-    // -----------------------------------------------------------------------
-
-    /// Thread identifier.
-    pub fn tid(&self) -> Tid {
-        self.tid
-    }
-
-    /// Owning process identifier.
-    pub fn pid(&self) -> Pid {
-        self.pid
-    }
-
-    /// Thread name.
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-
-    /// Current lifecycle state (atomic snapshot).
-    pub fn state(&self) -> ThreadState {
-        self.inner.state()
-    }
-
-    /// Exit code; only meaningful after the state is `Finished`.
-    pub fn exit_code(&self) -> i32 {
-        self.inner.exit_code()
-    }
-
-    /// Reference to the underlying OSTD task.
-    pub fn task(&self) -> &Arc<Task> {
-        &self.task
     }
 
     // -----------------------------------------------------------------------

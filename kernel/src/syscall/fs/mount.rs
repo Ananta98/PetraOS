@@ -2,6 +2,7 @@ use crate::fs::vfs::mount;
 use crate::syscall::SyscallResult;
 use crate::syscall::to_continue_unit;
 use crate::vm::vma::VmaManager;
+use crate::syscall::{read_user_slice, read_user_string};
 use ostd::Error;
 
 /// System call entry: mount a filesystem.
@@ -20,9 +21,9 @@ pub(crate) fn syscall_mount(
 ) -> SyscallResult {
     let flags = arg2 as u32;
 
-    let fs_type_res = super::read_user_string(vm, arg0);
-    let target_path_res = super::read_user_string(vm, arg1);
-    let data_res = super::read_user_slice(vm, arg3, arg4);
+    let fs_type_res = read_user_string(vm, arg0);
+    let target_path_res = read_user_string(vm, arg1);
+    let data_res = read_user_slice(vm, arg3, arg4);
 
     match (fs_type_res, target_path_res, data_res) {
         (Ok(fs_type), Ok(target_path), Ok(data)) => {

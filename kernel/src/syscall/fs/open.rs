@@ -16,7 +16,7 @@ pub(crate) fn syscall_open(
 ) -> SyscallResult {
     let flags = arg1 as u32;
     let mode = arg2 as u32;
-    match super::read_user_string(vm, arg0) {
+    match crate::syscall::read_user_string(vm, arg0) {
         Ok(path) => to_continue_i32(
             Process::current()
                 .fd_table

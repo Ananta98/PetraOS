@@ -7,6 +7,8 @@
 /// with other kernel subsystems (such as `proc` and `syscall`).
 pub mod signal;
 pub mod pipe;
+pub mod shm;
 
 pub use signal::*;
 pub use pipe::create_pipe;
+pub use shm::{SHM_REGISTRY, shm_get, shm_at, shm_dt, shm_ctl};

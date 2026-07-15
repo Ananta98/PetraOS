@@ -29,8 +29,6 @@ impl Tid {
         Self(NEXT_TID.fetch_add(1, Ordering::Relaxed))
     }
 
-
-
     /// Construct a `Tid` from a known raw value.
     ///
     /// Use sparingly — primarily for well-known or sentinel TIDs.

@@ -1,7 +1,7 @@
 use crate::proc::pid_table::Pid;
 use crate::proc::tid_table::Tid;
 use alloc::boxed::Box;
-use alloc::collections::{BTreeMap, VecDeque};
+use alloc::collections::VecDeque;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::sync::atomic::{AtomicU64, Ordering};
@@ -11,6 +11,12 @@ use ostd::task::scheduler::info::CommonSchedInfo;
 use ostd::task::scheduler::{EnqueueFlags, LocalRunQueue, Scheduler, UpdateFlags};
 use ostd::task::{Task, disable_preempt};
 use ostd::util::id_set::Id;
+
+pub mod eevdf;
+pub mod rt;
+
+use eevdf::EevdfRunQueue;
+use rt::RtRunQueue;
 
 /// Linux/Unix priority-to-weight conversion table for nice values [-20 .. 19].
 const SCHED_NICE_TO_WEIGHT: [u64; 40] = [
@@ -28,16 +34,13 @@ pub fn nice_to_weight(nice: i32) -> u64 {
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum SchedClass {
+    RealTime { priority: u32 }, // Higher value is higher priority
     Fair { nice: i32 },
 }
 
 /// Per-task scheduling metadata attached to every `ostd::task::Task`.
-///
-/// Carries both the owning `Pid` (process group) and the thread `Tid` so that
-/// any code that receives a `&Task` reference can look up either the process or
-/// the thread descriptor without a separate lookup table.
 pub struct TaskData {
-    /// CFS scheduling class and parameters.
+    /// Scheduling class and parameters.
     pub class: SchedClass,
     /// Accumulated virtual runtime (nanoseconds, CFS bookkeeping).
     pub vruntime: AtomicU64,
@@ -59,7 +62,7 @@ impl TaskData {
     }
 }
 
-fn get_sched_data(task: &Task) -> (SchedClass, u64) {
+pub(crate) fn get_sched_data(task: &Task) -> (SchedClass, u64) {
     if let Some(data) = task.data().downcast_ref::<TaskData>() {
         (data.class, data.vruntime.load(Ordering::Relaxed))
     } else {
@@ -67,26 +70,28 @@ fn get_sched_data(task: &Task) -> (SchedClass, u64) {
     }
 }
 
-fn set_vruntime(task: &Task, vruntime: u64) {
+pub(crate) fn set_vruntime(task: &Task, vruntime: u64) {
     if let Some(data) = task.data().downcast_ref::<TaskData>() {
         data.vruntime.store(vruntime, Ordering::Relaxed);
     }
 }
 
-fn get_weight(class: SchedClass) -> u64 {
+pub(crate) fn get_weight(class: SchedClass) -> u64 {
     match class {
+        SchedClass::RealTime { .. } => 0,
         SchedClass::Fair { nice } => nice_to_weight(nice),
     }
 }
 
-fn get_deadline(vruntime: u64, class: SchedClass) -> u64 {
+pub(crate) fn get_deadline(vruntime: u64, class: SchedClass) -> u64 {
     let weight = get_weight(class);
     vruntime + 1024_000 / weight.max(1)
 }
 
 pub struct RunQueue {
     current: Option<Arc<Task>>,
-    cfs_tasks: BTreeMap<u64, VecDeque<Arc<Task>>>,
+    rt: RtRunQueue,
+    eevdf: EevdfRunQueue,
     vtime: u64,
     nr_runnable: usize,
 }
@@ -95,7 +100,8 @@ impl RunQueue {
     pub const fn new() -> Self {
         Self {
             current: None,
-            cfs_tasks: BTreeMap::new(),
+            rt: RtRunQueue::new(),
+            eevdf: EevdfRunQueue::new(),
             vtime: 0,
             nr_runnable: 0,
         }
@@ -103,42 +109,53 @@ impl RunQueue {
 
     pub fn min_vruntime(&self) -> u64 {
         let mut min_val = if let Some(curr) = &self.current {
-            let (_, vruntime) = get_sched_data(curr);
-            vruntime
+            let (class, vruntime) = get_sched_data(curr);
+            match class {
+                SchedClass::RealTime { .. } => 0,
+                SchedClass::Fair { .. } => vruntime,
+            }
         } else {
             0
         };
-        if let Some((&vruntime, _)) = self.cfs_tasks.iter().next() {
+        if let Some(eevdf_min) = self.eevdf.min_vruntime() {
             if min_val == 0 {
-                min_val = vruntime;
+                min_val = eevdf_min;
             } else {
-                min_val = min_val.min(vruntime);
+                min_val = min_val.min(eevdf_min);
             }
         }
         min_val
     }
 
     fn total_fair_weight(&self) -> u64 {
-        let mut total = 0;
+        let mut total = self.eevdf.total_weight();
         if let Some(curr) = &self.current {
-            total += get_weight(get_sched_data(curr).0);
-        }
-        for queue in self.cfs_tasks.values() {
-            for task in queue {
-                total += get_weight(get_sched_data(task).0);
+            let (class, _) = get_sched_data(curr);
+            if let SchedClass::Fair { nice } = class {
+                total += nice_to_weight(nice);
             }
         }
         total
     }
 
+    fn has_rt_tasks(&self) -> bool {
+        !self.rt.is_empty()
+    }
+
+    fn highest_rt_priority(&self) -> Option<u32> {
+        self.rt.highest_priority()
+    }
+
     pub fn enqueue_task(&mut self, task: Arc<Task>) {
-        let (_, vruntime) = get_sched_data(&task);
-        let new_vruntime = vruntime.max(self.vtime);
-        set_vruntime(&task, new_vruntime);
-        self.cfs_tasks
-            .entry(new_vruntime)
-            .or_insert_with(VecDeque::new)
-            .push_back(task);
+        let (class, vruntime) = get_sched_data(&task);
+        match class {
+            SchedClass::RealTime { priority } => {
+                self.rt.enqueue(task, priority);
+            }
+            SchedClass::Fair { .. } => {
+                self.eevdf.enqueue(task, vruntime, self.vtime);
+            }
+        }
         self.nr_runnable += 1;
         self.vtime = self.vtime.max(self.min_vruntime());
     }
@@ -148,24 +165,39 @@ impl RunQueue {
             return false;
         };
 
-        if self.cfs_tasks.is_empty() {
-            return false;
-        }
-
         let (curr_class, curr_vruntime) = get_sched_data(curr);
-        let curr_deadline = get_deadline(curr_vruntime, curr_class);
 
-        for (&vruntime, queue) in self.cfs_tasks.range(..=self.vtime) {
-            for task in queue {
-                let (class, _) = get_sched_data(task);
-                let deadline = get_deadline(vruntime, class);
-                if deadline + 1000 < curr_deadline {
+        match curr_class {
+            SchedClass::RealTime { priority: curr_priority } => {
+                if let Some(highest_priority) = self.rt.highest_priority() {
+                    if highest_priority > curr_priority {
+                        return true;
+                    }
+                }
+                false
+            }
+            SchedClass::Fair { .. } => {
+                if !self.rt.is_empty() {
                     return true;
                 }
+
+                if self.eevdf.is_empty() {
+                    return false;
+                }
+
+                let curr_deadline = get_deadline(curr_vruntime, curr_class);
+                for (&vruntime, queue) in self.eevdf.tasks.range(..=self.vtime) {
+                    for task in queue {
+                        let (class, _) = get_sched_data(task);
+                        let deadline = get_deadline(vruntime, class);
+                        if deadline + 1000 < curr_deadline {
+                            return true;
+                        }
+                    }
+                }
+                false
             }
         }
-
-        false
     }
 }
 
@@ -176,16 +208,23 @@ impl LocalRunQueue<Task> for RunQueue {
 
     fn update_current(&mut self, flags: UpdateFlags) -> bool {
         if let Some(curr) = &self.current {
-            if flags == UpdateFlags::Tick {
-                let (class, vruntime) = get_sched_data(curr);
-                let weight = get_weight(class);
-                let delta = 1000;
-                let vruntime_delta = delta * 1024 / weight.max(1);
-                set_vruntime(curr, vruntime + vruntime_delta);
+            let (class, vruntime) = get_sched_data(curr);
+            match class {
+                SchedClass::RealTime { .. } => {
+                    // RealTime tasks run with fixed priority and don't update vtime/vruntime.
+                }
+                SchedClass::Fair { nice } => {
+                    if flags == UpdateFlags::Tick {
+                        let weight = nice_to_weight(nice);
+                        let delta = 1000;
+                        let vruntime_delta = delta * 1024 / weight.max(1);
+                        set_vruntime(curr, vruntime + vruntime_delta);
 
-                let total_w = self.total_fair_weight().max(1);
-                let vtime_delta = delta * 1024 / total_w;
-                self.vtime += vtime_delta;
+                        let total_w = self.total_fair_weight().max(1);
+                        let vtime_delta = delta * 1024 / total_w;
+                        self.vtime += vtime_delta;
+                    }
+                }
             }
         }
 
@@ -198,36 +237,12 @@ impl LocalRunQueue<Task> for RunQueue {
     }
 
     fn try_pick_next(&mut self) -> Option<&Arc<Task>> {
-        let next_task = if !self.cfs_tasks.is_empty() {
-            let mut best_key = None;
-            let mut best_deque_idx = None;
-            let mut best_deadline = u64::MAX;
-
-            for (&vruntime, queue) in self.cfs_tasks.range(..=self.vtime) {
-                for (dq_idx, task) in queue.iter().enumerate() {
-                    let (class, _) = get_sched_data(task);
-                    let deadline = get_deadline(vruntime, class);
-                    if deadline < best_deadline {
-                        best_deadline = deadline;
-                        best_key = Some(vruntime);
-                        best_deque_idx = Some(dq_idx);
-                    }
-                }
-            }
-
-            let (key_to_remove, deque_idx_to_remove) =
-                if let (Some(k), Some(idx)) = (best_key, best_deque_idx) {
-                    (k, idx)
-                } else {
-                    let (&min_vruntime, _) = self.cfs_tasks.iter().next().unwrap();
-                    (min_vruntime, 0)
-                };
-
-            let queue = self.cfs_tasks.get_mut(&key_to_remove).unwrap();
-            let task = queue.remove(deque_idx_to_remove).unwrap();
-            if queue.is_empty() {
-                self.cfs_tasks.remove(&key_to_remove);
-            }
+        let next_task = if !self.rt.is_empty() {
+            let task = self.rt.pick_next().unwrap();
+            self.nr_runnable -= 1;
+            task
+        } else if !self.eevdf.is_empty() {
+            let task = self.eevdf.pick_next(self.vtime).unwrap();
             self.nr_runnable -= 1;
             task
         } else {
@@ -250,11 +265,11 @@ impl LocalRunQueue<Task> for RunQueue {
     }
 }
 
-pub struct EevdfScheduler {
+pub struct CombinedScheduler {
     rq: Vec<SpinLock<RunQueue>>,
 }
 
-impl EevdfScheduler {
+impl CombinedScheduler {
     pub fn new(nr_cpus: usize) -> Self {
         let mut rq = Vec::new();
         for _ in 0..nr_cpus {
@@ -264,17 +279,29 @@ impl EevdfScheduler {
     }
 
     fn select_cpu(&self) -> CpuId {
-        CpuId::bsp()
+        let mut min_load = usize::MAX;
+        let mut best_cpu_idx = 0;
+        for (cpu_idx, rq_lock) in self.rq.iter().enumerate() {
+            let load = {
+                let rq = rq_lock.disable_irq().lock();
+                rq.nr_runnable
+            };
+            if load < min_load {
+                min_load = load;
+                best_cpu_idx = cpu_idx;
+            }
+        }
+        CpuId::new(best_cpu_idx as u32)
     }
 }
 
-impl Default for EevdfScheduler {
+impl Default for CombinedScheduler {
     fn default() -> Self {
         Self::new(num_cpus())
     }
 }
 
-impl Scheduler<Task> for EevdfScheduler {
+impl Scheduler<Task> for CombinedScheduler {
     fn enqueue(&self, runnable: Arc<Task>, flags: EnqueueFlags) -> Option<CpuId> {
         let (still_in_rq, target_cpu) = {
             let selected_cpu_id = self.select_cpu();
@@ -319,7 +346,7 @@ impl Scheduler<Task> for EevdfScheduler {
 }
 
 pub fn init() {
-    let scheduler = Box::new(EevdfScheduler::default());
+    let scheduler = Box::new(CombinedScheduler::default());
     let scheduler_ref = Box::leak(scheduler);
     ostd::task::scheduler::inject_scheduler(scheduler_ref);
     ostd::task::scheduler::enable_preemption_on_cpu();
@@ -400,5 +427,79 @@ mod tests {
         rq.enqueue_task(newcomer.clone());
 
         assert!(rq.should_preempt_current());
+    }
+
+    #[ktest]
+    fn test_rt_preempts_fair() {
+        let mut rq = RunQueue::new();
+
+        let task_fair = Arc::new(
+            TaskOptions::new(|| {})
+                .data(TaskData::new(
+                    SchedClass::Fair { nice: 0 },
+                    Pid::from_raw(1),
+                    Tid::from_raw(10),
+                ))
+                .build()
+                .unwrap(),
+        );
+
+        let task_rt = Arc::new(
+            TaskOptions::new(|| {})
+                .data(TaskData::new(
+                    SchedClass::RealTime { priority: 1 },
+                    Pid::from_raw(1),
+                    Tid::from_raw(11),
+                ))
+                .build()
+                .unwrap(),
+        );
+
+        rq.enqueue_task(task_fair.clone());
+        rq.enqueue_task(task_rt.clone());
+
+        // RT task must be picked first regardless of fair task vruntime/deadlines
+        let picked = rq.try_pick_next().unwrap();
+        assert!(Arc::ptr_eq(picked, &task_rt));
+
+        let picked = rq.try_pick_next().unwrap();
+        assert!(Arc::ptr_eq(picked, &task_fair));
+    }
+
+    #[ktest]
+    fn test_rt_priority_preemption() {
+        let mut rq = RunQueue::new();
+
+        let task_rt_low = Arc::new(
+            TaskOptions::new(|| {})
+                .data(TaskData::new(
+                    SchedClass::RealTime { priority: 1 },
+                    Pid::from_raw(1),
+                    Tid::from_raw(12),
+                ))
+                .build()
+                .unwrap(),
+        );
+
+        let task_rt_high = Arc::new(
+            TaskOptions::new(|| {})
+                .data(TaskData::new(
+                    SchedClass::RealTime { priority: 10 },
+                    Pid::from_raw(1),
+                    Tid::from_raw(13),
+                ))
+                .build()
+                .unwrap(),
+        );
+
+        rq.enqueue_task(task_rt_low.clone());
+        rq.enqueue_task(task_rt_high.clone());
+
+        // Higher priority RT task picked first
+        let picked = rq.try_pick_next().unwrap();
+        assert!(Arc::ptr_eq(picked, &task_rt_high));
+
+        let picked = rq.try_pick_next().unwrap();
+        assert!(Arc::ptr_eq(picked, &task_rt_low));
     }
 }
