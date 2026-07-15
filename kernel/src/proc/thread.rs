@@ -110,20 +110,20 @@ impl KernelThreadInner {
 /// execution and the join queue has been woken.
 pub struct KernelThread {
     /// Unique thread identifier.
-    pub(crate) tid: Tid,
+    pub tid: Tid,
 
     /// Owning process identifier.
-    pub(crate) pid: Pid,
+    pub pid: Pid,
 
     /// Human-readable thread name (defaults to the process name).
-    pub(crate) name: String,
+    pub name: String,
 
     /// Shared mutable state — also held by the task closure for zero-lookup
     /// updates from inside the running task.
-    pub(crate) inner: Arc<KernelThreadInner>,
+    pub inner: Arc<KernelThreadInner>,
 
     /// The underlying OSTD task.
-    pub(crate) task: Arc<Task>,
+    pub task: Arc<Task>,
 }
 
 impl KernelThread {
