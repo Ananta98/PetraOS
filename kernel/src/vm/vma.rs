@@ -169,7 +169,12 @@ impl VmaManager {
         cursor.unmap(size);
 
         let mut regions = self.regions.lock();
-        regions.remove(&start);
+        if let Some(region) = regions.remove(&start) {
+            if region.is_shared {
+                let current_pid = crate::proc::process::Process::current().pid;
+                crate::ipc::shm::shm_dt_if_attached(current_pid, region.start);
+            }
+        }
 
         Ok(())
     }
@@ -364,6 +369,10 @@ impl VmaManager {
 
             if start <= region.start && end_addr >= r_end {
                 // Fully covered — remove entirely.
+                if region.is_shared {
+                    let current_pid = crate::proc::process::Process::current().pid;
+                    crate::ipc::shm::shm_dt_if_attached(current_pid, region.start);
+                }
                 continue;
             } else if region.start < start && r_end > end_addr {
                 // Target is in the middle — split into left and right.

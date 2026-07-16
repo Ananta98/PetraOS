@@ -204,24 +204,17 @@ impl ShmRegistry {
         let current_pid = current_process.pid;
         let vma_manager = &current_process.vm;
 
-        let mut attachments = self.attachments.lock();
-        let shmid = attachments
-            .remove(&(current_pid, shmaddr))
-            .ok_or(Error::InvalidArgs)?;
-
-        let mut segments = self.segments.lock();
-        let segment = segments.get_mut(&shmid).ok_or(Error::InvalidArgs)?;
+        {
+            let attachments = self.attachments.lock();
+            if !attachments.contains_key(&(current_pid, shmaddr)) {
+                return Err(Error::InvalidArgs);
+            }
+        }
 
         let vma = vma_manager.find_vma(shmaddr).ok_or(Error::InvalidArgs)?;
         let size = vma.1.size;
 
         vma_manager.munmap(shmaddr, size)?;
-
-        segment.attach_count = segment.attach_count.saturating_sub(1);
-
-        if segment.marked_for_deletion && segment.attach_count == 0 {
-            segments.remove(&shmid);
-        }
 
         Ok(())
     }
@@ -263,6 +256,40 @@ impl ShmRegistry {
             }
         }
     }
+
+    /// Clone attachments from parent process to child process during fork.
+    pub fn clone_attachments_for_fork(&self, parent_pid: Pid, child_pid: Pid) {
+        let mut attachments = self.attachments.lock();
+        let mut segments = self.segments.lock();
+
+        let mut child_atts = Vec::new();
+        for (&(pid, addr), &shmid) in attachments.iter() {
+            if pid == parent_pid {
+                child_atts.push((addr, shmid));
+            }
+        }
+
+        for (addr, shmid) in child_atts {
+            attachments.insert((child_pid, addr), shmid);
+            if let Some(segment) = segments.get_mut(&shmid) {
+                segment.attach_count += 1;
+            }
+        }
+    }
+
+    /// Detach a shared memory segment if it is currently attached to the process at the given address.
+    pub fn shm_dt_if_attached(&self, pid: Pid, shmaddr: usize) {
+        let mut attachments = self.attachments.lock();
+        if let Some(shmid) = attachments.remove(&(pid, shmaddr)) {
+            let mut segments = self.segments.lock();
+            if let Some(segment) = segments.get_mut(&shmid) {
+                segment.attach_count = segment.attach_count.saturating_sub(1);
+                if segment.marked_for_deletion && segment.attach_count == 0 {
+                    segments.remove(&shmid);
+                }
+            }
+        }
+    }
 }
 
 pub static SHM_REGISTRY: ShmRegistry = ShmRegistry::new();
@@ -281,6 +308,14 @@ pub fn shm_dt(shmaddr: usize) -> Result<(), Error> {
 
 pub fn shm_ctl(shmid: u32, cmd: u32) -> Result<(), Error> {
     SHM_REGISTRY.shm_ctl(shmid, cmd)
+}
+
+pub fn clone_attachments_for_fork(parent_pid: Pid, child_pid: Pid) {
+    SHM_REGISTRY.clone_attachments_for_fork(parent_pid, child_pid);
+}
+
+pub fn shm_dt_if_attached(pid: Pid, shmaddr: usize) {
+    SHM_REGISTRY.shm_dt_if_attached(pid, shmaddr);
 }
 
 #[cfg(ktest)]
@@ -400,5 +435,60 @@ mod tests {
 
         // ── Teardown: mark the segment for deletion ────────────────────────
         shm_ctl(shmid, IPC_RMID).unwrap();
+    }
+
+    #[ktest]
+    fn test_shm_fork() {
+        let parent_vm = Arc::new(VmaManager::new());
+        let parent_proc = Process::new(parent_vm, "shm_parent");
+
+        let thread = parent_proc
+            .spawn_thread("parent_thread", move || {
+                let current_process = Process::current();
+                current_process.vm.activate();
+
+                let key = 0x45678;
+                let shmid = shm_get(key, PAGE_SIZE, IPC_CREAT).unwrap();
+                let addr = shm_at(shmid, 0, 0).unwrap();
+
+                let initial_data = b"Hello Fork!";
+                current_process.vm.copy_to_user(addr, initial_data).unwrap();
+
+                // Fork the child process
+                let child_proc = current_process.fork().unwrap();
+
+                // Run child-specific logic in a thread
+                let child_thread = child_proc
+                    .spawn_thread("child_thread", move || {
+                        let child_process = Process::current();
+                        child_process.vm.activate();
+
+                        // Verify that the child can read the parent's data at the same address
+                        let mut buf = [0u8; 11];
+                        child_process.vm.copy_from_user(addr, &mut buf).unwrap();
+                        assert_eq!(&buf, b"Hello Fork!");
+
+                        // Modify the data in the child
+                        let modified_data = b"Hello Child";
+                        child_process.vm.copy_to_user(addr, modified_data).unwrap();
+                    })
+                    .unwrap();
+
+                child_proc.join_thread(child_thread.tid);
+
+                // Reactivate parent's VM space since the child thread activated its own
+                current_process.vm.activate();
+
+                // Now parent reads the modified data, verifying it is shared (not CoW)
+                let mut buf = [0u8; 11];
+                current_process.vm.copy_from_user(addr, &mut buf).unwrap();
+                assert_eq!(&buf, b"Hello Child");
+
+                shm_dt(addr).unwrap();
+                shm_ctl(shmid, IPC_RMID).unwrap();
+            })
+            .unwrap();
+
+        parent_proc.join_thread(thread.tid);
     }
 }

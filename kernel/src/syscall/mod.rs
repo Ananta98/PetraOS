@@ -78,6 +78,9 @@ syscall_table! {
     13  => signal::syscall_rt_sigaction,   // SYS_rt_sigaction
     14  => signal::syscall_rt_sigprocmask, // SYS_rt_sigprocmask
     15  => signal::syscall_rt_sigreturn,   // SYS_rt_sigreturn
+    29  => mm::syscall_shmget,             // SYS_shmget
+    30  => mm::syscall_shmat,              // SYS_shmat
+    31  => mm::syscall_shmctl,             // SYS_shmctl
     32  => fs::syscall_dup,               // SYS_dup
     33  => fs::syscall_dup2,              // SYS_dup2
     34  => signal::syscall_rt_sigpending,  // SYS_rt_sigpending
@@ -88,6 +91,7 @@ syscall_table! {
     60  => proc::syscall_exit,            // SYS_exit
     61  => proc::syscall_wait4,            // SYS_wait4
     62  => signal::syscall_kill,          // SYS_kill
+    67  => mm::syscall_shmdt,              // SYS_shmdt
     72  => signal::syscall_rt_sigsuspend, // SYS_rt_sigsuspend
     96  => time::syscall_gettimeofday,     // SYS_gettimeofday
     102 => proc::syscall_getuid,           // SYS_getuid

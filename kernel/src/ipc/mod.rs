@@ -10,5 +10,7 @@ pub mod shm;
 pub mod signal;
 
 pub use pipe::create_pipe;
-pub use shm::{SHM_REGISTRY, shm_at, shm_ctl, shm_dt, shm_get};
+pub use shm::{
+    SHM_REGISTRY, clone_attachments_for_fork, shm_at, shm_ctl, shm_dt, shm_dt_if_attached, shm_get,
+};
 pub use signal::*;

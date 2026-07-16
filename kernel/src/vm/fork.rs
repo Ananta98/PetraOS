@@ -56,13 +56,23 @@ impl VmaManager {
             child_regions.insert(*start_vaddr, region.clone());
 
             // Iterate over every page in the region and establish a shared
-            // CoW mapping between parent and child for each backed page.
+            // mapping between parent and child for each backed page.
             let num_pages = region.size / PAGE_SIZE;
             for page_index in 0..num_pages {
                 let page_vaddr = region.start + (page_index * PAGE_SIZE);
                 let vaddr_range = page_vaddr..page_vaddr + PAGE_SIZE;
 
-                self.setup_cow_page(&child_manager, &guard, page_vaddr, &vaddr_range)?;
+                if region.is_shared {
+                    self.setup_shared_page(
+                        &child_manager,
+                        &guard,
+                        page_vaddr,
+                        &vaddr_range,
+                        region.flags,
+                    )?;
+                } else {
+                    self.setup_cow_page(&child_manager, &guard, page_vaddr, &vaddr_range)?;
+                }
             }
         }
 
@@ -72,6 +82,51 @@ impl VmaManager {
         drop(guard);
 
         Ok(child_manager)
+    }
+
+    /// Maps a single page from a parent's shared region directly into the child's
+    /// address space with its original flags, without remapping the parent's page
+    /// or making it read-only.
+    fn setup_shared_page(
+        &self,
+        child: &VmaManager,
+        guard: &ostd::task::DisabledPreemptGuard,
+        page_vaddr: usize,
+        vaddr_range: &core::ops::Range<usize>,
+        flags: PageFlags,
+    ) -> Result<(), Error> {
+        let mut parent_cursor = self
+            .vm_space
+            .cursor_mut(guard, vaddr_range)
+            .map_err(|_| Error::NoMemory)?;
+
+        parent_cursor
+            .jump(page_vaddr)
+            .map_err(|_| Error::InvalidArgs)?;
+
+        let (_range, queried_item) = parent_cursor.query().map_err(|_| Error::InvalidArgs)?;
+
+        // Only pages currently backed by a RAM frame are shared.
+        let Some(VmQueriedItem::MappedRam { frame, prop: _ }) = queried_item else {
+            return Ok(());
+        };
+
+        let shared_frame = (*frame).clone();
+        let property = PageProperty::new_user(flags, CachePolicy::Writeback);
+
+        // Map the same physical frame into the child's address space.
+        let mut child_cursor = child
+            .vm_space
+            .cursor_mut(guard, vaddr_range)
+            .map_err(|_| Error::NoMemory)?;
+
+        child_cursor
+            .jump(page_vaddr)
+            .map_err(|_| Error::InvalidArgs)?;
+
+        child_cursor.map(shared_frame, property);
+
+        Ok(())
     }
 
     /// Converts a single mapped page into a CoW-shared page between parent and child.

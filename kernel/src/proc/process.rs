@@ -207,6 +207,7 @@ impl Process {
 
         PROCESS_TABLE.register_process(child.clone());
         parent.children.lock().push(child.pid);
+        crate::ipc::clone_attachments_for_fork(parent.pid, child.pid);
         child
     }
 
