@@ -160,7 +160,9 @@ impl RunQueue {
         let (curr_class, curr_vruntime) = get_sched_data(curr);
 
         match curr_class {
-            SchedClass::RealTime { priority: curr_priority } => {
+            SchedClass::RealTime {
+                priority: curr_priority,
+            } => {
                 if let Some(highest_priority) = self.rt.highest_priority() {
                     if highest_priority > curr_priority {
                         return true;

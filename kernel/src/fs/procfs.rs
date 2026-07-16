@@ -1,3 +1,5 @@
+use crate::drivers::timer::Timer;
+use crate::drivers::timer::Tsc;
 /// Process filesystem (`procfs`) for PetraOS.
 ///
 /// Exposes kernel process state as a synthetic read-only filesystem,
@@ -31,15 +33,12 @@
 /// | Per-PID FD directory `/proc/<pid>/fd` | [`ProcFdDirInode`] | `Directory` |
 /// | Read-only text file | [`ProcFileInode`] | `Regular` |
 /// | Symlink (`self`) | [`ProcSymlinkInode`] | `Symlink` |
-
 use crate::fs::vfs::{
     Dentry, DirEntry, FileOps, FileSystem, FileType, InodeOps, Metadata, Result, SeekFrom,
     SuperBlock,
 };
 use crate::proc::pid_table::{PROCESS_TABLE, Pid};
 use crate::proc::process::{Process, ProcessState};
-use crate::drivers::timer::Tsc;
-use crate::drivers::timer::Timer;
 use alloc::boxed::Box;
 use alloc::format;
 use alloc::string::{String, ToString};
@@ -454,22 +453,18 @@ impl InodeOps for ProcPidInode {
         let proc = PROCESS_TABLE.get_process(pid).ok_or(Error::InvalidArgs)?;
 
         match name {
-            "status" => {
-                Ok(ProcFileInode::new(move || {
-                    PROCESS_TABLE
-                        .get_process(pid)
-                        .map(|p| format_status(&p))
-                        .unwrap_or_default()
-                }))
-            }
-            "stat" => {
-                Ok(ProcFileInode::new(move || {
-                    PROCESS_TABLE
-                        .get_process(pid)
-                        .map(|p| format_stat(&p))
-                        .unwrap_or_default()
-                }))
-            }
+            "status" => Ok(ProcFileInode::new(move || {
+                PROCESS_TABLE
+                    .get_process(pid)
+                    .map(|p| format_status(&p))
+                    .unwrap_or_default()
+            })),
+            "stat" => Ok(ProcFileInode::new(move || {
+                PROCESS_TABLE
+                    .get_process(pid)
+                    .map(|p| format_stat(&p))
+                    .unwrap_or_default()
+            })),
             "cmdline" => {
                 // Capture the name at lookup time — cmdline is effectively
                 // static unless execve overwrites it, at which point the
@@ -823,7 +818,10 @@ mod tests {
             let n = file.read(&mut buf, &mut offset).unwrap();
             assert!(n > 0);
             let content = core::str::from_utf8(&buf[..n]).unwrap();
-            assert!(content.contains("PetraOS"), "version file missing kernel name");
+            assert!(
+                content.contains("PetraOS"),
+                "version file missing kernel name"
+            );
         });
     }
 
@@ -852,7 +850,10 @@ mod tests {
 
             let path = format!("/proc/{pid}/status");
             let dentry = resolve_path(&path).unwrap();
-            assert_eq!(dentry.inode.metadata().unwrap().file_type, FileType::Regular);
+            assert_eq!(
+                dentry.inode.metadata().unwrap().file_type,
+                FileType::Regular
+            );
 
             let mut file = dentry.inode.open(0).unwrap();
             let mut buf = alloc::vec![0u8; 512];
@@ -860,7 +861,10 @@ mod tests {
             let n = file.read(&mut buf, &mut offset).unwrap();
             let content = core::str::from_utf8(&buf[..n]).unwrap();
 
-            assert!(content.contains("Name:\ttest-procfs"), "status missing Name field");
+            assert!(
+                content.contains("Name:\ttest-procfs"),
+                "status missing Name field"
+            );
             assert!(content.contains("Pid:"), "status missing Pid field");
             assert!(content.contains("State:"), "status missing State field");
         });
@@ -907,7 +911,9 @@ mod tests {
             assert!(names.contains(&"self"), "root missing 'self'");
             // At least one PID directory should appear
             assert!(
-                entries.iter().any(|e| e.file_type == FileType::Directory && e.name != "." && e.name != ".."),
+                entries
+                    .iter()
+                    .any(|e| e.file_type == FileType::Directory && e.name != "." && e.name != ".."),
                 "root should contain at least one PID directory"
             );
         });
@@ -925,7 +931,10 @@ mod tests {
             assert_eq!(meta.file_type, FileType::Symlink);
 
             let target = self_inode.read_link().unwrap();
-            assert!(target.starts_with("/proc/"), "self symlink target: {target}");
+            assert!(
+                target.starts_with("/proc/"),
+                "self symlink target: {target}"
+            );
         });
     }
 }

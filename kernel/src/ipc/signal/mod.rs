@@ -19,11 +19,10 @@ pub use dispatch::{DispatchOutcome, dispatch_pending, send_signal_to_group, send
 pub use queue::SigQueue;
 pub use table::{SigHandlerKind, SigTable};
 pub use types::{
-    DefaultAction, SigAction, SigHandler, SigInfo, SigSet, default_action,
-    SIGABRT, SIGALRM, SIGBUS, SIGCHLD, SIGCONT, SIGFPE, SIGHUP, SIGILL,
-    SIGINT, SIGKILL, SIGPIPE, SIGPWR, SIGPROF, SIGQUIT, SIGRTMAX, SIGRTMIN,
-    SIGSEGV, SIGSTOP, SIGSYS, SIGTERM, SIGTRAP, SIGTSTP, SIGTTIN, SIGTTOU,
-    SIGUSR1, SIGUSR2, SIGVTALRM, SIGWINCH, SIGXCPU, SIGXFSZ,
+    DefaultAction, SIGABRT, SIGALRM, SIGBUS, SIGCHLD, SIGCONT, SIGFPE, SIGHUP, SIGILL, SIGINT,
+    SIGKILL, SIGPIPE, SIGPROF, SIGPWR, SIGQUIT, SIGRTMAX, SIGRTMIN, SIGSEGV, SIGSTOP, SIGSYS,
+    SIGTERM, SIGTRAP, SIGTSTP, SIGTTIN, SIGTTOU, SIGUSR1, SIGUSR2, SIGVTALRM, SIGWINCH, SIGXCPU,
+    SIGXFSZ, SigAction, SigHandler, SigInfo, SigSet, default_action,
 };
 
 // ──────────────────────────────────────────────────────────────
@@ -222,7 +221,10 @@ mod tests {
     #[ktest]
     fn test_sigtable_user_handler() {
         let table = SigTable::new();
-        table.set_action(SIGUSR1, SigAction::user_handler(0xDEAD_BEEF, SigSet::EMPTY, 0));
+        table.set_action(
+            SIGUSR1,
+            SigAction::user_handler(0xDEAD_BEEF, SigSet::EMPTY, 0),
+        );
         assert!(matches!(
             table.get_handler_kind(SIGUSR1),
             SigHandlerKind::UserHandler(0xDEAD_BEEF)
@@ -274,7 +276,10 @@ mod tests {
         let mut process = Process::new(vm, "sig-test");
 
         // Install an ignore handler for SIGHUP.
-        process.signals.table.set_action(SIGHUP, SigAction::ignore());
+        process
+            .signals
+            .table
+            .set_action(SIGHUP, SigAction::ignore());
 
         // Send SIGHUP and SIGTERM.
         process.signals.queue.enqueue(SigInfo::user(SIGHUP, 0));
@@ -282,7 +287,10 @@ mod tests {
 
         // Dispatch: SIGHUP should be ignored, SIGTERM's default action terminates.
         let outcome = dispatch_pending(&mut process);
-        assert!(matches!(outcome, DispatchOutcome::Terminated { signum: 15 }));
+        assert!(matches!(
+            outcome,
+            DispatchOutcome::Terminated { signum: 15 }
+        ));
     }
 
     #[ktest]

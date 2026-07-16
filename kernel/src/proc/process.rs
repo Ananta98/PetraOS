@@ -88,7 +88,7 @@ pub struct Process {
 
     /// Process group ID.
     pub pgid: Pid,
-    
+
     /// Session ID.
     pub sid: Pid,
 
@@ -413,10 +413,7 @@ impl Process {
     /// Get the current process executing in the current task context, or fall back to PID 1 (init).
     pub fn current() -> Process {
         if let Some(task) = ostd::task::Task::current() {
-            if let Some(task_data) = task
-                .data()
-                .downcast_ref::<crate::scheduler::TaskData>()
-            {
+            if let Some(task_data) = task.data().downcast_ref::<crate::scheduler::TaskData>() {
                 if let Some(proc) = PROCESS_TABLE.get_process(task_data.pid) {
                     return proc;
                 }
@@ -523,19 +520,11 @@ mod tests {
 
         // 4. Write some bytes
         let data = b"hello world";
-        let written = proc
-            .fd_table
-            .lock()
-            .write(fd, data)
-            .expect("write failed");
+        let written = proc.fd_table.lock().write(fd, data).expect("write failed");
         assert_eq!(written, data.len());
 
         // 5. Seek back to the beginning
-        let offset = proc
-            .fd_table
-            .lock()
-            .lseek(fd, 0, 0)
-            .expect("lseek failed");
+        let offset = proc.fd_table.lock().lseek(fd, 0, 0).expect("lseek failed");
         assert_eq!(offset, 0);
 
         // 6. Read bytes back
@@ -553,11 +542,7 @@ mod tests {
         assert_ne!(fd, fd2);
 
         // 8. Seek on first fd, read from second fd (shared offset test)
-        let _ = proc
-            .fd_table
-            .lock()
-            .lseek(fd, 6, 0)
-            .expect("lseek failed");
+        let _ = proc.fd_table.lock().lseek(fd, 6, 0).expect("lseek failed");
         let mut buf2 = [0u8; 5];
         let read_len2 = proc
             .fd_table

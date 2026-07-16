@@ -1,3 +1,4 @@
+use crate::ipc::SigSet;
 /// `rt_sigsuspend(mask, sigsetsize)` — atomically replace signal mask and
 /// suspend until a signal is delivered (SYS_rt_sigsuspend = 72).
 ///
@@ -18,7 +19,6 @@
 /// time. A future patch will add a proper `WaitQueue` to `ProcessSignals`
 /// and park the calling task until `SigQueue::has_pending()` returns `true`.
 use crate::proc::process::Process;
-use crate::ipc::SigSet;
 use crate::syscall::{SyscallResult, to_continue_unit};
 use crate::vm::vma::VmaManager;
 use ostd::Error;

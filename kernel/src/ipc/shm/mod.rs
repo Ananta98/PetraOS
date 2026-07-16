@@ -3,13 +3,12 @@
 /// Implements shared memory segments that can be created, attached, detached,
 /// and controlled by different processes. Shared memory segments map the same
 /// physical memory frames into the virtual address spaces of multiple processes.
-
 use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
+use ostd::Error;
 use ostd::mm::{PAGE_SIZE, PageFlags, UFrame};
 use ostd::sync::SpinLock;
-use ostd::Error;
 
 use crate::proc::pid_table::Pid;
 use crate::proc::process::Process;
@@ -70,7 +69,9 @@ impl ShmRegistry {
 
         // If key is IPC_PRIVATE, always create a new segment
         if key == IPC_PRIVATE {
-            let id = self.next_id.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+            let id = self
+                .next_id
+                .fetch_add(1, core::sync::atomic::Ordering::Relaxed);
             let mut frames = Vec::new();
             let num_pages = size_aligned / PAGE_SIZE;
             for _ in 0..num_pages {
@@ -122,7 +123,9 @@ impl ShmRegistry {
         }
 
         // Create new segment
-        let id = self.next_id.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+        let id = self
+            .next_id
+            .fetch_add(1, core::sync::atomic::Ordering::Relaxed);
         let mut frames = Vec::new();
         let num_pages = size_aligned / PAGE_SIZE;
         for _ in 0..num_pages {
@@ -284,13 +287,13 @@ pub fn shm_ctl(shmid: u32, cmd: u32) -> Result<(), Error> {
 mod tests {
     use super::*;
     use crate::vm::vma::VmaManager;
-    use ostd::prelude::ktest;
     use ostd::mm::PAGE_SIZE;
+    use ostd::prelude::ktest;
 
     #[ktest]
     fn test_shm_get_create_and_get() {
         let key = 0x12345;
-        
+
         let shmid = shm_get(key, PAGE_SIZE, IPC_CREAT).unwrap();
         assert!(shmid > 0);
 
@@ -307,28 +310,30 @@ mod tests {
     fn test_shm_at_and_dt() {
         let vm = Arc::new(VmaManager::new());
         let test_proc = Process::new(vm, "shm_test_proc");
-        
-        let thread = test_proc.spawn_thread("shm_thread", move || {
-            let current_process = Process::current();
-            current_process.vm.activate();
-            
-            let key = 0x23456;
-            let shmid = shm_get(key, PAGE_SIZE, IPC_CREAT).unwrap();
-            
-            let addr = shm_at(shmid, 0, 0).unwrap();
-            assert!(addr > 0);
-            
-            let test_data = b"Shared Memory content!";
-            current_process.vm.copy_to_user(addr, test_data).unwrap();
-            
-            let mut buf = [0u8; 22];
-            current_process.vm.copy_from_user(addr, &mut buf).unwrap();
-            assert_eq!(&buf, test_data);
-            
-            shm_dt(addr).unwrap();
-            shm_ctl(shmid, IPC_RMID).unwrap();
-        }).unwrap();
-        
+
+        let thread = test_proc
+            .spawn_thread("shm_thread", move || {
+                let current_process = Process::current();
+                current_process.vm.activate();
+
+                let key = 0x23456;
+                let shmid = shm_get(key, PAGE_SIZE, IPC_CREAT).unwrap();
+
+                let addr = shm_at(shmid, 0, 0).unwrap();
+                assert!(addr > 0);
+
+                let test_data = b"Shared Memory content!";
+                current_process.vm.copy_to_user(addr, test_data).unwrap();
+
+                let mut buf = [0u8; 22];
+                current_process.vm.copy_from_user(addr, &mut buf).unwrap();
+                assert_eq!(&buf, test_data);
+
+                shm_dt(addr).unwrap();
+                shm_ctl(shmid, IPC_RMID).unwrap();
+            })
+            .unwrap();
+
         test_proc.join_thread(thread.tid);
     }
 

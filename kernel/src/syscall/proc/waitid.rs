@@ -3,8 +3,8 @@ use crate::proc::pid_table::Pid;
 use crate::proc::process::{Process, ProcessState};
 use crate::syscall::{SyscallResult, to_continue_i32};
 use crate::vm::vma::VmaManager;
-use ostd::arch::cpu::context::UserContext;
 use ostd::Error;
+use ostd::arch::cpu::context::UserContext;
 
 /// `waitid(idtype, id, infop, options, rusage)` — wait for process to change state (SYS_waitid = 247).
 pub(crate) fn syscall_waitid(
@@ -93,7 +93,7 @@ pub(crate) fn syscall_waitid(
                 let mut siginfo_bytes = [0u8; 128];
                 let signo = 17i32; // SIGCHLD
                 let errno = 0i32;
-                let code = 1i32;   // CLD_EXITED
+                let code = 1i32; // CLD_EXITED
 
                 siginfo_bytes[0..4].copy_from_slice(&signo.to_ne_bytes());
                 siginfo_bytes[4..8].copy_from_slice(&errno.to_ne_bytes());

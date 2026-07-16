@@ -59,9 +59,7 @@ pub(crate) fn syscall_kill(
             return to_continue_unit(Ok(()));
         }
         to_continue_unit(crate::ipc::dispatch::send_signal_to_group(
-            pgid,
-            signum,
-            sender_pid,
+            pgid, signum, sender_pid,
         ))
     } else {
         // pid == -1: broadcast — not yet implemented.

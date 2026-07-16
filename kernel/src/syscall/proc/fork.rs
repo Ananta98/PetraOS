@@ -62,7 +62,17 @@ pub(crate) fn syscall_fork(
                     let arg4 = ctx.r8();
                     let arg5 = ctx.r9();
 
-                    match dispatch_syscall(num, arg0, arg1, arg2, arg3, arg4, arg5, &child_clone.vm, &mut ctx) {
+                    match dispatch_syscall(
+                        num,
+                        arg0,
+                        arg1,
+                        arg2,
+                        arg3,
+                        arg4,
+                        arg5,
+                        &child_clone.vm,
+                        &mut ctx,
+                    ) {
                         SyscallResult::Continue(retval) => {
                             let mut ctx = user_mode.context_mut();
                             ctx.set_rax(retval);

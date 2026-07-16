@@ -1,8 +1,8 @@
-use alloc::collections::VecDeque;
+use super::{get_deadline, get_sched_data, set_vruntime};
 use alloc::collections::BTreeMap;
+use alloc::collections::VecDeque;
 use alloc::sync::Arc;
 use ostd::task::Task;
-use super::{get_sched_data, set_vruntime, get_deadline};
 
 /// Run queue logic dedicated to EEVDF (Earliest Eligible Virtual Deadline First) scheduling.
 pub struct EevdfRunQueue {

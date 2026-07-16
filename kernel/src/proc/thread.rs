@@ -6,8 +6,8 @@ use ostd::sync::WaitQueue;
 use ostd::task::{Task, TaskOptions};
 
 use crate::proc::pid_table::Pid;
-use crate::scheduler::{SchedClass, TaskData};
 use crate::proc::tid_table::{THREAD_TABLE, Tid};
+use crate::scheduler::{SchedClass, TaskData};
 
 // ---------------------------------------------------------------------------
 // ThreadState

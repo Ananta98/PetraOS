@@ -1,3 +1,5 @@
+pub mod pipe;
+pub mod shm;
 /// Inter-Process Communication (IPC) Subsystem
 ///
 /// Refactored to organize signal-related IPC functionality into a dedicated
@@ -6,9 +8,7 @@
 /// All public symbols are re-exported here to maintain backward compatibility
 /// with other kernel subsystems (such as `proc` and `syscall`).
 pub mod signal;
-pub mod pipe;
-pub mod shm;
 
-pub use signal::*;
 pub use pipe::create_pipe;
-pub use shm::{SHM_REGISTRY, shm_get, shm_at, shm_dt, shm_ctl};
+pub use shm::{SHM_REGISTRY, shm_at, shm_ctl, shm_dt, shm_get};
+pub use signal::*;

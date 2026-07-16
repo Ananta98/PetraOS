@@ -1,10 +1,10 @@
 use crate::proc::pid_table::PROCESS_TABLE;
-use crate::proc::process::Process;
 use crate::proc::pid_table::Pid;
+use crate::proc::process::Process;
 use crate::syscall::{SyscallResult, to_continue_i32};
 use crate::vm::vma::VmaManager;
-use ostd::arch::cpu::context::UserContext;
 use ostd::Error;
+use ostd::arch::cpu::context::UserContext;
 
 /// `getpid()` — returns the process ID of the calling process (SYS_getpid = 39).
 pub(crate) fn syscall_getpid(

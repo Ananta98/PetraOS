@@ -126,7 +126,7 @@ impl VmaManager {
 
         Ok(())
     }
-    
+
     pub fn map_stack(
         &self,
         start: Vaddr,

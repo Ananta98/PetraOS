@@ -15,7 +15,7 @@
 /// Any other value is treated as a user-space handler virtual address.
 ///
 /// Returns `0` on success, or a negated `errno` on failure.
-use crate::ipc::{SigAction, SigSet, SigHandlerKind, SigHandler, SIGRTMAX};
+use crate::ipc::{SIGRTMAX, SigAction, SigHandler, SigHandlerKind, SigSet};
 use crate::proc::process::Process;
 use crate::syscall::{SyscallResult, to_continue_unit};
 use crate::vm::vma::VmaManager;

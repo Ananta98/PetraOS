@@ -1,4 +1,4 @@
-use crate::drivers::{Device, Driver, DeviceType};
+use crate::drivers::{Device, DeviceType, Driver};
 use alloc::sync::Arc;
 use ostd::Error;
 
@@ -8,11 +8,11 @@ pub trait Timer: Device + Driver {
     fn current_time_ns(&self) -> u64;
 }
 
-pub mod tsc;
 pub mod cmos_rtc;
+pub mod tsc;
 
-pub use tsc::Tsc;
 pub use cmos_rtc::CmosRtc;
+pub use tsc::Tsc;
 
 /// Initialize and register both the TSC and CMOS-RTC timer drivers.
 pub fn init() {

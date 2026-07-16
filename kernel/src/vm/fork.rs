@@ -74,7 +74,6 @@ impl VmaManager {
         Ok(child_manager)
     }
 
-
     /// Converts a single mapped page into a CoW-shared page between parent and child.
     ///
     /// If the page at `page_vaddr` is backed by a RAM frame:
@@ -111,9 +110,7 @@ impl VmaManager {
             .jump(page_vaddr)
             .map_err(|_| Error::InvalidArgs)?;
 
-        let (_range, queried_item) = parent_cursor
-            .query()
-            .map_err(|_| Error::InvalidArgs)?;
+        let (_range, queried_item) = parent_cursor.query().map_err(|_| Error::InvalidArgs)?;
 
         // Only pages currently backed by a RAM frame are CoW-shared;
         // unmapped or non-RAM pages are skipped.
@@ -242,7 +239,8 @@ mod tests {
 
         let (_range, item) = cursor.query().expect("cursor query must not fail");
         let VmQueriedItem::MappedRam { frame, prop } =
-            item.expect("page must be backed by a frame") else {
+            item.expect("page must be backed by a frame")
+        else {
             panic!("Expected MappedRam at {:#x}", vaddr);
         };
         assert_eq!(

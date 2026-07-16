@@ -1,7 +1,7 @@
-use crate::drivers::{Device, Driver, DeviceType};
 use super::Timer;
-use ostd::io::IoPort;
+use crate::drivers::{Device, DeviceType, Driver};
 use ostd::arch::device::io_port::ReadWriteAccess;
+use ostd::io::IoPort;
 
 /// CMOS Real-Time Clock (RTC) timer implementation.
 pub struct CmosRtc {
@@ -14,7 +14,10 @@ impl CmosRtc {
     pub fn new() -> Result<Self, ostd::Error> {
         let port_index = IoPort::acquire_overlapping(0x70)?;
         let port_data = IoPort::acquire_overlapping(0x71)?;
-        Ok(Self { port_index, port_data })
+        Ok(Self {
+            port_index,
+            port_data,
+        })
     }
 
     fn read_register(&self, reg: u8) -> u8 {
@@ -58,7 +61,14 @@ impl CmosRtc {
 
         let full_year = 2000 + year as u32;
 
-        (full_year, month as u32, day as u32, hours as u32, minutes as u32, seconds as u32)
+        (
+            full_year,
+            month as u32,
+            day as u32,
+            hours as u32,
+            minutes as u32,
+            seconds as u32,
+        )
     }
 }
 

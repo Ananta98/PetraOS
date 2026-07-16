@@ -35,8 +35,6 @@ impl VmaRegion {
         }
     }
 
-
-
     pub fn new_file_backed(
         start: Vaddr,
         size: usize,

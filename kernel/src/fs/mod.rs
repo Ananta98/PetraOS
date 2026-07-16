@@ -2,8 +2,8 @@ pub mod devfs;
 pub mod exfat;
 pub mod ext2;
 pub mod fd_table;
-pub mod ramfs;
 pub mod procfs;
+pub mod ramfs;
 pub mod vfs;
 
 use alloc::sync::Arc;
@@ -39,4 +39,3 @@ pub fn init() -> Result<()> {
 
     Ok(())
 }
-

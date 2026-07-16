@@ -196,4 +196,3 @@ impl FdTable {
         self.fds.keys().copied().collect()
     }
 }
-

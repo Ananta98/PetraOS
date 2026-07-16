@@ -17,11 +17,9 @@ use ostd::sync::SpinLock;
 // Global registries
 // ---------------------------------------------------------------------------
 
-static DRIVERS: SpinLock<BTreeMap<String, Arc<dyn Driver>>> =
-    SpinLock::new(BTreeMap::new());
+static DRIVERS: SpinLock<BTreeMap<String, Arc<dyn Driver>>> = SpinLock::new(BTreeMap::new());
 
-static DEVICES: SpinLock<BTreeMap<String, Arc<dyn Device>>> =
-    SpinLock::new(BTreeMap::new());
+static DEVICES: SpinLock<BTreeMap<String, Arc<dyn Device>>> = SpinLock::new(BTreeMap::new());
 
 // ---------------------------------------------------------------------------
 // Registration helpers

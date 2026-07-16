@@ -12,7 +12,7 @@
 use alloc::collections::BTreeMap;
 use ostd::sync::SpinLock;
 
-use super::types::{SigAction, SigHandler, SigSet, SIGRTMAX};
+use super::types::{SIGRTMAX, SigAction, SigHandler, SigSet};
 
 // ──────────────────────────────────────────────────────────────
 // SigTable
@@ -114,9 +114,7 @@ impl SigTable {
     /// `exec`.
     pub fn reset_on_exec(&self) {
         let mut inner = self.inner.lock();
-        inner.retain(|_, action| {
-            matches!(action.handler, SigHandler::Ignore)
-        });
+        inner.retain(|_, action| matches!(action.handler, SigHandler::Ignore));
     }
 }
 

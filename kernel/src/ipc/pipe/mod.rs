@@ -138,10 +138,7 @@ impl FileOps for PipeWriteOps {
         // If no readers are left, write fails with EPIPE / SIGPIPE.
         if self.inner.reader_count.load(Ordering::Acquire) == 0 {
             if let Some(task) = ostd::task::Task::current() {
-                if let Some(task_data) = task
-                    .data()
-                    .downcast_ref::<crate::scheduler::TaskData>()
-                {
+                if let Some(task_data) = task.data().downcast_ref::<crate::scheduler::TaskData>() {
                     let _ = crate::ipc::send_signal_to_pid(task_data.pid, crate::ipc::SIGPIPE, 0);
                 }
             }
@@ -172,11 +169,14 @@ impl FileOps for PipeWriteOps {
                 // Buffer is full. If readers closed in the meantime, fail.
                 if self.inner.reader_count.load(Ordering::Acquire) == 0 {
                     if let Some(task) = ostd::task::Task::current() {
-                        if let Some(task_data) = task
-                            .data()
-                            .downcast_ref::<crate::scheduler::TaskData>()
+                        if let Some(task_data) =
+                            task.data().downcast_ref::<crate::scheduler::TaskData>()
                         {
-                            let _ = crate::ipc::send_signal_to_pid(task_data.pid, crate::ipc::SIGPIPE, 0);
+                            let _ = crate::ipc::send_signal_to_pid(
+                                task_data.pid,
+                                crate::ipc::SIGPIPE,
+                                0,
+                            );
                         }
                     }
                     return if total_written > 0 {
@@ -226,7 +226,9 @@ impl Drop for PipeWriteOps {
 pub fn create_pipe() -> (Box<dyn FileOps>, Box<dyn FileOps>) {
     let inner = Arc::new(PipeInner::new());
     (
-        Box::new(PipeReadOps { inner: inner.clone() }),
+        Box::new(PipeReadOps {
+            inner: inner.clone(),
+        }),
         Box::new(PipeWriteOps { inner }),
     )
 }

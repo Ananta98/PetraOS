@@ -17,12 +17,7 @@ pub(crate) fn syscall_open(
     let flags = arg1 as u32;
     let mode = arg2 as u32;
     match crate::syscall::read_user_string(vm, arg0) {
-        Ok(path) => to_continue_i32(
-            Process::current()
-                .fd_table
-                .lock()
-                .open(&path, flags, mode),
-        ),
+        Ok(path) => to_continue_i32(Process::current().fd_table.lock().open(&path, flags, mode)),
         Err(error) => to_continue_i32(Err(error)),
     }
 }

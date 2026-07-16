@@ -1,5 +1,5 @@
-use alloc::collections::VecDeque;
 use alloc::collections::BTreeMap;
+use alloc::collections::VecDeque;
 use alloc::sync::Arc;
 use ostd::task::Task;
 

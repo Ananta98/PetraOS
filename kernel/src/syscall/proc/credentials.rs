@@ -2,8 +2,8 @@ use crate::proc::pid_table::PROCESS_TABLE;
 use crate::proc::process::Process;
 use crate::syscall::{SyscallResult, to_continue, to_continue_i32};
 use crate::vm::vma::VmaManager;
-use ostd::arch::cpu::context::UserContext;
 use ostd::Error;
+use ostd::arch::cpu::context::UserContext;
 
 /// `getuid()` — returns the real user ID of the calling process (SYS_getuid = 102).
 pub(crate) fn syscall_getuid(
@@ -164,7 +164,8 @@ pub(crate) fn syscall_setreuid(
             result = Ok(0);
         } else {
             let ruid_ok = !is_ruid_changed || (target_ruid == old_ruid || target_ruid == old_euid);
-            let euid_ok = !is_euid_changed || (target_euid == old_ruid || target_euid == old_euid || target_euid == p.suid);
+            let euid_ok = !is_euid_changed
+                || (target_euid == old_ruid || target_euid == old_euid || target_euid == p.suid);
 
             if ruid_ok && euid_ok {
                 p.uid = target_ruid;
@@ -218,7 +219,8 @@ pub(crate) fn syscall_setregid(
             result = Ok(0);
         } else {
             let rgid_ok = !is_rgid_changed || (target_rgid == old_rgid || target_rgid == old_egid);
-            let egid_ok = !is_egid_changed || (target_egid == old_rgid || target_egid == old_egid || target_egid == p.sgid);
+            let egid_ok = !is_egid_changed
+                || (target_egid == old_rgid || target_egid == old_egid || target_egid == p.sgid);
 
             if rgid_ok && egid_ok {
                 p.gid = target_rgid;
@@ -269,9 +271,8 @@ pub(crate) fn syscall_setresuid(
             p.fsuid = target_euid;
             result = Ok(0);
         } else {
-            let matches_any = |val: u32| -> bool {
-                val == old_ruid || val == old_euid || val == old_suid
-            };
+            let matches_any =
+                |val: u32| -> bool { val == old_ruid || val == old_euid || val == old_suid };
 
             if matches_any(target_ruid) && matches_any(target_euid) && matches_any(target_suid) {
                 p.uid = target_ruid;
@@ -320,9 +321,8 @@ pub(crate) fn syscall_setresgid(
             p.fsgid = target_egid;
             result = Ok(0);
         } else {
-            let matches_any = |val: u32| -> bool {
-                val == old_rgid || val == old_egid || val == old_sgid
-            };
+            let matches_any =
+                |val: u32| -> bool { val == old_rgid || val == old_egid || val == old_sgid };
 
             if matches_any(target_rgid) && matches_any(target_egid) && matches_any(target_sgid) {
                 p.gid = target_rgid;

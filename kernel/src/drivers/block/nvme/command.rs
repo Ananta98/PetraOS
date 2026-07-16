@@ -92,8 +92,7 @@ pub fn create_io_cq(
     queue::clear_sqe(admin_sq, slot)?;
 
     // DW0: Create IO CQ opcode
-    let dw0 =
-        (regs::ADMIN_OPCODE_CREATE_IO_CQ as u32) | ((command_id as u32) << 16);
+    let dw0 = (regs::ADMIN_OPCODE_CREATE_IO_CQ as u32) | ((command_id as u32) << 16);
     queue::write_sqe_field_u32(admin_sq, slot, queue::SQE_DW0, dw0)?;
 
     // DW6-7: PRP1 — base address of the CQ buffer
@@ -142,8 +141,7 @@ pub fn create_io_sq(
 
     queue::clear_sqe(admin_sq, slot)?;
 
-    let dw0 =
-        (regs::ADMIN_OPCODE_CREATE_IO_SQ as u32) | ((command_id as u32) << 16);
+    let dw0 = (regs::ADMIN_OPCODE_CREATE_IO_SQ as u32) | ((command_id as u32) << 16);
     queue::write_sqe_field_u32(admin_sq, slot, queue::SQE_DW0, dw0)?;
 
     let prp1 = sq_dma.daddr() as u64;
@@ -219,12 +217,7 @@ pub fn submit_io(
     queue::write_sqe_field_u32(io_sq, slot, queue::SQE_CDW11, (lba >> 32) as u32)?;
 
     // DW12: Number of logical blocks (0-based, so block_count - 1)
-    queue::write_sqe_field_u32(
-        io_sq,
-        slot,
-        queue::SQE_CDW12,
-        (block_count - 1) as u32,
-    )?;
+    queue::write_sqe_field_u32(io_sq, slot, queue::SQE_CDW12, (block_count - 1) as u32)?;
 
     // Advance SQ tail and ring doorbell
     io_state.advance_sq_tail();

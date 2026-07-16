@@ -1,5 +1,5 @@
-use crate::drivers::{Device, Driver, DeviceType};
 use super::Timer;
+use crate::drivers::{Device, DeviceType, Driver};
 
 /// Time Stamp Counter (TSC) timer implementation.
 pub struct Tsc;

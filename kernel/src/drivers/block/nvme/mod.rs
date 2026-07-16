@@ -124,11 +124,8 @@ fn setup_admin_queues(
     mmio.write_once(regs::REG_ACQ + 4, &((acq_base >> 32) as u32))?;
 
     // CC: configure command set, page size, arbitration, and queue entry sizes
-    let cc = regs::CC_CSS_NVM
-        | regs::CC_MPS_4K
-        | regs::CC_AMS_RR
-        | regs::CC_IOSQES
-        | regs::CC_IOCQES;
+    let cc =
+        regs::CC_CSS_NVM | regs::CC_MPS_4K | regs::CC_AMS_RR | regs::CC_IOSQES | regs::CC_IOCQES;
     mmio.write_once(regs::REG_CC, &cc)?;
 
     Ok(())
@@ -165,8 +162,8 @@ fn identify_namespace(
 
     // NSZE: bytes 0-7, total number of logical blocks
     let num_blocks = u64::from_le_bytes([
-        id_data[0], id_data[1], id_data[2], id_data[3],
-        id_data[4], id_data[5], id_data[6], id_data[7],
+        id_data[0], id_data[1], id_data[2], id_data[3], id_data[4], id_data[5], id_data[6],
+        id_data[7],
     ]);
 
     // LBA Format Support: byte 128 holds the current LBA format index (FLBAS[3:0])
@@ -203,7 +200,10 @@ fn identify_namespace(
 /// 4. Identify Namespace 1 for geometry.
 /// 5. Create IO queue pair (CQ first, then SQ).
 /// 6. Return a fully initialized [`NvmeBlockDevice`].
-fn init_controller(mmio_base: usize, controller_index: usize) -> Result<Arc<NvmeBlockDevice>, ostd::Error> {
+fn init_controller(
+    mmio_base: usize,
+    controller_index: usize,
+) -> Result<Arc<NvmeBlockDevice>, ostd::Error> {
     // Map the NVMe MMIO register space (16 KiB covers all standard registers +
     // doorbell registers for up to 1024 queue pairs with 4-byte stride).
     let mmio = IoMem::acquire(mmio_base..mmio_base + 0x4000)?;
@@ -227,21 +227,14 @@ fn init_controller(mmio_base: usize, controller_index: usize) -> Result<Arc<Nvme
     enable_controller(&mmio)?;
 
     // ── Step 4: Admin queue state tracker (queue_id = 0) ────────
-    let mut admin_state =
-        queue::QueueState::new(0, regs::ADMIN_QUEUE_SIZE as u16);
+    let mut admin_state = queue::QueueState::new(0, regs::ADMIN_QUEUE_SIZE as u16);
 
     // ── Step 5: identify namespace geometry ────────────────────
-    let geometry = identify_namespace(
-        &mmio,
-        &admin_sq,
-        &admin_cq,
-        &identify_buf,
-        &mut admin_state,
-    )
-    .unwrap_or(NvmeNamespaceGeometry {
-        num_blocks: 2048,
-        block_size: regs::NVME_BLOCK_SIZE,
-    });
+    let geometry = identify_namespace(&mmio, &admin_sq, &admin_cq, &identify_buf, &mut admin_state)
+        .unwrap_or(NvmeNamespaceGeometry {
+            num_blocks: 2048,
+            block_size: regs::NVME_BLOCK_SIZE,
+        });
 
     // ── Step 6: allocate IO queue buffers ─────────────────────
     let io_sq_pages = ((regs::IO_QUEUE_SIZE as usize * queue::SQE_SIZE) + 0xFFF) / 0x1000;
@@ -328,9 +321,7 @@ pub fn init() {
 
         // NVMe registers live in BAR0 (64-bit MMIO)
         let mmio_base = match pci_dev.bars[0] {
-            PciBar::MemoryMapped { base_addr, .. } if base_addr != 0 => {
-                base_addr as usize
-            }
+            PciBar::MemoryMapped { base_addr, .. } if base_addr != 0 => base_addr as usize,
             _ => continue,
         };
 

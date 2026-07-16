@@ -54,9 +54,7 @@ pub enum NvmeBlockDeviceInner {
         next_command_id: u16,
     },
     /// In-memory simulated backend for testing.
-    Simulated {
-        data: Vec<u8>,
-    },
+    Simulated { data: Vec<u8> },
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -76,12 +74,8 @@ impl BlockDevice for NvmeBlockDevice {
 
     fn num_blocks(&self) -> usize {
         match &*self.inner.lock() {
-            NvmeBlockDeviceInner::Physical { geometry, .. } => {
-                geometry.num_blocks as usize
-            }
-            NvmeBlockDeviceInner::Simulated { data } => {
-                data.len() / regs::NVME_BLOCK_SIZE
-            }
+            NvmeBlockDeviceInner::Physical { geometry, .. } => geometry.num_blocks as usize,
+            NvmeBlockDeviceInner::Simulated { data } => data.len() / regs::NVME_BLOCK_SIZE,
         }
     }
 

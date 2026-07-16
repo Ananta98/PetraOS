@@ -1,3 +1,5 @@
+use super::ProcessSignals;
+use super::table::SigHandlerKind;
 /// Signal Dispatch — Dequeue and Act on Pending Signals
 ///
 /// `dispatch_pending` is the central function called at safe kernel-to-user
@@ -28,11 +30,9 @@
 /// syscalls are added.  For now, `UserHandler` signals are noted (returned to
 /// the caller) so the future trampoline can act on them.
 use super::types::{DefaultAction, SigInfo, default_action};
-use super::table::SigHandlerKind;
-use super::ProcessSignals;
+use crate::proc::pid_table::PROCESS_TABLE;
 use crate::proc::pid_table::Pid;
 use crate::proc::process::{Process, ProcessState};
-use crate::proc::pid_table::PROCESS_TABLE;
 use alloc::sync::Arc;
 
 // ──────────────────────────────────────────────────────────────

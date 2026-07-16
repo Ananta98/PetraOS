@@ -1,22 +1,24 @@
+pub(crate) mod credentials;
 pub(crate) mod execve;
 pub(crate) mod exit;
 pub(crate) mod fork;
-pub(crate) mod wait4;
 pub(crate) mod pid;
-pub(crate) mod credentials;
+pub(crate) mod wait4;
 pub(crate) mod waitid;
 
+pub(crate) use credentials::{
+    syscall_getegid, syscall_geteuid, syscall_getgid, syscall_getresgid, syscall_getresuid,
+    syscall_getuid, syscall_setfsgid, syscall_setfsuid, syscall_setgid, syscall_setregid,
+    syscall_setresgid, syscall_setresuid, syscall_setreuid, syscall_setuid,
+};
 pub(crate) use execve::syscall_execve;
 pub(crate) use exit::syscall_exit;
 pub(crate) use fork::syscall_fork;
-pub(crate) use wait4::syscall_wait4;
-pub(crate) use pid::{syscall_getpid, syscall_getppid, syscall_getpgid, syscall_setpgid, syscall_getsid, syscall_setsid};
-pub(crate) use credentials::{
-    syscall_getuid, syscall_geteuid, syscall_getgid, syscall_getegid,
-    syscall_setuid, syscall_setgid, syscall_setreuid, syscall_setregid,
-    syscall_setresuid, syscall_setresgid, syscall_getresuid, syscall_getresgid,
-    syscall_setfsuid, syscall_setfsgid,
+pub(crate) use pid::{
+    syscall_getpgid, syscall_getpid, syscall_getppid, syscall_getsid, syscall_setpgid,
+    syscall_setsid,
 };
+pub(crate) use wait4::syscall_wait4;
 pub(crate) use waitid::syscall_waitid;
 
 #[cfg(ktest)]
@@ -26,9 +28,9 @@ mod tests {
     use crate::proc::process::Process;
     use crate::syscall::SyscallResult;
     use crate::vm::vma::VmaManager;
-    use ostd::prelude::ktest;
-    use ostd::arch::cpu::context::UserContext;
     use ostd::Error;
+    use ostd::arch::cpu::context::UserContext;
+    use ostd::prelude::ktest;
 
     #[ktest]
     fn test_new_proc_syscalls() {
@@ -77,7 +79,8 @@ mod tests {
 
         // Test getresuid & getresgid
         // Pointers: ruid_ptr = 0x10000, euid_ptr = 0x10004, suid_ptr = 0x10008
-        let getresuid_res = syscall_getresuid(0x10000, 0x10004, 0x10008, 0, 0, 0, &vm, &mut context);
+        let getresuid_res =
+            syscall_getresuid(0x10000, 0x10004, 0x10008, 0, 0, 0, &vm, &mut context);
         match getresuid_res {
             SyscallResult::Continue(0) => {
                 // Read from mapped memory

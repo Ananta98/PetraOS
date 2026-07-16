@@ -4,7 +4,6 @@ pub(crate) mod proc;
 pub(crate) mod signal;
 pub(crate) mod time;
 
-
 use crate::vm::vma::VmaManager;
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -51,7 +50,8 @@ pub(crate) fn to_continue_unit(result: Result<(), Error>) -> SyscallResult {
 ///
 /// Each handler is responsible for marshalling raw user arguments (and copying
 /// data to/from user space via `vm`) and returning a [`SyscallResult`].
-type SyscallHandler = fn(usize, usize, usize, usize, usize, usize, &VmaManager, &mut UserContext) -> SyscallResult;
+type SyscallHandler =
+    fn(usize, usize, usize, usize, usize, usize, &VmaManager, &mut UserContext) -> SyscallResult;
 
 /// Registers the system call dispatch table.
 ///

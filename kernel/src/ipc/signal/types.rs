@@ -201,12 +201,12 @@ pub enum DefaultAction {
 /// Mirrors the POSIX-defined default dispositions documented in `signal(7)`.
 pub fn default_action(signum: u32) -> DefaultAction {
     match signum {
-        SIGHUP | SIGINT | SIGKILL | SIGPIPE | SIGALRM | SIGTERM
-        | SIGUSR1 | SIGUSR2 | SIGSTKFLT | SIGPWR | SIGPROF
-        | SIGVTALRM | SIGIO | SIGXCPU | SIGXFSZ => DefaultAction::Terminate,
+        SIGHUP | SIGINT | SIGKILL | SIGPIPE | SIGALRM | SIGTERM | SIGUSR1 | SIGUSR2 | SIGSTKFLT
+        | SIGPWR | SIGPROF | SIGVTALRM | SIGIO | SIGXCPU | SIGXFSZ => DefaultAction::Terminate,
 
-        SIGQUIT | SIGILL | SIGABRT | SIGFPE | SIGSEGV | SIGBUS
-        | SIGTRAP | SIGSYS => DefaultAction::CoreDump,
+        SIGQUIT | SIGILL | SIGABRT | SIGFPE | SIGSEGV | SIGBUS | SIGTRAP | SIGSYS => {
+            DefaultAction::CoreDump
+        }
 
         SIGSTOP | SIGTSTP | SIGTTIN | SIGTTOU => DefaultAction::Stop,
 

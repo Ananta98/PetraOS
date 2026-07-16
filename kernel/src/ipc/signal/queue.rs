@@ -23,7 +23,7 @@
 use alloc::collections::VecDeque;
 use ostd::sync::SpinLock;
 
-use super::types::{SigInfo, SigSet, SIGKILL, SIGSTOP};
+use super::types::{SIGKILL, SIGSTOP, SigInfo, SigSet};
 
 // ──────────────────────────────────────────────────────────────
 // SigQueue inner state
@@ -139,9 +139,7 @@ impl SigQueue {
         // Try to deliver the oldest queued RT signal that is not blocked.
         let blocked = inner.blocked;
         if let Some(pos) = inner.pending_realtime.iter().position(|info| {
-            !blocked.contains(info.signum)
-                || info.signum == SIGKILL
-                || info.signum == SIGSTOP
+            !blocked.contains(info.signum) || info.signum == SIGKILL || info.signum == SIGSTOP
         }) {
             return inner.pending_realtime.remove(pos);
         }
@@ -174,9 +172,7 @@ impl SigQueue {
         }
         let blocked = inner.blocked;
         inner.pending_realtime.iter().any(|info| {
-            !blocked.contains(info.signum)
-                || info.signum == SIGKILL
-                || info.signum == SIGSTOP
+            !blocked.contains(info.signum) || info.signum == SIGKILL || info.signum == SIGSTOP
         })
     }
 
