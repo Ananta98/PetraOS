@@ -100,6 +100,7 @@ pub fn init() {
     crate::drivers::block::init();
     crate::drivers::char::init();
     crate::drivers::gpu::init();
+    crate::drivers::net::init();
     crate::drivers::timer::init();
 }
 
