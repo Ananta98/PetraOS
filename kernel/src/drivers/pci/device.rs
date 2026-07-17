@@ -3,6 +3,7 @@
 /// Provides types for PCI devices and their Base Address Registers (BARs),
 /// along with methods for reading/writing configuration space and
 /// enabling device features.
+use super::arch;
 use super::config;
 
 // Standard PCI configuration space register offsets

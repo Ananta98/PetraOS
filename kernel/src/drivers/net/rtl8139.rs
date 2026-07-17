@@ -1,4 +1,5 @@
 use crate::device::device::{Device, DeviceType};
+use crate::drivers::irq::IrqRegistration;
 use crate::drivers::net::NetDevice;
 use crate::drivers::pci::{PciBar, PciDevice};
 use alloc::sync::Arc;
@@ -15,6 +16,7 @@ pub struct Rtl8139 {
     next_tx_desc: core::sync::atomic::AtomicUsize,
     rx_offset: core::sync::atomic::AtomicUsize,
     mac: [u8; 6],
+    _irq: Option<IrqRegistration>,
 }
 
 impl Rtl8139 {
@@ -44,10 +46,30 @@ impl Rtl8139 {
             next_tx_desc: core::sync::atomic::AtomicUsize::new(0),
             rx_offset: core::sync::atomic::AtomicUsize::new(0),
             mac: [0; 6],
+            _irq: None,
         };
 
         rtl.init_hardware()?;
         rtl.read_mac();
+
+        // Register PCI INTx# interrupt (if assigned by BIOS).
+        // The handler reads the Interrupt Status Register (ISR) at offset 0x3E
+        // to acknowledge any pending interrupt.  recv() uses polling so the
+        // ISR read is defensive against stray events on the shared IRQ line.
+        #[cfg(target_arch = "x86_64")]
+        {
+            let irq_line = pci_dev.interrupt_line();
+            if irq_line != 0 && irq_line < 16 {
+                if let Ok(irq) = crate::drivers::irq::map_isa_irq(irq_line, move || {
+                    if let Ok(port) = IoPort::<u16, ReadWriteAccess>::acquire(io_base as u16 + 0x3E) {
+                        let _ = port.read();
+                    }
+                }) {
+                    rtl._irq = Some(irq);
+                }
+            }
+        }
+
         Ok(rtl)
     }
 

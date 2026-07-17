@@ -24,6 +24,7 @@
 /// device is registered so the system boots cleanly in virtual environments
 /// that do not expose an NVMe controller.
 use crate::drivers::block::register_block_device;
+use crate::drivers::irq::IrqRegistration;
 use crate::drivers::pci::PciBar;
 use alloc::string::String;
 use alloc::sync::Arc;
@@ -32,11 +33,16 @@ use ostd::io::IoMem;
 use ostd::mm::dma::DmaCoherent;
 use ostd::mm::{HasDaddr, VmIo, VmIoOnce};
 use ostd::sync::SpinLock;
+use spin::Once;
 
 mod command;
 mod device;
 mod queue;
 pub mod regs;
+
+/// Holds the NVMe controller IrqRegistration for the driver's lifetime.
+/// Only meaningful on x86 where PCI INTx# is routed through the IOAPIC.
+static NVME_IRQ: Once<IrqRegistration> = Once::new();
 
 // ──────────────────────────────────────────────────────────────
 // DMA buffer page allocation helpers
@@ -203,10 +209,26 @@ fn identify_namespace(
 fn init_controller(
     mmio_base: usize,
     controller_index: usize,
+    irq_line: u8,
 ) -> Result<Arc<NvmeBlockDevice>, ostd::Error> {
     // Map the NVMe MMIO register space (16 KiB covers all standard registers +
     // doorbell registers for up to 1024 queue pairs with 4-byte stride).
     let mmio = IoMem::acquire(mmio_base..mmio_base + 0x4000)?;
+
+    // Register PCI INTx# interrupt handler for this NVMe controller.
+    // The handler reads CSTS to acknowledge the interrupt.  IO CQs are
+    // created with IEN = 1 (interrupts disabled), so the handler is
+    // defensive against stray events and controller fatal status; I/O
+    // completion uses polling (CQ phase tag).
+    #[cfg(target_arch = "x86_64")]
+    if !NVME_IRQ.is_completed() && irq_line != 0 && irq_line < 16 {
+        let isr_mmio = mmio.clone();
+        if let Ok(irq) = crate::drivers::irq::map_isa_irq(irq_line, move || {
+            let _: Result<u32, _> = isr_mmio.read_once(regs::REG_CSTS);
+        }) {
+            NVME_IRQ.call_once(|| irq);
+        }
+    }
 
     // ── Step 1: disable the controller ─────────────────────────
     disable_controller(&mmio)?;
@@ -329,7 +351,9 @@ pub fn init() {
         pci_dev.enable_memory_space();
         pci_dev.enable_bus_mastering();
 
-        match init_controller(mmio_base, controller_index) {
+        let irq_line = pci_dev.interrupt_line();
+
+        match init_controller(mmio_base, controller_index, irq_line) {
             Ok(device) => {
                 let name = device.name.clone();
                 if register_block_device(&name, device).is_ok() {

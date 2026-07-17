@@ -1,6 +1,11 @@
 use super::{CharDevice, InputBuffer, register_char_device};
 use alloc::sync::Arc;
+use ostd::arch::device::io_port::ReadWriteAccess;
+use ostd::io::IoPort;
 use ostd::sync::SpinLock;
+
+use crate::drivers::irq::IrqRegistration;
+use spin::Once;
 
 /// Default capacity (in bytes) of the keyboard's internal character buffer.
 const DEFAULT_BUFFER_CAPACITY: usize = 4096;
@@ -104,11 +109,9 @@ impl Keyboard {
         let pressed = !state.expect_break;
         let extended = state.extended;
 
-        // Prefixes only affect this one code; clear them for the next byte.
         state.extended = false;
         state.expect_break = false;
 
-        // Modifier keys update tracked state but emit no character themselves.
         match (extended, code) {
             (false, 0x2A) => state.modifiers.left_shift = pressed,
             (false, 0x36) => state.modifiers.right_shift = pressed,
@@ -119,13 +122,10 @@ impl Keyboard {
             _ => {}
         }
 
-        // Only key presses (make codes) of non-modifier keys produce output.
         if !pressed || matches!(code, 0x2A | 0x36 | 0x1D | 0x38 | 0x3A | 0x45 | 0x46) {
             return;
         }
 
-        // Extended keys (e.g. arrows, preceded by 0xE0) have no ASCII
-        // representation in Scan Code Set 1, so only decode non-extended codes.
         if !extended {
             if let Some(ch) = decode_char(code, &state.modifiers) {
                 self.buf.push(&[ch]);
@@ -153,13 +153,9 @@ impl Keyboard {
     }
 }
 
-/// Map a Scan Code Set 1 *make* code to its `(unshifted, shifted)` ASCII pair.
-/// Returns `None` for keys that have no textual representation (function keys,
-/// modifier keys, etc.). The numeric keypad codes are mapped to their digits
-/// (valid when Num Lock is on, which is the default state).
 fn ascii_pair(code: u8) -> Option<(u8, u8)> {
     Some(match code {
-        0x01 => (0x1B, 0x1B), // Escape
+        0x01 => (0x1B, 0x1B),
         0x02 => (b'1', b'!'),
         0x03 => (b'2', b'@'),
         0x04 => (b'3', b'#'),
@@ -172,8 +168,8 @@ fn ascii_pair(code: u8) -> Option<(u8, u8)> {
         0x0B => (b'0', b')'),
         0x0C => (b'-', b'_'),
         0x0D => (b'=', b'+'),
-        0x0E => (0x08, 0x08), // Backspace
-        0x0F => (0x09, 0x09), // Tab
+        0x0E => (0x08, 0x08),
+        0x0F => (0x09, 0x09),
         0x10 => (b'q', b'Q'),
         0x11 => (b'w', b'W'),
         0x12 => (b'e', b'E'),
@@ -186,7 +182,7 @@ fn ascii_pair(code: u8) -> Option<(u8, u8)> {
         0x19 => (b'p', b'P'),
         0x1A => (b'[', b'{'),
         0x1B => (b']', b'}'),
-        0x1C => (0x0A, 0x0A), // Enter (newline)
+        0x1C => (0x0A, 0x0A),
         0x1E => (b'a', b'A'),
         0x1F => (b's', b'S'),
         0x20 => (b'd', b'D'),
@@ -211,8 +207,8 @@ fn ascii_pair(code: u8) -> Option<(u8, u8)> {
         0x34 => (b'.', b'>'),
         0x35 => (b'/', b'?'),
         0x37 => (b'*', b'*'),
-        0x39 => (b' ', b' '), // Space
-        0x47 => (b'7', b'7'), // Numeric keypad
+        0x39 => (b' ', b' '),
+        0x47 => (b'7', b'7'),
         0x48 => (b'8', b'8'),
         0x49 => (b'9', b'9'),
         0x4B => (b'4', b'4'),
@@ -227,7 +223,6 @@ fn ascii_pair(code: u8) -> Option<(u8, u8)> {
     })
 }
 
-/// Decode a make code into a single ASCII byte, applying Shift and Caps Lock.
 fn decode_char(code: u8, modifiers: &Modifiers) -> Option<u8> {
     let (base, shifted) = ascii_pair(code)?;
     let mut ch = if modifiers.is_shift_active() {
@@ -241,7 +236,6 @@ fn decode_char(code: u8, modifiers: &Modifiers) -> Option<u8> {
     Some(ch)
 }
 
-/// Flip the letter-case of an ASCII byte (no-op for non-letters).
 fn toggle_case(c: u8) -> u8 {
     match c {
         b'a'..=b'z' => c - (b'a' - b'A'),
@@ -260,9 +254,28 @@ impl CharDevice for Keyboard {
     }
 }
 
-/// Register the keyboard device with devfs.
+// ---------------------------------------------------------------------------
+// Interrupt handler
+// ---------------------------------------------------------------------------
+
+/// Holds the keyboard IrqRegistration for the driver's lifetime.
+static KEYBOARD_IRQ: Once<IrqRegistration> = Once::new();
+
+/// Register the keyboard device with devfs and attach the ISA IRQ 1 handler.
+///
+/// The ISR reads a raw scancode byte from PS/2 data port 0x60 and pushes it
+/// into the keyboard decoder.
 pub fn init() {
     let keyboard = Arc::new(Keyboard::new());
+    let hnd = keyboard.clone();
+    let irq = crate::drivers::irq::map_isa_irq(1, move || {
+        let Ok(port) = IoPort::<u8, ReadWriteAccess>::acquire_overlapping(0x60) else {
+            return;
+        };
+        hnd.push_scancode(port.read());
+    })
+    .expect("keyboard IRQ 1 registration failed");
+    KEYBOARD_IRQ.call_once(|| irq);
     let _ = register_char_device("keyboard", keyboard);
 }
 
@@ -271,7 +284,6 @@ mod tests {
     use super::*;
     use ostd::prelude::ktest;
 
-    /// Helper: feed a sequence of make codes and return the decoded string.
     fn type_keys(codes: &[u8]) -> alloc::string::String {
         let kb = Keyboard::new();
         kb.push_scancodes(codes);
@@ -282,18 +294,15 @@ mod tests {
 
     #[ktest]
     fn test_plain_lowercase() {
-        // 'h'(0x23) 'e'(0x12) 'l'(0x26) 'l'(0x26) 'o'(0x18)
         let s = type_keys(&[0x23, 0x12, 0x26, 0x26, 0x18]);
         assert_eq!(s, "hello");
     }
 
     #[ktest]
     fn test_shift_produces_uppercase_and_symbols() {
-        // LShift down(0x2A) 'a'(0x1E) LShift up(0xF0 0x2A)
         let s = type_keys(&[0x2A, 0x1E, 0xF0, 0x2A]);
         assert_eq!(s, "A");
 
-        // '1'(0x02) with shift -> '!'
         let s = type_keys(&[0x2A, 0x02, 0xF0, 0x2A]);
         assert_eq!(s, "!");
     }
@@ -301,12 +310,10 @@ mod tests {
     #[ktest]
     fn test_caps_lock_toggles_case() {
         let kb = Keyboard::new();
-        // CapsLock down(0x3A) up(0xF0 0x3A) then 'a'(0x1E) -> 'A'
         kb.push_scancodes(&[0x3A, 0xF0, 0x3A, 0x1E]);
         let mut buf = [0u8; 64];
         let n = kb.read(&mut buf).unwrap();
         assert_eq!(&buf[..n], b"A");
-        // Toggle Caps Lock off, then 'a'(0x1E) -> 'a'
         kb.push_scancodes(&[0x3A, 0xF0, 0x3A, 0x1E]);
         let n = kb.read(&mut buf).unwrap();
         assert_eq!(&buf[..n], b"a");
@@ -314,14 +321,12 @@ mod tests {
 
     #[ktest]
     fn test_special_keys() {
-        // Enter(0x1C) -> '\n', Space(0x39) -> ' ', Tab(0x0F) -> '\t'
         let s = type_keys(&[0x1C, 0x39, 0x0F]);
         assert_eq!(s, "\n \t");
     }
 
     #[ktest]
     fn test_extended_key_emits_no_ascii() {
-        // Arrow Up is 0xE0 0x48; it has no ASCII mapping.
         let s = type_keys(&[0xE0, 0x48]);
         assert_eq!(s, "");
         assert_eq!(Keyboard::new().available(), 0);

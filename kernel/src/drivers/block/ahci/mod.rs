@@ -8,6 +8,7 @@
 /// Integrates with the new `crate::drivers::pci` subsystem for auto-discovery.
 ///
 use crate::drivers::block::register_block_device;
+use crate::drivers::irq::IrqRegistration;
 use crate::drivers::pci::PciBar;
 use alloc::string::String;
 use alloc::sync::Arc;
@@ -21,6 +22,10 @@ use spin::Once;
 mod command;
 mod device;
 mod hba;
+
+/// Holds the AHCI HBA IrqRegistration for the driver's lifetime.
+/// Only meaningful on x86 where PCI INTx# is routed through the IOAPIC.
+static AHCI_IRQ: Once<IrqRegistration> = Once::new();
 
 /// Initialize a physical SATA port.
 ///
@@ -94,7 +99,29 @@ pub fn init() {
             continue;
         }
 
+        // Register PCI INTx# interrupt handler for this HBA.
+        // The handler reads PORT_IS for each implemented port to acknowledge
+        // port-level interrupts.  Port interrupts are NOT enabled (IE bit is
+        // not set in PORT_CMD), so the handler is defensive against stray
+        // events; I/O completion uses polling (PORT_CI).
         let pi: u32 = abar.read_once(hba::HBA_PI).unwrap_or(0);
+        let isr_abar = abar.clone();
+
+        #[cfg(target_arch = "x86_64")]
+        if !AHCI_IRQ.is_completed() {
+            let irq_line = pci_dev.interrupt_line();
+            if irq_line != 0 && irq_line < 16 {
+                if let Ok(irq) = crate::drivers::irq::map_isa_irq(irq_line, move || {
+                    for port in 0..32 {
+                        if (pi & (1 << port)) != 0 {
+                            let _ = isr_abar.read_once::<u32>(hba::port_offset(port) + hba::PORT_IS);
+                        }
+                    }
+                }) {
+                    AHCI_IRQ.call_once(|| irq);
+                }
+            }
+        }
         let mut count = 0;
 
         // Check each implemented port (up to 32 ports)

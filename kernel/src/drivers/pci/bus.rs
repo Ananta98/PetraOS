@@ -1,11 +1,11 @@
-use super::config;
-use super::device::{self, PciDevice};
 /// PCI Bus Enumeration
 ///
 /// Scans the PCI bus hierarchy to discover all connected devices.
 /// Uses brute-force enumeration: iterates all buses (0-255),
 /// devices (0-31), and functions (0-7).
 use alloc::vec::Vec;
+use super::device::{self, PciDevice};
+use super::arch;
 
 /// Enumerate all PCI devices on the system.
 ///
@@ -45,14 +45,14 @@ pub fn find_device(vendor_id: u16, device_id: u16) -> Option<PciDevice> {
 /// Scan a single device slot for present functions.
 fn scan_device(devices: &mut Vec<PciDevice>, bus: u8, dev: u8) {
     // Check function 0 first
-    let id = config::config_read_u32(bus, dev, 0, 0x00);
+    let id = arch::config_read_u32(bus, dev, 0, 0x00);
     if (id & 0xFFFF) == 0xFFFF {
         return;
     }
 
     // Probe function 0
     if let Some(dev0) = device::probe(bus, dev, 0) {
-        let is_multi_func = (config::config_read_u8(bus, dev, 0, 0x0E) & 0x80) != 0;
+        let is_multi_func = (arch::config_read_u8(bus, dev, 0, 0x0E) & 0x80) != 0;
         devices.push(dev0);
 
         // If multi-function, check functions 1-7

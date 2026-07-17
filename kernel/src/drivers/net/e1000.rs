@@ -1,4 +1,5 @@
 use crate::device::device::{Device, DeviceType};
+use crate::drivers::irq::IrqRegistration;
 use crate::drivers::net::NetDevice;
 use crate::drivers::pci::{PciBar, PciDevice};
 use alloc::sync::Arc;
@@ -60,6 +61,7 @@ pub struct E1000 {
     rx_index: core::sync::atomic::AtomicUsize,
     tx_index: core::sync::atomic::AtomicUsize,
     mac: [u8; 6],
+    _irq: Option<IrqRegistration>,
 }
 
 impl E1000 {
@@ -74,6 +76,7 @@ impl E1000 {
 
         // Map E1000 register space (128KB)
         let mem = IoMem::acquire(base_addr as usize..base_addr as usize + 0x20000)?;
+        let isr_mem = mem.clone();
 
         // Allocate descriptor rings (1 page each)
         let rx_ring = DmaCoherent::alloc(1, true)?;
@@ -92,9 +95,28 @@ impl E1000 {
             rx_index: core::sync::atomic::AtomicUsize::new(0),
             tx_index: core::sync::atomic::AtomicUsize::new(0),
             mac: [0; 6],
+            _irq: None,
         };
 
         dev.init_hardware()?;
+
+        // Register PCI INTx# interrupt (if assigned by BIOS).
+        // The handler reads the Interrupt Cause Register (ICR) to acknowledge
+        // any pending interrupts.  Interrupts are masked in hardware via
+        // REG_IMC, so the ICR read is defensive against stray events; polling
+        // in recv() remains the primary data path.
+        #[cfg(target_arch = "x86_64")]
+        {
+            let irq_line = pci_dev.interrupt_line();
+            if irq_line != 0 && irq_line < 16 {
+                if let Ok(irq) = crate::drivers::irq::map_isa_irq(irq_line, move || {
+                    let _: Result<u32, _> = isr_mem.read_once(REG_ICR as usize);
+                }) {
+                    dev._irq = Some(irq);
+                }
+            }
+        }
+
         Ok(dev)
     }
 

@@ -8,6 +8,7 @@
 pub mod block;
 pub mod char;
 pub mod gpu;
+pub mod irq;
 pub mod net;
 pub mod pci;
 pub mod timer;

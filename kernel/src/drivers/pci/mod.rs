@@ -1,5 +1,3 @@
-mod bus;
-mod capability;
 /// PCI Subsystem for PetraOS
 ///
 /// Provides PCI configuration space access, device enumeration,
@@ -11,13 +9,26 @@ mod capability;
 /// - `device` — PCI device and BAR type definitions, config space convenience methods
 /// - `bus`    — Bus enumeration and device discovery
 /// - `capability` — PCI capability linked list traversal
-mod config;
+
 mod device;
+mod bus;
+mod capability;
+
+#[cfg_attr(target_arch = "x86_64", path = "arch/x86_64/mod.rs")]
+mod arch;
 
 pub use bus::{enumerate, find_device, find_devices_by_class};
 pub use capability::{
     CAP_MSI, CAP_MSIX, CAP_PCIE, CAP_PM, CAP_VENDOR, PciCapability, capabilities,
 };
+// Re-export config space access functions from the arch-specific module
+// so callers can use either `pci::config_read_u32(...)` or `pci::config::config_read_u32(...)`.
+mod config {
+    pub use super::arch::{
+        config_read_u8, config_read_u16, config_read_u32, config_write_u8, config_write_u16,
+        config_write_u32,
+    };
+}
 pub use config::{
     config_read_u8, config_read_u16, config_read_u32, config_write_u8, config_write_u16,
     config_write_u32,

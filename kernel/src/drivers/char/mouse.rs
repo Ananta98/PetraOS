@@ -4,6 +4,9 @@ use ostd::arch::device::io_port::ReadWriteAccess;
 use ostd::io::IoPort;
 use ostd::sync::SpinLock;
 
+use crate::drivers::irq::IrqRegistration;
+use spin::Once;
+
 // ---------------------------------------------------------------------------
 // PS/2 port addresses & controller commands
 // ---------------------------------------------------------------------------
@@ -375,18 +378,35 @@ impl CharDevice for Mouse {
 }
 
 // ---------------------------------------------------------------------------
+// Interrupt handler
+// ---------------------------------------------------------------------------
+
+/// Holds the mouse IrqRegistration for the driver's lifetime.
+static MOUSE_IRQ: Once<IrqRegistration> = Once::new();
+
+// ---------------------------------------------------------------------------
 // Initialisation
 // ---------------------------------------------------------------------------
 
-/// Register the mouse device with devfs and initialise PS/2 hardware.
+/// Register the mouse device with devfs, initialise PS/2 hardware, and
+/// attach the ISA IRQ 12 (AUX) handler.
+///
+/// The ISR reads a raw byte from PS/2 data port 0x60 and feeds it to the
+/// packet decoder.  The keyboard and mouse share the same data port, so
+/// the port is acquired with overlapping mode.
 pub fn init() {
-    // Try to initialise the PS/2 controller & mouse hardware.
-    // If this fails (e.g. no PS/2 controller, ports already claimed) the
-    // device node is still registered – decoding works once an ISR starts
-    // feeding bytes.
     let _ = Mouse::init_hardware();
 
     let mouse = Arc::new(Mouse::new());
+    let hnd = mouse.clone();
+    let irq = crate::drivers::irq::map_isa_irq(12, move || {
+        let Ok(port) = IoPort::<u8, ReadWriteAccess>::acquire_overlapping(0x60) else {
+            return;
+        };
+        hnd.push_packet(port.read());
+    })
+    .expect("mouse IRQ 12 registration failed");
+    MOUSE_IRQ.call_once(|| irq);
     let _ = register_char_device("mouse", mouse);
 }
 
