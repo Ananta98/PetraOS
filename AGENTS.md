@@ -87,9 +87,7 @@ To keep the codebase maintainable for agents and humans alike, dependencies must
 
 ### Dependency Rules for Coding Agents:
 1. **No Circular Dependencies:** A lower-level module (like `vm` or `drivers`) must **never** import symbols from higher-level modules (like `fs` or `syscall`).
-2. **Minimize Public Exports:** Keep module interfaces as small as possible. Use `pub(crate)` instead of `pub` where possible to restrict visibility to within the kernel.
-3. **No Direct Hardware Access:** Do not attempt to bypass `ostd` by using assembly blocks or raw port I/O. Always use the safe wrappers provided by the framework.
-
+2. **No Direct Hardware Access:** Do not attempt to bypass `ostd` by using assembly blocks or raw port I/O. Always use the safe wrappers provided by the framework.
 ---
 
 ## ✍️ Coding Guidelines for Agents
