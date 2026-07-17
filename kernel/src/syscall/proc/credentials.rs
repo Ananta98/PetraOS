@@ -6,7 +6,7 @@ use ostd::Error;
 use ostd::arch::cpu::context::UserContext;
 
 /// `getuid()` — returns the real user ID of the calling process (SYS_getuid = 102).
-pub(crate) fn syscall_getuid(
+pub fn syscall_getuid(
     _: usize,
     _: usize,
     _: usize,
@@ -20,7 +20,7 @@ pub(crate) fn syscall_getuid(
 }
 
 /// `geteuid()` — returns the effective user ID of the calling process (SYS_geteuid = 107).
-pub(crate) fn syscall_geteuid(
+pub fn syscall_geteuid(
     _: usize,
     _: usize,
     _: usize,
@@ -34,7 +34,7 @@ pub(crate) fn syscall_geteuid(
 }
 
 /// `getgid()` — returns the real group ID of the calling process (SYS_getgid = 104).
-pub(crate) fn syscall_getgid(
+pub fn syscall_getgid(
     _: usize,
     _: usize,
     _: usize,
@@ -48,7 +48,7 @@ pub(crate) fn syscall_getgid(
 }
 
 /// `getegid()` — returns the effective group ID of the calling process (SYS_getegid = 108).
-pub(crate) fn syscall_getegid(
+pub fn syscall_getegid(
     _: usize,
     _: usize,
     _: usize,
@@ -62,7 +62,7 @@ pub(crate) fn syscall_getegid(
 }
 
 /// `setuid()` — sets the effective user ID of the calling process (SYS_setuid = 105).
-pub(crate) fn syscall_setuid(
+pub fn syscall_setuid(
     arg0: usize, // uid
     _: usize,
     _: usize,
@@ -95,7 +95,7 @@ pub(crate) fn syscall_setuid(
 }
 
 /// `setgid()` — sets the effective group ID of the calling process (SYS_setgid = 106).
-pub(crate) fn syscall_setgid(
+pub fn syscall_setgid(
     arg0: usize, // gid
     _: usize,
     _: usize,
@@ -128,7 +128,7 @@ pub(crate) fn syscall_setgid(
 }
 
 /// `setreuid()` — sets real and/or effective user ID (SYS_setreuid = 113).
-pub(crate) fn syscall_setreuid(
+pub fn syscall_setreuid(
     arg0: usize, // ruid
     arg1: usize, // euid
     _: usize,
@@ -183,7 +183,7 @@ pub(crate) fn syscall_setreuid(
 }
 
 /// `setregid()` — sets real and/or effective group ID (SYS_setregid = 114).
-pub(crate) fn syscall_setregid(
+pub fn syscall_setregid(
     arg0: usize, // rgid
     arg1: usize, // egid
     _: usize,
@@ -238,7 +238,7 @@ pub(crate) fn syscall_setregid(
 }
 
 /// `setresuid()` — sets real, effective, and saved user ID (SYS_setresuid = 117).
-pub(crate) fn syscall_setresuid(
+pub fn syscall_setresuid(
     arg0: usize, // ruid
     arg1: usize, // euid
     arg2: usize, // suid
@@ -288,7 +288,7 @@ pub(crate) fn syscall_setresuid(
 }
 
 /// `setresgid()` — sets real, effective, and saved group ID (SYS_setresgid = 119).
-pub(crate) fn syscall_setresgid(
+pub fn syscall_setresgid(
     arg0: usize, // rgid
     arg1: usize, // egid
     arg2: usize, // sgid
@@ -338,7 +338,7 @@ pub(crate) fn syscall_setresgid(
 }
 
 /// `getresuid()` — returns real, effective, and saved user ID (SYS_getresuid = 118).
-pub(crate) fn syscall_getresuid(
+pub fn syscall_getresuid(
     arg0: usize, // ruid_ptr
     arg1: usize, // euid_ptr
     arg2: usize, // suid_ptr
@@ -376,7 +376,7 @@ pub(crate) fn syscall_getresuid(
 }
 
 /// `getresgid()` — returns real, effective, and saved group ID (SYS_getresgid = 120).
-pub(crate) fn syscall_getresgid(
+pub fn syscall_getresgid(
     arg0: usize, // rgid_ptr
     arg1: usize, // egid_ptr
     arg2: usize, // sgid_ptr
@@ -414,7 +414,7 @@ pub(crate) fn syscall_getresgid(
 }
 
 /// `setfsuid()` — sets the user ID used for filesystem checks (SYS_setfsuid = 122).
-pub(crate) fn syscall_setfsuid(
+pub fn syscall_setfsuid(
     arg0: usize, // fsuid
     _: usize,
     _: usize,
@@ -439,7 +439,7 @@ pub(crate) fn syscall_setfsuid(
 }
 
 /// `setfsgid()` — sets the group ID used for filesystem checks (SYS_setfsgid = 123).
-pub(crate) fn syscall_setfsgid(
+pub fn syscall_setfsgid(
     arg0: usize, // fsgid
     _: usize,
     _: usize,

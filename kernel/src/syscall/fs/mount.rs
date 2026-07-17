@@ -9,7 +9,7 @@ use ostd::Error;
 ///
 /// Resolves the filesystem driver by name, resolves the mount target path,
 /// and mounts the filesystem at the target.
-pub(crate) fn syscall_mount(
+pub fn syscall_mount(
     arg0: usize,
     arg1: usize,
     arg2: usize,

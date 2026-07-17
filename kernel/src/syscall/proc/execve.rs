@@ -16,7 +16,7 @@ use ostd::Error;
 use ostd::arch::cpu::context::UserContext;
 use ostd::user::UserContextApi;
 
-pub(crate) fn syscall_execve(
+pub fn syscall_execve(
     arg0: usize, // const char *pathname
     arg1: usize, // char *const argv[]
     arg2: usize, // char *const envp[]

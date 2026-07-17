@@ -3,7 +3,7 @@ use crate::syscall::SyscallResult;
 use crate::syscall::to_continue_i32;
 
 /// System call entry: duplicate a file descriptor to a specific descriptor number.
-pub(crate) fn syscall_dup2(
+pub fn syscall_dup2(
     arg0: usize,
     arg1: usize,
     _: usize,

@@ -18,7 +18,7 @@ use super::{Timespec, monotonic_ns, read_timespec, write_timespec};
 ///
 /// # Errors
 /// - `EINVAL` if `req` is null or contains a negative / out-of-range value.
-pub(crate) fn syscall_nanosleep(
+pub fn syscall_nanosleep(
     arg0: usize, // *req
     arg1: usize, // *rem (nullable)
     _a2: usize,

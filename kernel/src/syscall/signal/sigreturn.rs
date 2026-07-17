@@ -37,7 +37,7 @@ use crate::vm::vma::VmaManager;
 ///
 /// The signal frame address will be passed in `arg0` once the architecture
 /// trampoline is implemented.  For now the argument is ignored.
-pub(crate) fn syscall_rt_sigreturn(
+pub fn syscall_rt_sigreturn(
     _arg0: usize, // Reserved: future signal-frame pointer from trampoline
     _: usize,
     _: usize,

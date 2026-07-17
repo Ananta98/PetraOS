@@ -27,6 +27,24 @@ impl OpenFile {
     }
 }
 
+impl FileOps for OpenFile {
+    fn read(&mut self, buf: &mut [u8], offset: &mut usize) -> Result<usize, Error> {
+        self.file_ops.read(buf, offset)
+    }
+
+    fn write(&mut self, buf: &[u8], offset: &mut usize) -> Result<usize, Error> {
+        self.file_ops.write(buf, offset)
+    }
+
+    fn seek(&mut self, pos: SeekFrom, offset: &mut usize) -> Result<usize, Error> {
+        self.file_ops.seek(pos, offset)
+    }
+
+    fn readdir(&mut self) -> Result<alloc::vec::Vec<crate::fs::vfs::DirEntry>, Error> {
+        self.file_ops.readdir()
+    }
+}
+
 /// A file descriptor entry in the process file descriptor table.
 /// It wraps a shared reference to an `OpenFile` description, allowing sharing
 /// of the file offset/status flags (e.g. after a `dup`/`dup2`).

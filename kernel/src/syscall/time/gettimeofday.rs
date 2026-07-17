@@ -12,7 +12,7 @@ use super::{Timeval, realtime_ns, write_timeval};
 ///
 /// # Errors
 /// - `EINVAL` if `tv` is null or unmapped.
-pub(crate) fn syscall_gettimeofday(
+pub fn syscall_gettimeofday(
     arg0: usize,  // *timeval
     _arg1: usize, // *timezone (ignored)
     _a2: usize,

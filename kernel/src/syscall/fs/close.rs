@@ -3,7 +3,7 @@ use crate::syscall::SyscallResult;
 use crate::syscall::to_continue_unit;
 
 /// System call entry: close a file descriptor.
-pub(crate) fn syscall_close(
+pub fn syscall_close(
     arg0: usize,
     _: usize,
     _: usize,

@@ -11,7 +11,7 @@ use crate::vm::vma::VmaManager;
 use ostd::Error;
 
 /// System call entry: `rt_sigpending(set, sigsetsize)`.
-pub(crate) fn syscall_rt_sigpending(
+pub fn syscall_rt_sigpending(
     arg0: usize, // sigset_t __user *set
     arg1: usize, // size_t sigsetsize (must == 8)
     _: usize,

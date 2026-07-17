@@ -8,7 +8,7 @@ use crate::vm::vma::VmaManager;
 /// Always returns the (possibly updated) program break.  This matches
 /// the Linux `brk` convention: the kernel never returns a negated errno;
 /// on failure the old break is returned unchanged.
-pub(crate) fn syscall_brk(
+pub fn syscall_brk(
     arg0: usize,
     _arg1: usize,
     _arg2: usize,

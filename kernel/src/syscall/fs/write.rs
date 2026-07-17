@@ -5,7 +5,7 @@ use crate::vm::vma::VmaManager;
 use ostd::Error;
 
 /// System call entry: write to a file descriptor.
-pub(crate) fn syscall_write(
+pub fn syscall_write(
     arg0: usize,
     arg1: usize,
     arg2: usize,

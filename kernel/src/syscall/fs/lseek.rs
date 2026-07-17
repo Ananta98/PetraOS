@@ -3,7 +3,7 @@ use crate::syscall::SyscallResult;
 use crate::syscall::to_continue;
 
 /// System call entry: adjust the file offset.
-pub(crate) fn syscall_lseek(
+pub fn syscall_lseek(
     arg0: usize,
     arg1: usize,
     arg2: usize,

@@ -4,7 +4,7 @@ use crate::syscall::to_continue_i32;
 use crate::vm::vma::VmaManager;
 
 /// System call entry: open a file.
-pub(crate) fn syscall_open(
+pub fn syscall_open(
     arg0: usize,
     arg1: usize,
     arg2: usize,

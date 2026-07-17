@@ -14,7 +14,7 @@ use super::{CLOCK_REALTIME, CLOCK_REALTIME_COARSE, Timespec, clock_ns, write_tim
 ///
 /// If `res` is null the call succeeds without writing anything (same
 /// behaviour as Linux).
-pub(crate) fn syscall_clock_getres(
+pub fn syscall_clock_getres(
     arg0: usize, // clockid
     arg1: usize, // *timespec (nullable)
     _a2: usize,

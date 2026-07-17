@@ -13,7 +13,7 @@ use super::realtime_ns;
 ///
 /// # Errors
 /// - `EFAULT` (encoded as `EINVAL`) if `tloc` is non-null but unmapped.
-pub(crate) fn syscall_time(
+pub fn syscall_time(
     arg0: usize, // *time_t (nullable)
     _a1: usize,
     _a2: usize,

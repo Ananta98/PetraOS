@@ -7,7 +7,7 @@ use ostd::Error;
 use ostd::arch::cpu::context::UserContext;
 
 /// `getpid()` — returns the process ID of the calling process (SYS_getpid = 39).
-pub(crate) fn syscall_getpid(
+pub fn syscall_getpid(
     _: usize,
     _: usize,
     _: usize,
@@ -21,7 +21,7 @@ pub(crate) fn syscall_getpid(
 }
 
 /// `getppid()` — returns the parent process ID of the calling process (SYS_getppid = 110).
-pub(crate) fn syscall_getppid(
+pub fn syscall_getppid(
     _: usize,
     _: usize,
     _: usize,
@@ -36,7 +36,7 @@ pub(crate) fn syscall_getppid(
 }
 
 /// `getpgid()` — returns the process group ID of the process (SYS_getpgid = 121).
-pub(crate) fn syscall_getpgid(
+pub fn syscall_getpgid(
     arg0: usize, // pid
     _: usize,
     _: usize,
@@ -63,7 +63,7 @@ pub(crate) fn syscall_getpgid(
 }
 
 /// `setpgid()` — sets the process group ID of a process (SYS_setpgid = 109).
-pub(crate) fn syscall_setpgid(
+pub fn syscall_setpgid(
     arg0: usize, // pid
     arg1: usize, // pgid
     _: usize,
@@ -112,7 +112,7 @@ pub(crate) fn syscall_setpgid(
 }
 
 /// `getsid()` — returns the session ID of the process (SYS_getsid = 124).
-pub(crate) fn syscall_getsid(
+pub fn syscall_getsid(
     arg0: usize, // pid
     _: usize,
     _: usize,
@@ -139,7 +139,7 @@ pub(crate) fn syscall_getsid(
 }
 
 /// `setsid()` — creates a session and sets the process group ID (SYS_setsid = 112).
-pub(crate) fn syscall_setsid(
+pub fn syscall_setsid(
     _: usize,
     _: usize,
     _: usize,

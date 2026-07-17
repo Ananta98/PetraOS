@@ -39,7 +39,7 @@ fn prot_to_pageflags(prot: usize) -> PageFlags {
     flags
 }
 
-pub(crate) fn syscall_mmap(
+pub fn syscall_mmap(
     arg0: usize,
     arg1: usize,
     arg2: usize,

@@ -1,9 +1,9 @@
-pub(crate) mod brk;
-pub(crate) mod mmap;
-pub(crate) mod munmap;
-pub(crate) mod shm;
+pub mod brk;
+pub mod mmap;
+pub mod munmap;
+pub mod shm;
 
-pub(crate) use brk::syscall_brk;
-pub(crate) use mmap::syscall_mmap;
-pub(crate) use munmap::syscall_munmap;
-pub(crate) use shm::{syscall_shmat, syscall_shmctl, syscall_shmdt, syscall_shmget};
+pub use brk::syscall_brk;
+pub use mmap::syscall_mmap;
+pub use munmap::syscall_munmap;
+pub use shm::{syscall_shmat, syscall_shmctl, syscall_shmdt, syscall_shmget};

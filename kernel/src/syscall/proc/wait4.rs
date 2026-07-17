@@ -12,7 +12,7 @@ use crate::vm::vma::VmaManager;
 use ostd::Error;
 use ostd::arch::cpu::context::UserContext;
 
-pub(crate) fn syscall_wait4(
+pub fn syscall_wait4(
     arg0: usize, // pid_t pid
     arg1: usize, // int *wstatus
     arg2: usize, // int options

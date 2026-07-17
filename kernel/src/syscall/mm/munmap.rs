@@ -1,7 +1,7 @@
 use crate::syscall::SyscallResult;
 use crate::vm::vma::VmaManager;
 
-pub(crate) fn syscall_munmap(
+pub fn syscall_munmap(
     arg0: usize,
     arg1: usize,
     _arg2: usize,

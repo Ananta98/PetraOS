@@ -5,7 +5,7 @@ use crate::vm::vma::VmaManager;
 use ostd::Error;
 
 /// System call entry: read from a file descriptor.
-pub(crate) fn syscall_read(
+pub fn syscall_read(
     arg0: usize,
     arg1: usize,
     arg2: usize,

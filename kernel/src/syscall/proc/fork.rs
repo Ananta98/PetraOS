@@ -13,7 +13,7 @@ use ostd::Error;
 use ostd::arch::cpu::context::UserContext;
 use ostd::user::{ReturnReason, UserContextApi, UserMode};
 
-pub(crate) fn syscall_fork(
+pub fn syscall_fork(
     _: usize,
     _: usize,
     _: usize,

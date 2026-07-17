@@ -25,17 +25,17 @@
 
 #![allow(clippy::redundant_closure_call, clippy::too_many_arguments)]
 
-pub(crate) mod clock_getres;
-pub(crate) mod clock_gettime;
-pub(crate) mod gettimeofday;
-pub(crate) mod nanosleep;
-pub(crate) mod sys_time;
+pub mod clock_getres;
+pub mod clock_gettime;
+pub mod gettimeofday;
+pub mod nanosleep;
+pub mod sys_time;
 
-pub(crate) use clock_getres::syscall_clock_getres;
-pub(crate) use clock_gettime::syscall_clock_gettime;
-pub(crate) use gettimeofday::syscall_gettimeofday;
-pub(crate) use nanosleep::syscall_nanosleep;
-pub(crate) use sys_time::syscall_time;
+pub use clock_getres::syscall_clock_getres;
+pub use clock_gettime::syscall_clock_gettime;
+pub use gettimeofday::syscall_gettimeofday;
+pub use nanosleep::syscall_nanosleep;
+pub use sys_time::syscall_time;
 
 use crate::drivers::timer::{CmosRtc, Timer, Tsc};
 use crate::vm::vma::VmaManager;

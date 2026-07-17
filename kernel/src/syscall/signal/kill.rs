@@ -18,7 +18,7 @@ use crate::vm::vma::VmaManager;
 use ostd::Error;
 
 /// System call entry: `kill(pid, sig)`.
-pub(crate) fn syscall_kill(
+pub fn syscall_kill(
     arg0: usize, // pid_t pid (as i32 cast to usize)
     arg1: usize, // int sig
     _: usize,

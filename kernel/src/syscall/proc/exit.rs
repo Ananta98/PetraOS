@@ -5,7 +5,7 @@ use crate::vm::vma::VmaManager;
 use ostd::arch::cpu::context::UserContext;
 
 /// System call entry: terminate the calling process.
-pub(crate) fn syscall_exit(
+pub fn syscall_exit(
     arg0: usize,
     _: usize,
     _: usize,

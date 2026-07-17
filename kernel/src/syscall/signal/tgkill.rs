@@ -19,7 +19,7 @@ use crate::vm::vma::VmaManager;
 use ostd::Error;
 
 /// System call entry: `tgkill(tgid, tid, sig)`.
-pub(crate) fn syscall_tgkill(
+pub fn syscall_tgkill(
     arg0: usize, // pid_t tgid
     arg1: usize, // pid_t tid (currently ignored — signal goes to process)
     arg2: usize, // int sig

@@ -12,7 +12,7 @@ use super::{Timespec, clock_ns, write_timespec};
 ///
 /// # Errors
 /// - `EINVAL` if `clockid` is unknown or `tp` is null / unmapped.
-pub(crate) fn syscall_clock_gettime(
+pub fn syscall_clock_gettime(
     arg0: usize, // clockid
     arg1: usize, // *timespec
     _a2: usize,

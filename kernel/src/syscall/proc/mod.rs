@@ -1,25 +1,25 @@
-pub(crate) mod credentials;
-pub(crate) mod execve;
-pub(crate) mod exit;
-pub(crate) mod fork;
-pub(crate) mod pid;
-pub(crate) mod wait4;
-pub(crate) mod waitid;
+pub mod credentials;
+pub mod execve;
+pub mod exit;
+pub mod fork;
+pub mod pid;
+pub mod wait4;
+pub mod waitid;
 
-pub(crate) use credentials::{
+pub use credentials::{
     syscall_getegid, syscall_geteuid, syscall_getgid, syscall_getresgid, syscall_getresuid,
     syscall_getuid, syscall_setfsgid, syscall_setfsuid, syscall_setgid, syscall_setregid,
     syscall_setresgid, syscall_setresuid, syscall_setreuid, syscall_setuid,
 };
-pub(crate) use execve::syscall_execve;
-pub(crate) use exit::syscall_exit;
-pub(crate) use fork::syscall_fork;
-pub(crate) use pid::{
+pub use execve::syscall_execve;
+pub use exit::syscall_exit;
+pub use fork::syscall_fork;
+pub use pid::{
     syscall_getpgid, syscall_getpid, syscall_getppid, syscall_getsid, syscall_setpgid,
     syscall_setsid,
 };
-pub(crate) use wait4::syscall_wait4;
-pub(crate) use waitid::syscall_waitid;
+pub use wait4::syscall_wait4;
+pub use waitid::syscall_waitid;
 
 #[cfg(ktest)]
 mod tests {

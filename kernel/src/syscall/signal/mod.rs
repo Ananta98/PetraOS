@@ -11,18 +11,18 @@
 /// | 62     | kill               | kill.rs          |
 /// | 72     | rt_sigsuspend      | sigsuspend.rs    |
 /// | 234    | tgkill             | tgkill.rs        |
-pub(crate) mod kill;
-pub(crate) mod sigaction;
-pub(crate) mod sigpending;
-pub(crate) mod sigprocmask;
-pub(crate) mod sigreturn;
-pub(crate) mod sigsuspend;
-pub(crate) mod tgkill;
+pub mod kill;
+pub mod sigaction;
+pub mod sigpending;
+pub mod sigprocmask;
+pub mod sigreturn;
+pub mod sigsuspend;
+pub mod tgkill;
 
-pub(crate) use kill::syscall_kill;
-pub(crate) use sigaction::syscall_rt_sigaction;
-pub(crate) use sigpending::syscall_rt_sigpending;
-pub(crate) use sigprocmask::syscall_rt_sigprocmask;
-pub(crate) use sigreturn::syscall_rt_sigreturn;
-pub(crate) use sigsuspend::syscall_rt_sigsuspend;
-pub(crate) use tgkill::syscall_tgkill;
+pub use kill::syscall_kill;
+pub use sigaction::syscall_rt_sigaction;
+pub use sigpending::syscall_rt_sigpending;
+pub use sigprocmask::syscall_rt_sigprocmask;
+pub use sigreturn::syscall_rt_sigreturn;
+pub use sigsuspend::syscall_rt_sigsuspend;
+pub use tgkill::syscall_tgkill;

@@ -24,7 +24,7 @@ const SIG_UNBLOCK: usize = 1;
 const SIG_SETMASK: usize = 2;
 
 /// System call entry: `rt_sigprocmask(how, set, oldset, sigsetsize)`.
-pub(crate) fn syscall_rt_sigprocmask(
+pub fn syscall_rt_sigprocmask(
     arg0: usize, // int how
     arg1: usize, // const sigset_t __user *set   (0 = NULL)
     arg2: usize, // sigset_t __user *oldset       (0 = NULL)

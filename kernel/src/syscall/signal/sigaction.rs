@@ -34,7 +34,7 @@ const SIG_DFL: usize = 0;
 const SIG_IGN: usize = 1;
 
 /// System call entry: `rt_sigaction(signum, new_act, old_act, sigsetsize)`.
-pub(crate) fn syscall_rt_sigaction(
+pub fn syscall_rt_sigaction(
     arg0: usize, // int signum
     arg1: usize, // const struct sigaction __user *new_act  (0 = NULL)
     arg2: usize, // struct sigaction __user *old_act         (0 = NULL)

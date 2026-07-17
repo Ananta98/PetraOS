@@ -7,7 +7,7 @@ use ostd::Error;
 use ostd::arch::cpu::context::UserContext;
 
 /// `waitid(idtype, id, infop, options, rusage)` — wait for process to change state (SYS_waitid = 247).
-pub(crate) fn syscall_waitid(
+pub fn syscall_waitid(
     arg0: usize, // idtype_t idtype
     arg1: usize, // id_t id
     arg2: usize, // siginfo_t *infop

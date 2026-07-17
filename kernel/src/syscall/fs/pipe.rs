@@ -15,7 +15,7 @@ use crate::vm::vma::VmaManager;
 use ostd::Error;
 
 /// System call entry: `pipe2(pipefd, flags)`.
-pub(crate) fn syscall_pipe2(
+pub fn syscall_pipe2(
     arg0: usize, // int pipefd[2] (__user *pipefd)
     arg1: usize, // int flags
     _: usize,

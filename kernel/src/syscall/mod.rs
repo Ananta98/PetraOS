@@ -1,8 +1,8 @@
 pub mod fs;
-pub(crate) mod mm;
-pub(crate) mod proc;
-pub(crate) mod signal;
-pub(crate) mod time;
+pub mod mm;
+pub mod proc;
+pub mod signal;
+pub mod time;
 
 use crate::vm::vma::VmaManager;
 use alloc::string::String;
@@ -27,7 +27,7 @@ pub enum SyscallResult {
 
 /// Converts a `Result<usize, Error>` into a [`SyscallResult::Continue`],
 /// encoding the error code as a negated `isize` on failure.
-pub(crate) fn to_continue(result: Result<usize, Error>) -> SyscallResult {
+pub fn to_continue(result: Result<usize, Error>) -> SyscallResult {
     match result {
         Ok(value) => SyscallResult::Continue(value),
         Err(error) => SyscallResult::Continue(-(error as isize) as usize),
@@ -36,13 +36,13 @@ pub(crate) fn to_continue(result: Result<usize, Error>) -> SyscallResult {
 
 /// Adapts a `Result<i32, Error>` (file descriptor or signed return) into a
 /// [`SyscallResult::Continue`], zero-extending the success value.
-pub(crate) fn to_continue_i32(result: Result<i32, Error>) -> SyscallResult {
+pub fn to_continue_i32(result: Result<i32, Error>) -> SyscallResult {
     to_continue(result.map(|value| value as usize))
 }
 
 /// Adapts a `Result<(), Error>` (no return value) into a
 /// [`SyscallResult::Continue`] with a success value of `0`.
-pub(crate) fn to_continue_unit(result: Result<(), Error>) -> SyscallResult {
+pub fn to_continue_unit(result: Result<(), Error>) -> SyscallResult {
     to_continue(result.map(|()| 0))
 }
 
@@ -145,7 +145,7 @@ pub fn dispatch_syscall(
 }
 
 /// Helper to read a null-terminated string from user space.
-pub(crate) fn read_user_string(vm: &VmaManager, user_ptr: usize) -> Result<String, Error> {
+pub fn read_user_string(vm: &VmaManager, user_ptr: usize) -> Result<String, Error> {
     let mut buf = Vec::new();
     let mut offset = 0;
     loop {
@@ -164,7 +164,7 @@ pub(crate) fn read_user_string(vm: &VmaManager, user_ptr: usize) -> Result<Strin
 }
 
 /// Helper to read a byte slice from user space.
-pub(crate) fn read_user_slice(
+pub fn read_user_slice(
     vm: &VmaManager,
     user_ptr: usize,
     len: usize,

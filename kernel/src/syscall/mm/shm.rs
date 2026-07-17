@@ -5,7 +5,7 @@ use crate::syscall::SyscallResult;
 use crate::vm::vma::VmaManager;
 use ostd::arch::cpu::context::UserContext;
 
-pub(crate) fn syscall_shmget(
+pub fn syscall_shmget(
     arg0: usize,
     arg1: usize,
     arg2: usize,
@@ -25,7 +25,7 @@ pub(crate) fn syscall_shmget(
     }
 }
 
-pub(crate) fn syscall_shmat(
+pub fn syscall_shmat(
     arg0: usize,
     arg1: usize,
     arg2: usize,
@@ -45,7 +45,7 @@ pub(crate) fn syscall_shmat(
     }
 }
 
-pub(crate) fn syscall_shmdt(
+pub fn syscall_shmdt(
     arg0: usize,
     _arg1: usize,
     _arg2: usize,
@@ -63,7 +63,7 @@ pub(crate) fn syscall_shmdt(
     }
 }
 
-pub(crate) fn syscall_shmctl(
+pub fn syscall_shmctl(
     arg0: usize,
     arg1: usize,
     _arg2: usize,

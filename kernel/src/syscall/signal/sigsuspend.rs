@@ -24,7 +24,7 @@ use crate::vm::vma::VmaManager;
 use ostd::Error;
 
 /// System call entry: `rt_sigsuspend(mask, sigsetsize)`.
-pub(crate) fn syscall_rt_sigsuspend(
+pub fn syscall_rt_sigsuspend(
     arg0: usize, // const sigset_t __user *mask
     arg1: usize, // size_t sigsetsize (must == 8)
     _: usize,
