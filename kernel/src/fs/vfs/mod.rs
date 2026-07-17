@@ -21,7 +21,7 @@ mod tests {
     use super::types::{FileType, SeekFrom};
     use crate::fs::ramfs::RamFs;
     use alloc::sync::Arc;
-    use ostd::prelude::{ktest};
+    use ostd::prelude::ktest;
 
     #[ktest]
     fn test_vfs_full() {
@@ -80,7 +80,6 @@ mod tests {
         assert_eq!(cross_resolved.name, "/");
 
         // 6. Test relative symlinks: /etc/hosts -> resolv.conf
-        println!("[VFS TEST] Creating relative symlink /etc/hosts -> resolv.conf");
         etc_inode.symlink("hosts", "resolv.conf").unwrap();
         let sym_resolved = resolve_path("/etc/hosts").unwrap();
         assert_eq!(sym_resolved.name, "resolv.conf");
