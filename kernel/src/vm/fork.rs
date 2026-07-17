@@ -45,8 +45,8 @@ impl VmaManager {
         let guard = disable_preempt();
         let child_manager = Arc::new(VmaManager::new());
 
-        // Copy the heap-break state atomically under a single lock.
-        *child_manager.brk.lock() = *self.brk.lock();
+        // Copy the heap-break state from parent to child.
+        child_manager.copy_brk_from(self);
 
         let parent_regions = self.regions.lock();
         let mut child_regions = child_manager.regions.lock();

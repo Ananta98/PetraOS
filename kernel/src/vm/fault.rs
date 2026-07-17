@@ -1,4 +1,3 @@
-use crate::vm::region::VmaRegion;
 use crate::vm::{VMA_MANAGER, vma::VmaManager};
 use ostd::Error::{self, InvalidArgs};
 use ostd::arch::cpu::context::{CpuException, PageFaultErrorCode};
@@ -8,6 +7,7 @@ use ostd::mm::{CachePolicy, FrameAllocOptions, PAGE_SIZE, PageProperty, UFrame, 
 use ostd::task::disable_preempt;
 
 impl VmaManager {
+    /// Handles a page fault by allocating or copying a frame for the faulting address.
     pub fn alloc_frame_for_fault(
         &self,
         fault_addr: Vaddr,
@@ -29,15 +29,7 @@ impl VmaManager {
 
         // Clone the region data under the lock, then release the lock before
         // performing the potentially-blocking file read.
-        let region_clone = VmaRegion {
-            start: region.start,
-            size: region.size,
-            flags: region.flags,
-            guard_size: region.guard_size,
-            file_backing: region.file_backing.clone(),
-            file_offset: region.file_offset,
-            is_shared: region.is_shared,
-        };
+        let region_clone = region.clone();
         drop(regions);
 
         let page_vaddr = fault_addr & !(PAGE_SIZE - 1);
@@ -61,15 +53,16 @@ impl VmaManager {
 
             // If this is a file-backed mapping, read the file data into the frame.
             if let Some(ref backing) = region_clone.file_backing {
-                let file_read_offset = region_clone.file_offset + (page_vaddr - region_clone.start);
+                let mut file_read_offset = region_clone.file_offset + (page_vaddr - region_clone.start);
                 let mut frame_writer = frame.writer();
                 let mut file_buf = alloc::vec![0u8; PAGE_SIZE];
 
-                if backing.read_at(file_read_offset, &mut file_buf).is_ok() {
+                let mut file = backing.lock();
+                if file.read(&mut file_buf, &mut file_read_offset).is_ok() {
                     let mut reader = ostd::mm::io::VmReader::from(&file_buf[..]);
                     frame_writer.write(&mut reader);
                 }
-                // If read_at fails (e.g., beyond end of file), leave the frame zeroed.
+                // If read fails (e.g., beyond end of file), leave the frame zeroed.
             }
 
             let property = PageProperty::new_user(region_clone.flags, CachePolicy::Writeback);
@@ -104,7 +97,7 @@ impl VmaManager {
                     let property =
                         PageProperty::new_user(region_clone.flags, CachePolicy::Writeback);
                     cursor.unmap(PAGE_SIZE);
-                    cursor.jump(page_vaddr).unwrap();
+                    cursor.jump(page_vaddr).map_err(|_| Error::InvalidArgs)?;
                     cursor.map(new_frame, property);
 
                     return Ok(());
@@ -112,7 +105,7 @@ impl VmaManager {
                     let property =
                         PageProperty::new_user(region_clone.flags, CachePolicy::Writeback);
                     cursor.unmap(PAGE_SIZE);
-                    cursor.jump(page_vaddr).unwrap();
+                    cursor.jump(page_vaddr).map_err(|_| Error::InvalidArgs)?;
                     cursor.map(old_frame, property);
 
                     return Ok(());
@@ -124,6 +117,7 @@ impl VmaManager {
     }
 }
 
+/// Top-level page fault handler registered via `inject_user_page_fault_handler`.
 pub fn handle_page_fault(info: &CpuException) -> Result<(), ()> {
     if let CpuException::PageFault(pf_info) = info {
         if let Some(manager) = VMA_MANAGER.get() {

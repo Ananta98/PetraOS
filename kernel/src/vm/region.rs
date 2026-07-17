@@ -2,10 +2,11 @@ use alloc::sync::Arc;
 use ostd::Error;
 use ostd::mm::{PageFlags, Vaddr};
 
-pub trait MmapFileBacking: Send + Sync {
-    fn read_at(&self, offset: usize, buf: &mut [u8]) -> core::result::Result<usize, Error>;
-}
+use crate::fs::vfs::FileOps;
+use ostd::sync::SpinLock;
 
+/// A virtual memory area descriptor representing a contiguous region in
+/// a process's address space.
 #[derive(Clone)]
 pub struct VmaRegion {
     pub start: Vaddr,
@@ -15,7 +16,7 @@ pub struct VmaRegion {
     /// Guard pages are never mapped; any access triggers a fault error.
     pub guard_size: usize,
     /// Optional file backing for file-backed mappings.
-    pub file_backing: Option<Arc<dyn MmapFileBacking>>,
+    pub file_backing: Option<Arc<SpinLock<dyn FileOps>>>,
     /// Offset within the backing file where this mapping starts.
     pub file_offset: usize,
     /// Whether this is a MAP_SHARED mapping.
@@ -23,6 +24,8 @@ pub struct VmaRegion {
 }
 
 impl VmaRegion {
+    /// Creates a new anonymous VMA region with the given start address, size,
+    /// and page flags. Guard pages, file backing, and sharing are unset.
     pub fn new(start: Vaddr, size: usize, flags: PageFlags) -> Self {
         Self {
             start,
@@ -35,11 +38,13 @@ impl VmaRegion {
         }
     }
 
+    /// Creates a new file-backed VMA region with the given backing source,
+    /// file offset, and sharing mode.
     pub fn new_file_backed(
         start: Vaddr,
         size: usize,
         flags: PageFlags,
-        file_backing: Arc<dyn MmapFileBacking>,
+        file_backing: Arc<SpinLock<dyn FileOps>>,
         file_offset: usize,
         is_shared: bool,
     ) -> Self {
@@ -54,14 +59,11 @@ impl VmaRegion {
         }
     }
 
+    /// Returns whether the given address falls within this region.
     pub fn contains(&self, addr: Vaddr) -> bool {
         self.start
             .checked_add(self.size)
             .map_or(false, |end| addr >= self.start && addr < end)
-    }
-
-    pub fn size(&self) -> usize {
-        self.size
     }
 }
 

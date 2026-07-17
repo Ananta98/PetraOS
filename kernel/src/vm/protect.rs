@@ -53,7 +53,8 @@ impl VmaManager {
         new_flags: PageFlags,
     ) -> Result<(), Error> {
         let guard = disable_preempt();
-        let vaddr_range = start..start + size;
+        let end = start.checked_add(size).ok_or(Error::InvalidArgs)?;
+        let vaddr_range = start..end;
 
         let mut cursor = self
             .vm_space
@@ -74,7 +75,7 @@ impl VmaManager {
                 let new_property = PageProperty::new_user(new_flags, CachePolicy::Writeback);
 
                 cursor.unmap(PAGE_SIZE);
-                cursor.jump(page_vaddr).unwrap();
+                cursor.jump(page_vaddr).map_err(|_| Error::InvalidArgs)?;
                 cursor.map(frame_ref, new_property);
             } else {
                 // Ensure any stale page-table entry is cleared.
@@ -105,7 +106,7 @@ impl VmaManager {
         }
 
         let range_start = start;
-        let range_end = start + size;
+        let range_end = start.checked_add(size).ok_or(Error::InvalidArgs)?;
 
         let mut regions = self.regions.lock();
 
@@ -151,7 +152,7 @@ fn collect_overlapping_vmas(
     regions
         .values()
         .filter(|region| {
-            let region_end = region.start + region.size;
+            let region_end = region.start.saturating_add(region.size);
             // Exclude regions that are entirely before or entirely after the range.
             region_end > range_start && region.start < range_end
         })

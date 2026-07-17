@@ -246,7 +246,7 @@ impl Process {
             let regions = self.vm.regions.lock();
             regions
                 .iter()
-                .map(|(&start, region)| (start, region.size()))
+                .map(|(&start, region)| (start, region.size))
                 .collect()
         };
 

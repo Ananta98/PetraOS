@@ -1,7 +1,9 @@
-use crate::vm::region::{MmapFileBacking, VmaRegion};
+use crate::vm::region::VmaRegion;
+use crate::fs::vfs::FileOps;
 use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
+use core::sync::atomic::{AtomicUsize, Ordering};
 use ostd::Error;
 use ostd::mm::io::{FallibleVmRead, FallibleVmWrite, VmReader, VmWriter};
 use ostd::mm::vm_space::VmSpace;
@@ -13,35 +15,31 @@ use ostd::task::disable_preempt;
 const USER_SPACE_START: Vaddr = 0x0000_0000_1000;
 const USER_SPACE_END: Vaddr = 0x0000_7FFF_FFFF_0000;
 
-/// Heap-break bookkeeping for a process address space.
-///
-/// Both fields are always updated together under a single lock, which
-/// prevents races between concurrent `brk()` calls and eliminates the
-/// two-lock ordering hazard that existed when they were stored separately.
-#[derive(Clone, Copy, Default)]
-pub(crate) struct BrkState {
-    /// The lowest valid heap address, set once after ELF loading.
-    pub start: Vaddr,
-    /// The current program break (top of heap).
-    pub current: Vaddr,
-}
-
 pub struct VmaManager {
     pub vm_space: Arc<VmSpace>,
     pub regions: SpinLock<BTreeMap<Vaddr, VmaRegion>>,
-    /// Heap break state. Acquire after `regions` when both locks are needed.
-    pub(crate) brk: SpinLock<BrkState>,
+    /// The lowest valid heap address, set once after ELF loading.
+    ///
+    /// Stored as an `AtomicUsize` because it is written exactly once
+    /// (during ELF loading, before the process is scheduled) and then
+    /// only read. `Relaxed` ordering is sufficient.
+    brk_start: AtomicUsize,
+    /// The current program break (top of heap).
+    brk_current: SpinLock<Vaddr>,
 }
 
 impl VmaManager {
+    /// Creates a new empty `VmaManager` with a fresh address space.
     pub fn new() -> Self {
         Self {
             vm_space: Arc::new(VmSpace::new()),
             regions: SpinLock::new(BTreeMap::new()),
-            brk: SpinLock::new(BrkState::default()),
+            brk_start: AtomicUsize::new(0),
+            brk_current: SpinLock::new(0),
         }
     }
 
+    /// Maps a contiguous range of zeroed pages with the given flags.
     pub fn map_region(&self, start: Vaddr, size: usize, flags: PageFlags) -> Result<(), Error> {
         if start % PAGE_SIZE != 0 || size % PAGE_SIZE != 0 {
             return Err(Error::InvalidArgs);
@@ -84,7 +82,7 @@ impl VmaManager {
         Ok(())
     }
 
-    /// Map a list of existing physical frames into the user address space.
+    /// Maps a list of existing physical frames into the user address space.
     pub fn map_shared_frames(
         &self,
         start: Vaddr,
@@ -127,6 +125,7 @@ impl VmaManager {
         Ok(())
     }
 
+    /// Registers a stack region with a guard page area.
     pub fn map_stack(
         &self,
         start: Vaddr,
@@ -154,6 +153,7 @@ impl VmaManager {
         Ok(())
     }
 
+    /// Unmaps pages and removes the VMA for the given range.
     pub fn unmap_region(&self, start: Vaddr, size: usize) -> Result<(), Error> {
         if start % PAGE_SIZE != 0 || size % PAGE_SIZE != 0 {
             return Err(Error::InvalidArgs);
@@ -179,6 +179,7 @@ impl VmaManager {
         Ok(())
     }
 
+    /// Registers a VMA for demand-paged allocation (pages are allocated on fault).
     pub fn map_region_lazy(
         &self,
         start: Vaddr,
@@ -243,7 +244,7 @@ impl VmaManager {
         None
     }
 
-    /// Create an anonymous (MAP_ANONYMOUS) mapping.
+    /// Creates an anonymous (`MAP_ANONYMOUS`) mapping.
     ///
     /// If `start` is `None`, the kernel picks an address. Pages are allocated
     /// lazily (demand paging) unless `populate` is true.
@@ -288,7 +289,7 @@ impl VmaManager {
         start: Option<Vaddr>,
         size: usize,
         flags: PageFlags,
-        file_backing: Arc<dyn MmapFileBacking>,
+        file_backing: Arc<SpinLock<dyn FileOps>>,
         file_offset: usize,
         is_shared: bool,
     ) -> Result<Vaddr, Error> {
@@ -440,13 +441,23 @@ impl VmaManager {
 
     /// Sets the initial program break to `addr`.
     ///
-    /// Called once after ELF loading. Both `start` and `current` are
+    /// Called once after ELF loading. Both `brk_start` and `brk_current` are
     /// initialised to the same value — the first address past the loaded
     /// executable's BSS segment, rounded up to a page boundary.
-    pub(crate) fn set_brk_initial(&self, addr: Vaddr) {
-        let mut brk = self.brk.lock();
-        brk.start = addr;
-        brk.current = addr;
+    pub fn set_brk_initial(&self, addr: Vaddr) {
+        self.brk_start.store(addr, Ordering::Relaxed);
+        *self.brk_current.lock() = addr;
+    }
+
+    /// Copies the heap-break state from `other` into `self`.
+    ///
+    /// Used during `fork()` to duplicate the parent's brk state into the
+    /// child. The start address is copied atomically and the current break
+    /// is copied under the lock.
+    pub fn copy_brk_from(&self, other: &Self) {
+        self.brk_start
+            .store(other.brk_start.load(Ordering::Relaxed), Ordering::Relaxed);
+        *self.brk_current.lock() = *other.brk_current.lock();
     }
 
     /// Adjusts the program break (`brk` / `sbrk` syscall backend).
@@ -457,20 +468,21 @@ impl VmaManager {
     /// * `< current` — shrinks the heap by unmapping pages.
     ///
     /// Always returns the (possibly updated) program break.
-    pub(crate) fn brk(&self, new_brk: Vaddr) -> Vaddr {
-        let mut brk = self.brk.lock();
+    pub fn brk(&self, new_brk: Vaddr) -> Vaddr {
+        let brk_start = self.brk_start.load(Ordering::Relaxed);
+        let mut brk_current = self.brk_current.lock();
 
-        if new_brk == 0 || new_brk < brk.start {
-            return brk.current;
+        if new_brk == 0 || new_brk < brk_start {
+            return *brk_current;
         }
 
-        let old_brk = brk.current;
+        let old_brk = *brk_current;
         let new_page = align_up(new_brk, PAGE_SIZE);
         let old_page = align_up(old_brk, PAGE_SIZE);
 
         // Release the lock before calling map/unmap to avoid holding it
         // across potentially slow page-table operations.
-        drop(brk);
+        drop(brk_current);
 
         if new_page > old_page {
             if self
@@ -483,14 +495,16 @@ impl VmaManager {
             let _ = self.unmap_region(new_page, old_page - new_page);
         }
 
-        self.brk.lock().current = new_brk;
+        *self.brk_current.lock() = new_brk;
         new_brk
     }
 
+    /// Activates this address space on the current CPU.
     pub fn activate(self: &Arc<Self>) {
         self.vm_space.activate();
     }
 
+    /// Copies data from user space into a kernel buffer.
     pub fn copy_from_user(&self, user_src: Vaddr, kernel_dest: &mut [u8]) -> Result<(), Error> {
         let len = kernel_dest.len();
         let mut writer = VmWriter::from(kernel_dest);
@@ -499,6 +513,7 @@ impl VmaManager {
         Ok(())
     }
 
+    /// Copies data from a kernel buffer into user space.
     pub fn copy_to_user(&self, user_dest: Vaddr, kernel_src: &[u8]) -> Result<(), Error> {
         let len = kernel_src.len();
         let mut reader = VmReader::from(kernel_src);

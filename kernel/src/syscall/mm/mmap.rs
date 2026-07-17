@@ -1,22 +1,12 @@
 use crate::fs::fd_table::OpenFile;
 use crate::proc::process::Process;
 use crate::syscall::SyscallResult;
-use crate::vm::MmapFileBacking;
+use crate::fs::vfs::FileOps;
 use crate::vm::vma::VmaManager;
 use alloc::sync::Arc;
 use ostd::Error;
 use ostd::mm::{PAGE_SIZE, PageFlags};
 use ostd::sync::SpinLock;
-
-pub(crate) struct MmapFileBackingImpl(pub Arc<SpinLock<OpenFile>>);
-
-impl MmapFileBacking for MmapFileBackingImpl {
-    fn read_at(&self, offset: usize, buf: &mut [u8]) -> core::result::Result<usize, Error> {
-        let mut open_file = self.0.lock();
-        let mut tmp_offset = offset;
-        open_file.file_ops.read(buf, &mut tmp_offset)
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Syscall implementation
@@ -106,7 +96,7 @@ pub(crate) fn syscall_mmap(
             return SyscallResult::Continue(-(Error::InvalidArgs as isize) as usize);
         }
 
-        let backing = Arc::new(MmapFileBackingImpl(fd_entry.open_file.clone()));
+        let backing = fd_entry.open_file.clone();
 
         vm.mmap_file(addr_opt, length, page_flags, backing, offset, is_shared)
     };
