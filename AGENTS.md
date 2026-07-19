@@ -37,8 +37,10 @@ graph TD
     
     Src --> Lib[lib.rs]
     Src --> VM[vm/]
+    Src --> IPC[ipc/]
     Src --> Proc[proc/]
     Src --> FS[fs/]
+    Src --> Device[device/]
     Src --> Drivers[drivers/]
     Src --> Syscall[syscall/]
     Src --> Net[net/]
@@ -51,6 +53,7 @@ graph TD
 | **[kernel/src/lib.rs](file:///home/ananta/PetraOS/kernel/src/lib.rs)** | Kernel entrypoint (`kernel_main`) & module declarations. | Enforces `#![deny(unsafe_code)]`. |
 | **[kernel/src/vm/](file:///home/ananta/PetraOS/kernel/src/vm/)** | Virtual memory management, page tables, and heap allocation. | Must be self-contained. Lower-level module. |
 | **[kernel/src/proc/](file:///home/ananta/PetraOS/kernel/src/proc/)** | Process lifecycle, task scheduling, context switching. | Interacts with `vm` but must not depend on high-level filesystem or syscall details. |
+| **[kernel/src/ipc/](file:///home/ananta/PetraOS/kernel/src/ipc/)** | Interprocess communication |
 | **[kernel/src/fs/](file:///home/ananta/PetraOS/kernel/src/fs/)** | Virtual filesystem (VFS) interface and filesystem drivers. | Depends on `vm` and `proc` for buffering and locks, but must not depend on `syscall`. |
 | **[kernel/src/drivers/](file:///home/ananta/PetraOS/kernel/src/drivers/)** | Hardware drivers (serial, timers, interrupts, etc.) wrapped via `ostd`. | Communicates with hardware only through safe OSTD APIs. |
 | **[kernel/src/syscall/](file:///home/ananta/PetraOS/kernel/src/syscall/)** | System call entry points and arguments translation. | High-level module mapping user requests to internal subsystems. |
@@ -90,6 +93,14 @@ To keep the codebase maintainable for agents and humans alike, dependencies must
 2. **No Direct Hardware Access:** Do not attempt to bypass `ostd` by using assembly blocks or raw port I/O. Always use the safe wrappers provided by the framework.
 ---
 
+### Text Search & Indexing
+Before running sequential text search commands (`grep`, `rg`, `find`, `ls`), you MUST consult the project's structural knowledge graph.
+
+1. Use `/graphify query "<your intent>"` to find connected files or architecture hubs.
+2. Use `/graphify path "<ComponentA>" "<ComponentB>"` to trace dependencies.
+3. Fall back to `grep` ONLY if you are looking up an exact explicit string or symbol you already know by name.
+---
+
 ## ✍️ Coding Guidelines for Agents
 
 ### 1. Readability & Styling
@@ -99,7 +110,6 @@ To keep the codebase maintainable for agents and humans alike, dependencies must
 ### 2. Error Handling & Robustness
 * **No `panic!` or `unwrap`:** The kernel must be highly resilient. Avoid throwing panics in production code.
 * **Use `Result`:** Propagate errors using `Result<T, Error>` so that they can be handled gracefully by calling modules or translated to appropriate system call error codes (e.g., `errno`).
-
 ---
 
 ## 🎨 Rust-Specific Coding Style Guide
@@ -138,3 +148,8 @@ To keep the codebase maintainable for agents and humans alike, dependencies must
 *   **Document Public APIs:** All public structs, enums, traits, functions, and constants must have standard `///` doc comments.
 *   **Focus on 'Why':** Explain the design decisions, assumptions, and algorithm rationale in comments rather than describing what the code is doing.
 *   **TODO Annotation:** Always attribute `TODO` comments to the author or issue (e.g., `// TODO(agent): support multiple page sizes`).
+
+### 7. Code Reuse (DRY) (`dry`)
+*   **Aggressive Reuse**: Do not duplicate code. If logic appears in multiple places, extract it into a shared function, struct, or trait.
+*   **Generic Programming**: Use generics and traits to write flexible, reusable code rather than duplicating logic for different types.
+*   **Libraries**: leverage standard library (for kernel level use ostd) and existing crate dependencies before writing custom implementations.
