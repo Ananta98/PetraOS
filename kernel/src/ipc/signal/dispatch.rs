@@ -198,17 +198,18 @@ pub fn send_signal_to_pid(
 
 /// Deliver signal `signum` to every process in the process group with PGID
 /// equal to `pgid`.
-///
-/// This is a simplified broadcast — PetraOS does not yet track process groups
-/// explicitly, so this iterates all processes in `PROCESS_TABLE` and delivers
-/// the signal to each one whose `pgid` field matches. The method is a
-/// placeholder that currently targets only the process matching `pgid` as its
-/// PID (to be extended once a `pgid` field is added to `Process`).
 pub fn send_signal_to_group(pgid: u32, signum: u32, sender_pid: u32) -> Result<(), ostd::Error> {
     if signum == 0 || signum > super::types::SIGRTMAX {
         return Err(ostd::Error::InvalidArgs);
     }
-    // For now, treat the pgid as a pid and deliver to that single process.
-    // A future patch will add a process-group table.
-    send_signal_to_pid(Pid::from_raw(pgid), signum, sender_pid)
+    let target_pgid = Pid::from_raw(pgid);
+    let processes = PROCESS_TABLE.get_processes_by_pgid(target_pgid);
+    if processes.is_empty() {
+        return Err(ostd::Error::InvalidArgs);
+    }
+    for proc in processes {
+        let info = SigInfo::user(signum, sender_pid);
+        proc.signals.queue.enqueue(info);
+    }
+    Ok(())
 }

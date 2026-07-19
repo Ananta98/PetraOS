@@ -319,4 +319,39 @@ mod tests {
             }
         ));
     }
+
+    #[ktest]
+    fn test_process_group_signals() {
+        use crate::proc::process::Process;
+        use crate::vm::VMA_MANAGER;
+        use crate::proc::pid_table::PROCESS_TABLE;
+
+        crate::vm::init();
+        let vm = VMA_MANAGER.get().unwrap().clone();
+        
+        let parent = Process::new(vm.clone(), "parent-proc");
+        let mut child1 = parent.fork().expect("fork failed");
+        let mut child2 = parent.fork().expect("fork failed");
+
+        // Change child1 and child2 pgid to the same process group (e.g. child1.pid)
+        let pgid = child1.pid;
+        PROCESS_TABLE.update_process(child1.pid, |p| p.pgid = pgid);
+        PROCESS_TABLE.update_process(child2.pid, |p| p.pgid = pgid);
+
+        child1.pgid = pgid;
+        child2.pgid = pgid;
+
+        // Send a signal to the process group
+        send_signal_to_group(pgid.as_u32(), SIGTERM, parent.pid.as_u32()).expect("send signal to group failed");
+
+        // Verify both children received it
+        let mut child1_updated = PROCESS_TABLE.get_process(child1.pid).unwrap();
+        let mut child2_updated = PROCESS_TABLE.get_process(child2.pid).unwrap();
+
+        let outcome1 = dispatch_pending(&mut child1_updated);
+        let outcome2 = dispatch_pending(&mut child2_updated);
+
+        assert!(matches!(outcome1, DispatchOutcome::Terminated { signum: 15 }));
+        assert!(matches!(outcome2, DispatchOutcome::Terminated { signum: 15 }));
+    }
 }

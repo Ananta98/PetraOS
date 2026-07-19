@@ -1,5 +1,6 @@
 use crate::proc::process::Process;
 use alloc::collections::BTreeMap;
+use alloc::vec::Vec;
 use core::sync::atomic::{AtomicU32, Ordering};
 use ostd::sync::SpinLock;
 
@@ -50,6 +51,11 @@ impl ProcessTable {
     pub fn get_process(&self, pid: Pid) -> Option<Process> {
         let table = self.table.lock();
         table.get(&pid).cloned()
+    }
+
+    pub fn get_processes_by_pgid(&self, pgid: Pid) -> Vec<Process> {
+        let table = self.table.lock();
+        table.values().filter(|p| p.pgid == pgid).cloned().collect()
     }
 
     pub fn update_process<F>(&self, pid: Pid, f: F)

@@ -48,14 +48,22 @@ pub fn syscall_kill(
         }
         to_continue_unit(send_signal_to_pid(target, signum, sender_pid))
     } else if pid_raw == 0 {
-        // Send to own process group — simplified to own process.
+        let pgid = sender.pgid;
         if signum == 0 {
+            if PROCESS_TABLE.get_processes_by_pgid(pgid).is_empty() {
+                return to_continue_unit(Err(Error::InvalidArgs));
+            }
             return to_continue_unit(Ok(()));
         }
-        to_continue_unit(send_signal_to_pid(sender.pid, signum, sender_pid))
+        to_continue_unit(crate::ipc::dispatch::send_signal_to_group(
+            pgid.as_u32(), signum, sender_pid,
+        ))
     } else if pid_raw < -1 {
         let pgid = (-pid_raw) as u32;
         if signum == 0 {
+            if PROCESS_TABLE.get_processes_by_pgid(Pid::from_raw(pgid)).is_empty() {
+                return to_continue_unit(Err(Error::InvalidArgs));
+            }
             return to_continue_unit(Ok(()));
         }
         to_continue_unit(crate::ipc::dispatch::send_signal_to_group(
