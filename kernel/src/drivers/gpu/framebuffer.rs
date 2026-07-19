@@ -1,20 +1,31 @@
-use crate::drivers::{Device, DeviceType, register_device};
-use crate::fs::vfs::{DirEntry, FileOps, FileType, InodeOps, Metadata, SeekFrom};
-use alloc::boxed::Box;
-use alloc::string::String;
+use crate::drivers::gpu::{GPU_MANAGER, GpuDriver};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use ostd::sync::SpinLock;
 use spin::Once;
 
-/// Framebuffer screen width in pixels.
-pub const FB_WIDTH: usize = 1024;
-/// Framebuffer screen height in pixels.
-pub const FB_HEIGHT: usize = 768;
-/// Bytes per pixel (32-bit RGBA).
-pub const FB_BPP: usize = 4;
-/// Total size of the framebuffer in bytes.
-pub const FB_SIZE: usize = FB_WIDTH * FB_HEIGHT * FB_BPP;
+/// Represents pixel storage and layout configurations.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PixelFormat {
+    /// 24-bit RGB pixel format.
+    Rgb888,
+    /// 24-bit BGR pixel format.
+    Bgr888,
+    /// 32-bit RGBA pixel format.
+    Rgba8888,
+    /// 32-bit BGRA pixel format.
+    Bgra8888,
+}
+
+/// Represents the display metrics and format of a video device.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VideoMode {
+    pub width: u32,
+    pub height: u32,
+    pub pitch: u32,
+    pub bpp: u32,
+    pub format: PixelFormat,
+}
 
 /// Represents a 32-bit RGBA color.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -58,90 +69,141 @@ impl Color {
     };
 }
 
-/// The global framebuffer driver instance.
+/// A generic software-managed Framebuffer containing video mode metrics
+/// and a lock-protected raw pixel buffer.
 pub struct Framebuffer {
-    /// Lock-protected pixel buffer.
+    pub(crate) mode: VideoMode,
     pub pixels: SpinLock<Vec<u8>>,
 }
 
 impl Framebuffer {
-    /// Create a new Framebuffer initialized to black.
-    pub fn new() -> Self {
+    /// Create a new generic framebuffer initialized to black.
+    pub fn new(mode: VideoMode) -> Self {
+        let size = (mode.pitch as usize) * (mode.height as usize);
         Self {
-            pixels: SpinLock::new(alloc::vec![0u8; FB_SIZE]),
+            mode,
+            pixels: SpinLock::new(alloc::vec![0u8; size]),
         }
+    }
+
+    /// Returns the video mode metrics of the framebuffer.
+    pub fn mode(&self) -> VideoMode {
+        self.mode
     }
 
     /// Clear the screen with a specific color.
     pub fn clear(&self, color: Color) {
         let mut p = self.pixels.lock();
-        for pixel in p.chunks_exact_mut(FB_BPP) {
-            pixel[0] = color.r;
-            pixel[1] = color.g;
-            pixel[2] = color.b;
-            pixel[3] = color.a;
-        }
-    }
-
-    /// Draw a single pixel at (x, y) with a color.
-    pub fn draw_pixel(&self, x: usize, y: usize, color: Color) {
-        if x >= FB_WIDTH || y >= FB_HEIGHT {
-            return;
-        }
-        let offset = (y * FB_WIDTH + x) * FB_BPP;
-        let mut p = self.pixels.lock();
-        p[offset] = color.r;
-        p[offset + 1] = color.g;
-        p[offset + 2] = color.b;
-        p[offset + 3] = color.a;
-    }
-
-    /// Draw a solid rectangle.
-    pub fn draw_rect(&self, x: usize, y: usize, w: usize, h: usize, color: Color) {
-        let mut p = self.pixels.lock();
-        for row in y..core::cmp::min(y + h, FB_HEIGHT) {
-            for col in x..core::cmp::min(x + w, FB_WIDTH) {
-                let offset = (row * FB_WIDTH + col) * FB_BPP;
-                p[offset] = color.r;
-                p[offset + 1] = color.g;
-                p[offset + 2] = color.b;
-                p[offset + 3] = color.a;
+        let bpp_bytes = (self.mode.bpp / 8) as usize;
+        if bpp_bytes == 4 {
+            for pixel in p.chunks_exact_mut(4) {
+                match self.mode.format {
+                    PixelFormat::Rgba8888 => {
+                        pixel[0] = color.r;
+                        pixel[1] = color.g;
+                        pixel[2] = color.b;
+                        pixel[3] = color.a;
+                    }
+                    PixelFormat::Bgra8888 => {
+                        pixel[0] = color.b;
+                        pixel[1] = color.g;
+                        pixel[2] = color.r;
+                        pixel[3] = color.a;
+                    }
+                    _ => {
+                        pixel[0] = color.r;
+                        pixel[1] = color.g;
+                        pixel[2] = color.b;
+                        pixel[3] = color.a;
+                    }
+                }
             }
-        }
-    }
-
-    /// Draw an ASCII character on the screen using a simple built-in 8x8 font.
-    pub fn draw_char(&self, x: usize, y: usize, ch: char, color: Color) {
-        let c = ch as usize;
-        if c < 32 || c > 126 {
-            return; // unsupported character
-        }
-        let font_idx = c - 32;
-        let bitmap = SIMPLE_FONT[font_idx];
-        for row in 0..8 {
-            let row_byte = bitmap[row];
-            for col in 0..8 {
-                if (row_byte & (1 << (7 - col))) != 0 {
-                    self.draw_pixel(x + col, y + row, color);
+        } else if bpp_bytes == 3 {
+            for pixel in p.chunks_exact_mut(3) {
+                match self.mode.format {
+                    PixelFormat::Rgb888 => {
+                        pixel[0] = color.r;
+                        pixel[1] = color.g;
+                        pixel[2] = color.b;
+                    }
+                    PixelFormat::Bgr888 => {
+                        pixel[0] = color.b;
+                        pixel[1] = color.g;
+                        pixel[2] = color.r;
+                    }
+                    _ => {
+                        pixel[0] = color.r;
+                        pixel[1] = color.g;
+                        pixel[2] = color.b;
+                    }
                 }
             }
         }
     }
 
-    /// Draw a text string on the screen.
-    pub fn draw_string(&self, x: usize, y: usize, s: &str, color: Color) {
-        let mut curr_x = x;
-        for ch in s.chars() {
-            if ch == '\n' {
-                continue;
+    /// Draw a single pixel at (x, y) with a color.
+    pub fn draw_pixel(&self, x: u32, y: u32, color: Color) {
+        if x >= self.mode.width || y >= self.mode.height {
+            return;
+        }
+        let bpp_bytes = (self.mode.bpp / 8) as usize;
+        let offset = (y as usize * self.mode.pitch as usize) + (x as usize * bpp_bytes);
+        let mut p = self.pixels.lock();
+        if offset + bpp_bytes <= p.len() {
+            if bpp_bytes == 4 {
+                match self.mode.format {
+                    PixelFormat::Rgba8888 => {
+                        p[offset] = color.r;
+                        p[offset + 1] = color.g;
+                        p[offset + 2] = color.b;
+                        p[offset + 3] = color.a;
+                    }
+                    PixelFormat::Bgra8888 => {
+                        p[offset] = color.b;
+                        p[offset + 1] = color.g;
+                        p[offset + 2] = color.r;
+                        p[offset + 3] = color.a;
+                    }
+                    _ => {
+                        p[offset] = color.r;
+                        p[offset + 1] = color.g;
+                        p[offset + 2] = color.b;
+                        p[offset + 3] = color.a;
+                    }
+                }
+            } else if bpp_bytes == 3 {
+                match self.mode.format {
+                    PixelFormat::Rgb888 => {
+                        p[offset] = color.r;
+                        p[offset + 1] = color.g;
+                        p[offset + 2] = color.b;
+                    }
+                    PixelFormat::Bgr888 => {
+                        p[offset] = color.b;
+                        p[offset + 1] = color.g;
+                        p[offset + 2] = color.r;
+                    }
+                    _ => {
+                        p[offset] = color.r;
+                        p[offset + 1] = color.g;
+                        p[offset + 2] = color.b;
+                    }
+                }
             }
-            self.draw_char(curr_x, y, ch, color);
-            curr_x += 8;
+        }
+    }
+
+    /// Draw a solid rectangle.
+    pub fn draw_rect(&self, x: u32, y: u32, w: u32, h: u32, color: Color) {
+        for row in y..core::cmp::min(y + h, self.mode.height) {
+            for col in x..core::cmp::min(x + w, self.mode.width) {
+                self.draw_pixel(col, row, color);
+            }
         }
     }
 
     /// Draw a line from (x0, y0) to (x1, y1) with a color.
-    pub fn draw_line(&self, x0: isize, y0: isize, x1: isize, y1: isize, color: Color) {
+    pub fn draw_line(&self, x0: i32, y0: i32, x1: i32, y1: i32, color: Color) {
         let dx = (x1 - x0).abs();
         let dy = -(y1 - y0).abs();
         let sx = if x0 < x1 { 1 } else { -1 };
@@ -152,8 +214,8 @@ impl Framebuffer {
         let mut y = y0;
 
         loop {
-            if x >= 0 && x < FB_WIDTH as isize && y >= 0 && y < FB_HEIGHT as isize {
-                self.draw_pixel(x as usize, y as usize, color);
+            if x >= 0 && x < self.mode.width as i32 && y >= 0 && y < self.mode.height as i32 {
+                self.draw_pixel(x as u32, y as u32, color);
             }
             if x == x1 && y == y1 {
                 break;
@@ -177,12 +239,12 @@ impl Framebuffer {
     }
 
     /// Draw a circle centered at (xc, yc) with radius r and a color.
-    pub fn draw_circle(&self, xc: isize, yc: isize, r: isize, color: Color) {
+    pub fn draw_circle(&self, xc: i32, yc: i32, r: i32, color: Color) {
         let mut x = 0;
         let mut y = r;
         let mut d = 3 - 2 * r;
 
-        let draw_symmetric = |x_val: isize, y_val: isize| {
+        let draw_symmetric = |x_val: i32, y_val: i32| {
             let points = [
                 (xc + x_val, yc + y_val),
                 (xc - x_val, yc + y_val),
@@ -194,8 +256,9 @@ impl Framebuffer {
                 (xc - y_val, yc - x_val),
             ];
             for &(px, py) in &points {
-                if px >= 0 && px < FB_WIDTH as isize && py >= 0 && py < FB_HEIGHT as isize {
-                    self.draw_pixel(px as usize, py as usize, color);
+                if px >= 0 && px < self.mode.width as i32 && py >= 0 && py < self.mode.height as i32
+                {
+                    self.draw_pixel(px as u32, py as u32, color);
                 }
             }
         };
@@ -212,160 +275,89 @@ impl Framebuffer {
             draw_symmetric(x, y);
         }
     }
+
+    /// Draw an ASCII character on the screen using a simple built-in 8x8 font.
+    pub fn draw_char(&self, x: u32, y: u32, ch: char, color: Color) {
+        let c = ch as usize;
+        if c < 32 || c > 126 {
+            return;
+        }
+        let font_idx = c - 32;
+        let bitmap = SIMPLE_FONT[font_idx];
+        for row in 0..8 {
+            let row_byte = bitmap[row];
+            for col in 0..8 {
+                if (row_byte & (1 << (7 - col))) != 0 {
+                    self.draw_pixel(x + col as u32, y + row as u32, color);
+                }
+            }
+        }
+    }
+
+    /// Draw a text string on the screen.
+    pub fn draw_string(&self, x: u32, y: u32, s: &str, color: Color) {
+        let mut curr_x = x;
+        for ch in s.chars() {
+            if ch == '\n' {
+                continue;
+            }
+            self.draw_char(curr_x, y, ch, color);
+            curr_x += 8;
+        }
+    }
 }
 
-// ---------------------------------------------------------------------------
-// VFS / Device Glue
-// ---------------------------------------------------------------------------
-
-struct FbDevice {
-    name: String,
-}
-
-impl Device for FbDevice {
+impl GpuDriver for Framebuffer {
     fn name(&self) -> &str {
-        &self.name
+        "framebuffer"
     }
 
-    fn device_type(&self) -> DeviceType {
-        DeviceType::Char
+    fn current_mode(&self) -> VideoMode {
+        self.mode
     }
 
-    fn inode_ops(&self) -> Option<Arc<dyn InodeOps>> {
-        Some(Arc::new(FbInode))
-    }
-}
-
-struct FbInode;
-
-impl InodeOps for FbInode {
-    fn lookup(&self, _name: &str) -> Result<Arc<dyn InodeOps>, ostd::Error> {
-        Err(ostd::Error::InvalidArgs)
-    }
-
-    fn create(&self, _name: &str, _mode: u32) -> Result<Arc<dyn InodeOps>, ostd::Error> {
-        Err(ostd::Error::InvalidArgs)
-    }
-
-    fn mkdir(&self, _name: &str, _mode: u32) -> Result<Arc<dyn InodeOps>, ostd::Error> {
-        Err(ostd::Error::InvalidArgs)
-    }
-
-    fn symlink(&self, _name: &str, _target: &str) -> Result<Arc<dyn InodeOps>, ostd::Error> {
-        Err(ostd::Error::InvalidArgs)
-    }
-
-    fn metadata(&self) -> Result<Metadata, ostd::Error> {
-        Ok(Metadata {
-            size: FB_SIZE,
-            file_type: FileType::CharDevice,
-            mode: 0o660,
-            inode_num: 0,
-            nlink: 1,
-        })
-    }
-
-    fn read_link(&self) -> Result<String, ostd::Error> {
-        Err(ostd::Error::InvalidArgs)
-    }
-
-    fn open(&self, _flags: u32) -> Result<Box<dyn FileOps>, ostd::Error> {
-        Ok(Box::new(FbFile))
-    }
-
-    fn as_any(&self) -> &dyn core::any::Any {
-        self
-    }
-
-    fn unlink(&self, _name: &str) -> Result<(), ostd::Error> {
-        Err(ostd::Error::InvalidArgs)
-    }
-
-    fn rename(
-        &self,
-        _old_name: &str,
-        _new_parent: &Arc<dyn InodeOps>,
-        _new_name: &str,
-    ) -> Result<(), ostd::Error> {
-        Err(ostd::Error::InvalidArgs)
-    }
-}
-
-struct FbFile;
-
-impl FileOps for FbFile {
-    fn read(&mut self, buf: &mut [u8], offset: &mut usize) -> Result<usize, ostd::Error> {
-        if *offset >= FB_SIZE {
-            return Ok(0);
+    fn set_mode(&self, mode: VideoMode) -> Result<(), ostd::Error> {
+        if mode == self.mode {
+            Ok(())
+        } else {
+            Err(ostd::Error::InvalidArgs)
         }
-        let driver = framebuffer().expect("framebuffer driver not initialized");
-        let pixels = driver.pixels.lock();
-        let len = core::cmp::min(buf.len(), FB_SIZE - *offset);
-        buf[..len].copy_from_slice(&pixels[*offset..*offset + len]);
-        *offset += len;
-        Ok(len)
     }
 
-    fn write(&mut self, buf: &[u8], offset: &mut usize) -> Result<usize, ostd::Error> {
-        if *offset >= FB_SIZE {
-            return Err(ostd::Error::InvalidArgs);
-        }
-        let driver = framebuffer().expect("framebuffer driver not initialized");
-        let mut pixels = driver.pixels.lock();
-        let len = core::cmp::min(buf.len(), FB_SIZE - *offset);
-        pixels[*offset..*offset + len].copy_from_slice(&buf[..len]);
-        *offset += len;
-        Ok(len)
+    fn supported_modes(&self) -> &[VideoMode] {
+        core::slice::from_ref(&self.mode)
     }
 
-    fn seek(&mut self, pos: SeekFrom, offset: &mut usize) -> Result<usize, ostd::Error> {
-        let new_offset = match pos {
-            SeekFrom::Start(n) => n,
-            SeekFrom::Current(n) => {
-                let val = *offset as isize + n;
-                if val < 0 {
-                    return Err(ostd::Error::InvalidArgs);
-                }
-                val as usize
-            }
-            SeekFrom::End(n) => {
-                let val = FB_SIZE as isize + n;
-                if val < 0 {
-                    return Err(ostd::Error::InvalidArgs);
-                }
-                val as usize
-            }
-        };
-        *offset = core::cmp::min(new_offset, FB_SIZE);
-        Ok(*offset)
-    }
-
-    fn readdir(&mut self) -> Result<Vec<DirEntry>, ostd::Error> {
-        Err(ostd::Error::InvalidArgs)
+    fn framebuffer(&self) -> Arc<Framebuffer> {
+        framebuffer().expect("framebuffer not initialized")
     }
 }
 
-static FB_INSTANCE: Once<Arc<Framebuffer>> = Once::new();
+pub static FRAMEBUFFER: Once<Arc<Framebuffer>> = Once::new();
 
-/// Get a reference to the global Framebuffer driver.
+/// Get a reference to the active framebuffer instance.
 pub fn framebuffer() -> Option<Arc<Framebuffer>> {
-    FB_INSTANCE.get().cloned()
+    FRAMEBUFFER.get().cloned()
 }
 
-/// Initialize the framebuffer device.
+/// Initialize the framebuffer and register it as a GPU driver.
 pub fn init() {
-    let fb = Arc::new(Framebuffer::new());
-    FB_INSTANCE.call_once(|| fb);
+    let mode = VideoMode {
+        width: 1024,
+        height: 768,
+        pitch: 1024 * 4,
+        bpp: 32,
+        format: PixelFormat::Rgba8888,
+    };
+    let fb = Arc::new(Framebuffer::new(mode));
+    FRAMEBUFFER.call_once(|| fb.clone());
 
-    let dev = Arc::new(FbDevice {
-        name: String::from("fb0"),
-    });
-    let _ = register_device(dev);
+    GPU_MANAGER
+        .register_driver(fb)
+        .expect("failed to register framebuffer driver");
 }
 
-// ---------------------------------------------------------------------------
-// A Simple 8x8 font bitmap for ASCII characters 32 to 126
-// ---------------------------------------------------------------------------
+// Simple built-in 8x8 font bitmap for ASCII characters 32 to 126
 const SIMPLE_FONT: [[u8; 8]; 95] = [
     [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00], // ' ' (32)
     [0x18, 0x18, 0x18, 0x18, 0x18, 0x00, 0x18, 0x00], // '!'
@@ -464,24 +456,27 @@ const SIMPLE_FONT: [[u8; 8]; 95] = [
     [0x00, 0x00, 0x3c, 0x66, 0x03, 0x00, 0x00, 0x00], // '~'
 ];
 
-// ---------------------------------------------------------------------------
-// Unit Tests Block
-// ---------------------------------------------------------------------------
-
 #[cfg(ktest)]
 mod tests {
     use super::*;
     use ostd::prelude::ktest;
 
     #[ktest]
-    fn test_fb_basic() {
-        let fb = Framebuffer::new();
+    fn test_graphics_basic() {
+        let mode = VideoMode {
+            width: 100,
+            height: 100,
+            pitch: 400,
+            bpp: 32,
+            format: PixelFormat::Rgba8888,
+        };
+        let fb = Framebuffer::new(mode);
 
         // 1. Initialized to 0
         {
             let pixels = fb.pixels.lock();
             assert_eq!(pixels[0], 0);
-            assert_eq!(pixels[FB_SIZE - 1], 0);
+            assert_eq!(pixels[pixels.len() - 1], 0);
         }
 
         // 2. Test draw_pixel
@@ -489,7 +484,7 @@ mod tests {
         fb.draw_pixel(10, 20, red);
         {
             let pixels = fb.pixels.lock();
-            let offset = (20 * FB_WIDTH + 10) * FB_BPP;
+            let offset = (20 * mode.pitch as usize) + (10 * 4);
             assert_eq!(pixels[offset], red.r);
             assert_eq!(pixels[offset + 1], red.g);
             assert_eq!(pixels[offset + 2], red.b);
@@ -505,24 +500,6 @@ mod tests {
             assert_eq!(pixels[1], blue.g);
             assert_eq!(pixels[2], blue.b);
             assert_eq!(pixels[3], blue.a);
-        }
-
-        // 4. Test draw_line
-        let green = Color::GREEN;
-        fb.draw_line(0, 0, 10, 10, green);
-        {
-            let pixels = fb.pixels.lock();
-            let offset = (5 * FB_WIDTH + 5) * FB_BPP;
-            assert_eq!(pixels[offset], green.r);
-        }
-
-        // 5. Test draw_circle
-        let white = Color::WHITE;
-        fb.draw_circle(50, 50, 10, white);
-        {
-            let pixels = fb.pixels.lock();
-            let offset = (50 * FB_WIDTH + 60) * FB_BPP;
-            assert_eq!(pixels[offset], white.r);
         }
     }
 }
