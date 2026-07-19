@@ -91,6 +91,11 @@ pub trait FileOps: Send + Sync {
 
     /// Read directory entries.
     fn readdir(&mut self) -> Result<Vec<DirEntry>>;
+
+    /// Returns a reference to the underlying type as `Any`, if supported.
+    fn as_any(&self) -> Option<&dyn core::any::Any> {
+        None
+    }
 }
 
 /// Directory entry in the VFS cache, forming the filesystem hierarchy.

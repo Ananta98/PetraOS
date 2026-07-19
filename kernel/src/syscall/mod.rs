@@ -1,5 +1,6 @@
 pub mod fs;
 pub mod mm;
+pub mod net;
 pub mod proc;
 pub mod signal;
 pub mod time;
@@ -86,6 +87,13 @@ syscall_table! {
     34  => signal::syscall_rt_sigpending,  // SYS_rt_sigpending
     35  => time::syscall_nanosleep,        // SYS_nanosleep
     39  => proc::syscall_getpid,           // SYS_getpid
+    41  => net::syscall_socket,            // SYS_socket
+    42  => net::syscall_connect,           // SYS_connect
+    43  => net::syscall_accept,            // SYS_accept
+    44  => net::syscall_sendto,            // SYS_sendto
+    45  => net::syscall_recvfrom,          // SYS_recvfrom
+    49  => net::syscall_bind,              // SYS_bind
+    50  => net::syscall_listen,            // SYS_listen
     57  => proc::syscall_fork,             // SYS_fork
     59  => proc::syscall_execve,           // SYS_execve
     60  => proc::syscall_exit,            // SYS_exit

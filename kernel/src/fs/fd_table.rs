@@ -43,6 +43,10 @@ impl FileOps for OpenFile {
     fn readdir(&mut self) -> Result<alloc::vec::Vec<crate::fs::vfs::DirEntry>, Error> {
         self.file_ops.readdir()
     }
+
+    fn as_any(&self) -> Option<&dyn core::any::Any> {
+        self.file_ops.as_any()
+    }
 }
 
 /// A file descriptor entry in the process file descriptor table.
