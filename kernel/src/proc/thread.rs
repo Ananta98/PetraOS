@@ -1,6 +1,6 @@
 use alloc::string::String;
 use alloc::sync::Arc;
-use core::sync::atomic::{AtomicI32, AtomicU8, Ordering};
+use core::sync::atomic::{AtomicI32, AtomicU8, AtomicUsize, Ordering};
 
 use ostd::sync::WaitQueue;
 use ostd::task::{Task, TaskOptions};
@@ -120,13 +120,32 @@ pub struct KernelThread {
 
     /// Shared mutable state — also held by the task closure for zero-lookup
     /// updates from inside the running task.
-    pub inner: Arc<KernelThreadInner>,
+    inner: Arc<KernelThreadInner>,
 
     /// The underlying OSTD task.
     pub task: Arc<Task>,
+
+    /// Per-thread FS base for user-mode Thread-Local Storage.
+    ///
+    /// Set by the kernel after allocating a TLS block (or by the
+    /// `arch_prctl(ARCH_SET_FS, …)` syscall).  Restored before every
+    /// transition to user mode so that the FS segment register
+    /// correctly points to this thread's TLS area.
+    pub tls_fs_base: AtomicUsize,
 }
 
 impl KernelThread {
+    /// Return the `KernelThread` associated with the **current** OSTD task.
+    ///
+    /// Returns `None` if the current task is not a user thread (e.g., a
+    /// kernel-internal worker) or if it has already been removed from the
+    /// global thread table.
+    pub fn current() -> Option<Arc<Self>> {
+        let task = ostd::task::Task::current()?;
+        let task_data = task.data().downcast_ref::<TaskData>()?;
+        THREAD_TABLE.get(task_data.tid)
+    }
+
     // -----------------------------------------------------------------------
     // Constructor
     // -----------------------------------------------------------------------
@@ -177,6 +196,7 @@ impl KernelThread {
             name: String::from(name),
             inner,
             task,
+            tls_fs_base: AtomicUsize::new(0),
         });
 
         // Register in the global table so callers can look up by TID.

@@ -4,6 +4,7 @@ use crate::proc::elf::{LoadedElf, load_elf_image};
 use crate::proc::pid_table::{PROCESS_TABLE, Pid};
 use crate::proc::thread::KernelThread;
 use crate::proc::tid_table::Tid;
+use crate::proc::tls::TlsTemplate;
 use crate::vm::vma::VmaManager;
 use alloc::collections::BTreeMap;
 use alloc::string::String;
@@ -125,6 +126,10 @@ pub struct Process {
     /// threads, the dispatcher) can share the same signal state without
     /// cloning the entire `Process`.
     pub signals: Arc<ProcessSignals>,
+
+    /// Thread-Local Storage template parsed from the executable's
+    /// `PT_TLS` segment.  Used to initialise per-thread TLS blocks.
+    pub tls_template: TlsTemplate,
 }
 
 // ---------------------------------------------------------------------------
@@ -164,6 +169,7 @@ impl Process {
             fd_table: Arc::new(SpinLock::new(FdTable::new())),
             threads: Arc::new(SpinLock::new(BTreeMap::new())),
             signals: Arc::new(ProcessSignals::new()),
+            tls_template: TlsTemplate::default(),
         };
 
         PROCESS_TABLE.register_process(proc.clone());
@@ -203,6 +209,9 @@ impl Process {
             threads: Arc::new(SpinLock::new(BTreeMap::new())),
             // Each child gets a fresh, independent signal state.
             signals: Arc::new(ProcessSignals::new()),
+            // Inherit the TLS template; each thread will get its own copy
+            // of the TLS block from this template.
+            tls_template: parent.tls_template.clone(),
         };
 
         PROCESS_TABLE.register_process(child.clone());
@@ -261,6 +270,10 @@ impl Process {
         let page = ostd::mm::PAGE_SIZE;
         let heap_start = (loaded.load_end + page - 1) & !(page - 1);
         self.vm.set_brk_initial(heap_start);
+
+        // Save the TLS template from the loaded ELF so that new threads
+        // (created via fork / clone) can initialise their own TLS block.
+        self.tls_template = loaded.tls.clone();
 
         let executable_name = path.rfind('/').map_or(path, |i| &path[i + 1..]);
         self.name = String::from(executable_name);

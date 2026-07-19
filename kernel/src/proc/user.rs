@@ -1,9 +1,10 @@
 use crate::proc::process::Process;
+use crate::proc::thread::KernelThread;
+use crate::proc::tls::{allocate_tls_block, set_fs_base, get_fs_base};
 use crate::syscall::{SyscallResult, dispatch_syscall};
 use crate::vm::vma::VmaManager;
-use alloc::string::String;
-use alloc::sync::Arc;
 use alloc::vec::Vec;
+use core::sync::atomic::Ordering;
 use ostd::Error;
 use ostd::arch::cpu::context::UserContext;
 use ostd::mm::PageFlags;
@@ -114,10 +115,30 @@ pub fn setup_user_stack(
     Ok(USER_STACK_BOTTOM + val_pos)
 }
 
+/// Set up the TLS block for the current thread and write its FS base
+/// into the per-thread `KernelThread::tls_fs_base`.
+///
+/// Must be called from the thread that will execute user mode (i.e.,
+/// from inside the task closure, after `vm.activate()`).
+pub fn setup_tls_for_current_thread(
+    vm: &crate::vm::vma::VmaManager,
+    process: &Process,
+) -> Result<(), Error> {
+    if let Some(thread) = KernelThread::current() {
+        let tp = allocate_tls_block(vm, &process.tls_template)?;
+        thread.tls_fs_base.store(tp, Ordering::Release);
+        if tp != 0 {
+            set_fs_base(tp);
+        }
+    }
+    Ok(())
+}
+
 /// Transition a process to User Mode and run its execution loop.
 ///
 /// Sets up the initial register state, loads the instruction/stack pointers,
-/// activates the process's page table, and executes in user space.
+/// activates the process's page table, allocates a TLS block, sets the FS
+/// segment base, and executes in user space.
 pub fn run_process_user_mode(
     process: &mut Process,
     entry_point: usize,
@@ -137,10 +158,30 @@ pub fn run_process_user_mode(
     // 3. Activate process virtual memory space
     process.vm.activate();
 
-    // 4. Execution Loop
-    let mut exit_status = 0;
+    // 4. Allocate TLS block and set FS base for this thread
+    setup_tls_for_current_thread(&process.vm, process)?;
+
+    // 5. Execution Loop
+    let mut exit_status = -1;
     loop {
+        // Restore FS base in case the task migrated CPUs since the last
+        // iteration.  If the FS base changed via arch_prctl, `KernelThread`
+        // already holds the updated value.
+        if let Some(thread) = KernelThread::current() {
+            let tp = thread.tls_fs_base.load(Ordering::Acquire);
+            if tp != 0 {
+                set_fs_base(tp);
+            }
+        }
+
         let reason = user_mode.execute(|| false);
+
+        // Save the FS base after user execution so that any changes made
+        // by the user (via arch_prctl(ARCH_SET_FS, …)) are preserved.
+        if let Some(thread) = KernelThread::current() {
+            let tp = get_fs_base();
+            thread.tls_fs_base.store(tp, Ordering::Release);
+        }
         match reason {
             ReturnReason::UserSyscall => {
                 let mut ctx = user_mode.context_mut();
@@ -165,7 +206,7 @@ pub fn run_process_user_mode(
                     &mut ctx,
                 ) {
                     SyscallResult::Continue(retval) => {
-                        let mut ctx = user_mode.context_mut();
+                        let ctx = user_mode.context_mut();
                         ctx.set_rax(retval);
 
                         // Sync rcx and r11 for fast sysret
@@ -181,7 +222,7 @@ pub fn run_process_user_mode(
                 }
             }
             ReturnReason::UserException => {
-                let mut ctx = user_mode.context_mut();
+                let ctx = user_mode.context_mut();
                 let trap = ctx.trap_number();
                 let err = ctx.trap_error_code();
                 log::error!(
@@ -189,7 +230,6 @@ pub fn run_process_user_mode(
                     trap,
                     err
                 );
-                exit_status = -1;
                 break;
             }
             ReturnReason::KernelEvent => {

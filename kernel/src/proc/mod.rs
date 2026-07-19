@@ -3,18 +3,17 @@ pub mod pid_table;
 pub mod process;
 pub mod thread;
 pub mod tid_table;
+pub mod tls;
 pub mod user;
 
 // Re-export the most commonly used thread types so that other modules can
 // write `crate::proc::KernelThread` without the full submodule path.
-pub use thread::{KernelThread, spawn_kernel_thread};
-pub use tid_table::{THREAD_TABLE, Tid};
+
 
 use crate::proc::elf::LoadedElf;
 use crate::vm::VMA_MANAGER;
 use crate::vm::vma::VmaManager;
 use alloc::sync::Arc;
-use ostd::Error;
 use process::Process;
 
 /// Spawn the **init** process (PID 1).
