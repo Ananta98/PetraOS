@@ -59,7 +59,7 @@ pub fn register_device(device: Arc<dyn Device>) -> Result<(), ostd::Error> {
 
     if let Some(ops) = device.inode_ops() {
         let file_type = match device.device_type() {
-            DeviceType::Char => FileType::CharDevice,
+            DeviceType::Char | DeviceType::Gpu | DeviceType::Input => FileType::CharDevice,
             DeviceType::Block => FileType::BlockDevice,
             // Net and Timer devices are not exposed as filesystem nodes.
             _ => return Ok(()),

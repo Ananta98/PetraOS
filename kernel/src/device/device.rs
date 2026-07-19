@@ -20,6 +20,10 @@ pub enum DeviceType {
     Net,
     /// Hardware timer or real-time clock.
     Timer,
+    /// Graphics processing unit or framebuffer.
+    Gpu,
+    /// Input device
+    Input,
 }
 
 // ---------------------------------------------------------------------------

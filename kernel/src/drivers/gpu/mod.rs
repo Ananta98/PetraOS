@@ -86,7 +86,7 @@ impl Device for GpuDevice {
     }
 
     fn device_type(&self) -> DeviceType {
-        DeviceType::Char
+        DeviceType::Gpu
     }
 
     fn inode_ops(&self) -> Option<Arc<dyn InodeOps>> {
