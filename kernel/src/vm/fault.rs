@@ -7,7 +7,28 @@ use ostd::mm::{CachePolicy, FrameAllocOptions, PAGE_SIZE, PageProperty, UFrame, 
 use ostd::task::disable_preempt;
 
 impl VmaManager {
-    /// Handles a page fault by allocating or copying a frame for the faulting address.
+    /// Handles a page fault by allocating a new frame, copying a frame (Copy-on-Write),
+    /// or reading data from a file-backed mapping.
+    ///
+    /// # Architecture & Workflow
+    /// This method is invoked when the CPU generates a `#PF` exception for a user-space address:
+    ///
+    /// 1. **VMA Lookup**: It queries the registered `regions` to locate the `VmaRegion` that encloses
+    ///    the `fault_addr`. If no matching region is found, it returns `Error::InvalidArgs`.
+    /// 2. **Guard Page Check**: If the target region contains a guard band (e.g., stack guard pages) at its
+    ///    bottom, and the faulting address falls within this guard area, access is denied by returning `Error::InvalidArgs`.
+    /// 3. **Demand Paging (Page Not Present)**:
+    ///    - If the page table entry (PTE) is not present (`!is_present`), a new physical frame is allocated.
+    ///    - If the region is file-backed, data is read from the backing source at the appropriate offset into the frame.
+    ///      If the read fails or reaches EOF, the remaining space remains zeroed.
+    ///    - The frame is then mapped into the page tables under the region's permission flags.
+    /// 4. **Copy-on-Write (COW) (Page Present & Write Fault)**:
+    ///    - If the page is present but the write bit is missing (`is_present && is_write`), this indicates a COW trigger.
+    ///    - The handler queries the frame currently mapped at the fault address.
+    ///    - If the frame's reference count is greater than 1, a new frame is allocated, the old frame's content
+    ///      is copied to the new frame, the old mapping is unmapped, and the new frame is mapped with writable permissions.
+    ///    - If the reference count is 1, the frame is unique to this address space, so the handler can directly
+    ///      re-map it with writable permissions.
     pub fn alloc_frame_for_fault(
         &self,
         fault_addr: Vaddr,
@@ -117,7 +138,11 @@ impl VmaManager {
     }
 }
 
-/// Top-level page fault handler registered via `inject_user_page_fault_handler`.
+/// Top-level page fault handler registered with the architectural CPU exception table.
+///
+/// This delegates processing of the user-space page fault to the active process's
+/// `VmaManager`. Returns `Ok(())` if the fault was successfully handled and resolved,
+/// or `Err(())` if the fault remains unresolved (which will generally abort the offending thread/process).
 pub fn handle_page_fault(info: &CpuException) -> Result<(), ()> {
     if let CpuException::PageFault(pf_info) = info {
         if let Some(manager) = VMA_MANAGER.get() {
