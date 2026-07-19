@@ -172,11 +172,7 @@ pub fn read_user_string(vm: &VmaManager, user_ptr: usize) -> Result<String, Erro
 }
 
 /// Helper to read a byte slice from user space.
-pub fn read_user_slice(
-    vm: &VmaManager,
-    user_ptr: usize,
-    len: usize,
-) -> Result<Vec<u8>, Error> {
+pub fn read_user_slice(vm: &VmaManager, user_ptr: usize, len: usize) -> Result<Vec<u8>, Error> {
     if len > 1024 * 1024 {
         return Err(Error::InvalidArgs);
     }

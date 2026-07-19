@@ -341,12 +341,20 @@ impl<'a> IcmpRepr<'a> {
         let repr = SmoltcpIcmpv4Repr::parse(&packet.inner, checksum_caps)
             .map_err(|_| IcmpError::Unsupported)?;
         Ok(match repr {
-            SmoltcpIcmpv4Repr::EchoRequest { ident, seq_no, data } => IcmpRepr::EchoRequest {
+            SmoltcpIcmpv4Repr::EchoRequest {
+                ident,
+                seq_no,
+                data,
+            } => IcmpRepr::EchoRequest {
                 ident,
                 seq_no,
                 data,
             },
-            SmoltcpIcmpv4Repr::EchoReply { ident, seq_no, data } => IcmpRepr::EchoReply {
+            SmoltcpIcmpv4Repr::EchoReply {
+                ident,
+                seq_no,
+                data,
+            } => IcmpRepr::EchoReply {
                 ident,
                 seq_no,
                 data,
@@ -376,24 +384,15 @@ impl<'a> IcmpRepr<'a> {
     /// Return the length of the buffer needed to emit this representation.
     pub fn buffer_len(&self) -> usize {
         match self {
-            IcmpRepr::EchoRequest { data, .. } | IcmpRepr::EchoReply { data, .. } => {
-                8 + data.len()
-            }
-            IcmpRepr::DstUnreachable {
-                header, data, ..
-            }
-            | IcmpRepr::TimeExceeded {
-                header, data, ..
-            } => 8 + header.buffer_len() + data.len(),
+            IcmpRepr::EchoRequest { data, .. } | IcmpRepr::EchoReply { data, .. } => 8 + data.len(),
+            IcmpRepr::DstUnreachable { header, data, .. }
+            | IcmpRepr::TimeExceeded { header, data, .. } => 8 + header.buffer_len() + data.len(),
         }
     }
 
     /// Emit this high-level representation into an ICMPv4 packet.
-    pub fn emit<T>(
-        &self,
-        packet: &mut IcmpPacket<&mut T>,
-        checksum_caps: &ChecksumCapabilities,
-    ) where
+    pub fn emit<T>(&self, packet: &mut IcmpPacket<&mut T>, checksum_caps: &ChecksumCapabilities)
+    where
         T: AsRef<[u8]> + AsMut<[u8]> + ?Sized,
     {
         match self {
@@ -422,7 +421,10 @@ impl<'a> IcmpRepr<'a> {
                 repr.emit(&mut packet.inner, checksum_caps);
             }
             IcmpRepr::DstUnreachable {
-                reason, header, data, ..
+                reason,
+                header,
+                data,
+                ..
             } => {
                 let reason_smoltcp: SmoltcpDstUnreachable = (*reason).into();
                 let repr = SmoltcpIcmpv4Repr::DstUnreachable {
@@ -433,7 +435,10 @@ impl<'a> IcmpRepr<'a> {
                 repr.emit(&mut packet.inner, checksum_caps);
             }
             IcmpRepr::TimeExceeded {
-                reason, header, data, ..
+                reason,
+                header,
+                data,
+                ..
             } => {
                 let reason_smoltcp: SmoltcpTimeExceeded = (*reason).into();
                 let repr = SmoltcpIcmpv4Repr::TimeExceeded {
@@ -451,7 +456,10 @@ impl fmt::Display for IcmpRepr<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             IcmpRepr::EchoRequest {
-                ident, seq_no, data, ..
+                ident,
+                seq_no,
+                data,
+                ..
             } => {
                 write!(
                     f,
@@ -462,7 +470,10 @@ impl fmt::Display for IcmpRepr<'_> {
                 )
             }
             IcmpRepr::EchoReply {
-                ident, seq_no, data, ..
+                ident,
+                seq_no,
+                data,
+                ..
             } => {
                 write!(
                     f,

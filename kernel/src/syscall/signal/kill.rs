@@ -56,12 +56,17 @@ pub fn syscall_kill(
             return to_continue_unit(Ok(()));
         }
         to_continue_unit(crate::ipc::dispatch::send_signal_to_group(
-            pgid.as_u32(), signum, sender_pid,
+            pgid.as_u32(),
+            signum,
+            sender_pid,
         ))
     } else if pid_raw < -1 {
         let pgid = (-pid_raw) as u32;
         if signum == 0 {
-            if PROCESS_TABLE.get_processes_by_pgid(Pid::from_raw(pgid)).is_empty() {
+            if PROCESS_TABLE
+                .get_processes_by_pgid(Pid::from_raw(pgid))
+                .is_empty()
+            {
                 return to_continue_unit(Err(Error::InvalidArgs));
             }
             return to_continue_unit(Ok(()));

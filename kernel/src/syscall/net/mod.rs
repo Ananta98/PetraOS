@@ -1,24 +1,24 @@
-pub mod socket;
-pub mod connect;
 pub mod accept;
 pub mod bind;
+pub mod connect;
 pub mod listen;
-pub mod sendto;
 pub mod recvfrom;
+pub mod sendto;
+pub mod socket;
 
-pub use socket::syscall_socket;
-pub use connect::syscall_connect;
 pub use accept::syscall_accept;
 pub use bind::syscall_bind;
+pub use connect::syscall_connect;
 pub use listen::syscall_listen;
-pub use sendto::syscall_sendto;
 pub use recvfrom::syscall_recvfrom;
+pub use sendto::syscall_sendto;
+pub use socket::syscall_socket;
 
 use crate::fs::vfs::{FileOps, SeekFrom};
-use smoltcp::iface::SocketHandle;
-use ostd::sync::SpinLock;
-use smoltcp::wire::{IpAddress, IpEndpoint, Ipv4Address, Ipv6Address};
 use ostd::Error;
+use ostd::sync::SpinLock;
+use smoltcp::iface::SocketHandle;
+use smoltcp::wire::{IpAddress, IpEndpoint, Ipv4Address, Ipv6Address};
 
 pub struct SocketFile {
     pub handle: SpinLock<SocketHandle>,
@@ -44,7 +44,8 @@ impl FileOps for SocketFile {
             tcp_socket.recv_slice(buf).map_err(|_| Error::IoError)
         } else if self.socket_type == 2 {
             let udp_socket = sockets.get_mut::<smoltcp::socket::udp::Socket>(handle);
-            udp_socket.recv_slice(buf)
+            udp_socket
+                .recv_slice(buf)
                 .map(|(len, _)| len)
                 .map_err(|_| Error::IoError)
         } else {
@@ -68,7 +69,8 @@ impl FileOps for SocketFile {
             let udp_socket = sockets.get_mut::<smoltcp::socket::udp::Socket>(handle);
             let remote = self.remote.lock();
             if let Some(dest) = *remote {
-                udp_socket.send_slice(buf, dest)
+                udp_socket
+                    .send_slice(buf, dest)
                     .map(|_| buf.len())
                     .map_err(|_| Error::IoError)
             } else {
@@ -129,7 +131,7 @@ pub fn parse_sockaddr(
         }
         let mut buf = [0u8; 16];
         vm.copy_from_user(addr_ptr, &mut buf)?;
-        
+
         let mut port_bytes = [0u8; 2];
         port_bytes.copy_from_slice(&buf[2..4]);
         let port = u16::from_be_bytes(port_bytes);
@@ -137,7 +139,7 @@ pub fn parse_sockaddr(
         let mut ip_bytes = [0u8; 4];
         ip_bytes.copy_from_slice(&buf[4..8]);
         let ip = IpAddress::Ipv4(Ipv4Address::from_bytes(&ip_bytes));
-        
+
         Ok(IpEndpoint::new(ip, port))
     } else if family == 10 {
         // AF_INET6

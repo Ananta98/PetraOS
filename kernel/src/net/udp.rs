@@ -1,6 +1,8 @@
 use core::fmt;
 use smoltcp::phy::ChecksumCapabilities;
-use smoltcp::wire::{IpAddress, UdpPacket as SmoltcpUdpPacket, UdpRepr as SmoltcpUdpRepr, UDP_HEADER_LEN};
+use smoltcp::wire::{
+    IpAddress, UDP_HEADER_LEN, UdpPacket as SmoltcpUdpPacket, UdpRepr as SmoltcpUdpRepr,
+};
 
 /// UDP processing errors.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -135,9 +137,8 @@ impl UdpRepr {
     where
         T: AsRef<[u8]> + ?Sized,
     {
-        let repr =
-            SmoltcpUdpRepr::parse(&packet.inner, src_addr, dst_addr, checksum_caps)
-                .map_err(|_| UdpError::ChecksumInvalid)?;
+        let repr = SmoltcpUdpRepr::parse(&packet.inner, src_addr, dst_addr, checksum_caps)
+            .map_err(|_| UdpError::ChecksumInvalid)?;
         Ok(Self {
             src_port: repr.src_port,
             dst_port: repr.dst_port,
@@ -178,11 +179,7 @@ impl UdpRepr {
 
 impl fmt::Display for UdpRepr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "UDP src={} dst={}",
-            self.src_port, self.dst_port
-        )
+        write!(f, "UDP src={} dst={}", self.src_port, self.dst_port)
     }
 }
 

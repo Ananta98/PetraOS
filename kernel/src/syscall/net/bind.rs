@@ -1,8 +1,8 @@
 use crate::proc::process::Process;
 use crate::syscall::SyscallResult;
+use crate::syscall::net::{SocketFile, allocate_ephemeral_port, parse_sockaddr};
 use crate::syscall::to_continue_unit;
 use crate::vm::vma::VmaManager;
-use crate::syscall::net::{SocketFile, parse_sockaddr, allocate_ephemeral_port};
 use ostd::Error;
 
 pub fn syscall_bind(
@@ -36,7 +36,9 @@ pub fn syscall_bind(
     };
 
     let open_file = fd_entry.open_file.lock();
-    let socket_file = match open_file.file_ops.as_any()
+    let socket_file = match open_file
+        .file_ops
+        .as_any()
         .and_then(|any| any.downcast_ref::<SocketFile>())
     {
         Some(sf) => sf,

@@ -9,7 +9,6 @@ pub mod user;
 // Re-export the most commonly used thread types so that other modules can
 // write `crate::proc::KernelThread` without the full submodule path.
 
-
 use crate::proc::elf::LoadedElf;
 use crate::vm::VMA_MANAGER;
 use crate::vm::vma::VmaManager;

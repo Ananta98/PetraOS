@@ -3,7 +3,10 @@
 
 use alloc::vec::Vec;
 use smoltcp::socket::tcp::{Socket as SmoltcpTcpSocket, SocketBuffer as TcpSocketBuffer};
-use smoltcp::socket::udp::{Socket as SmoltcpUdpSocket, PacketBuffer as UdpPacketBuffer, PacketMetadata as UdpPacketMetadata};
+use smoltcp::socket::udp::{
+    PacketBuffer as UdpPacketBuffer, PacketMetadata as UdpPacketMetadata,
+    Socket as SmoltcpUdpSocket,
+};
 
 /// Unified networking socket enum.
 #[derive(Debug)]

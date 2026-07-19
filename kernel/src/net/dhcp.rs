@@ -2,7 +2,9 @@
 //! Enforces safety guidelines and denies unsafe code.
 
 use crate::net::ipv4::{Ipv4Address, Ipv4Cidr};
-use smoltcp::socket::dhcpv4::{Socket as SmoltcpDhcpv4Socket, Event as SmoltcpDhcpv4Event, Config as SmoltcpDhcpv4Config};
+use smoltcp::socket::dhcpv4::{
+    Config as SmoltcpDhcpv4Config, Event as SmoltcpDhcpv4Event, Socket as SmoltcpDhcpv4Socket,
+};
 use smoltcp::time::Duration;
 
 /// IPv4 configuration data provided by the DHCP server.
@@ -74,9 +76,8 @@ impl<'a> DhcpSocket<'a> {
 
     /// Set the max lease duration (capping the server-provided lease duration).
     pub fn set_max_lease_duration(&mut self, max_lease_duration: Option<core::time::Duration>) {
-        let smoltcp_duration = max_lease_duration.map(|d| {
-            Duration::from_micros(d.as_micros() as u64)
-        });
+        let smoltcp_duration =
+            max_lease_duration.map(|d| Duration::from_micros(d.as_micros() as u64));
         self.inner.set_max_lease_duration(smoltcp_duration);
     }
 

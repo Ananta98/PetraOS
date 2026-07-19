@@ -74,7 +74,8 @@ impl VmaManager {
 
             // If this is a file-backed mapping, read the file data into the frame.
             if let Some(ref backing) = region_clone.file_backing {
-                let mut file_read_offset = region_clone.file_offset + (page_vaddr - region_clone.start);
+                let mut file_read_offset =
+                    region_clone.file_offset + (page_vaddr - region_clone.start);
                 let mut frame_writer = frame.writer();
                 let mut file_buf = alloc::vec![0u8; PAGE_SIZE];
 

@@ -1,9 +1,9 @@
 use crate::device::device::{Device, DeviceType};
 use crate::device::manager::register_device;
+use crate::drivers::pci;
 use alloc::collections::VecDeque;
 use alloc::string::String;
 use alloc::sync::Arc;
-use crate::drivers::pci;
 use ostd::sync::SpinLock;
 use spin::Once;
 

@@ -1,8 +1,8 @@
 use crate::proc::process::Process;
 use crate::syscall::SyscallResult;
+use crate::syscall::net::{SocketFile, parse_sockaddr};
 use crate::syscall::to_continue;
 use crate::vm::vma::VmaManager;
-use crate::syscall::net::{SocketFile, parse_sockaddr};
 use ostd::Error;
 
 pub fn syscall_sendto(
@@ -35,7 +35,9 @@ pub fn syscall_sendto(
     };
 
     let open_file = fd_entry.open_file.lock();
-    let socket_file = match open_file.file_ops.as_any()
+    let socket_file = match open_file
+        .file_ops
+        .as_any()
         .and_then(|any| any.downcast_ref::<SocketFile>())
     {
         Some(sf) => sf,

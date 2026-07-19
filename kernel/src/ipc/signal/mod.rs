@@ -322,13 +322,13 @@ mod tests {
 
     #[ktest]
     fn test_process_group_signals() {
+        use crate::proc::pid_table::PROCESS_TABLE;
         use crate::proc::process::Process;
         use crate::vm::VMA_MANAGER;
-        use crate::proc::pid_table::PROCESS_TABLE;
 
         crate::vm::init();
         let vm = VMA_MANAGER.get().unwrap().clone();
-        
+
         let parent = Process::new(vm.clone(), "parent-proc");
         let mut child1 = parent.fork().expect("fork failed");
         let mut child2 = parent.fork().expect("fork failed");
@@ -342,7 +342,8 @@ mod tests {
         child2.pgid = pgid;
 
         // Send a signal to the process group
-        send_signal_to_group(pgid.as_u32(), SIGTERM, parent.pid.as_u32()).expect("send signal to group failed");
+        send_signal_to_group(pgid.as_u32(), SIGTERM, parent.pid.as_u32())
+            .expect("send signal to group failed");
 
         // Verify both children received it
         let mut child1_updated = PROCESS_TABLE.get_process(child1.pid).unwrap();
@@ -351,7 +352,13 @@ mod tests {
         let outcome1 = dispatch_pending(&mut child1_updated);
         let outcome2 = dispatch_pending(&mut child2_updated);
 
-        assert!(matches!(outcome1, DispatchOutcome::Terminated { signum: 15 }));
-        assert!(matches!(outcome2, DispatchOutcome::Terminated { signum: 15 }));
+        assert!(matches!(
+            outcome1,
+            DispatchOutcome::Terminated { signum: 15 }
+        ));
+        assert!(matches!(
+            outcome2,
+            DispatchOutcome::Terminated { signum: 15 }
+        ));
     }
 }

@@ -1,10 +1,10 @@
 //! IPv6 address, CIDR, and packet parsing/serialization wrapper.
 //! Enforces memory safety and denies unsafe code.
 
-use core::fmt;
-use smoltcp::wire::{Ipv6Address as SmoltcpIpv6Address, Ipv6Cidr as SmoltcpIpv6Cidr};
-use smoltcp::wire::Ipv6Packet as SmoltcpIpv6Packet;
 use crate::net::ipv4::{IpError, IpProtocol};
+use core::fmt;
+use smoltcp::wire::Ipv6Packet as SmoltcpIpv6Packet;
+use smoltcp::wire::{Ipv6Address as SmoltcpIpv6Address, Ipv6Cidr as SmoltcpIpv6Cidr};
 
 /// A sixteen-octet IPv6 address.
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Default)]
@@ -137,7 +137,10 @@ pub struct Ipv6Cidr {
 impl Ipv6Cidr {
     /// Create a new IPv6 CIDR block.
     pub const fn new(address: Ipv6Address, prefix_len: u8) -> Self {
-        Self { address, prefix_len }
+        Self {
+            address,
+            prefix_len,
+        }
     }
 
     /// Return the address of this CIDR block.
@@ -181,8 +184,7 @@ pub struct Ipv6Packet<T: AsRef<[u8]>> {
 impl<T: AsRef<[u8]>> Ipv6Packet<T> {
     /// Parse an IPv6 packet, verifying the buffer length.
     pub fn new_checked(buffer: T) -> Result<Self, IpError> {
-        let packet = SmoltcpIpv6Packet::new_checked(buffer)
-            .map_err(|_| IpError::PacketTooShort)?;
+        let packet = SmoltcpIpv6Packet::new_checked(buffer).map_err(|_| IpError::PacketTooShort)?;
         Ok(Self { inner: packet })
     }
 

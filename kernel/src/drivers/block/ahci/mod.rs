@@ -114,7 +114,8 @@ pub fn init() {
                 if let Ok(irq) = crate::drivers::irq::map_isa_irq(irq_line, move || {
                     for port in 0..32 {
                         if (pi & (1 << port)) != 0 {
-                            let _ = isr_abar.read_once::<u32>(hba::port_offset(port) + hba::PORT_IS);
+                            let _ =
+                                isr_abar.read_once::<u32>(hba::port_offset(port) + hba::PORT_IS);
                         }
                     }
                 }) {

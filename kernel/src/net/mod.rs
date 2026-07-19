@@ -12,14 +12,14 @@ use smoltcp::socket::dns::{DnsQuery, Socket as DnsSocket};
 use smoltcp::time::Instant;
 use smoltcp::wire::{EthernetAddress, HardwareAddress, IpAddress, IpCidr};
 
-pub mod eth;
-pub mod ipv4;
-pub mod ipv6;
 pub mod arp;
 pub mod dhcp;
 pub mod dns;
-pub mod socket;
+pub mod eth;
 pub mod icmp;
+pub mod ipv4;
+pub mod ipv6;
+pub mod socket;
 pub mod udp;
 
 pub struct SmoltcpDevice {
@@ -137,8 +137,7 @@ pub fn init() {
         let dhcp_handle = sockets.add(dhcp_socket);
 
         // ── DNS client ────────────────────────────────────────────────
-        let dns_queries: &'static mut [Option<DnsQuery>] =
-            Box::leak(Box::new([None, None, None]));
+        let dns_queries: &'static mut [Option<DnsQuery>] = Box::leak(Box::new([None, None, None]));
         let dns_socket = DnsSocket::new(&[], &mut dns_queries[..]);
         let dns_handle = sockets.add(dns_socket);
 
@@ -172,9 +171,7 @@ pub fn poll() {
             let mut new_cidr = None;
             let mut new_dns = alloc::vec::Vec::new();
             {
-                let dhcp = stack
-                    .sockets
-                    .get_mut::<Dhcpv4Socket>(stack.dhcp_handle);
+                let dhcp = stack.sockets.get_mut::<Dhcpv4Socket>(stack.dhcp_handle);
                 while let Some(event) = dhcp.poll() {
                     use smoltcp::socket::dhcpv4::Event;
                     match event {
@@ -197,9 +194,7 @@ pub fn poll() {
                 });
             }
             if !new_dns.is_empty() {
-                let dns = stack
-                    .sockets
-                    .get_mut::<DnsSocket>(stack.dns_handle);
+                let dns = stack.sockets.get_mut::<DnsSocket>(stack.dns_handle);
                 dns.update_servers(&new_dns);
             }
         }

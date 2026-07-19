@@ -1,11 +1,11 @@
 use crate::proc::process::Process;
 use crate::syscall::SyscallResult;
+use crate::syscall::net::{SocketFile, allocate_ephemeral_port, parse_sockaddr};
 use crate::syscall::to_continue_unit;
 use crate::vm::vma::VmaManager;
-use crate::syscall::net::{SocketFile, parse_sockaddr, allocate_ephemeral_port};
 use ostd::Error;
-use smoltcp::wire::IpEndpoint;
 use smoltcp::socket::tcp::State;
+use smoltcp::wire::IpEndpoint;
 
 pub fn syscall_connect(
     arg0: usize, // sockfd
@@ -34,7 +34,9 @@ pub fn syscall_connect(
     };
 
     let open_file = fd_entry.open_file.lock();
-    let socket_file = match open_file.file_ops.as_any()
+    let socket_file = match open_file
+        .file_ops
+        .as_any()
         .and_then(|any| any.downcast_ref::<SocketFile>())
     {
         Some(sf) => sf,
@@ -85,7 +87,9 @@ pub fn syscall_connect(
 
         let mut stack_guard = crate::net::NET_STACK.lock();
         if let Some(stack) = stack_guard.as_mut() {
-            let tcp_socket = stack.sockets.get_mut::<smoltcp::socket::tcp::Socket>(*socket_file.handle.lock());
+            let tcp_socket = stack
+                .sockets
+                .get_mut::<smoltcp::socket::tcp::Socket>(*socket_file.handle.lock());
             if tcp_socket.state() == State::Established {
                 return to_continue_unit(Ok(()));
             }

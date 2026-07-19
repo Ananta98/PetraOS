@@ -2,8 +2,8 @@
 //! Enforces memory safety and denies unsafe code.
 
 use core::fmt;
+use smoltcp::wire::{IpProtocol as SmoltcpIpProtocol, Ipv4Packet as SmoltcpIpv4Packet};
 use smoltcp::wire::{Ipv4Address as SmoltcpIpv4Address, Ipv4Cidr as SmoltcpIpv4Cidr};
-use smoltcp::wire::{Ipv4Packet as SmoltcpIpv4Packet, IpProtocol as SmoltcpIpProtocol};
 
 /// IP packet processing errors.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -179,7 +179,10 @@ pub struct Ipv4Cidr {
 impl Ipv4Cidr {
     /// Create a new IPv4 CIDR block.
     pub const fn new(address: Ipv4Address, prefix_len: u8) -> Self {
-        Self { address, prefix_len }
+        Self {
+            address,
+            prefix_len,
+        }
     }
 
     /// Return the address of this CIDR block.
@@ -223,8 +226,7 @@ pub struct Ipv4Packet<T: AsRef<[u8]>> {
 impl<T: AsRef<[u8]>> Ipv4Packet<T> {
     /// Parse an IPv4 packet, verifying the buffer length and checksum.
     pub fn new_checked(buffer: T) -> Result<Self, IpError> {
-        let packet = SmoltcpIpv4Packet::new_checked(buffer)
-            .map_err(|_| IpError::PacketTooShort)?;
+        let packet = SmoltcpIpv4Packet::new_checked(buffer).map_err(|_| IpError::PacketTooShort)?;
         Ok(Self { inner: packet })
     }
 

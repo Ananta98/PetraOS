@@ -1,6 +1,6 @@
 use crate::proc::process::Process;
 use crate::proc::thread::KernelThread;
-use crate::proc::tls::{allocate_tls_block, set_fs_base, get_fs_base};
+use crate::proc::tls::{allocate_tls_block, get_fs_base, set_fs_base};
 use crate::syscall::{SyscallResult, dispatch_syscall};
 use crate::vm::vma::VmaManager;
 use alloc::vec::Vec;

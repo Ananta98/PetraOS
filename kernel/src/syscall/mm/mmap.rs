@@ -1,7 +1,7 @@
 use crate::fs::fd_table::OpenFile;
+use crate::fs::vfs::FileOps;
 use crate::proc::process::Process;
 use crate::syscall::SyscallResult;
-use crate::fs::vfs::FileOps;
 use crate::vm::vma::VmaManager;
 use alloc::sync::Arc;
 use ostd::Error;
@@ -23,7 +23,7 @@ const MAP_FIXED: usize = 0x10;
 const MAP_POPULATE: usize = 0x08000;
 
 fn prot_to_pageflags(prot: usize) -> PageFlags {
-    if prot & PROT_NONE == PROT_NONE || prot == 0 {
+    if prot == PROT_NONE || prot == 0 {
         return PageFlags::empty();
     }
     let mut flags = PageFlags::empty();

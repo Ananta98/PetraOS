@@ -1,11 +1,11 @@
+use super::arch;
+use super::device::{self, PciDevice};
 /// PCI Bus Enumeration
 ///
 /// Scans the PCI bus hierarchy to discover all connected devices.
 /// Uses brute-force enumeration: iterates all buses (0-255),
 /// devices (0-31), and functions (0-7).
 use alloc::vec::Vec;
-use super::device::{self, PciDevice};
-use super::arch;
 
 /// Enumerate all PCI devices on the system.
 ///

@@ -146,7 +146,10 @@ impl IrqRegistration {
         let handler = Arc::new(handler);
         let h = handler.clone();
         line.on_active(move |_| h.handle());
-        Ok(Self { line, _handler: handler })
+        Ok(Self {
+            line,
+            _handler: handler,
+        })
     }
 
     /// Allocate a specific legacy IRQ number (`irq_num`) and register
@@ -156,7 +159,10 @@ impl IrqRegistration {
         let handler = Arc::new(handler);
         let h = handler.clone();
         line.on_active(move |_| h.handle());
-        Ok(Self { line, _handler: handler })
+        Ok(Self {
+            line,
+            _handler: handler,
+        })
     }
 
     /// Returns the IRQ number of the allocated line.
@@ -189,10 +195,7 @@ impl IrqRegistration {
 /// Returns `ostd::Error::NotEnoughResources` if the IRQ chip is not yet
 /// initialised or the GSI mapping fails.
 #[cfg(target_arch = "x86_64")]
-pub fn map_isa_irq(
-    isa_irq: u8,
-    handler: impl IrqHandler,
-) -> Result<IrqRegistration, ostd::Error> {
+pub fn map_isa_irq(isa_irq: u8, handler: impl IrqHandler) -> Result<IrqRegistration, ostd::Error> {
     use ostd::arch::irq::IRQ_CHIP;
 
     let irq_chip = IRQ_CHIP.get().ok_or(ostd::Error::NotEnoughResources)?;
@@ -208,7 +211,10 @@ pub fn map_isa_irq(
     let mut line = IrqLineContainer::Mapped(mapped);
     line.on_active(move |_| h.handle());
 
-    Ok(IrqRegistration { line, _handler: handler })
+    Ok(IrqRegistration {
+        line,
+        _handler: handler,
+    })
 }
 
 // ---------------------------------------------------------------------------

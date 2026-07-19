@@ -1,13 +1,13 @@
+use crate::fs::fd_table::FileDescriptor;
 use crate::proc::process::Process;
 use crate::syscall::SyscallResult;
+use crate::syscall::net::SocketFile;
 use crate::syscall::to_continue;
 use crate::vm::vma::VmaManager;
-use crate::syscall::net::SocketFile;
-use crate::fs::fd_table::FileDescriptor;
-use ostd::Error;
-use smoltcp::socket::tcp::State;
-use ostd::sync::SpinLock;
 use alloc::boxed::Box;
+use ostd::Error;
+use ostd::sync::SpinLock;
+use smoltcp::socket::tcp::State;
 
 pub fn syscall_accept(
     arg0: usize, // sockfd
@@ -31,7 +31,9 @@ pub fn syscall_accept(
     };
 
     let open_file = fd_entry.open_file.lock();
-    let socket_file = match open_file.file_ops.as_any()
+    let socket_file = match open_file
+        .file_ops
+        .as_any()
         .and_then(|any| any.downcast_ref::<SocketFile>())
     {
         Some(sf) => sf,
@@ -52,16 +54,18 @@ pub fn syscall_accept(
 
     // Poll interface until a connection is established on the listener socket
     loop {
-            let mut stack_guard = crate::net::NET_STACK.lock();
-            if let Some(stack) = stack_guard.as_mut() {
-                let tcp_socket = stack.sockets.get_mut::<smoltcp::socket::tcp::Socket>(listener_handle);
-                if tcp_socket.state() == State::Established {
-                    if let Some(ep) = tcp_socket.remote_endpoint() {
-                        remote_ep = Some(ep);
-                        break;
-                    }
+        let mut stack_guard = crate::net::NET_STACK.lock();
+        if let Some(stack) = stack_guard.as_mut() {
+            let tcp_socket = stack
+                .sockets
+                .get_mut::<smoltcp::socket::tcp::Socket>(listener_handle);
+            if tcp_socket.state() == State::Established {
+                if let Some(ep) = tcp_socket.remote_endpoint() {
+                    remote_ep = Some(ep);
+                    break;
                 }
             }
+        }
         crate::net::poll();
     }
 

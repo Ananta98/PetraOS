@@ -1,3 +1,5 @@
+mod bus;
+mod capability;
 /// PCI Subsystem for PetraOS
 ///
 /// Provides PCI configuration space access, device enumeration,
@@ -9,10 +11,7 @@
 /// - `device` — PCI device and BAR type definitions, config space convenience methods
 /// - `bus`    — Bus enumeration and device discovery
 /// - `capability` — PCI capability linked list traversal
-
 mod device;
-mod bus;
-mod capability;
 
 #[cfg_attr(target_arch = "x86_64", path = "arch/x86_64/mod.rs")]
 mod arch;

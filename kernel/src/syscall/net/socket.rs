@@ -1,9 +1,9 @@
 use crate::fs::fd_table::FileDescriptor;
 use crate::proc::process::Process;
 use crate::syscall::SyscallResult;
+use crate::syscall::net::SocketFile;
 use crate::syscall::to_continue;
 use crate::vm::vma::VmaManager;
-use crate::syscall::net::SocketFile;
 use alloc::boxed::Box;
 use ostd::Error;
 use ostd::sync::SpinLock;

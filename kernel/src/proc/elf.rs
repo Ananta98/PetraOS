@@ -1,5 +1,5 @@
-use crate::vm::vma::VmaManager;
 use crate::proc::tls::TlsTemplate;
+use crate::vm::vma::VmaManager;
 use alloc::sync::Arc;
 use core::cmp;
 use ostd::Error;

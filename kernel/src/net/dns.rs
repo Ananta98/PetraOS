@@ -2,7 +2,11 @@
 //! Enforces safety guidelines and denies unsafe code.
 
 use alloc::vec::Vec;
-use smoltcp::socket::dns::{Socket as SmoltcpDnsSocket, DnsQuery as SmoltcpDnsQuery, QueryHandle as SmoltcpQueryHandle, StartQueryError as SmoltcpStartQueryError, GetQueryResultError as SmoltcpGetQueryResultError};
+use smoltcp::socket::dns::{
+    DnsQuery as SmoltcpDnsQuery, GetQueryResultError as SmoltcpGetQueryResultError,
+    QueryHandle as SmoltcpQueryHandle, Socket as SmoltcpDnsSocket,
+    StartQueryError as SmoltcpStartQueryError,
+};
 use smoltcp::wire::DnsQueryType as SmoltcpDnsQueryType;
 
 /// An IP address for DNS queries (supporting IPv4 and IPv6).
@@ -124,7 +128,8 @@ pub struct DnsSocket<'a> {
 impl<'a> DnsSocket<'a> {
     /// Create a new DNS socket.
     pub fn new(servers: &[IpAddress], queries: &'a mut [Option<SmoltcpDnsQuery>]) -> Self {
-        let smoltcp_servers: Vec<smoltcp::wire::IpAddress> = servers.iter().map(|s| (*s).into()).collect();
+        let smoltcp_servers: Vec<smoltcp::wire::IpAddress> =
+            servers.iter().map(|s| (*s).into()).collect();
         Self {
             inner: SmoltcpDnsSocket::new(&smoltcp_servers, queries),
         }
@@ -132,7 +137,8 @@ impl<'a> DnsSocket<'a> {
 
     /// Update the list of DNS servers.
     pub fn update_servers(&mut self, servers: &[IpAddress]) {
-        let smoltcp_servers: Vec<smoltcp::wire::IpAddress> = servers.iter().map(|s| (*s).into()).collect();
+        let smoltcp_servers: Vec<smoltcp::wire::IpAddress> =
+            servers.iter().map(|s| (*s).into()).collect();
         self.inner.update_servers(&smoltcp_servers);
     }
 
@@ -189,7 +195,9 @@ mod tests {
 
     #[ktest]
     fn test_dns_socket_creation() {
-        let servers = [IpAddress::Ipv4(crate::net::ipv4::Ipv4Address::new(8, 8, 8, 8))];
+        let servers = [IpAddress::Ipv4(crate::net::ipv4::Ipv4Address::new(
+            8, 8, 8, 8,
+        ))];
         let mut queries = [None, None];
         let socket = DnsSocket::new(&servers, &mut queries);
         assert_eq!(socket.hop_limit(), None);

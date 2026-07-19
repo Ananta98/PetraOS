@@ -1,10 +1,10 @@
+use super::device::PciDevice;
 /// PCI Capability List Walking
 ///
 /// PCI devices can advertise optional capabilities through a linked list
 /// in configuration space. Each capability has an ID byte and a pointer
 /// to the next capability.
 use alloc::vec::Vec;
-use super::device::PciDevice;
 
 // Well-known PCI capability IDs
 /// Power Management capability

@@ -13,7 +13,6 @@
 /// [7:2]   Register number (offset >> 2)
 /// [1:0]   Always 0 (dword aligned)
 /// ```
-
 use ostd::arch::device::io_port::ReadWriteAccess;
 use ostd::io::IoPort;
 

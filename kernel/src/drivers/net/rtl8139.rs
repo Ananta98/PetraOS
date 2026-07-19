@@ -61,7 +61,8 @@ impl Rtl8139 {
             let irq_line = pci_dev.interrupt_line();
             if irq_line != 0 && irq_line < 16 {
                 if let Ok(irq) = crate::drivers::irq::map_isa_irq(irq_line, move || {
-                    if let Ok(port) = IoPort::<u16, ReadWriteAccess>::acquire(io_base as u16 + 0x3E) {
+                    if let Ok(port) = IoPort::<u16, ReadWriteAccess>::acquire(io_base as u16 + 0x3E)
+                    {
                         let _ = port.read();
                     }
                 }) {

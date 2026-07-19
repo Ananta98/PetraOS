@@ -1,10 +1,13 @@
 //! ARP packet parsing and serialization wrapper.
 //! Enforces safety guidelines and denies unsafe code.
 
+use crate::net::eth::{EtherType, MacAddress};
+use crate::net::ipv4::{IpError, Ipv4Address};
 use core::fmt;
-use smoltcp::wire::{ArpPacket as SmoltcpArpPacket, ArpHardware as SmoltcpArpHardware, ArpOperation as SmoltcpArpOperation};
-use crate::net::eth::{MacAddress, EtherType};
-use crate::net::ipv4::{Ipv4Address, IpError};
+use smoltcp::wire::{
+    ArpHardware as SmoltcpArpHardware, ArpOperation as SmoltcpArpOperation,
+    ArpPacket as SmoltcpArpPacket,
+};
 
 /// ARP processing errors.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -82,8 +85,7 @@ pub struct ArpPacket<T: AsRef<[u8]>> {
 impl<T: AsRef<[u8]>> ArpPacket<T> {
     /// Parse an ARP packet, verifying the buffer length.
     pub fn new_checked(buffer: T) -> Result<Self, ArpError> {
-        let packet = SmoltcpArpPacket::new_checked(buffer)
-            .map_err(|_| ArpError::PacketTooShort)?;
+        let packet = SmoltcpArpPacket::new_checked(buffer).map_err(|_| ArpError::PacketTooShort)?;
         Ok(Self { inner: packet })
     }
 

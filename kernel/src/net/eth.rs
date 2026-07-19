@@ -143,8 +143,8 @@ pub struct EthernetFrame<T: AsRef<[u8]>> {
 impl<T: AsRef<[u8]>> EthernetFrame<T> {
     /// Parse an Ethernet frame from a raw byte slice, verifying buffer length.
     pub fn new_checked(buffer: T) -> Result<Self, EtherError> {
-        let frame = SmoltcpEthernetFrame::new_checked(buffer)
-            .map_err(|_| EtherError::PacketTooShort)?;
+        let frame =
+            SmoltcpEthernetFrame::new_checked(buffer).map_err(|_| EtherError::PacketTooShort)?;
         Ok(Self { inner: frame })
     }
 
