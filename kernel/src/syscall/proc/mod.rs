@@ -1,3 +1,4 @@
+pub mod arch_prctl;
 pub mod credentials;
 pub mod execve;
 pub mod exit;
@@ -6,6 +7,7 @@ pub mod pid;
 pub mod wait4;
 pub mod waitid;
 
+pub use arch_prctl::syscall_arch_prctl;
 pub use credentials::{
     syscall_getegid, syscall_geteuid, syscall_getgid, syscall_getresgid, syscall_getresuid,
     syscall_getuid, syscall_setfsgid, syscall_setfsuid, syscall_setgid, syscall_setregid,

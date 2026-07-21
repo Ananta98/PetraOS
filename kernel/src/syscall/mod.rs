@@ -175,6 +175,7 @@ syscall_table! {
     122 => proc::syscall_setfsuid,         // SYS_setfsuid
     123 => proc::syscall_setfsgid,         // SYS_setfsgid
     124 => proc::syscall_getsid,           // SYS_getsid
+    158 => proc::syscall_arch_prctl,       // SYS_arch_prctl
     165 => fs::syscall_mount,             // SYS_mount
     201 => time::syscall_time,             // SYS_time
     228 => time::syscall_clock_gettime,    // SYS_clock_gettime

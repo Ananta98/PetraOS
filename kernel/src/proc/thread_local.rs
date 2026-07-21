@@ -1,7 +1,8 @@
 use crate::vm::vma::VmaManager;
 use alloc::vec::Vec;
 use ostd::Error;
-use ostd::arch::cpu::context::FsBase;
+use ostd::arch::cpu::context::{FsBase, GsBase};
+use ostd::irq::disable_local;
 use ostd::mm::{PAGE_SIZE, PageFlags, Vaddr};
 
 /// Per-process template for initializing per-thread TLS blocks
@@ -81,6 +82,22 @@ pub fn get_fs_base() -> Vaddr {
     let mut fs = FsBase::default();
     fs.save();
     fs.addr()
+}
+
+/// Write `addr` into the GS-base MSR on the **current CPU** using
+/// the `wrgsbase` instruction.
+pub fn set_gs_base(addr: Vaddr) {
+    let guard = disable_local();
+    GsBase::new(addr).load(&guard);
+}
+
+/// Read the current CPU's GS-base MSR using the `rdgsbase` instruction.
+pub fn get_gs_base() -> Vaddr {
+    use ostd::arch::cpu::context::GsBase;
+    let mut gs = GsBase::default();
+    let guard = disable_local();
+    gs.save(&guard);
+    gs.addr()
 }
 
 // ---------------------------------------------------------------------------
