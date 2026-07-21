@@ -6,7 +6,7 @@ pub mod process_group;
 pub mod thread;
 pub mod thread_local;
 pub mod tid_table;
-pub mod user;
+pub mod userspace;
 
 // Re-export the most commonly used thread types so that other modules can
 // write `crate::proc::KernelThread` without the full submodule path.
@@ -60,15 +60,16 @@ pub fn spawn_init_process() {
                 .expect("failed to open stderr");
 
             // Set up the user-space stack (argv, envp, auxv per System V ABI).
-            let stack_ptr = crate::proc::user::setup_user_stack(&process.vm, &[path], &[], entry)
-                .expect("failed to setup user stack");
+            let stack_ptr =
+                crate::proc::userspace::setup_user_stack(&process.vm, &[path], &[], entry)
+                    .expect("failed to setup user stack");
 
             // Spawn the main thread.  Its body activates the process VM
             // and enters user mode, executing the init program.
             let mut process_for_thread = process.clone();
             process
                 .spawn_thread("main", move || {
-                    let _ = crate::proc::user::run_process_user_mode(
+                    let _ = crate::proc::userspace::run_process_user_mode(
                         &mut process_for_thread,
                         entry,
                         stack_ptr,
@@ -99,7 +100,7 @@ fn load_init_exec(
     file_ops.read(&mut elf_image, &mut offset)?;
 
     let mut process = Process::new(vm, executable_name);
-    let loaded = process.exec(path, &elf_image, &[path], &[])?;
+    let (loaded, _stack_ptr) = process.exec(path, &elf_image, &[path], &[])?;
 
     Ok((process, loaded))
 }

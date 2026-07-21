@@ -6,7 +6,7 @@
 /// Returns `0` on success, or a negated `errno` on failure.
 use crate::proc::pid_table::PROCESS_TABLE;
 use crate::proc::process::Process;
-use crate::proc::user::setup_user_stack;
+use crate::proc::userspace::setup_user_stack;
 use crate::syscall::read_user_string;
 use crate::syscall::{SyscallResult, to_continue_i32};
 use crate::vm::vma::VmaManager;
@@ -75,12 +75,17 @@ pub fn syscall_execve(
     // 3. Perform exec on the current process to replace its address space.
     let current_process = Process::current();
     let mut entry = 0;
+    let mut stack_ptr = 0;
     let mut exec_err = None;
 
+    let argv_refs: Vec<&str> = argv.iter().map(|s| s.as_str()).collect();
+    let envp_refs: Vec<&str> = envp.iter().map(|s| s.as_str()).collect();
+
     PROCESS_TABLE.update_process(current_process.pid, |p| {
-        match p.exec(&path, &elf_image, &[], &[]) {
-            Ok(loaded) => {
+        match p.exec(&path, &elf_image, &argv_refs, &envp_refs) {
+            Ok((loaded, sp)) => {
                 entry = loaded.entry;
+                stack_ptr = sp;
             }
             Err(err) => {
                 exec_err = Some(err);
@@ -91,15 +96,6 @@ pub fn syscall_execve(
     if let Some(err) = exec_err {
         return to_continue_i32(Err(err));
     }
-
-    // 4. Setup the new user-space stack with argv and envp.
-    let argv_refs: Vec<&str> = argv.iter().map(|s| s.as_str()).collect();
-    let envp_refs: Vec<&str> = envp.iter().map(|s| s.as_str()).collect();
-
-    let stack_ptr = match setup_user_stack(&current_process.vm, &argv_refs, &envp_refs, entry) {
-        Ok(sp) => sp,
-        Err(err) => return to_continue_i32(Err(err)),
-    };
 
     // 5. Modify the UserContext to jump to the new entry point on syscall return.
     context.set_instruction_pointer(entry);

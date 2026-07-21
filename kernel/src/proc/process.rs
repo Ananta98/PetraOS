@@ -210,6 +210,21 @@ impl Process {
         child
     }
 
+    /// Get the current process executing in the current task context, or fall back to PID 1 (init).
+    pub fn current() -> Process {
+        if let Some(task) = ostd::task::Task::current() {
+            if let Some(task_data) = task.data().downcast_ref::<crate::scheduler::TaskData>() {
+                if let Some(proc) = PROCESS_TABLE.get_process(task_data.pid) {
+                    return proc;
+                }
+            }
+        }
+        // Fallback: return PID 1 (init).
+        PROCESS_TABLE
+            .get_process(Pid::from_raw(1))
+            .expect("init process not found")
+    }
+
     // ---------------------------------------------------------------------------
     // Unix-like lifecycle methods
     // ---------------------------------------------------------------------------
@@ -238,9 +253,9 @@ impl Process {
         &mut self,
         path: &str,
         elf_image: &[u8],
-        _argv: &[&str],
-        _envp: &[&str],
-    ) -> Result<LoadedElf, Error> {
+        argv: &[&str],
+        envp: &[&str],
+    ) -> Result<(LoadedElf, usize), Error> {
         let region_specs: Vec<(usize, usize)> = {
             let regions = self.vm.regions.lock();
             regions
@@ -254,6 +269,7 @@ impl Process {
         }
 
         let loaded = load_elf_image(&self.vm, elf_image)?;
+        let stack_ptr = crate::proc::userspace::setup_user_stack(&self.vm, argv, envp, loaded.entry)?;
 
         // Set the initial program break right after the loaded ELF image
         // (end of BSS), page-aligned.
@@ -279,7 +295,7 @@ impl Process {
             p.state = ProcessState::Ready;
         });
 
-        Ok(loaded)
+        Ok((loaded, stack_ptr))
     }
 
     /// **`exit(code)`** — terminate this process.
@@ -465,21 +481,6 @@ impl Process {
         });
 
         Ok(())
-    }
-
-    /// Get the current process executing in the current task context, or fall back to PID 1 (init).
-    pub fn current() -> Process {
-        if let Some(task) = ostd::task::Task::current() {
-            if let Some(task_data) = task.data().downcast_ref::<crate::scheduler::TaskData>() {
-                if let Some(proc) = PROCESS_TABLE.get_process(task_data.pid) {
-                    return proc;
-                }
-            }
-        }
-        // Fallback: return PID 1 (init).
-        PROCESS_TABLE
-            .get_process(Pid::from_raw(1))
-            .expect("init process not found")
     }
 }
 
