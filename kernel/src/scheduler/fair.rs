@@ -1,16 +1,17 @@
-use super::{get_deadline, get_sched_data, set_vruntime};
+use super::{TaskData, get_deadline, get_sched_data, set_vruntime};
 use alloc::collections::BTreeMap;
 use alloc::collections::VecDeque;
 use alloc::sync::Arc;
+use core::sync::atomic::Ordering;
 use ostd::task::Task;
 
 /// Run queue logic dedicated to EEVDF (Earliest Eligible Virtual Deadline First) scheduling.
-pub struct EevdfRunQueue {
+pub struct FairRunQueue {
     pub tasks: BTreeMap<u64, VecDeque<Arc<Task>>>,
 }
 
-impl EevdfRunQueue {
-    /// Create a new empty `EevdfRunQueue`.
+impl FairRunQueue {
+    /// Create a new empty `FairRunQueue`.
     pub const fn new() -> Self {
         Self {
             tasks: BTreeMap::new(),
@@ -19,6 +20,17 @@ impl EevdfRunQueue {
 
     /// Enqueue a fair/CFS task.
     pub fn enqueue(&mut self, task: Arc<Task>, vruntime: u64, vtime: u64) {
+        if let Some(data) = task.data().downcast_ref::<TaskData>() {
+            let last_vtime = data.last_dequeue_vtime.load(Ordering::Relaxed);
+            let sleep_ns = vtime.saturating_sub(last_vtime);
+            if sleep_ns > 0 {
+                let ema = data.ema.load(Ordering::Relaxed);
+                // dec = min(sleep_ns * 16 * 256 / 20_000_000, 256)
+                let dec = (sleep_ns * 16 * 256 / 20_000_000).min(256);
+                let new_ema = ema - ema * dec / 256;
+                data.ema.store(new_ema, Ordering::Relaxed);
+            }
+        }
         let new_vruntime = vruntime.max(vtime);
         set_vruntime(&task, new_vruntime);
         self.tasks
@@ -40,7 +52,7 @@ impl EevdfRunQueue {
         for (&vruntime, queue) in self.tasks.range(..=vtime) {
             for (dq_idx, task) in queue.iter().enumerate() {
                 let (class, _) = get_sched_data(task);
-                let deadline = get_deadline(vruntime, class);
+                let deadline = get_deadline(vruntime, class, Some(&**task));
                 if deadline < best_deadline {
                     best_deadline = deadline;
                     best_key = Some(vruntime);
@@ -77,7 +89,15 @@ impl EevdfRunQueue {
             for task in queue {
                 let (class, _) = get_sched_data(task);
                 if let super::SchedClass::Fair { nice } = class {
-                    total += super::nice_to_weight(nice);
+                    let base_weight = nice.to_weight();
+                    if let Some(data) = task.data().downcast_ref::<TaskData>() {
+                        let ema = data.ema.load(Ordering::Relaxed);
+                        let ema_pct = (ema * 100 / 2_000_000).min(100);
+                        let weight_factor = 100 - ema_pct * 75 / 100;
+                        total += base_weight * 100 / weight_factor.max(1);
+                    } else {
+                        total += base_weight;
+                    }
                 }
             }
         }

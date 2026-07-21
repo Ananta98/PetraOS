@@ -1,5 +1,6 @@
 use crate::proc::pid_table::Pid;
 use crate::proc::tid_table::Tid;
+use crate::scheduler::nice::NiceWeight;
 use alloc::boxed::Box;
 use alloc::collections::VecDeque;
 use alloc::sync::Arc;
@@ -12,30 +13,21 @@ use ostd::task::scheduler::{EnqueueFlags, LocalRunQueue, Scheduler, UpdateFlags}
 use ostd::task::{Task, disable_preempt};
 use ostd::util::id_set::Id;
 
-pub mod eevdf;
-pub mod rt;
+pub mod fair;
+pub mod nice;
+pub mod real_time;
 
-use eevdf::EevdfRunQueue;
-use rt::RtRunQueue;
+use fair::FairRunQueue;
+use real_time::RtRunQueue;
 
-/// Linux/Unix priority-to-weight conversion table for nice values [-20 .. 19].
-const SCHED_NICE_TO_WEIGHT: [u64; 40] = [
-    /* -20 */ 88761, 71755, 56483, 46273, 36291, /* -15 */ 29154, 23254, 18705, 14949,
-    11916, /* -10 */ 9548, 7620, 6100, 4904, 3906, /*  -5 */ 3121, 2501, 1991, 1586,
-    1277, /*   0 */ 1024, 820, 655, 526, 414, /*   5 */ 335, 272, 215, 172, 137,
-    /*  10 */ 110, 87, 70, 56, 45, /*  15 */ 36, 29, 23, 18, 15,
-];
-
-/// Helper to convert a nice value (-20 to 19) to standard CFS weight.
 pub fn nice_to_weight(nice: i32) -> u64 {
-    let index = (nice.clamp(-20, 19) + 20) as usize;
-    SCHED_NICE_TO_WEIGHT[index]
+    NiceWeight::new(nice).to_weight()
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum SchedClass {
     RealTime { priority: u32 }, // Higher value is higher priority
-    Fair { nice: i32 },
+    Fair { nice: NiceWeight },
 }
 
 /// Per-task scheduling metadata attached to every `ostd::task::Task`.
@@ -44,6 +36,10 @@ pub struct TaskData {
     pub class: SchedClass,
     /// Accumulated virtual runtime (nanoseconds, CFS bookkeeping).
     pub vruntime: AtomicU64,
+    /// Infinity Scheduler: Exponential Moving Average for execution slices.
+    pub ema: AtomicU64,
+    /// Last time this task was dequeued (vtime).
+    pub last_dequeue_vtime: AtomicU64,
     /// Owning process identifier.
     pub pid: Pid,
     /// This thread's unique identifier.
@@ -56,6 +52,8 @@ impl TaskData {
         Self {
             class,
             vruntime: AtomicU64::new(0),
+            ema: AtomicU64::new(0),
+            last_dequeue_vtime: AtomicU64::new(0),
             pid,
             tid,
         }
@@ -66,7 +64,12 @@ pub(crate) fn get_sched_data(task: &Task) -> (SchedClass, u64) {
     if let Some(data) = task.data().downcast_ref::<TaskData>() {
         (data.class, data.vruntime.load(Ordering::Relaxed))
     } else {
-        (SchedClass::Fair { nice: 0 }, 0)
+        (
+            SchedClass::Fair {
+                nice: NiceWeight::new(0),
+            },
+            0,
+        )
     }
 }
 
@@ -79,19 +82,27 @@ pub(crate) fn set_vruntime(task: &Task, vruntime: u64) {
 pub(crate) fn get_weight(class: SchedClass) -> u64 {
     match class {
         SchedClass::RealTime { .. } => 0,
-        SchedClass::Fair { nice } => nice_to_weight(nice),
+        SchedClass::Fair { nice } => nice.to_weight(),
     }
 }
 
-pub(crate) fn get_deadline(vruntime: u64, class: SchedClass) -> u64 {
-    let weight = get_weight(class);
+pub(crate) fn get_deadline(vruntime: u64, class: SchedClass, task: Option<&Task>) -> u64 {
+    let mut weight = get_weight(class);
+    if let Some(task) = task {
+        if let Some(data) = task.data().downcast_ref::<TaskData>() {
+            let ema = data.ema.load(Ordering::Relaxed);
+            let ema_pct = (ema * 100 / 2_000_000).min(100);
+            let weight_factor = 100 - ema_pct * 75 / 100;
+            weight = weight * 100 / weight_factor.max(1);
+        }
+    }
     vruntime + 1024_000 / weight.max(1)
 }
 
 pub struct RunQueue {
     current: Option<Arc<Task>>,
     rt: RtRunQueue,
-    eevdf: EevdfRunQueue,
+    fair: FairRunQueue,
     vtime: u64,
     nr_runnable: usize,
 }
@@ -101,7 +112,7 @@ impl RunQueue {
         Self {
             current: None,
             rt: RtRunQueue::new(),
-            eevdf: EevdfRunQueue::new(),
+            fair: FairRunQueue::new(),
             vtime: 0,
             nr_runnable: 0,
         }
@@ -117,22 +128,22 @@ impl RunQueue {
         } else {
             0
         };
-        if let Some(eevdf_min) = self.eevdf.min_vruntime() {
+        if let Some(fair_min) = self.fair.min_vruntime() {
             if min_val == 0 {
-                min_val = eevdf_min;
+                min_val = fair_min;
             } else {
-                min_val = min_val.min(eevdf_min);
+                min_val = min_val.min(fair_min);
             }
         }
         min_val
     }
 
     fn total_fair_weight(&self) -> u64 {
-        let mut total = self.eevdf.total_weight();
+        let mut total = self.fair.total_weight();
         if let Some(curr) = &self.current {
             let (class, _) = get_sched_data(curr);
             if let SchedClass::Fair { nice } = class {
-                total += nice_to_weight(nice);
+                total += nice.to_weight();
             }
         }
         total
@@ -142,10 +153,16 @@ impl RunQueue {
         let (class, vruntime) = get_sched_data(&task);
         match class {
             SchedClass::RealTime { priority } => {
-                self.rt.enqueue(task, priority);
+                let mut effective_priority = priority;
+                if let Some(data) = task.data().downcast_ref::<TaskData>() {
+                    let ema = data.ema.load(Ordering::Relaxed);
+                    let decay = (ema * 10 / 2_000_000) as u32; // Drop up to 10 prio levels based on CPU usage
+                    effective_priority = priority.saturating_sub(decay);
+                }
+                self.rt.enqueue(task, effective_priority);
             }
             SchedClass::Fair { .. } => {
-                self.eevdf.enqueue(task, vruntime, self.vtime);
+                self.fair.enqueue(task, vruntime, self.vtime);
             }
         }
         self.nr_runnable += 1;
@@ -175,15 +192,15 @@ impl RunQueue {
                     return true;
                 }
 
-                if self.eevdf.is_empty() {
+                if self.fair.is_empty() {
                     return false;
                 }
 
-                let curr_deadline = get_deadline(curr_vruntime, curr_class);
-                for (&vruntime, queue) in self.eevdf.tasks.range(..=self.vtime) {
+                let curr_deadline = get_deadline(curr_vruntime, curr_class, Some(&**curr));
+                for (&vruntime, queue) in self.fair.tasks.range(..=self.vtime) {
                     for task in queue {
                         let (class, _) = get_sched_data(task);
-                        let deadline = get_deadline(vruntime, class);
+                        let deadline = get_deadline(vruntime, class, Some(&**task));
                         if deadline + 1000 < curr_deadline {
                             return true;
                         }
@@ -205,14 +222,37 @@ impl LocalRunQueue<Task> for RunQueue {
             let (class, vruntime) = get_sched_data(curr);
             match class {
                 SchedClass::RealTime { .. } => {
-                    // RealTime tasks run with fixed priority and don't update vtime/vruntime.
+                    if flags == UpdateFlags::Tick {
+                        if let Some(data) = curr.data().downcast_ref::<TaskData>() {
+                            let ema = data.ema.load(Ordering::Relaxed);
+                            let rt_budget: u64 = 2_000_000;
+                            let delta_ns: u64 = 1_000_000;
+                            if ema < rt_budget {
+                                let ema_delta =
+                                    (rt_budget - ema) * delta_ns * 16 / (rt_budget * 256);
+                                data.ema.store(ema + ema_delta, Ordering::Relaxed);
+                            }
+                        }
+                    }
                 }
                 SchedClass::Fair { nice } => {
                     if flags == UpdateFlags::Tick {
-                        let weight = nice_to_weight(nice);
+                        let weight = nice.to_weight();
                         let delta = 1000;
                         let vruntime_delta = delta * 1024 / weight.max(1);
                         set_vruntime(curr, vruntime + vruntime_delta);
+
+                        // Infinity EMA: ema += (BUDGET_MAX - ema) * delta_ns * 16 / (BUDGET_MAX * 256)
+                        if let Some(data) = curr.data().downcast_ref::<TaskData>() {
+                            let ema = data.ema.load(Ordering::Relaxed);
+                            let budget_max: u64 = 2_000_000;
+                            let delta_ns: u64 = 1_000_000; // Fake 1ms
+                            if ema < budget_max {
+                                let ema_delta =
+                                    (budget_max - ema) * delta_ns * 16 / (budget_max * 256);
+                                data.ema.store(ema + ema_delta, Ordering::Relaxed);
+                            }
+                        }
 
                         let total_w = self.total_fair_weight().max(1);
                         let vtime_delta = delta * 1024 / total_w;
@@ -235,8 +275,8 @@ impl LocalRunQueue<Task> for RunQueue {
             let task = self.rt.pick_next().unwrap();
             self.nr_runnable -= 1;
             task
-        } else if !self.eevdf.is_empty() {
-            let task = self.eevdf.pick_next(self.vtime).unwrap();
+        } else if !self.fair.is_empty() {
+            let task = self.fair.pick_next(self.vtime).unwrap();
             self.nr_runnable -= 1;
             task
         } else {
@@ -254,6 +294,11 @@ impl LocalRunQueue<Task> for RunQueue {
 
     fn dequeue_current(&mut self) -> Option<Arc<Task>> {
         let res = self.current.take().inspect(|task| task.cpu().set_to_none());
+        if let Some(task) = &res {
+            if let Some(data) = task.data().downcast_ref::<TaskData>() {
+                data.last_dequeue_vtime.store(self.vtime, Ordering::Relaxed);
+            }
+        }
         self.vtime = self.vtime.max(self.min_vruntime());
         res
     }
@@ -298,7 +343,11 @@ impl Default for CombinedScheduler {
 impl Scheduler<Task> for CombinedScheduler {
     fn enqueue(&self, runnable: Arc<Task>, flags: EnqueueFlags) -> Option<CpuId> {
         let (still_in_rq, target_cpu) = {
-            let selected_cpu_id = self.select_cpu();
+            let selected_cpu_id = if flags == EnqueueFlags::Spawn {
+                self.select_cpu()
+            } else {
+                CpuId::current_racy()
+            };
 
             if let Err(task_cpu_id) = runnable.cpu().set_if_is_none(selected_cpu_id) {
                 debug_assert!(flags != EnqueueFlags::Spawn);
@@ -361,7 +410,9 @@ mod tests {
         let task_fast = Arc::new(
             TaskOptions::new(|| {})
                 .data(TaskData::new(
-                    SchedClass::Fair { nice: 0 },
+                    SchedClass::Fair {
+                        nice: NiceWeight::new(0),
+                    },
                     Pid::from_raw(1),
                     Tid::from_raw(1),
                 ))
@@ -372,7 +423,9 @@ mod tests {
         let task_slow = Arc::new(
             TaskOptions::new(|| {})
                 .data(TaskData::new(
-                    SchedClass::Fair { nice: 3 },
+                    SchedClass::Fair {
+                        nice: NiceWeight::new(3),
+                    },
                     Pid::from_raw(1),
                     Tid::from_raw(2),
                 ))
@@ -397,7 +450,9 @@ mod tests {
         let current = Arc::new(
             TaskOptions::new(|| {})
                 .data(TaskData::new(
-                    SchedClass::Fair { nice: 0 },
+                    SchedClass::Fair {
+                        nice: NiceWeight::new(0),
+                    },
                     Pid::from_raw(1),
                     Tid::from_raw(3),
                 ))
@@ -407,7 +462,9 @@ mod tests {
         let newcomer = Arc::new(
             TaskOptions::new(|| {})
                 .data(TaskData::new(
-                    SchedClass::Fair { nice: 0 },
+                    SchedClass::Fair {
+                        nice: NiceWeight::new(0),
+                    },
                     Pid::from_raw(1),
                     Tid::from_raw(4),
                 ))
@@ -430,7 +487,9 @@ mod tests {
         let task_fair = Arc::new(
             TaskOptions::new(|| {})
                 .data(TaskData::new(
-                    SchedClass::Fair { nice: 0 },
+                    SchedClass::Fair {
+                        nice: NiceWeight::new(0),
+                    },
                     Pid::from_raw(1),
                     Tid::from_raw(10),
                 ))

@@ -7,6 +7,7 @@ use ostd::task::{Task, TaskOptions};
 
 use crate::proc::pid_table::Pid;
 use crate::proc::tid_table::{THREAD_TABLE, Tid};
+use crate::scheduler::nice::NiceWeight;
 use crate::scheduler::{SchedClass, TaskData};
 
 // ---------------------------------------------------------------------------
@@ -186,7 +187,13 @@ impl KernelThread {
             inner_for_task.join_queue.wake_all();
             THREAD_TABLE.unregister(tid);
         })
-        .data(TaskData::new(SchedClass::Fair { nice: 0 }, pid, tid))
+        .data(TaskData::new(
+            SchedClass::Fair {
+                nice: NiceWeight::new(0),
+            },
+            pid,
+            tid,
+        ))
         .spawn()
         .map_err(|_| ostd::Error::NoMemory)?;
 

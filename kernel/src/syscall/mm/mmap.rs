@@ -5,6 +5,7 @@ use crate::syscall::SyscallResult;
 use crate::vm::vma::VmaManager;
 use alloc::sync::Arc;
 use ostd::Error;
+use ostd::arch::cpu::context::UserContext;
 use ostd::mm::{PAGE_SIZE, PageFlags};
 use ostd::sync::SpinLock;
 
@@ -47,7 +48,7 @@ pub fn syscall_mmap(
     arg4: usize,
     arg5: usize,
     vm: &VmaManager,
-    _: &mut ostd::arch::cpu::context::UserContext,
+    _: &mut UserContext,
 ) -> SyscallResult {
     let addr = arg0;
     let length = arg1;
