@@ -40,7 +40,7 @@ mod tests {
         // Ensure init process exists.
         if PROCESS_TABLE.get_process(Pid::from_raw(1)).is_none() {
             let vm = Arc::new(VmaManager::new());
-            let _init = Process::new(vm, "init");
+            let _init = Process::new_with_pid(Pid::from_raw(1), vm, "init");
         }
 
         let vm = Arc::new(VmaManager::new());
@@ -109,10 +109,7 @@ mod tests {
         // Clean up: set credentials back to 0 so we can modify things as privileged
         // Reset credentials back to 0 directly so subsequent tests/assertions aren't affected
         PROCESS_TABLE.update_process(Process::current().pid, |p| {
-            p.uid = 0;
-            p.euid = 0;
-            p.suid = 0;
-            p.fsuid = 0;
+            p.credentials = Arc::new(crate::proc::credentials::Credentials::new_root());
         });
 
         // Test setpgid and getpgid

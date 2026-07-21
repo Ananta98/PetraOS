@@ -48,7 +48,7 @@ pub fn syscall_kill(
         }
         to_continue_unit(send_signal_to_pid(target, signum, sender_pid))
     } else if pid_raw == 0 {
-        let pgid = sender.pgid;
+        let pgid = sender.pgid();
         if signum == 0 {
             if PROCESS_TABLE.get_processes_by_pgid(pgid).is_empty() {
                 return to_continue_unit(Err(Error::InvalidArgs));

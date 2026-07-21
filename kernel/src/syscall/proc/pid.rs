@@ -31,7 +31,7 @@ pub fn syscall_getppid(
     _: &VmaManager,
     _: &mut UserContext,
 ) -> SyscallResult {
-    let ppid = Process::current().ppid.map_or(0, |p| p.as_u32());
+    let ppid = Process::current().ppid.as_ref().map_or(0, |p| p.pid.as_u32());
     to_continue_i32(Ok(ppid as i32))
 }
 
@@ -56,7 +56,7 @@ pub fn syscall_getpgid(
     };
 
     if let Some(target) = PROCESS_TABLE.get_process(target_pid) {
-        to_continue_i32(Ok(target.pgid.as_u32() as i32))
+        to_continue_i32(Ok(target.pgid().as_u32() as i32))
     } else {
         to_continue_i32(Err(Error::InvalidArgs))
     }
@@ -101,12 +101,13 @@ pub fn syscall_setpgid(
     };
 
     let mut result = Err(Error::InvalidArgs);
-    PROCESS_TABLE.update_process(target_pid, |p| {
-        if p.sid == current.sid {
-            p.pgid = target_pgid;
-            result = Ok(0);
+    if let Some(mut p) = PROCESS_TABLE.get_process(target_pid) {
+        if p.session_id == current.session_id {
+            if p.setpgid(target_pgid).is_ok() {
+                result = Ok(0);
+            }
         }
-    });
+    }
 
     to_continue_i32(result)
 }
@@ -132,7 +133,7 @@ pub fn syscall_getsid(
     };
 
     if let Some(target) = PROCESS_TABLE.get_process(target_pid) {
-        to_continue_i32(Ok(target.sid.as_u32() as i32))
+        to_continue_i32(Ok(target.session_id.as_u32() as i32))
     } else {
         to_continue_i32(Err(Error::InvalidArgs))
     }
@@ -154,9 +155,9 @@ pub fn syscall_setsid(
     let mut result = Err(Error::AccessDenied);
 
     PROCESS_TABLE.update_process(current.pid, |p| {
-        if p.pid != p.pgid {
-            p.pgid = p.pid;
-            p.sid = p.pid;
+        if p.pid != p.pgid() {
+            let _ = p.setpgid(p.pid);
+            p.session_id = p.pid;
             result = Ok(p.pid.as_u32() as i32);
         }
     });

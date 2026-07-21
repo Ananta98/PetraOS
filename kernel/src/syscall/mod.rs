@@ -47,6 +47,57 @@ pub fn to_continue_unit(result: Result<(), Error>) -> SyscallResult {
     to_continue(result.map(|()| 0))
 }
 
+/// Dispatch system calls from user mode to their corresponding kernel implementations.
+///
+/// The dispatch uses a binary search over the compile-time [`SYSCALL_TABLE`],
+/// which keeps the cost constant regardless of how many system calls are
+/// registered. Unknown numbers fall back to `-EINVAL`.
+pub fn dispatch_syscall(
+    num: usize,
+    arg0: usize,
+    arg1: usize,
+    arg2: usize,
+    arg3: usize,
+    arg4: usize,
+    arg5: usize,
+    vm: &VmaManager,
+    context: &mut UserContext,
+) -> SyscallResult {
+    match SYSCALL_TABLE.binary_search_by_key(&num, |(number, _)| *number) {
+        Ok(index) => SYSCALL_TABLE[index].1(arg0, arg1, arg2, arg3, arg4, arg5, vm, context),
+        Err(_) => SyscallResult::Continue(-(Error::InvalidArgs as isize) as usize),
+    }
+}
+
+/// Helper to read a null-terminated string from user space.
+pub fn read_user_string(vm: &VmaManager, user_ptr: usize) -> Result<String, Error> {
+    let mut buf = Vec::new();
+    let mut offset = 0;
+    loop {
+        let mut char_buf = [0u8; 1];
+        vm.copy_from_user(user_ptr + offset, &mut char_buf)?;
+        if char_buf[0] == 0 {
+            break;
+        }
+        buf.push(char_buf[0]);
+        offset += 1;
+        if offset > 4096 {
+            return Err(Error::InvalidArgs);
+        }
+    }
+    String::from_utf8(buf).map_err(|_| Error::InvalidArgs)
+}
+
+/// Helper to read a byte slice from user space.
+pub fn read_user_slice(vm: &VmaManager, user_ptr: usize, len: usize) -> Result<Vec<u8>, Error> {
+    if len > 1024 * 1024 {
+        return Err(Error::InvalidArgs);
+    }
+    let mut buf = alloc::vec![0u8; len];
+    vm.copy_from_user(user_ptr, &mut buf)?;
+    Ok(buf)
+}
+
 /// A unified handler signature for every registered system call.
 ///
 /// Each handler is responsible for marshalling raw user arguments (and copying
@@ -128,55 +179,4 @@ syscall_table! {
     234 => signal::syscall_tgkill,        // SYS_tgkill
     247 => proc::syscall_waitid,           // SYS_waitid
     293 => fs::syscall_pipe2,             // SYS_pipe2
-}
-
-/// Dispatch system calls from user mode to their corresponding kernel implementations.
-///
-/// The dispatch uses a binary search over the compile-time [`SYSCALL_TABLE`],
-/// which keeps the cost constant regardless of how many system calls are
-/// registered. Unknown numbers fall back to `-EINVAL`.
-pub fn dispatch_syscall(
-    num: usize,
-    arg0: usize,
-    arg1: usize,
-    arg2: usize,
-    arg3: usize,
-    arg4: usize,
-    arg5: usize,
-    vm: &VmaManager,
-    context: &mut UserContext,
-) -> SyscallResult {
-    match SYSCALL_TABLE.binary_search_by_key(&num, |(number, _)| *number) {
-        Ok(index) => SYSCALL_TABLE[index].1(arg0, arg1, arg2, arg3, arg4, arg5, vm, context),
-        Err(_) => SyscallResult::Continue(-(Error::InvalidArgs as isize) as usize),
-    }
-}
-
-/// Helper to read a null-terminated string from user space.
-pub fn read_user_string(vm: &VmaManager, user_ptr: usize) -> Result<String, Error> {
-    let mut buf = Vec::new();
-    let mut offset = 0;
-    loop {
-        let mut char_buf = [0u8; 1];
-        vm.copy_from_user(user_ptr + offset, &mut char_buf)?;
-        if char_buf[0] == 0 {
-            break;
-        }
-        buf.push(char_buf[0]);
-        offset += 1;
-        if offset > 4096 {
-            return Err(Error::InvalidArgs);
-        }
-    }
-    String::from_utf8(buf).map_err(|_| Error::InvalidArgs)
-}
-
-/// Helper to read a byte slice from user space.
-pub fn read_user_slice(vm: &VmaManager, user_ptr: usize, len: usize) -> Result<Vec<u8>, Error> {
-    if len > 1024 * 1024 {
-        return Err(Error::InvalidArgs);
-    }
-    let mut buf = alloc::vec![0u8; len];
-    vm.copy_from_user(user_ptr, &mut buf)?;
-    Ok(buf)
 }

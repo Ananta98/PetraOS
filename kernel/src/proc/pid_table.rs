@@ -55,7 +55,11 @@ impl ProcessTable {
 
     pub fn get_processes_by_pgid(&self, pgid: Pid) -> Vec<Process> {
         let table = self.table.lock();
-        table.values().filter(|p| p.pgid == pgid).cloned().collect()
+        table
+            .values()
+            .filter(|p| p.process_group.pgid == pgid)
+            .cloned()
+            .collect()
     }
 
     pub fn update_process<F>(&self, pid: Pid, f: F)

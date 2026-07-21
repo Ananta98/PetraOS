@@ -91,15 +91,15 @@ fn format_status(proc: &Process) -> String {
             ProcessState::Zombie => "zombie",
         },
         pid = proc.pid.as_u32(),
-        ppid = proc.ppid.map_or(0, |p| p.as_u32()),
-        uid = proc.uid,
-        euid = proc.euid,
-        suid = proc.suid,
-        fsuid = proc.fsuid,
-        gid = proc.gid,
-        egid = proc.egid,
-        sgid = proc.sgid,
-        fsgid = proc.fsgid,
+        ppid = proc.ppid.as_ref().map_or(0, |p| p.pid.as_u32()),
+        uid = proc.credentials.uid(),
+        euid = proc.credentials.euid(),
+        suid = proc.credentials.suid(),
+        fsuid = proc.credentials.fsuid(),
+        gid = proc.credentials.gid(),
+        egid = proc.credentials.egid(),
+        sgid = proc.credentials.sgid(),
+        fsgid = proc.credentials.fsgid(),
     )
 }
 
@@ -112,9 +112,9 @@ fn format_stat(proc: &Process) -> String {
         pid = proc.pid.as_u32(),
         name = proc.name,
         state = state_char(proc.state),
-        ppid = proc.ppid.map_or(0, |p| p.as_u32()),
-        pgid = proc.pgid.as_u32(),
-        sid = proc.sid.as_u32(),
+        ppid = proc.ppid.as_ref().map_or(0, |p| p.pid.as_u32()),
+        pgid = proc.pgid().as_u32(),
+        sid = proc.session_id.as_u32(),
     )
 }
 

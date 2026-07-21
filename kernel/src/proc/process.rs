@@ -1,10 +1,12 @@
 use crate::fs::fd_table::FdTable;
 use crate::ipc::ProcessSignals;
+use crate::proc::credentials::Credentials;
 use crate::proc::elf::{LoadedElf, load_elf_image};
 use crate::proc::pid_table::{PROCESS_TABLE, Pid};
+use crate::proc::process_group::{PROCESS_GROUP_TABLE, ProcessGroup};
 use crate::proc::thread::KernelThread;
+use crate::proc::thread_local::TlsTemplate;
 use crate::proc::tid_table::Tid;
-use crate::proc::tls::TlsTemplate;
 use crate::vm::vma::VmaManager;
 use alloc::collections::BTreeMap;
 use alloc::string::String;
@@ -61,37 +63,28 @@ pub struct Process {
     pub pid: Pid,
 
     /// Parent process ID (by value — no strong ref).
-    pub ppid: Option<Pid>,
+    pub ppid: Option<Arc<Process>>,
 
-    /// Real user ID.
-    pub uid: u32,
+    /// Unix process credentials (UID/GID set).
+    ///
+    /// Stored in an `Arc` so that threads sharing a process can read
+    /// credentials without cloning the entire `Process`, and so that
+    /// `fork()` can give each child an independent copy via
+    /// [`Credentials::fork`].
+    pub credentials: Arc<Credentials>,
 
-    /// Effective user ID.
-    pub euid: u32,
+    /// The process group this process currently belongs to.
+    ///
+    /// Stored as an `Arc` so that all members share the same group object;
+    /// membership mutations (add / remove) go through the group's `SpinLock`.
+    pub process_group: Arc<ProcessGroup>,
 
-    /// Saved set-user-ID.
-    pub suid: u32,
-
-    /// Filesystem user ID.
-    pub fsuid: u32,
-
-    /// Real group ID.
-    pub gid: u32,
-
-    /// Effective group ID.
-    pub egid: u32,
-
-    /// Saved set-group-ID.
-    pub sgid: u32,
-
-    /// Filesystem group ID.
-    pub fsgid: u32,
-
-    /// Process group ID.
-    pub pgid: Pid,
-
-    /// Session ID.
-    pub sid: Pid,
+    /// Session ID — the PID of the session leader.
+    ///
+    /// A session encompasses one or more process groups.  `setsid()` sets
+    /// this to the caller's own PID and simultaneously creates a new
+    /// single-process group.
+    pub session_id: Pid,
 
     /// Child processes waiting to be waited on.
     pub children: Arc<SpinLock<Vec<Pid>>>,
@@ -147,20 +140,20 @@ impl Process {
     /// * `name` – Short executable name (basename of the path that will be
     ///            exec'd).  Analogous to Linux's `task_struct::comm`.
     pub fn new(vm: Arc<VmaManager>, name: &str) -> Process {
-        let pid = Pid::new();
+        Self::new_with_pid(Pid::new(), vm, name)
+    }
+
+    /// Create a **new** top-level process with a specific PID.
+    pub fn new_with_pid(pid: Pid, vm: Arc<VmaManager>, name: &str) -> Process {
+        // A new top-level process starts as the leader of its own group.
+        let group = ProcessGroup::new(pid);
+        PROCESS_GROUP_TABLE.register(group.clone());
         let proc = Process {
             pid,
             ppid: None,
-            uid: 0,
-            euid: 0,
-            suid: 0,
-            fsuid: 0,
-            gid: 0,
-            egid: 0,
-            sgid: 0,
-            fsgid: 0,
-            pgid: pid,
-            sid: pid,
+            credentials: Arc::new(Credentials::new_root()),
+            process_group: group,
+            session_id: pid,
             children: Arc::new(SpinLock::new(Vec::new())),
             state: ProcessState::Ready,
             exit_code: 0,
@@ -184,19 +177,16 @@ impl Process {
     /// `PROCESS_TABLE` and added to the parent's child list.
     fn new_child(parent: &Process, vm: Arc<VmaManager>) -> Process {
         let child_pid = Pid::new();
+        // The forked child joins the parent's process group.
+        parent.process_group.add_member(child_pid);
         let child = Process {
             pid: child_pid,
-            ppid: Some(parent.pid),
-            uid: parent.uid,
-            euid: parent.euid,
-            suid: parent.suid,
-            fsuid: parent.fsuid,
-            gid: parent.gid,
-            egid: parent.egid,
-            sgid: parent.sgid,
-            fsgid: parent.fsgid,
-            pgid: parent.pgid,
-            sid: parent.sid,
+            ppid: Some(Arc::new(parent.clone())),
+            // The child receives a cloned Arc. make_mut ensures copy-on-write semantics.
+            credentials: Arc::clone(&parent.credentials),
+            // Share the same group Arc — both parent and child are members.
+            process_group: parent.process_group.clone(),
+            session_id: parent.session_id,
             children: Arc::new(SpinLock::new(Vec::new())),
             state: ProcessState::Ready,
             exit_code: 0,
@@ -307,6 +297,12 @@ impl Process {
         // Clean up any shared memory attachments for this process.
         crate::ipc::SHM_REGISTRY.detach_all_for_process(self.pid);
 
+        // Leave the process group; clean it up from the global table if empty.
+        self.process_group.remove_member(self.pid);
+        if self.process_group.is_empty() {
+            PROCESS_GROUP_TABLE.unregister(self.process_group.pgid);
+        }
+
         PROCESS_TABLE.update_process(self.pid, |p| {
             p.state = ProcessState::Zombie;
             p.exit_code = code;
@@ -321,7 +317,7 @@ impl Process {
                 for child_pid in own_children.drain(..) {
                     if let Some(_) = PROCESS_TABLE.get_process(child_pid) {
                         PROCESS_TABLE.update_process(child_pid, |p| {
-                            p.ppid = Some(init_pid);
+                            p.ppid = Some(Arc::new(init.clone()));
                         });
                     }
                     init_children.push(child_pid);
@@ -424,6 +420,53 @@ impl Process {
         }
     }
 
+    // -----------------------------------------------------------------------
+    // Process group management
+    // -----------------------------------------------------------------------
+
+    /// Returns the process group ID (PGID) of this process.
+    pub fn pgid(&self) -> Pid {
+        self.process_group.pgid
+    }
+
+    /// Move this process into a different process group.
+    ///
+    /// If `new_pgid` equals `self.pid`, a **new** process group is created
+    /// with this process as leader (the `setpgid(0, 0)` / `setsid()` case).
+    /// Otherwise the process joins an existing group identified by `new_pgid`.
+    ///
+    /// Returns `Err(ostd::Error::InvalidArgs)` when `new_pgid` refers to a
+    /// non-existent group and is not equal to `self.pid`.
+    pub fn setpgid(&mut self, new_pgid: Pid) -> Result<(), ostd::Error> {
+        // Remove from the current group.
+        self.process_group.remove_member(self.pid);
+        if self.process_group.is_empty() {
+            PROCESS_GROUP_TABLE.unregister(self.process_group.pgid);
+        }
+
+        if new_pgid == self.pid {
+            // Become leader of a brand-new group.
+            let group = ProcessGroup::new(self.pid);
+            PROCESS_GROUP_TABLE.register(group.clone());
+            self.process_group = group;
+        } else {
+            // Join an existing group.
+            let group = PROCESS_GROUP_TABLE
+                .get(new_pgid)
+                .ok_or(ostd::Error::InvalidArgs)?;
+            group.add_member(self.pid);
+            self.process_group = group;
+        }
+
+        // Reflect the new PGID in the process table entry.
+        let new_group = self.process_group.clone();
+        PROCESS_TABLE.update_process(self.pid, |p| {
+            p.process_group = new_group;
+        });
+
+        Ok(())
+    }
+
     /// Get the current process executing in the current task context, or fall back to PID 1 (init).
     pub fn current() -> Process {
         if let Some(task) = ostd::task::Task::current() {
@@ -473,7 +516,7 @@ mod tests {
         let mut child = init.fork().expect("fork failed");
 
         assert_ne!(child.pid, init.pid);
-        assert_eq!(child.ppid, Some(init.pid));
+        assert_eq!(child.ppid.as_ref().unwrap().pid, init.pid);
         // Child inherits parent name until execve
         assert_eq!(child.name, "init");
         assert_eq!(init.children.lock().len(), 1);

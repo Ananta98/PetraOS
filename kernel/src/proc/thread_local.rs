@@ -1,6 +1,7 @@
 use crate::vm::vma::VmaManager;
 use alloc::vec::Vec;
 use ostd::Error;
+use ostd::arch::cpu::context::FsBase;
 use ostd::mm::{PAGE_SIZE, PageFlags, Vaddr};
 
 /// Per-process template for initializing per-thread TLS blocks
@@ -71,7 +72,6 @@ pub fn allocate_tls_block(vm: &VmaManager, tpl: &TlsTemplate) -> Result<Vaddr, E
 /// The FSGSBASE CPU feature is enabled by the OSTD boot code, so this
 /// instruction is available at privilege level 0.
 pub fn set_fs_base(addr: Vaddr) {
-    use ostd::arch::cpu::context::FsBase;
     FsBase::new(addr).load();
 }
 

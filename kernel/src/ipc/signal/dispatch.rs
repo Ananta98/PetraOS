@@ -132,7 +132,7 @@ pub fn dispatch_pending(process: &mut Process) -> DispatchOutcome {
                     DefaultAction::Stop => {
                         process.set_sleeping();
                         // Notify parent with SIGCHLD.
-                        notify_parent_sigchld(process.ppid, process.pid);
+                        notify_parent_sigchld(process.ppid.clone(), process.pid);
                         return DispatchOutcome::Stopped { signum };
                     }
 
@@ -154,9 +154,9 @@ pub fn dispatch_pending(process: &mut Process) -> DispatchOutcome {
 ///
 /// This is the kernel's internal path for generating SIGCHLD; the user-facing
 /// `kill()` path goes through [`send_signal_to_pid`].
-fn notify_parent_sigchld(ppid: Option<Pid>, child_pid: Pid) {
+fn notify_parent_sigchld(ppid: Option<Arc<Process>>, child_pid: Pid) {
     let parent_pid = match ppid {
-        Some(p) => p,
+        Some(p) => p.pid,
         None => return,
     };
     let info = SigInfo {

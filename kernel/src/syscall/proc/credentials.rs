@@ -16,7 +16,7 @@ pub fn syscall_getuid(
     _: &VmaManager,
     _: &mut UserContext,
 ) -> SyscallResult {
-    to_continue(Ok(Process::current().uid as usize))
+    to_continue(Ok(Process::current().credentials.uid() as usize))
 }
 
 /// `geteuid()` — returns the effective user ID of the calling process (SYS_geteuid = 107).
@@ -30,7 +30,7 @@ pub fn syscall_geteuid(
     _: &VmaManager,
     _: &mut UserContext,
 ) -> SyscallResult {
-    to_continue(Ok(Process::current().euid as usize))
+    to_continue(Ok(Process::current().credentials.euid() as usize))
 }
 
 /// `getgid()` — returns the real group ID of the calling process (SYS_getgid = 104).
@@ -44,7 +44,7 @@ pub fn syscall_getgid(
     _: &VmaManager,
     _: &mut UserContext,
 ) -> SyscallResult {
-    to_continue(Ok(Process::current().gid as usize))
+    to_continue(Ok(Process::current().credentials.gid() as usize))
 }
 
 /// `getegid()` — returns the effective group ID of the calling process (SYS_getegid = 108).
@@ -58,7 +58,7 @@ pub fn syscall_getegid(
     _: &VmaManager,
     _: &mut UserContext,
 ) -> SyscallResult {
-    to_continue(Ok(Process::current().egid as usize))
+    to_continue(Ok(Process::current().credentials.egid() as usize))
 }
 
 /// `setuid()` — sets the effective user ID of the calling process (SYS_setuid = 105).
@@ -78,15 +78,15 @@ pub fn syscall_setuid(
     let mut result = Err(Error::AccessDenied);
 
     PROCESS_TABLE.update_process(current.pid, |p| {
-        if p.euid == 0 {
-            p.uid = uid;
-            p.euid = uid;
-            p.suid = uid;
-            p.fsuid = uid;
+        if p.credentials.euid() == 0 {
+            alloc::sync::Arc::make_mut(&mut p.credentials).set_uid(uid);
+            alloc::sync::Arc::make_mut(&mut p.credentials).set_euid(uid);
+            alloc::sync::Arc::make_mut(&mut p.credentials).set_suid(uid);
+            alloc::sync::Arc::make_mut(&mut p.credentials).set_fsuid(uid);
             result = Ok(0);
-        } else if uid == p.uid || uid == p.suid {
-            p.euid = uid;
-            p.fsuid = uid;
+        } else if uid == p.credentials.uid() || uid == p.credentials.suid() {
+            alloc::sync::Arc::make_mut(&mut p.credentials).set_euid(uid);
+            alloc::sync::Arc::make_mut(&mut p.credentials).set_fsuid(uid);
             result = Ok(0);
         }
     });
@@ -111,15 +111,15 @@ pub fn syscall_setgid(
     let mut result = Err(Error::AccessDenied);
 
     PROCESS_TABLE.update_process(current.pid, |p| {
-        if p.euid == 0 {
-            p.gid = gid;
-            p.egid = gid;
-            p.sgid = gid;
-            p.fsgid = gid;
+        if p.credentials.euid() == 0 {
+            alloc::sync::Arc::make_mut(&mut p.credentials).set_gid(gid);
+            alloc::sync::Arc::make_mut(&mut p.credentials).set_egid(gid);
+            alloc::sync::Arc::make_mut(&mut p.credentials).set_sgid(gid);
+            alloc::sync::Arc::make_mut(&mut p.credentials).set_fsgid(gid);
             result = Ok(0);
-        } else if gid == p.gid || gid == p.sgid {
-            p.egid = gid;
-            p.fsgid = gid;
+        } else if gid == p.credentials.gid() || gid == p.credentials.sgid() {
+            alloc::sync::Arc::make_mut(&mut p.credentials).set_egid(gid);
+            alloc::sync::Arc::make_mut(&mut p.credentials).set_fsgid(gid);
             result = Ok(0);
         }
     });
@@ -145,8 +145,8 @@ pub fn syscall_setreuid(
     let mut result = Err(Error::AccessDenied);
 
     PROCESS_TABLE.update_process(current.pid, |p| {
-        let old_ruid = p.uid;
-        let old_euid = p.euid;
+        let old_ruid = p.credentials.uid();
+        let old_euid = p.credentials.euid();
 
         let target_ruid = if ruid != -1 { ruid as u32 } else { old_ruid };
         let target_euid = if euid != -1 { euid as u32 } else { old_euid };
@@ -154,25 +154,27 @@ pub fn syscall_setreuid(
         let is_ruid_changed = ruid != -1;
         let is_euid_changed = euid != -1;
 
-        if p.euid == 0 {
-            p.uid = target_ruid;
-            p.euid = target_euid;
-            p.fsuid = target_euid;
+        if p.credentials.euid() == 0 {
+            alloc::sync::Arc::make_mut(&mut p.credentials).set_uid(target_ruid);
+            alloc::sync::Arc::make_mut(&mut p.credentials).set_euid(target_euid);
+            alloc::sync::Arc::make_mut(&mut p.credentials).set_fsuid(target_euid);
             if is_ruid_changed || (is_euid_changed && target_euid != old_ruid) {
-                p.suid = target_euid;
+                alloc::sync::Arc::make_mut(&mut p.credentials).set_suid(target_euid);
             }
             result = Ok(0);
         } else {
             let ruid_ok = !is_ruid_changed || (target_ruid == old_ruid || target_ruid == old_euid);
             let euid_ok = !is_euid_changed
-                || (target_euid == old_ruid || target_euid == old_euid || target_euid == p.suid);
+                || (target_euid == old_ruid
+                    || target_euid == old_euid
+                    || target_euid == p.credentials.suid());
 
             if ruid_ok && euid_ok {
-                p.uid = target_ruid;
-                p.euid = target_euid;
-                p.fsuid = target_euid;
+                alloc::sync::Arc::make_mut(&mut p.credentials).set_uid(target_ruid);
+                alloc::sync::Arc::make_mut(&mut p.credentials).set_euid(target_euid);
+                alloc::sync::Arc::make_mut(&mut p.credentials).set_fsuid(target_euid);
                 if is_ruid_changed || (is_euid_changed && target_euid != old_ruid) {
-                    p.suid = target_euid;
+                    alloc::sync::Arc::make_mut(&mut p.credentials).set_suid(target_euid);
                 }
                 result = Ok(0);
             }
@@ -200,8 +202,8 @@ pub fn syscall_setregid(
     let mut result = Err(Error::AccessDenied);
 
     PROCESS_TABLE.update_process(current.pid, |p| {
-        let old_rgid = p.gid;
-        let old_egid = p.egid;
+        let old_rgid = p.credentials.gid();
+        let old_egid = p.credentials.egid();
 
         let target_rgid = if rgid != -1 { rgid as u32 } else { old_rgid };
         let target_egid = if egid != -1 { egid as u32 } else { old_egid };
@@ -209,25 +211,27 @@ pub fn syscall_setregid(
         let is_rgid_changed = rgid != -1;
         let is_egid_changed = egid != -1;
 
-        if p.euid == 0 {
-            p.gid = target_rgid;
-            p.egid = target_egid;
-            p.fsgid = target_egid;
+        if p.credentials.euid() == 0 {
+            alloc::sync::Arc::make_mut(&mut p.credentials).set_gid(target_rgid);
+            alloc::sync::Arc::make_mut(&mut p.credentials).set_egid(target_egid);
+            alloc::sync::Arc::make_mut(&mut p.credentials).set_fsgid(target_egid);
             if is_rgid_changed || (is_egid_changed && target_egid != old_rgid) {
-                p.sgid = target_egid;
+                alloc::sync::Arc::make_mut(&mut p.credentials).set_sgid(target_egid);
             }
             result = Ok(0);
         } else {
             let rgid_ok = !is_rgid_changed || (target_rgid == old_rgid || target_rgid == old_egid);
             let egid_ok = !is_egid_changed
-                || (target_egid == old_rgid || target_egid == old_egid || target_egid == p.sgid);
+                || (target_egid == old_rgid
+                    || target_egid == old_egid
+                    || target_egid == p.credentials.sgid());
 
             if rgid_ok && egid_ok {
-                p.gid = target_rgid;
-                p.egid = target_egid;
-                p.fsgid = target_egid;
+                alloc::sync::Arc::make_mut(&mut p.credentials).set_gid(target_rgid);
+                alloc::sync::Arc::make_mut(&mut p.credentials).set_egid(target_egid);
+                alloc::sync::Arc::make_mut(&mut p.credentials).set_fsgid(target_egid);
                 if is_rgid_changed || (is_egid_changed && target_egid != old_rgid) {
-                    p.sgid = target_egid;
+                    alloc::sync::Arc::make_mut(&mut p.credentials).set_sgid(target_egid);
                 }
                 result = Ok(0);
             }
@@ -256,29 +260,29 @@ pub fn syscall_setresuid(
     let mut result = Err(Error::AccessDenied);
 
     PROCESS_TABLE.update_process(current.pid, |p| {
-        let old_ruid = p.uid;
-        let old_euid = p.euid;
-        let old_suid = p.suid;
+        let old_ruid = p.credentials.uid();
+        let old_euid = p.credentials.euid();
+        let old_suid = p.credentials.suid();
 
         let target_ruid = if ruid != -1 { ruid as u32 } else { old_ruid };
         let target_euid = if euid != -1 { euid as u32 } else { old_euid };
         let target_suid = if suid != -1 { suid as u32 } else { old_suid };
 
-        if p.euid == 0 {
-            p.uid = target_ruid;
-            p.euid = target_euid;
-            p.suid = target_suid;
-            p.fsuid = target_euid;
+        if p.credentials.euid() == 0 {
+            alloc::sync::Arc::make_mut(&mut p.credentials).set_uid(target_ruid);
+            alloc::sync::Arc::make_mut(&mut p.credentials).set_euid(target_euid);
+            alloc::sync::Arc::make_mut(&mut p.credentials).set_suid(target_suid);
+            alloc::sync::Arc::make_mut(&mut p.credentials).set_fsuid(target_euid);
             result = Ok(0);
         } else {
             let matches_any =
                 |val: u32| -> bool { val == old_ruid || val == old_euid || val == old_suid };
 
             if matches_any(target_ruid) && matches_any(target_euid) && matches_any(target_suid) {
-                p.uid = target_ruid;
-                p.euid = target_euid;
-                p.suid = target_suid;
-                p.fsuid = target_euid;
+                alloc::sync::Arc::make_mut(&mut p.credentials).set_uid(target_ruid);
+                alloc::sync::Arc::make_mut(&mut p.credentials).set_euid(target_euid);
+                alloc::sync::Arc::make_mut(&mut p.credentials).set_suid(target_suid);
+                alloc::sync::Arc::make_mut(&mut p.credentials).set_fsuid(target_euid);
                 result = Ok(0);
             }
         }
@@ -306,29 +310,29 @@ pub fn syscall_setresgid(
     let mut result = Err(Error::AccessDenied);
 
     PROCESS_TABLE.update_process(current.pid, |p| {
-        let old_rgid = p.gid;
-        let old_egid = p.egid;
-        let old_sgid = p.sgid;
+        let old_rgid = p.credentials.gid();
+        let old_egid = p.credentials.egid();
+        let old_sgid = p.credentials.sgid();
 
         let target_rgid = if rgid != -1 { rgid as u32 } else { old_rgid };
         let target_egid = if egid != -1 { egid as u32 } else { old_egid };
         let target_sgid = if sgid != -1 { sgid as u32 } else { old_sgid };
 
-        if p.euid == 0 {
-            p.gid = target_rgid;
-            p.egid = target_egid;
-            p.sgid = target_sgid;
-            p.fsgid = target_egid;
+        if p.credentials.euid() == 0 {
+            alloc::sync::Arc::make_mut(&mut p.credentials).set_gid(target_rgid);
+            alloc::sync::Arc::make_mut(&mut p.credentials).set_egid(target_egid);
+            alloc::sync::Arc::make_mut(&mut p.credentials).set_sgid(target_sgid);
+            alloc::sync::Arc::make_mut(&mut p.credentials).set_fsgid(target_egid);
             result = Ok(0);
         } else {
             let matches_any =
                 |val: u32| -> bool { val == old_rgid || val == old_egid || val == old_sgid };
 
             if matches_any(target_rgid) && matches_any(target_egid) && matches_any(target_sgid) {
-                p.gid = target_rgid;
-                p.egid = target_egid;
-                p.sgid = target_sgid;
-                p.fsgid = target_egid;
+                alloc::sync::Arc::make_mut(&mut p.credentials).set_gid(target_rgid);
+                alloc::sync::Arc::make_mut(&mut p.credentials).set_egid(target_egid);
+                alloc::sync::Arc::make_mut(&mut p.credentials).set_sgid(target_sgid);
+                alloc::sync::Arc::make_mut(&mut p.credentials).set_fsgid(target_egid);
                 result = Ok(0);
             }
         }
@@ -354,19 +358,19 @@ pub fn syscall_getresuid(
     let current = Process::current();
 
     if ruid_ptr != 0 {
-        let val = current.uid;
+        let val = current.credentials.uid();
         if let Err(err) = vm.copy_to_user(ruid_ptr, &val.to_ne_bytes()) {
             return to_continue_i32(Err(err));
         }
     }
     if euid_ptr != 0 {
-        let val = current.euid;
+        let val = current.credentials.euid();
         if let Err(err) = vm.copy_to_user(euid_ptr, &val.to_ne_bytes()) {
             return to_continue_i32(Err(err));
         }
     }
     if suid_ptr != 0 {
-        let val = current.suid;
+        let val = current.credentials.suid();
         if let Err(err) = vm.copy_to_user(suid_ptr, &val.to_ne_bytes()) {
             return to_continue_i32(Err(err));
         }
@@ -392,19 +396,19 @@ pub fn syscall_getresgid(
     let current = Process::current();
 
     if rgid_ptr != 0 {
-        let val = current.gid;
+        let val = current.credentials.gid();
         if let Err(err) = vm.copy_to_user(rgid_ptr, &val.to_ne_bytes()) {
             return to_continue_i32(Err(err));
         }
     }
     if egid_ptr != 0 {
-        let val = current.egid;
+        let val = current.credentials.egid();
         if let Err(err) = vm.copy_to_user(egid_ptr, &val.to_ne_bytes()) {
             return to_continue_i32(Err(err));
         }
     }
     if sgid_ptr != 0 {
-        let val = current.sgid;
+        let val = current.credentials.sgid();
         if let Err(err) = vm.copy_to_user(sgid_ptr, &val.to_ne_bytes()) {
             return to_continue_i32(Err(err));
         }
@@ -426,12 +430,17 @@ pub fn syscall_setfsuid(
 ) -> SyscallResult {
     let fsuid = arg0 as u32;
     let current = Process::current();
-    let mut prev_fsuid = current.fsuid;
+    let mut prev_fsuid = current.credentials.fsuid();
 
     PROCESS_TABLE.update_process(current.pid, |p| {
-        prev_fsuid = p.fsuid;
-        if p.euid == 0 || fsuid == p.uid || fsuid == p.euid || fsuid == p.suid || fsuid == p.fsuid {
-            p.fsuid = fsuid;
+        prev_fsuid = p.credentials.fsuid();
+        if p.credentials.euid() == 0
+            || fsuid == p.credentials.uid()
+            || fsuid == p.credentials.euid()
+            || fsuid == p.credentials.suid()
+            || fsuid == p.credentials.fsuid()
+        {
+            alloc::sync::Arc::make_mut(&mut p.credentials).set_fsuid(fsuid);
         }
     });
 
@@ -451,12 +460,17 @@ pub fn syscall_setfsgid(
 ) -> SyscallResult {
     let fsgid = arg0 as u32;
     let current = Process::current();
-    let mut prev_fsgid = current.fsgid;
+    let mut prev_fsgid = current.credentials.fsgid();
 
     PROCESS_TABLE.update_process(current.pid, |p| {
-        prev_fsgid = p.fsgid;
-        if p.euid == 0 || fsgid == p.gid || fsgid == p.egid || fsgid == p.sgid || fsgid == p.fsgid {
-            p.fsgid = fsgid;
+        prev_fsgid = p.credentials.fsgid();
+        if p.credentials.euid() == 0
+            || fsgid == p.credentials.gid()
+            || fsgid == p.credentials.egid()
+            || fsgid == p.credentials.sgid()
+            || fsgid == p.credentials.fsgid()
+        {
+            alloc::sync::Arc::make_mut(&mut p.credentials).set_fsgid(fsgid);
         }
     });
 

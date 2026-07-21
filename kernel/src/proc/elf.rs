@@ -1,4 +1,4 @@
-use crate::proc::tls::TlsTemplate;
+use crate::proc::thread_local::TlsTemplate;
 use crate::vm::vma::VmaManager;
 use alloc::sync::Arc;
 use core::cmp;

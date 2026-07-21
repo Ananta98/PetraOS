@@ -1,9 +1,11 @@
+pub mod credentials;
 pub mod elf;
 pub mod pid_table;
 pub mod process;
+pub mod process_group;
 pub mod thread;
+pub mod thread_local;
 pub mod tid_table;
-pub mod tls;
 pub mod user;
 
 // Re-export the most commonly used thread types so that other modules can
@@ -42,8 +44,20 @@ pub fn spawn_init_process() {
 
     for &path in DEFAULT_INIT_EXEC_PATHS {
         let executable_name = path.rfind('/').map_or(path, |i| &path[i + 1..]);
-        if let Ok((process, loaded)) = try_load_init_exec(vm.clone(), path, executable_name) {
+        if let Ok((process, loaded)) = load_init_exec(vm.clone(), path, executable_name) {
             let entry = loaded.entry;
+
+            // Open stdin, stdout, and stderr to /dev/console
+            let mut fds = process.fd_table.lock();
+            let _stdin = fds
+                .open("/dev/console", 0, 0)
+                .expect("failed to open stdin");
+            let _stdout = fds
+                .open("/dev/console", 1, 0)
+                .expect("failed to open stdout");
+            let _stderr = fds
+                .open("/dev/console", 1, 0)
+                .expect("failed to open stderr");
 
             // Set up the user-space stack (argv, envp, auxv per System V ABI).
             let stack_ptr = crate::proc::user::setup_user_stack(&process.vm, &[path], &[], entry)
@@ -72,7 +86,7 @@ pub fn spawn_init_process() {
 /// Reads the file from the VFS, creates a fresh `Process`, and replaces its
 /// address space with the loaded ELF image.  Returns `Ok((process, loaded))`
 /// on success, or `Err` if the path could not be resolved, read, or loaded.
-fn try_load_init_exec(
+fn load_init_exec(
     vm: Arc<VmaManager>,
     path: &str,
     executable_name: &str,

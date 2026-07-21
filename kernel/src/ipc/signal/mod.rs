@@ -335,11 +335,8 @@ mod tests {
 
         // Change child1 and child2 pgid to the same process group (e.g. child1.pid)
         let pgid = child1.pid;
-        PROCESS_TABLE.update_process(child1.pid, |p| p.pgid = pgid);
-        PROCESS_TABLE.update_process(child2.pid, |p| p.pgid = pgid);
-
-        child1.pgid = pgid;
-        child2.pgid = pgid;
+        let _ = child1.setpgid(pgid);
+        let _ = child2.setpgid(pgid);
 
         // Send a signal to the process group
         send_signal_to_group(pgid.as_u32(), SIGTERM, parent.pid.as_u32())
