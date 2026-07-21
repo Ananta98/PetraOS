@@ -75,6 +75,8 @@ impl InodeOps for BlockDeviceInode {
             size: dev_size,
             file_type: FileType::BlockDevice,
             mode: 0o660,
+            uid: 0,
+            gid: 0,
             inode_num: 0,
             nlink: 1,
         })

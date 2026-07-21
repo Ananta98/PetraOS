@@ -188,9 +188,28 @@ impl InodeOps for Ext2Inode {
             size: guard.i_size as usize,
             file_type,
             mode: guard.i_mode as u32,
+            uid: guard.i_uid as u32,
+            gid: guard.i_gid as u32,
             inode_num: self.inode_num as u64,
             nlink: guard.i_links_count as u32,
         })
+    }
+
+    fn chmod(&self, mode: u32) -> Result<()> {
+        let mut guard = self.inode.lock();
+        // Keep the file type bits, replace the permissions
+        let file_type = guard.i_mode & 0xF000;
+        guard.i_mode = file_type | (mode as u16 & 0x0FFF);
+        self.fs.write_inode(self.inode_num, &guard)?;
+        Ok(())
+    }
+
+    fn chown(&self, uid: u32, gid: u32) -> Result<()> {
+        let mut guard = self.inode.lock();
+        guard.i_uid = uid as u16;
+        guard.i_gid = gid as u16;
+        self.fs.write_inode(self.inode_num, &guard)?;
+        Ok(())
     }
 
     fn read_link(&self) -> Result<String> {

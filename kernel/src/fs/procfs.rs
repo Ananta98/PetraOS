@@ -189,6 +189,8 @@ impl InodeOps for ProcFileInode {
             size: content.len(),
             file_type: FileType::Regular,
             mode: 0o444,
+            uid: 0,
+            gid: 0,
             inode_num: self.inode_num,
             nlink: 1,
         })
@@ -294,6 +296,8 @@ impl InodeOps for ProcSymlinkInode {
             size: target.len(),
             file_type: FileType::Symlink,
             mode: 0o777,
+            uid: 0,
+            gid: 0,
             inode_num: self.inode_num,
             nlink: 1,
         })
@@ -377,6 +381,8 @@ impl InodeOps for ProcFdDirInode {
             size: 0,
             file_type: FileType::Directory,
             mode: 0o500,
+            uid: 0,
+            gid: 0,
             inode_num: self.inode_num,
             nlink: 1,
         })
@@ -498,6 +504,8 @@ impl InodeOps for ProcPidInode {
             size: 0,
             file_type: FileType::Directory,
             mode: 0o555,
+            uid: 0,
+            gid: 0,
             inode_num: self.inode_num,
             nlink: 1,
         })
@@ -635,6 +643,8 @@ impl InodeOps for ProcRootInode {
             size: 0,
             file_type: FileType::Directory,
             mode: 0o555,
+            uid: 0,
+            gid: 0,
             inode_num: self.inode_num,
             nlink: 1,
         })

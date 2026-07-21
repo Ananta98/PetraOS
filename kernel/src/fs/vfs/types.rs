@@ -25,6 +25,8 @@ pub struct Metadata {
     pub size: usize,
     pub file_type: FileType,
     pub mode: u32,
+    pub uid: u32,
+    pub gid: u32,
     pub inode_num: u64,
     pub nlink: u32,
 }
@@ -76,6 +78,16 @@ pub trait InodeOps: Send + Sync {
 
     /// Rename a directory entry.
     fn rename(&self, old_name: &str, new_parent: &Arc<dyn InodeOps>, new_name: &str) -> Result<()>;
+
+    /// Change file permissions.
+    fn chmod(&self, _mode: u32) -> Result<()> {
+        Err(Error::InvalidArgs)
+    }
+
+    /// Change file owner and group.
+    fn chown(&self, _uid: u32, _gid: u32) -> Result<()> {
+        Err(Error::InvalidArgs)
+    }
 }
 
 /// Interface for open file operations, analogous to `file_operations` in Linux.

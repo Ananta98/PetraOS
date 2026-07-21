@@ -32,6 +32,8 @@ impl RamfsInode {
                     size: 0,
                     file_type,
                     mode,
+                    uid: 0,
+                    gid: 0,
                     inode_num,
                     nlink: 1,
                 },
@@ -97,6 +99,18 @@ impl InodeOps for RamfsInode {
 
     fn metadata(&self) -> Result<Metadata> {
         Ok(self.inner.lock().metadata.clone())
+    }
+
+    fn chmod(&self, mode: u32) -> Result<()> {
+        self.inner.lock().metadata.mode = mode;
+        Ok(())
+    }
+
+    fn chown(&self, uid: u32, gid: u32) -> Result<()> {
+        let mut inner = self.inner.lock();
+        inner.metadata.uid = uid;
+        inner.metadata.gid = gid;
+        Ok(())
     }
 
     fn read_link(&self) -> Result<String> {

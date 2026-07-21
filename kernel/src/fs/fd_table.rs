@@ -133,6 +133,16 @@ impl FdTable {
         Ok(newfd)
     }
 
+    /// Duplicate `oldfd` onto `newfd` with flags. Fails if `oldfd == newfd`.
+    pub fn dup3(&mut self, oldfd: i32, newfd: i32, _flags: u32) -> Result<i32, Error> {
+        if newfd < 0 || oldfd == newfd {
+            return Err(Error::InvalidArgs);
+        }
+        let fd_entry = self.fds.get(&oldfd).cloned().ok_or(Error::InvalidArgs)?;
+        self.fds.insert(newfd, fd_entry);
+        Ok(newfd)
+    }
+
     /// Read up to `buf.len()` bytes from file descriptor `fd` into `buf`.
     pub fn read(&self, fd: i32, buf: &mut [u8]) -> Result<usize, Error> {
         let fd_entry = self.fds.get(&fd).cloned().ok_or(Error::InvalidArgs)?;

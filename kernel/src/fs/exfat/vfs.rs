@@ -216,6 +216,8 @@ impl InodeOps for ExFatInode {
             size: info.size as usize,
             file_type,
             mode: if info.is_dir { 0o755 } else { 0o644 },
+            uid: 0,
+            gid: 0,
             inode_num,
             nlink: 1,
         })

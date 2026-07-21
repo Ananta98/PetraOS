@@ -124,6 +124,8 @@ impl InodeOps for GpuInode {
             size,
             file_type: FileType::CharDevice,
             mode: 0o660,
+            uid: 0,
+            gid: 0,
             inode_num: 0,
             nlink: 1,
         })

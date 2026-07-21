@@ -152,6 +152,9 @@ syscall_table! {
     62  => signal::syscall_kill,          // SYS_kill
     67  => mm::syscall_shmdt,              // SYS_shmdt
     72  => signal::syscall_rt_sigsuspend, // SYS_rt_sigsuspend
+    80  => fs::syscall_chdir,             // SYS_chdir
+    90  => fs::syscall_chmod,             // SYS_chmod
+    92  => fs::syscall_chown,             // SYS_chown
     96  => time::syscall_gettimeofday,     // SYS_gettimeofday
     102 => proc::syscall_getuid,           // SYS_getuid
     104 => proc::syscall_getgid,           // SYS_getgid
@@ -178,5 +181,6 @@ syscall_table! {
     229 => time::syscall_clock_getres,     // SYS_clock_getres
     234 => signal::syscall_tgkill,        // SYS_tgkill
     247 => proc::syscall_waitid,           // SYS_waitid
+    292 => fs::syscall_dup3,              // SYS_dup3
     293 => fs::syscall_pipe2,             // SYS_pipe2
 }
