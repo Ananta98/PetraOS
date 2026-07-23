@@ -1,99 +1,21 @@
+//! Networking stack subsystem leveraging smoltcp.
+//! Enforces safety guidelines and denies unsafe code.
+
+pub mod device;
+pub mod socket;
+
+pub use device::{SmoltcpDevice, SmoltcpRxToken, SmoltcpTxToken};
+
 use crate::drivers::net::DEFAULT_NET_DEVICE;
-use crate::drivers::net::NetDevice;
 use crate::drivers::timer::Timer;
 use crate::drivers::timer::Tsc;
 use alloc::boxed::Box;
-use alloc::sync::Arc;
 use ostd::sync::SpinLock;
 use smoltcp::iface::{Config, Interface, SocketHandle, SocketSet};
-use smoltcp::phy::{Device, DeviceCapabilities, RxToken, TxToken};
 use smoltcp::socket::dhcpv4::Socket as Dhcpv4Socket;
 use smoltcp::socket::dns::{DnsQuery, Socket as DnsSocket};
 use smoltcp::time::Instant;
 use smoltcp::wire::{EthernetAddress, HardwareAddress, IpAddress, IpCidr};
-
-pub mod arp;
-pub mod dhcp;
-pub mod dns;
-pub mod eth;
-pub mod icmp;
-pub mod ipv4;
-pub mod ipv6;
-pub mod socket;
-pub mod udp;
-
-pub struct SmoltcpDevice {
-    device: Arc<dyn crate::drivers::net::NetDevice>,
-}
-
-impl<'a> Device for SmoltcpDevice {
-    type RxToken<'b>
-        = SmoltcpRxToken
-    where
-        Self: 'b;
-    type TxToken<'b>
-        = SmoltcpTxToken
-    where
-        Self: 'b;
-
-    fn receive(&mut self, _timestamp: Instant) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
-        let mut buf = alloc::vec![0u8; 2048];
-        match self.device.recv(&mut buf) {
-            Ok(len) if len > 0 => {
-                buf.truncate(len);
-                Some((
-                    SmoltcpRxToken { buf },
-                    SmoltcpTxToken {
-                        device: self.device.clone(),
-                    },
-                ))
-            }
-            _ => None,
-        }
-    }
-
-    fn transmit(&mut self, _timestamp: Instant) -> Option<Self::TxToken<'_>> {
-        Some(SmoltcpTxToken {
-            device: self.device.clone(),
-        })
-    }
-
-    fn capabilities(&self) -> DeviceCapabilities {
-        let mut caps = DeviceCapabilities::default();
-        caps.max_transmission_unit = 1500;
-        caps.medium = smoltcp::phy::Medium::Ethernet;
-        caps
-    }
-}
-
-pub struct SmoltcpRxToken {
-    buf: alloc::vec::Vec<u8>,
-}
-
-impl RxToken for SmoltcpRxToken {
-    fn consume<R, F>(mut self, f: F) -> R
-    where
-        F: FnOnce(&mut [u8]) -> R,
-    {
-        f(&mut self.buf)
-    }
-}
-
-pub struct SmoltcpTxToken {
-    device: Arc<dyn NetDevice>,
-}
-
-impl TxToken for SmoltcpTxToken {
-    fn consume<R, F>(self, len: usize, f: F) -> R
-    where
-        F: FnOnce(&mut [u8]) -> R,
-    {
-        let mut buf = alloc::vec![0u8; len];
-        let res = f(&mut buf);
-        let _ = self.device.send(&buf);
-        res
-    }
-}
 
 pub struct NetStack {
     pub interface: Interface,
@@ -110,9 +32,7 @@ pub fn init() {
     let timestamp = Instant::from_millis((now_ns / 1_000_000) as i64);
 
     if let Some(device_arc) = DEFAULT_NET_DEVICE.get() {
-        let mut dev = SmoltcpDevice {
-            device: device_arc.clone(),
-        };
+        let mut dev = SmoltcpDevice::new(device_arc.clone());
         let mac = device_arc.mac_address();
         let ethernet_addr = EthernetAddress::from_bytes(&mac);
 
@@ -158,10 +78,8 @@ pub fn poll() {
     let mut stack_guard = NET_STACK.lock();
     if let Some(stack) = stack_guard.as_mut() {
         if let Some(device_arc) = DEFAULT_NET_DEVICE.get() {
-            let mut dev = SmoltcpDevice {
-                device: device_arc.clone(),
-            };
-            let now_ns = crate::drivers::timer::Tsc::new().current_time_ns();
+            let mut dev = SmoltcpDevice::new(device_arc.clone());
+            let now_ns = Tsc::new().current_time_ns();
             let timestamp = Instant::from_millis((now_ns / 1_000_000) as i64);
             let _ = stack
                 .interface
@@ -209,6 +127,7 @@ pub fn poll() {
 mod tests {
     use super::*;
     use crate::drivers::net::NetDevice;
+    use alloc::sync::Arc;
     use ostd::prelude::ktest;
     use smoltcp::socket::tcp::{Socket as TcpSocket, SocketBuffer as TcpSocketBuffer};
     use smoltcp::socket::udp::{
@@ -219,9 +138,7 @@ mod tests {
     #[ktest]
     fn test_udp_loopback() {
         let sim_device = Arc::new(crate::drivers::net::SimulatedNetDevice::new());
-        let mut dev = SmoltcpDevice {
-            device: sim_device.clone(),
-        };
+        let mut dev = SmoltcpDevice::new(sim_device.clone());
 
         let mac = sim_device.mac_address();
         let ethernet_addr = EthernetAddress::from_bytes(&mac);
@@ -229,7 +146,7 @@ mod tests {
         let mut config = Config::new(HardwareAddress::Ethernet(ethernet_addr));
         config.random_seed = 0x12345678;
 
-        let now_ns = crate::drivers::timer::Tsc::new().current_time_ns();
+        let now_ns = Tsc::new().current_time_ns();
         let timestamp = Instant::from_millis((now_ns / 1_000_000) as i64);
 
         let mut interface = Interface::new(config, &mut dev, timestamp);
@@ -271,12 +188,12 @@ mod tests {
         }
 
         // Poll interface to transmit the packet
-        let now_ns = crate::drivers::timer::Tsc::new().current_time_ns();
+        let now_ns = Tsc::new().current_time_ns();
         let timestamp = Instant::from_millis((now_ns / 1_000_000) as i64);
         interface.poll(timestamp, &mut dev, &mut sockets);
 
         // Poll interface to process the received packet
-        let now_ns = crate::drivers::timer::Tsc::new().current_time_ns();
+        let now_ns = Tsc::new().current_time_ns();
         let timestamp = Instant::from_millis((now_ns / 1_000_000) as i64);
         interface.poll(timestamp, &mut dev, &mut sockets);
 
@@ -294,9 +211,7 @@ mod tests {
     #[ktest]
     fn test_tcp_loopback() {
         let sim_device = Arc::new(crate::drivers::net::SimulatedNetDevice::new());
-        let mut dev = SmoltcpDevice {
-            device: sim_device.clone(),
-        };
+        let mut dev = SmoltcpDevice::new(sim_device.clone());
 
         let mac = sim_device.mac_address();
         let ethernet_addr = EthernetAddress::from_bytes(&mac);
@@ -304,7 +219,7 @@ mod tests {
         let mut config = Config::new(HardwareAddress::Ethernet(ethernet_addr));
         config.random_seed = 0x12345678;
 
-        let now_ns = crate::drivers::timer::Tsc::new().current_time_ns();
+        let now_ns = Tsc::new().current_time_ns();
         let timestamp = Instant::from_millis((now_ns / 1_000_000) as i64);
 
         let mut interface = Interface::new(config, &mut dev, timestamp);
@@ -348,7 +263,7 @@ mod tests {
 
         // Poll multiple times to complete connection handshake (SYN -> SYN-ACK -> ACK)
         for _ in 0..5 {
-            let now_ns = crate::drivers::timer::Tsc::new().current_time_ns();
+            let now_ns = Tsc::new().current_time_ns();
             let timestamp = Instant::from_millis((now_ns / 1_000_000) as i64);
             interface.poll(timestamp, &mut dev, &mut sockets);
         }
@@ -367,7 +282,7 @@ mod tests {
 
         // Poll to transmit data
         for _ in 0..3 {
-            let now_ns = crate::drivers::timer::Tsc::new().current_time_ns();
+            let now_ns = Tsc::new().current_time_ns();
             let timestamp = Instant::from_millis((now_ns / 1_000_000) as i64);
             interface.poll(timestamp, &mut dev, &mut sockets);
         }

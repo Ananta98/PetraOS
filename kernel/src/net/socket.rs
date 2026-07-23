@@ -1,7 +1,6 @@
 //! Networking socket abstractions (TCP and UDP) wrapping smoltcp sockets.
 //! Enforces safety guidelines and denies unsafe code.
 
-use alloc::vec::Vec;
 use smoltcp::socket::tcp::{Socket as SmoltcpTcpSocket, SocketBuffer as TcpSocketBuffer};
 use smoltcp::socket::udp::{
     PacketBuffer as UdpPacketBuffer, PacketMetadata as UdpPacketMetadata,
@@ -44,6 +43,11 @@ impl<'a> TcpSocket<'a> {
     pub fn inner_mut(&mut self) -> &mut SmoltcpTcpSocket<'a> {
         &mut self.inner
     }
+
+    /// Consume wrapper and return inner smoltcp socket.
+    pub fn into_inner(self) -> SmoltcpTcpSocket<'a> {
+        self.inner
+    }
 }
 
 /// A UDP socket wrapper that manages its own packet buffers and metadata.
@@ -79,6 +83,11 @@ impl<'a> UdpSocket<'a> {
     /// Return a mutable reference to the underlying smoltcp UDP socket.
     pub fn inner_mut(&mut self) -> &mut SmoltcpUdpSocket<'a> {
         &mut self.inner
+    }
+
+    /// Consume wrapper and return inner smoltcp socket.
+    pub fn into_inner(self) -> SmoltcpUdpSocket<'a> {
+        self.inner
     }
 }
 
