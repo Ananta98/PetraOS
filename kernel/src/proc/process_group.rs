@@ -94,7 +94,9 @@ impl ProcessGroup {
         let pids = self.member_pids();
         for pid in pids {
             if let Some(proc) = PROCESS_TABLE.get_process(pid) {
-                proc.signals.queue.enqueue(crate::ipc::signal::types::SigInfo::kernel(signal as u32));
+                proc.signals
+                    .queue
+                    .enqueue(crate::ipc::signal::types::SigInfo::kernel(signal as u32));
             }
         }
     }

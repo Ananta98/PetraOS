@@ -3,6 +3,7 @@ use crate::proc::thread::KernelThread;
 use crate::proc::thread_local::{allocate_tls_block, get_fs_base, set_fs_base};
 use crate::syscall::{SyscallResult, dispatch_syscall};
 use crate::vm::vma::VmaManager;
+use alloc::string::String;
 use alloc::vec::Vec;
 use core::sync::atomic::Ordering;
 use ostd::Error;
@@ -241,4 +242,33 @@ pub fn run_process_user_mode(
     // Set process status to Zombie and record exit code
     process.exit(exit_status);
     Ok(exit_status)
+}
+
+/// Helper to read a null-terminated string from user space.
+pub fn read_user_string(vm: &VmaManager, user_ptr: usize) -> Result<String, Error> {
+    let mut buf = Vec::new();
+    let mut offset = 0;
+    loop {
+        let mut char_buf = [0u8; 1];
+        vm.copy_from_user(user_ptr + offset, &mut char_buf)?;
+        if char_buf[0] == 0 {
+            break;
+        }
+        buf.push(char_buf[0]);
+        offset += 1;
+        if offset > 4096 {
+            return Err(Error::InvalidArgs);
+        }
+    }
+    String::from_utf8(buf).map_err(|_| Error::InvalidArgs)
+}
+
+/// Helper to read a byte slice from user space.
+pub fn read_user_slice(vm: &VmaManager, user_ptr: usize, len: usize) -> Result<Vec<u8>, Error> {
+    if len > 1024 * 1024 {
+        return Err(Error::InvalidArgs);
+    }
+    let mut buf = alloc::vec![0u8; len];
+    vm.copy_from_user(user_ptr, &mut buf)?;
+    Ok(buf)
 }

@@ -269,7 +269,8 @@ impl Process {
         }
 
         let loaded = load_elf_image(&self.vm, elf_image)?;
-        let stack_ptr = crate::proc::userspace::setup_user_stack(&self.vm, argv, envp, loaded.entry)?;
+        let stack_ptr =
+            crate::proc::userspace::setup_user_stack(&self.vm, argv, envp, loaded.entry)?;
 
         // Set the initial program break right after the loaded ELF image
         // (end of BSS), page-aligned.
