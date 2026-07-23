@@ -1,4 +1,5 @@
 use crate::proc::process::Process;
+use crate::proc::userspace::{read_user_slice, read_user_string};
 use crate::syscall::SyscallResult;
 use crate::syscall::to_continue_i32;
 use crate::vm::vma::VmaManager;
@@ -16,7 +17,7 @@ pub fn syscall_open(
 ) -> SyscallResult {
     let flags = arg1 as u32;
     let mode = arg2 as u32;
-    match crate::syscall::read_user_string(vm, arg0) {
+    match read_user_string(vm, arg0) {
         Ok(path) => to_continue_i32(Process::current().fd_table.lock().open(&path, flags, mode)),
         Err(error) => to_continue_i32(Err(error)),
     }

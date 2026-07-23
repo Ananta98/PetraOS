@@ -6,8 +6,7 @@
 /// Returns `0` on success, or a negated `errno` on failure.
 use crate::proc::pid_table::PROCESS_TABLE;
 use crate::proc::process::Process;
-use crate::proc::userspace::setup_user_stack;
-use crate::syscall::read_user_string;
+use crate::proc::userspace::{read_user_string, setup_user_stack};
 use crate::syscall::{SyscallResult, to_continue_i32};
 use crate::vm::vma::VmaManager;
 use alloc::string::String;

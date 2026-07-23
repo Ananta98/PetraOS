@@ -18,7 +18,7 @@ impl NiceWeight {
     pub fn to_weight(&self) -> u64 {
         let mut weight: u64 = 1024;
         let nice = self.0;
-        
+
         if nice < 0 {
             // weight = 1024 * (5/4) ^ (-nice)
             for _ in 0..(-nice) {

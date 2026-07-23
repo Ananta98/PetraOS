@@ -31,7 +31,10 @@ pub fn syscall_getppid(
     _: &VmaManager,
     _: &mut UserContext,
 ) -> SyscallResult {
-    let ppid = Process::current().ppid.as_ref().map_or(0, |p| p.pid.as_u32());
+    let ppid = Process::current()
+        .ppid
+        .as_ref()
+        .map_or(0, |p| p.pid.as_u32());
     to_continue_i32(Ok(ppid as i32))
 }
 

@@ -37,45 +37,50 @@ pub fn syscall_kill(
         return to_continue_unit(Err(Error::InvalidArgs));
     }
 
-    if pid_raw > 0 {
-        let target = Pid::from_raw(pid_raw as u32);
-        if signum == 0 {
-            // Validity check: does the process exist?
-            if PROCESS_TABLE.get_process(target).is_none() {
-                return to_continue_unit(Err(Error::InvalidArgs));
+    match pid_raw {
+        p if p > 0 => {
+            let target = Pid::from_raw(p as u32);
+            if signum == 0 {
+                // Validity check: does the process exist?
+                if PROCESS_TABLE.get_process(target).is_none() {
+                    return to_continue_unit(Err(Error::InvalidArgs));
+                }
+                return to_continue_unit(Ok(()));
             }
-            return to_continue_unit(Ok(()));
+            to_continue_unit(send_signal_to_pid(target, signum, sender_pid))
         }
-        to_continue_unit(send_signal_to_pid(target, signum, sender_pid))
-    } else if pid_raw == 0 {
-        let pgid = sender.pgid();
-        if signum == 0 {
-            if PROCESS_TABLE.get_processes_by_pgid(pgid).is_empty() {
-                return to_continue_unit(Err(Error::InvalidArgs));
+        0 => {
+            let pgid = sender.pgid();
+            if signum == 0 {
+                if PROCESS_TABLE.get_processes_by_pgid(pgid).is_empty() {
+                    return to_continue_unit(Err(Error::InvalidArgs));
+                }
+                return to_continue_unit(Ok(()));
             }
-            return to_continue_unit(Ok(()));
+            to_continue_unit(crate::ipc::dispatch::send_signal_to_group(
+                pgid.as_u32(),
+                signum,
+                sender_pid,
+            ))
         }
-        to_continue_unit(crate::ipc::dispatch::send_signal_to_group(
-            pgid.as_u32(),
-            signum,
-            sender_pid,
-        ))
-    } else if pid_raw < -1 {
-        let pgid = (-pid_raw) as u32;
-        if signum == 0 {
-            if PROCESS_TABLE
-                .get_processes_by_pgid(Pid::from_raw(pgid))
-                .is_empty()
-            {
-                return to_continue_unit(Err(Error::InvalidArgs));
+        -1 => {
+            // pid == -1: broadcast — not yet implemented.
+            to_continue_unit(Err(Error::InvalidArgs))
+        }
+        p => {
+            let pgid = (-p) as u32;
+            if signum == 0 {
+                if PROCESS_TABLE
+                    .get_processes_by_pgid(Pid::from_raw(pgid))
+                    .is_empty()
+                {
+                    return to_continue_unit(Err(Error::InvalidArgs));
+                }
+                return to_continue_unit(Ok(()));
             }
-            return to_continue_unit(Ok(()));
+            to_continue_unit(crate::ipc::dispatch::send_signal_to_group(
+                pgid, signum, sender_pid,
+            ))
         }
-        to_continue_unit(crate::ipc::dispatch::send_signal_to_group(
-            pgid, signum, sender_pid,
-        ))
-    } else {
-        // pid == -1: broadcast — not yet implemented.
-        to_continue_unit(Err(Error::InvalidArgs))
     }
 }

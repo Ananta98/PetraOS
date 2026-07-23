@@ -48,8 +48,8 @@ pub fn syscall_waitid(
         for (i, &child_pid) in children.iter().enumerate() {
             if let Some(child) = PROCESS_TABLE.get_process(child_pid) {
                 let matches = match idtype {
-                    0 => true,                      // P_ALL
-                    1 => child_pid.as_u32() == id,  // P_PID
+                    0 => true,                        // P_ALL
+                    1 => child_pid.as_u32() == id,    // P_PID
                     2 => child.pgid().as_u32() == id, // P_PGID
                     _ => return to_continue_i32(Err(Error::InvalidArgs)),
                 };

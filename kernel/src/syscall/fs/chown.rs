@@ -1,3 +1,4 @@
+use crate::proc::userspace::read_user_string;
 use crate::syscall::SyscallResult;
 use crate::syscall::to_continue_unit;
 use crate::vm::vma::VmaManager;
@@ -15,12 +16,10 @@ pub fn syscall_chown(
 ) -> SyscallResult {
     let uid = arg1 as u32;
     let gid = arg2 as u32;
-    match crate::syscall::read_user_string(vm, arg0) {
-        Ok(path) => {
-            match crate::fs::vfs::resolve_path(&path) {
-                Ok(dentry) => to_continue_unit(dentry.inode.chown(uid, gid)),
-                Err(error) => to_continue_unit(Err(error)),
-            }
+    match read_user_string(vm, arg0) {
+        Ok(path) => match crate::fs::vfs::resolve_path(&path) {
+            Ok(dentry) => to_continue_unit(dentry.inode.chown(uid, gid)),
+            Err(error) => to_continue_unit(Err(error)),
         },
         Err(error) => to_continue_unit(Err(error)),
     }

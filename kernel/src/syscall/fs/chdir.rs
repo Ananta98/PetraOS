@@ -1,3 +1,4 @@
+use crate::proc::userspace::{read_user_slice, read_user_string};
 use crate::syscall::SyscallResult;
 use crate::syscall::to_continue_unit;
 use crate::vm::vma::VmaManager;
@@ -13,7 +14,7 @@ pub fn syscall_chdir(
     vm: &VmaManager,
     _: &mut ostd::arch::cpu::context::UserContext,
 ) -> SyscallResult {
-    match crate::syscall::read_user_string(vm, arg0) {
+    match read_user_string(vm, arg0) {
         Ok(path) => {
             match crate::fs::vfs::resolve_path(&path) {
                 Ok(dentry) => {
@@ -25,10 +26,10 @@ pub fn syscall_chdir(
                     }
                     *crate::fs::vfs::CWD_DENTRY.lock() = Some(dentry);
                     to_continue_unit(Ok(()))
-                },
+                }
                 Err(error) => to_continue_unit(Err(error)),
             }
-        },
+        }
         Err(error) => to_continue_unit(Err(error)),
     }
 }
