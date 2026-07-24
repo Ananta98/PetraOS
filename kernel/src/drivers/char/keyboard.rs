@@ -293,7 +293,6 @@ pub fn init() {
     let _ = register_char_device("keyboard", keyboard);
 }
 
-
 #[cfg(ktest)]
 mod tests {
     use super::*;

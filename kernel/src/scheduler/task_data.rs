@@ -1,9 +1,9 @@
-use core::sync::atomic::{AtomicU64, Ordering};
-use ostd::task::Task;
 use crate::proc::pid_table::Pid;
 use crate::proc::tid_table::Tid;
-use crate::scheduler::nice::NiceWeight;
 use crate::scheduler::SchedClass;
+use crate::scheduler::nice::NiceWeight;
+use core::sync::atomic::{AtomicU64, Ordering};
+use ostd::task::Task;
 
 /// Per-task scheduling metadata attached to every `ostd::task::Task`.
 pub struct TaskData {

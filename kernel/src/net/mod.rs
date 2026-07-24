@@ -83,7 +83,6 @@ pub fn init() {
     }
 }
 
-
 /// Poll the global network stack to process packets.
 /// Handles DHCP configuration updates and ICMP echo requests automatically.
 pub fn poll() {

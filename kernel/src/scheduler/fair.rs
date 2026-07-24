@@ -130,7 +130,8 @@ impl SchedClassPolicy for FairRunQueue {
         if let (SchedClass::Fair { .. }, SchedClass::Fair { .. }) = (curr_class, new_class) {
             let effective_new_vruntime = new_vruntime.max(vtime);
             let curr_deadline = TaskData::deadline(curr_vruntime, curr_class, Some(curr));
-            let new_deadline = TaskData::deadline(effective_new_vruntime, new_class, Some(newcomer));
+            let new_deadline =
+                TaskData::deadline(effective_new_vruntime, new_class, Some(newcomer));
 
             new_deadline < curr_deadline
         } else {

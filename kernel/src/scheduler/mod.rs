@@ -28,11 +28,11 @@ pub mod real_time;
 pub mod runqueue;
 pub mod task_data;
 
+pub use crate::scheduler::task_data::TaskData;
 pub use fair::FairRunQueue;
 pub use policy::SchedClassPolicy;
 pub use real_time::{RtRunQueue, RtSchedClass};
 pub use runqueue::PerCpuClassRqSet;
-pub use crate::scheduler::task_data::TaskData;
 
 /// Alias for `TaskData::sched_data`.
 pub fn get_sched_data(task: &ostd::task::Task) -> (SchedClass, u64) {
@@ -40,7 +40,6 @@ pub fn get_sched_data(task: &ostd::task::Task) -> (SchedClass, u64) {
 }
 
 pub fn nice_to_weight(nice: i32) -> u64 {
-
     NiceWeight::new(nice).to_weight()
 }
 
@@ -60,7 +59,6 @@ impl SchedClass {
         }
     }
 }
-
 
 /// Top-level multi-core scheduler managing per-CPU runqueue sets (`PerCpuClassRqSet`).
 pub struct ClassScheduler {
@@ -236,7 +234,6 @@ mod tests {
         );
 
         TaskData::set_vruntime(&current, 1500);
-
 
         rq.current = Some(current.clone());
         rq.vtime = 0;

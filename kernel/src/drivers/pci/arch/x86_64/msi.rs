@@ -12,7 +12,6 @@ use crate::drivers::pci::capability::{CAP_MSI, CAP_MSIX, capabilities};
 use crate::drivers::pci::device::PciDevice;
 use crate::irq::{IrqHandler, IrqRegistration};
 
-
 /// The base Local APIC message address for x86_64 MSI.
 pub const MSI_ADDR_BASE: u32 = 0xFEE0_0000;
 
@@ -175,7 +174,6 @@ pub fn enable_msi_vectors(
     if handlers.len() != num_vectors {
         return Err(Error::InvalidArgs);
     }
-
 
     let cap_offset = find_msi_capability(device).ok_or(Error::NotEnoughResources)?;
     let msg_ctrl = device.read_config_u16(cap_offset + 2);

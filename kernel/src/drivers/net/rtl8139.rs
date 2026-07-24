@@ -62,9 +62,7 @@ impl Rtl8139 {
         let irq_line = pci_dev.interrupt_line();
         if irq_line != 0 && irq_line < 16 {
             if let Ok(irq) = crate::irq::map_isa_irq(irq_line, move || {
-                if let Ok(port) =
-                    IoPort::<u16, ReadWriteAccess>::acquire(io_base as u16 + 0x3E)
-                {
+                if let Ok(port) = IoPort::<u16, ReadWriteAccess>::acquire(io_base as u16 + 0x3E) {
                     let isr = port.read();
                     // RTL8139 ISR: bit 0 = ROK (Rx OK), bit 2 = TOK (Tx OK)
                     if (isr & 0x0001) != 0 {

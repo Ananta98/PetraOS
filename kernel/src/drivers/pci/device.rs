@@ -137,7 +137,6 @@ impl PciDevice {
     pub fn enable_msi(
         &self,
         handler: impl crate::irq::IrqHandler,
-
     ) -> Result<arch::msi::MsiConfig, ostd::Error> {
         arch::msi::enable_msi(self, handler)
     }

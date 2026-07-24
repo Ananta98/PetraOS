@@ -3,9 +3,9 @@
 use alloc::sync::Arc;
 use core::sync::atomic::Ordering;
 
+use ostd::task::Task;
 use ostd::task::scheduler::info::CommonSchedInfo;
 use ostd::task::scheduler::{LocalRunQueue, UpdateFlags};
-use ostd::task::Task;
 
 use super::fair::FairRunQueue;
 use super::policy::SchedClassPolicy;
