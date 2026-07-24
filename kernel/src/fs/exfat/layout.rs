@@ -1,3 +1,5 @@
+//! exFAT On-Disk Layout Definitions & Data Structures.
+
 use alloc::string::String;
 
 #[derive(Debug, Clone, Copy)]

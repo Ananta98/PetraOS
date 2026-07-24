@@ -1,7 +1,4 @@
-/// EXT2 Filesystem Structs
-///
-/// Defines the on-disk format structures of EXT2 (Superblock, GroupDescriptor, Inode, etc.)
-/// and basic configuration constants.
+//! EXT2 On-Disk Layout Definitions & Parsing Helpers.
 
 pub const EXT2_MAGIC: u16 = 0xEF53;
 
@@ -178,4 +175,13 @@ impl Inode {
             buf[offset..offset + 4].copy_from_slice(&self.i_block[i].to_le_bytes());
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct Ext2FileInfo {
+    pub name: alloc::string::String,
+    pub inode_num: u32,
+    pub mode: u16,
+    pub size: u32,
+    pub is_dir: bool,
 }

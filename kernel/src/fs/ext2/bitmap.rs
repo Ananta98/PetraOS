@@ -1,6 +1,5 @@
 use ostd::Error;
-
-use super::ondisk::{Ext2FsState, read_blocks, write_blocks};
+use super::superblock::{Ext2FsState, read_blocks, write_blocks};
 use crate::fs::vfs::Result;
 
 pub(crate) struct BlockBitmap<'a> {
