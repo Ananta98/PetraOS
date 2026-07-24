@@ -42,12 +42,6 @@ impl VmaManager {
             .find(|r| r.contains(fault_addr))
             .ok_or(Error::InvalidArgs)?;
 
-        // Check if the fault address falls within the guard page region.
-        let guard_end = region.start + region.guard_size;
-        if region.guard_size > 0 && fault_addr >= region.start && fault_addr < guard_end {
-            return Err(Error::InvalidArgs);
-        }
-
         // Clone the region data under the lock, then release the lock before
         // performing the potentially-blocking file read.
         let region_clone = region.clone();
@@ -77,7 +71,7 @@ impl VmaManager {
                 let mut file_read_offset =
                     region_clone.file_offset + (page_vaddr - region_clone.start);
                 let mut frame_writer = frame.writer();
-                let mut file_buf = alloc::vec![0u8; PAGE_SIZE];
+                let mut file_buf = [0u8; PAGE_SIZE];
 
                 let mut file = backing.lock();
                 if file.read(&mut file_buf, &mut file_read_offset).is_ok() {
@@ -93,7 +87,7 @@ impl VmaManager {
             return Ok(());
         }
 
-        // If page is present and has write do Copy on Write
+        // If page is present and write fault, handle Copy-on-Write
         if is_present && is_write {
             let (_range, item) = cursor.query().map_err(|_| InvalidArgs)?;
             let item = item.ok_or(InvalidArgs)?;
@@ -103,35 +97,24 @@ impl VmaManager {
                 prop: _,
             } = item
             {
-                let ref_count = old_frame_ref.reference_count();
                 let old_frame = (*old_frame_ref).clone();
-
-                if ref_count > 1 {
+                let frame_to_map = if old_frame.reference_count() > 1 {
                     let new_frame: UFrame = FrameAllocOptions::new()
                         .alloc_frame()
                         .map_err(|_| Error::NoMemory)?
                         .into();
-
-                    let mut old_reader = old_frame.reader();
-                    let mut new_writer = new_frame.writer();
-                    new_writer.write(&mut old_reader);
-
-                    let property =
-                        PageProperty::new_user(region_clone.flags, CachePolicy::Writeback);
-                    cursor.unmap(PAGE_SIZE);
-                    cursor.jump(page_vaddr).map_err(|_| Error::InvalidArgs)?;
-                    cursor.map(new_frame, property);
-
-                    return Ok(());
+                    new_frame.writer().write(&mut old_frame.reader());
+                    new_frame
                 } else {
-                    let property =
-                        PageProperty::new_user(region_clone.flags, CachePolicy::Writeback);
-                    cursor.unmap(PAGE_SIZE);
-                    cursor.jump(page_vaddr).map_err(|_| Error::InvalidArgs)?;
-                    cursor.map(old_frame, property);
+                    old_frame
+                };
 
-                    return Ok(());
-                }
+                let property = PageProperty::new_user(region_clone.flags, CachePolicy::Writeback);
+                cursor.unmap(PAGE_SIZE);
+                cursor.jump(page_vaddr).map_err(|_| Error::InvalidArgs)?;
+                cursor.map(frame_to_map, property);
+
+                return Ok(());
             }
         }
 
@@ -141,12 +124,11 @@ impl VmaManager {
 
 /// Top-level page fault handler registered with the architectural CPU exception table.
 ///
-/// This delegates processing of the user-space page fault to the active process's
-/// `VmaManager`. Returns `Ok(())` if the fault was successfully handled and resolved,
-/// or `Err(())` if the fault remains unresolved (which will generally abort the offending thread/process).
+/// Delegates processing of the user-space page fault to the active process's `VmaManager`.
 pub fn handle_page_fault(info: &CpuException) -> Result<(), ()> {
     if let CpuException::PageFault(pf_info) = info {
-        if let Some(manager) = VMA_MANAGER.get() {
+        let vma_manager = VMA_MANAGER.get().cloned();
+        if let Some(manager) = vma_manager {
             if manager
                 .alloc_frame_for_fault(pf_info.addr, pf_info.error_code)
                 .is_ok()

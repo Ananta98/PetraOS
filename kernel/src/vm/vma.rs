@@ -83,18 +83,7 @@ impl VmaManager {
         }
 
         let mut regions = self.regions.lock();
-        regions.insert(
-            start,
-            VmaRegion {
-                start,
-                size,
-                flags,
-                guard_size: 0,
-                file_backing: None,
-                file_offset: 0,
-                is_shared: false,
-            },
-        );
+        regions.insert(start, VmaRegion::new(start, size, flags));
 
         Ok(())
     }
@@ -132,19 +121,11 @@ impl VmaManager {
             cursor.map(frame.clone(), property);
         }
 
+        let mut region = VmaRegion::new(start, size, flags);
+        region.is_shared = true;
+
         let mut regions = self.regions.lock();
-        regions.insert(
-            start,
-            VmaRegion {
-                start,
-                size,
-                flags,
-                guard_size: 0,
-                file_backing: None,
-                file_offset: 0,
-                is_shared: true,
-            },
-        );
+        regions.insert(start, region);
 
         Ok(())
     }
@@ -166,19 +147,11 @@ impl VmaManager {
             return Err(Error::InvalidArgs);
         }
 
-        let total_size = stack_size + guard_size;
+        let stack_start = start + guard_size;
         let mut regions = self.regions.lock();
         regions.insert(
-            start,
-            VmaRegion {
-                start,
-                size: total_size,
-                flags: PageFlags::RW,
-                guard_size,
-                file_backing: None,
-                file_offset: 0,
-                is_shared: false,
-            },
+            stack_start,
+            VmaRegion::new(stack_start, stack_size, PageFlags::RW),
         );
         Ok(())
     }
@@ -231,18 +204,7 @@ impl VmaManager {
         }
 
         let mut regions = self.regions.lock();
-        regions.insert(
-            start,
-            VmaRegion {
-                start,
-                size,
-                flags,
-                guard_size: 0,
-                file_backing: None,
-                file_offset: 0,
-                is_shared: false,
-            },
-        );
+        regions.insert(start, VmaRegion::new(start, size, flags));
 
         Ok(())
     }
@@ -257,8 +219,8 @@ impl VmaManager {
     pub fn find_free_region(&self, size: usize) -> Option<Vaddr> {
         let regions = self.regions.lock();
         let mut candidate = USER_SPACE_START;
-        for (_start, region) in regions.iter() {
-            let region_end = region.start.checked_add(region.size)?;
+        for region in regions.values() {
+            let region_end = region.end();
             if candidate + size <= region.start {
                 return Some(candidate);
             }
@@ -279,12 +241,12 @@ impl VmaManager {
     /// Returns a tuple containing the VMA's start address and a cloned copy of its metadata.
     pub fn find_vma(&self, addr: Vaddr) -> Option<(Vaddr, VmaRegion)> {
         let regions = self.regions.lock();
-        for (&start, region) in regions.iter() {
-            if region.contains(addr) {
-                return Some((start, region.clone()));
-            }
+        let (&start, region) = regions.range(..=addr).next_back()?;
+        if region.contains(addr) {
+            Some((start, region.clone()))
+        } else {
+            None
         }
-        None
     }
 
     /// Creates an anonymous memory mapping (`MAP_ANONYMOUS`).
@@ -402,16 +364,13 @@ impl VmaManager {
         // Collect all regions overlapping with [start, end_addr).
         let overlapping_keys: Vec<Vaddr> = regions
             .iter()
-            .filter(|(_, r)| {
-                let r_end = r.start.checked_add(r.size).unwrap_or(0);
-                r.start < end_addr && r_end > start
-            })
+            .filter(|(_, r)| r.start < end_addr && r.end() > start)
             .map(|(&k, _)| k)
             .collect();
 
         for key in overlapping_keys {
             let region = regions.remove(&key).unwrap();
-            let r_end = region.start.checked_add(region.size).unwrap_or(0);
+            let r_end = region.end();
 
             if start <= region.start && end_addr >= r_end {
                 // Fully covered — remove entirely.
@@ -419,61 +378,20 @@ impl VmaManager {
                     let current_pid = crate::proc::process::Process::current().pid;
                     crate::ipc::shm::shm_dt_if_attached(current_pid, region.start);
                 }
-                continue;
             } else if region.start < start && r_end > end_addr {
                 // Target is in the middle — split into left and right.
-                regions.insert(
-                    region.start,
-                    VmaRegion {
-                        start: region.start,
-                        size: start - region.start,
-                        flags: region.flags,
-                        guard_size: 0,
-                        file_backing: region.file_backing.clone(),
-                        file_offset: region.file_offset,
-                        is_shared: region.is_shared,
-                    },
-                );
-                regions.insert(
-                    end_addr,
-                    VmaRegion {
-                        start: end_addr,
-                        size: r_end - end_addr,
-                        flags: region.flags,
-                        guard_size: 0,
-                        file_backing: region.file_backing.clone(),
-                        file_offset: region.file_offset + (end_addr - region.start),
-                        is_shared: region.is_shared,
-                    },
-                );
-            } else if region.start < start && r_end <= end_addr {
+                let (left, temp_right) = region.split_at(start);
+                let (_, right) = temp_right.split_at(end_addr);
+                regions.insert(left.start, left);
+                regions.insert(right.start, right);
+            } else if region.start < start {
                 // Overlaps on the right side — keep left part.
-                regions.insert(
-                    region.start,
-                    VmaRegion {
-                        start: region.start,
-                        size: start - region.start,
-                        flags: region.flags,
-                        guard_size: 0,
-                        file_backing: region.file_backing.clone(),
-                        file_offset: region.file_offset,
-                        is_shared: region.is_shared,
-                    },
-                );
-            } else if region.start >= start && r_end > end_addr {
+                let (left, _) = region.split_at(start);
+                regions.insert(left.start, left);
+            } else {
                 // Overlaps on the left side — keep right part.
-                regions.insert(
-                    end_addr,
-                    VmaRegion {
-                        start: end_addr,
-                        size: r_end - end_addr,
-                        flags: region.flags,
-                        guard_size: 0,
-                        file_backing: region.file_backing.clone(),
-                        file_offset: region.file_offset + (end_addr - region.start),
-                        is_shared: region.is_shared,
-                    },
-                );
+                let (_, right) = region.split_at(end_addr);
+                regions.insert(right.start, right);
             }
         }
 
@@ -568,6 +486,218 @@ impl VmaManager {
         writer.write_fallible(&mut reader).map_err(|(err, _)| err)?;
         Ok(())
     }
+
+    /// Merges adjacent compatible VMAs in `self.regions` to minimize fragmentation.
+    pub fn coalesce_regions(&self) {
+        let mut regions = self.regions.lock();
+        let keys: Vec<Vaddr> = regions.keys().cloned().collect();
+
+        for key in keys {
+            if let Some(current) = regions.get(&key).cloned() {
+                let current_end = current.end();
+                if let Some(next) = regions.get(&current_end).cloned() {
+                    if current.can_merge_with(&next) {
+                        regions.remove(&current_end);
+                        let merged = VmaRegion {
+                            size: current.size + next.size,
+                            ..current
+                        };
+                        regions.insert(key, merged);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Gives advice to the kernel about memory usage patterns for `start..start + size` (`madvise(2)`).
+    ///
+    /// * `DontNeed`: Frees physical page table mappings for the specified range while keeping
+    ///   the VMA metadata intact. Subsequent accesses will trigger lazy demand paging.
+    /// * `WillNeed`: Pre-populates physical frames for the range.
+    pub fn madvise(&self, start: Vaddr, size: usize, advice: AdviseFlag) -> Result<(), Error> {
+        if start % PAGE_SIZE != 0 || size % PAGE_SIZE != 0 {
+            return Err(Error::InvalidArgs);
+        }
+        if size == 0 {
+            return Ok(());
+        }
+
+        let end_addr = start.checked_add(size).ok_or(Error::InvalidArgs)?;
+
+        match advice {
+            AdviseFlag::DontNeed => {
+                let guard = disable_preempt();
+                let vaddr_range = start..end_addr;
+                let mut cursor = self
+                    .vm_space
+                    .cursor_mut(&guard, &vaddr_range)
+                    .map_err(|_| Error::NoMemory)?;
+                cursor.unmap(size);
+                Ok(())
+            }
+            AdviseFlag::WillNeed => {
+                let num_pages = size / PAGE_SIZE;
+                for page_idx in 0..num_pages {
+                    let page_vaddr = start + (page_idx * PAGE_SIZE);
+                    let _ = self.alloc_frame_for_fault(
+                        page_vaddr,
+                        ostd::arch::cpu::context::PageFaultErrorCode::empty(),
+                    );
+                }
+                Ok(())
+            }
+            AdviseFlag::Normal | AdviseFlag::Random | AdviseFlag::Sequential => Ok(()),
+        }
+    }
+
+    /// Resizes or relocates an existing virtual memory mapping (`mremap(2)`).
+    ///
+    /// * If `new_size < old_size`, shrinks mapping by unmapping the excess range.
+    /// * If `new_size > old_size`, attempts to expand in-place or relocates if `allow_move` is true.
+    pub fn mremap(
+        &self,
+        old_addr: Vaddr,
+        old_size: usize,
+        new_size: usize,
+        allow_move: bool,
+    ) -> Result<Vaddr, Error> {
+        if old_addr % PAGE_SIZE != 0 || old_size == 0 || new_size == 0 {
+            return Err(Error::InvalidArgs);
+        }
+
+        let old_aligned = align_up(old_size, PAGE_SIZE);
+        let new_aligned = align_up(new_size, PAGE_SIZE);
+
+        let (_, old_vma) = self.find_vma(old_addr).ok_or(Error::InvalidArgs)?;
+        if old_vma.start != old_addr || old_vma.size < old_aligned {
+            return Err(Error::InvalidArgs);
+        }
+
+        if new_aligned == old_aligned {
+            return Ok(old_addr);
+        }
+
+        if new_aligned < old_aligned {
+            self.munmap(old_addr + new_aligned, old_aligned - new_aligned)?;
+            return Ok(old_addr);
+        }
+
+        // Expand in-place if space after old_addr is available
+        let expand_size = new_aligned - old_aligned;
+        let expand_start = old_addr + old_aligned;
+
+        let in_place_possible = {
+            let regions = self.regions.lock();
+            let expand_end = expand_start + expand_size;
+            regions
+                .values()
+                .all(|r| r.end() <= expand_start || r.start >= expand_end)
+                && expand_end <= USER_SPACE_END
+        };
+
+        if in_place_possible {
+            let mut regions = self.regions.lock();
+            if let Some(vma) = regions.get_mut(&old_addr) {
+                vma.size = new_aligned;
+            }
+            drop(regions);
+
+            if old_vma.file_backing.is_none() {
+                let _ = self.map_region_lazy(expand_start, expand_size, old_vma.flags);
+            }
+            return Ok(old_addr);
+        }
+
+        if !allow_move {
+            return Err(Error::NoMemory);
+        }
+
+        // Relocate to a new address range
+        let new_addr = self
+            .find_free_region(new_aligned)
+            .ok_or(Error::NoMemory)?;
+
+        if let Some(ref backing) = old_vma.file_backing {
+            self.mmap_file(
+                Some(new_addr),
+                new_aligned,
+                old_vma.flags,
+                backing.clone(),
+                old_vma.file_offset,
+                old_vma.is_shared,
+            )?;
+        } else {
+            self.mmap_anon(Some(new_addr), new_aligned, old_vma.flags, true)?;
+            let mut copy_buf = [0u8; PAGE_SIZE];
+            let num_pages = old_aligned / PAGE_SIZE;
+            for p in 0..num_pages {
+                let src_vaddr = old_addr + (p * PAGE_SIZE);
+                let dst_vaddr = new_addr + (p * PAGE_SIZE);
+                if self.copy_from_user(src_vaddr, &mut copy_buf).is_ok() {
+                    let _ = self.copy_to_user(dst_vaddr, &copy_buf);
+                }
+            }
+        }
+
+        self.munmap(old_addr, old_aligned)?;
+        Ok(new_addr)
+    }
+
+    /// Flushes modifications in file-backed VMAs back to underlying file storage (`msync(2)`).
+    pub fn msync(&self, start: Vaddr, size: usize) -> Result<(), Error> {
+        if start % PAGE_SIZE != 0 || size % PAGE_SIZE != 0 {
+            return Err(Error::InvalidArgs);
+        }
+        if size == 0 {
+            return Ok(());
+        }
+
+        let end_addr = start.checked_add(size).ok_or(Error::InvalidArgs)?;
+        let _guard = disable_preempt();
+
+        let regions = self.regions.lock();
+        let target_vmas: Vec<VmaRegion> = regions
+            .values()
+            .filter(|r| r.start < end_addr && r.end() > start && r.file_backing.is_some())
+            .cloned()
+            .collect();
+        drop(regions);
+
+        let mut file_buf = [0u8; PAGE_SIZE];
+
+        for vma in target_vmas {
+            let backing = vma.file_backing.as_ref().unwrap();
+            let vma_start = core::cmp::max(start, vma.start);
+            let vma_end = core::cmp::min(end_addr, vma.end());
+            let num_pages = (vma_end - vma_start) / PAGE_SIZE;
+
+            for page_idx in 0..num_pages {
+                let page_vaddr = vma_start + (page_idx * PAGE_SIZE);
+                if self.copy_from_user(page_vaddr, &mut file_buf).is_ok() {
+                    let mut file_offset = vma.file_offset + (page_vaddr - vma.start);
+                    let mut file = backing.lock();
+                    let _ = file.write(&file_buf, &mut file_offset);
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
+
+/// Memory pattern advice flags for [`VmaManager::madvise`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AdviseFlag {
+    /// Default behavior.
+    Normal,
+    /// Expect random page access.
+    Random,
+    /// Expect sequential page access.
+    Sequential,
+    /// Expect access in the near future — pre-fetch pages.
+    WillNeed,
+    /// Free hardware page tables for range; subsequent access lazy-faults.
+    DontNeed,
 }
 
 /// Helper function to align a virtual address or size up to the nearest multiple of alignment.
@@ -732,5 +862,49 @@ mod tests {
         assert!(regions.contains_key(&0x13000));
         assert_eq!(regions.get(&0x10000).unwrap().size, 0x1000);
         assert_eq!(regions.get(&0x13000).unwrap().size, 0x1000);
+    }
+
+    #[ktest]
+    fn test_coalesce_regions() {
+        let vma_manager = VmaManager::new();
+        vma_manager.map_region(0x10000, 0x1000, PageFlags::RW).unwrap();
+        vma_manager.map_region(0x11000, 0x1000, PageFlags::RW).unwrap();
+        {
+            let regions = vma_manager.regions.lock();
+            assert_eq!(regions.len(), 2);
+        }
+        vma_manager.coalesce_regions();
+        {
+            let regions = vma_manager.regions.lock();
+            assert_eq!(regions.len(), 1);
+            let merged = regions.get(&0x10000).unwrap();
+            assert_eq!(merged.size, 0x2000);
+        }
+    }
+
+    #[ktest]
+    fn test_mremap_expand_and_shrink() {
+        let vma_manager = Arc::new(VmaManager::new());
+        vma_manager.activate();
+
+        let addr = vma_manager.mmap_anon(Some(0x20000), 0x1000, PageFlags::RW, true).unwrap();
+        vma_manager.copy_to_user(addr, b"mremap_data").unwrap();
+
+        // Shrink mapping
+        let same_addr = vma_manager.mremap(addr, 0x1000, 0x1000, false).unwrap();
+        assert_eq!(same_addr, addr);
+
+        vma_manager.munmap(addr, 0x1000).unwrap();
+    }
+
+    #[ktest]
+    fn test_madvise_dontneed() {
+        let vma_manager = Arc::new(VmaManager::new());
+        vma_manager.activate();
+
+        vma_manager.map_region(0x30000, 0x1000, PageFlags::RW).unwrap();
+        vma_manager.madvise(0x30000, 0x1000, AdviseFlag::DontNeed).unwrap();
+
+        vma_manager.unmap_region(0x30000, 0x1000).unwrap();
     }
 }
