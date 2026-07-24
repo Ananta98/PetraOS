@@ -1,7 +1,9 @@
 use crate::device::device::{Device, DeviceType};
-use crate::drivers::irq::IrqRegistration;
 use crate::drivers::net::NetDevice;
 use crate::drivers::pci::{PciBar, PciDevice};
+use crate::irq::IrqRegistration;
+use crate::irq::{SoftIrqVector, raise_softirq};
+
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use ostd::io::IoMem;
@@ -101,19 +103,26 @@ impl E1000 {
         dev.init_hardware()?;
 
         // Register PCI INTx# interrupt (if assigned by BIOS).
-        // The handler reads the Interrupt Cause Register (ICR) to acknowledge
-        // any pending interrupts.  Interrupts are masked in hardware via
-        // REG_IMC, so the ICR read is defensive against stray events; polling
-        // in recv() remains the primary data path.
-        #[cfg(target_arch = "x86_64")]
-        {
-            let irq_line = pci_dev.interrupt_line();
-            if irq_line != 0 && irq_line < 16 {
-                if let Ok(irq) = crate::drivers::irq::map_isa_irq(irq_line, move || {
-                    let _: Result<u32, _> = isr_mem.read_once(REG_ICR as usize);
-                }) {
-                    dev._irq = Some(irq);
+        // Top-half: read ICR to acknowledge pending hardware interrupts, then
+        // raise the NetRx and NetTx softirq vectors so packet Rx/Tx processing
+        // happens in the deferred bottom-half context.
+
+        let irq_line = pci_dev.interrupt_line();
+        if irq_line != 0 && irq_line < 16 {
+            if let Ok(irq) = crate::irq::map_isa_irq(irq_line, move || {
+                // Top-half: clear the interrupt by reading ICR.
+                let icr: Result<u32, _> = isr_mem.read_once(REG_ICR as usize);
+                if let Ok(icr_val) = icr {
+                    // ICR bit 7: RXT0 (Rx timer), bit 0: TXDW (Tx desc write-back)
+                    if (icr_val & 0x80) != 0 {
+                        raise_softirq(SoftIrqVector::NetRx);
+                    }
+                    if (icr_val & 0x01) != 0 {
+                        raise_softirq(SoftIrqVector::NetTx);
+                    }
                 }
+            }) {
+                dev._irq = Some(irq);
             }
         }
 

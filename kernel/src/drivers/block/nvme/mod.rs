@@ -24,8 +24,10 @@
 /// device is registered so the system boots cleanly in virtual environments
 /// that do not expose an NVMe controller.
 use crate::drivers::block::register_block_device;
-use crate::drivers::irq::IrqRegistration;
 use crate::drivers::pci::PciBar;
+use crate::irq::IrqRegistration;
+use crate::irq::{SoftIrqVector, raise_softirq};
+
 use alloc::string::String;
 use alloc::sync::Arc;
 use device::{NvmeBlockDevice, NvmeBlockDeviceInner, NvmeNamespaceGeometry};
@@ -216,15 +218,17 @@ fn init_controller(
     let mmio = IoMem::acquire(mmio_base..mmio_base + 0x4000)?;
 
     // Register PCI INTx# interrupt handler for this NVMe controller.
-    // The handler reads CSTS to acknowledge the interrupt.  IO CQs are
-    // created with IEN = 1 (interrupts disabled), so the handler is
-    // defensive against stray events and controller fatal status; I/O
-    // completion uses polling (CQ phase tag).
+    // Top-half: read CSTS to acknowledge the interrupt and raise the Block
+    // softirq so that CQ completion processing happens in a bottom-half
+    // context, not inside the ISR.
     #[cfg(target_arch = "x86_64")]
     if !NVME_IRQ.is_completed() && irq_line != 0 && irq_line < 16 {
         let isr_mmio = mmio.clone();
-        if let Ok(irq) = crate::drivers::irq::map_isa_irq(irq_line, move || {
+        if let Ok(irq) = crate::irq::map_isa_irq(irq_line, move || {
+            // Top-half: ACK the controller interrupt by reading CSTS.
             let _: Result<u32, _> = isr_mmio.read_once(regs::REG_CSTS);
+            // Defer CQ processing to the Block bottom-half.
+            raise_softirq(SoftIrqVector::Block);
         }) {
             NVME_IRQ.call_once(|| irq);
         }

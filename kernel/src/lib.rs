@@ -6,6 +6,7 @@ extern crate alloc;
 mod device;
 mod drivers;
 mod fs;
+pub mod irq;
 mod ipc;
 mod net;
 mod proc;
@@ -16,6 +17,7 @@ mod vm;
 #[ostd::main]
 fn kernel_main() {
     vm::init();
+    irq::init();
     device::manager::init();
     net::init();
     fs::init().expect("failed to initialize filesystem");

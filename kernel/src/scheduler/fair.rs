@@ -1,11 +1,15 @@
-use super::{TaskData, get_deadline, get_sched_data, set_vruntime};
-use alloc::collections::BTreeMap;
-use alloc::collections::VecDeque;
+//! Fair scheduling class implementation using EEVDF (Earliest Eligible Virtual Deadline First).
+
+use alloc::collections::{BTreeMap, VecDeque};
 use alloc::sync::Arc;
 use core::sync::atomic::Ordering;
 use ostd::task::Task;
 
+use super::policy::SchedClassPolicy;
+use crate::scheduler::{SchedClass, TaskData, get_deadline, get_sched_data, set_vruntime};
+
 /// Run queue logic dedicated to EEVDF (Earliest Eligible Virtual Deadline First) scheduling.
+#[derive(Debug)]
 pub struct FairRunQueue {
     pub tasks: BTreeMap<u64, VecDeque<Arc<Task>>>,
 }
@@ -19,13 +23,12 @@ impl FairRunQueue {
     }
 
     /// Enqueue a fair/CFS task.
-    pub fn enqueue(&mut self, task: Arc<Task>, vruntime: u64, vtime: u64) {
+    pub fn enqueue_fair(&mut self, task: Arc<Task>, vruntime: u64, vtime: u64) {
         if let Some(data) = task.data().downcast_ref::<TaskData>() {
             let last_vtime = data.last_dequeue_vtime.load(Ordering::Relaxed);
             let sleep_ns = vtime.saturating_sub(last_vtime);
             if sleep_ns > 0 {
                 let ema = data.ema.load(Ordering::Relaxed);
-                // dec = min(sleep_ns * 16 * 256 / 20_000_000, 256)
                 let dec = (sleep_ns * 16 * 256 / 20_000_000).min(256);
                 let new_ema = ema - ema * dec / 256;
                 data.ema.store(new_ema, Ordering::Relaxed);
@@ -39,8 +42,51 @@ impl FairRunQueue {
             .push_back(task);
     }
 
-    /// Pick the earliest eligible task with the minimum virtual deadline.
-    pub fn pick_next(&mut self, vtime: u64) -> Option<Arc<Task>> {
+    /// Get the minimum virtual runtime of all queued tasks.
+    pub fn min_vruntime(&self) -> Option<u64> {
+        self.tasks.keys().next().copied()
+    }
+
+    /// Calculate the sum of weights of all fair tasks in the queue.
+    pub fn total_weight(&self) -> u64 {
+        let mut total = 0;
+        for queue in self.tasks.values() {
+            for task in queue {
+                let (class, _) = get_sched_data(task);
+                if let SchedClass::Fair { nice } = class {
+                    let base_weight = nice.to_weight();
+                    if let Some(data) = task.data().downcast_ref::<TaskData>() {
+                        let ema = data.ema.load(Ordering::Relaxed);
+                        let ema_pct = (ema * 100 / 2_000_000).min(100);
+                        let weight_factor = 100 - ema_pct * 75 / 100;
+                        total += base_weight * 100 / weight_factor.max(1);
+                    } else {
+                        total += base_weight;
+                    }
+                }
+            }
+        }
+        total
+    }
+
+    /// Return the total number of tasks in the queue.
+    pub fn len(&self) -> usize {
+        self.tasks.values().map(|q| q.len()).sum()
+    }
+
+    /// Check if there are no fair tasks.
+    pub fn is_empty(&self) -> bool {
+        self.tasks.is_empty()
+    }
+}
+
+impl SchedClassPolicy for FairRunQueue {
+    fn enqueue(&mut self, task: Arc<Task>, vtime: u64) {
+        let (_, vruntime) = get_sched_data(&task);
+        self.enqueue_fair(task, vruntime, vtime);
+    }
+
+    fn pick_next(&mut self, vtime: u64) -> Option<Arc<Task>> {
         if self.tasks.is_empty() {
             return None;
         }
@@ -69,43 +115,30 @@ impl FairRunQueue {
                 (min_vruntime, 0)
             };
 
-        let queue = self.tasks.get_mut(&key_to_remove).unwrap();
-        let task = queue.remove(deque_idx_to_remove).unwrap();
+        let queue = self.tasks.get_mut(&key_to_remove)?;
+        let task = queue.remove(deque_idx_to_remove)?;
         if queue.is_empty() {
             self.tasks.remove(&key_to_remove);
         }
         Some(task)
     }
 
-    /// Get the minimum virtual runtime of all queued tasks.
-    pub fn min_vruntime(&self) -> Option<u64> {
-        self.tasks.keys().next().copied()
-    }
+    fn check_preempt_curr(&self, curr: &Task, newcomer: &Task, vtime: u64) -> bool {
+        let (curr_class, curr_vruntime) = get_sched_data(curr);
+        let (new_class, new_vruntime) = get_sched_data(newcomer);
 
-    /// Calculate the sum of weights of all fair tasks in the queue.
-    pub fn total_weight(&self) -> u64 {
-        let mut total = 0;
-        for queue in self.tasks.values() {
-            for task in queue {
-                let (class, _) = get_sched_data(task);
-                if let super::SchedClass::Fair { nice } = class {
-                    let base_weight = nice.to_weight();
-                    if let Some(data) = task.data().downcast_ref::<TaskData>() {
-                        let ema = data.ema.load(Ordering::Relaxed);
-                        let ema_pct = (ema * 100 / 2_000_000).min(100);
-                        let weight_factor = 100 - ema_pct * 75 / 100;
-                        total += base_weight * 100 / weight_factor.max(1);
-                    } else {
-                        total += base_weight;
-                    }
-                }
-            }
+        if let (SchedClass::Fair { .. }, SchedClass::Fair { .. }) = (curr_class, new_class) {
+            let effective_new_vruntime = new_vruntime.max(vtime);
+            let curr_deadline = get_deadline(curr_vruntime, curr_class, Some(curr));
+            let new_deadline = get_deadline(effective_new_vruntime, new_class, Some(newcomer));
+
+            new_deadline < curr_deadline
+        } else {
+            false
         }
-        total
     }
 
-    /// Check if there are no fair tasks.
-    pub fn is_empty(&self) -> bool {
-        self.tasks.is_empty()
+    fn len(&self) -> usize {
+        self.tasks.values().map(|q| q.len()).sum()
     }
 }

@@ -131,6 +131,34 @@ impl PciDevice {
     pub fn capabilities_ptr(&self) -> u8 {
         self.read_config_u8(CFG_CAP_PTR) & 0xFC
     }
+
+    /// Enable single-vector MSI on this PCI device (x86_64).
+    #[cfg(target_arch = "x86_64")]
+    pub fn enable_msi(
+        &self,
+        handler: impl crate::irq::IrqHandler,
+
+    ) -> Result<arch::msi::MsiConfig, ostd::Error> {
+        arch::msi::enable_msi(self, handler)
+    }
+
+    /// Disable MSI on this PCI device (x86_64).
+    #[cfg(target_arch = "x86_64")]
+    pub fn disable_msi(&self) {
+        arch::msi::disable_msi(self);
+    }
+
+    /// Enable MSI-X on this PCI device (x86_64).
+    #[cfg(target_arch = "x86_64")]
+    pub fn enable_msix(&self) -> Result<u8, ostd::Error> {
+        arch::msi::enable_msix(self)
+    }
+
+    /// Disable MSI-X on this PCI device (x86_64).
+    #[cfg(target_arch = "x86_64")]
+    pub fn disable_msix(&self) {
+        arch::msi::disable_msix(self);
+    }
 }
 
 /// Probe a PCI location for a device, returning its parsed representation.

@@ -8,8 +8,10 @@
 /// Integrates with the new `crate::drivers::pci` subsystem for auto-discovery.
 ///
 use crate::drivers::block::register_block_device;
-use crate::drivers::irq::IrqRegistration;
 use crate::drivers::pci::PciBar;
+use crate::irq::IrqRegistration;
+use crate::irq::{SoftIrqVector, open_softirq, raise_softirq};
+
 use alloc::string::String;
 use alloc::sync::Arc;
 use device::{AhciBlockDevice, AhciBlockDeviceInner};
@@ -107,17 +109,25 @@ pub fn init() {
         let pi: u32 = abar.read_once(hba::HBA_PI).unwrap_or(0);
         let isr_abar = abar.clone();
 
-        #[cfg(target_arch = "x86_64")]
+        // Register the Block softirq bottom-half once for AHCI completion.
+        // The bottom-half handler is a no-op by default (AHCI uses polling via
+        // PORT_CI); drivers that want interrupt-driven I/O can hook this vector.
+        open_softirq(SoftIrqVector::Block, || {});
+
         if !AHCI_IRQ.is_completed() {
             let irq_line = pci_dev.interrupt_line();
             if irq_line != 0 && irq_line < 16 {
-                if let Ok(irq) = crate::drivers::irq::map_isa_irq(irq_line, move || {
+                if let Ok(irq) = crate::irq::map_isa_irq(irq_line, move || {
+                    // Top-half: acknowledge all pending port interrupt status
+                    // registers, then defer completion work to the Block softirq.
                     for port in 0..32 {
                         if (pi & (1 << port)) != 0 {
                             let _ =
                                 isr_abar.read_once::<u32>(hba::port_offset(port) + hba::PORT_IS);
                         }
                     }
+                    // Signal the Block bottom-half.
+                    raise_softirq(SoftIrqVector::Block);
                 }) {
                     AHCI_IRQ.call_once(|| irq);
                 }

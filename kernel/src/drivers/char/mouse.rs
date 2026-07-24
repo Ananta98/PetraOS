@@ -1,10 +1,11 @@
 use super::{CharDevice, InputBuffer, register_char_device};
 use alloc::sync::Arc;
 use ostd::arch::device::io_port::ReadWriteAccess;
+use ostd::arch::irq::{IRQ_CHIP, MappedIrqLine};
+use ostd::arch::trap::TrapFrame;
 use ostd::io::IoPort;
+use ostd::irq::IrqLine;
 use ostd::sync::SpinLock;
-
-use crate::drivers::irq::IrqRegistration;
 use spin::Once;
 
 // ---------------------------------------------------------------------------
@@ -377,12 +378,19 @@ impl CharDevice for Mouse {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Interrupt handler
-// ---------------------------------------------------------------------------
+const ISA_INTR_NUM: u8 = 12;
 
-/// Holds the mouse IrqRegistration for the driver's lifetime.
-static MOUSE_IRQ: Once<IrqRegistration> = Once::new();
+static IRQ_LINE: Once<MappedIrqLine> = Once::new();
+static MOUSE_DEV: Once<Arc<Mouse>> = Once::new();
+
+fn handle_mouse_input(_trap_frame: &TrapFrame) {
+    let Ok(port) = IoPort::<u8, ReadWriteAccess>::acquire_overlapping(0x60) else {
+        return;
+    };
+    if let Some(dev) = MOUSE_DEV.get() {
+        dev.push_packet(port.read());
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Initialisation
@@ -390,25 +398,27 @@ static MOUSE_IRQ: Once<IrqRegistration> = Once::new();
 
 /// Register the mouse device with devfs, initialise PS/2 hardware, and
 /// attach the ISA IRQ 12 (AUX) handler.
-///
-/// The ISR reads a raw byte from PS/2 data port 0x60 and feeds it to the
-/// packet decoder.  The keyboard and mouse share the same data port, so
-/// the port is acquired with overlapping mode.
 pub fn init() {
     let _ = Mouse::init_hardware();
 
     let mouse = Arc::new(Mouse::new());
-    let hnd = mouse.clone();
-    let irq = crate::drivers::irq::map_isa_irq(12, move || {
-        let Ok(port) = IoPort::<u8, ReadWriteAccess>::acquire_overlapping(0x60) else {
-            return;
-        };
-        hnd.push_packet(port.read());
-    })
-    .expect("mouse IRQ 12 registration failed");
-    MOUSE_IRQ.call_once(|| irq);
+    MOUSE_DEV.call_once(|| mouse.clone());
+
+    let mut irq_line = IrqLine::alloc()
+        .and_then(|irq_line| {
+            IRQ_CHIP
+                .get()
+                .unwrap()
+                .map_isa_pin_to(irq_line, ISA_INTR_NUM)
+        })
+        .expect("mouse IRQ 12 registration failed");
+
+    irq_line.on_active(handle_mouse_input);
+    IRQ_LINE.call_once(|| irq_line);
+
     let _ = register_char_device("mouse", mouse);
 }
+
 
 // ---------------------------------------------------------------------------
 // Unit tests

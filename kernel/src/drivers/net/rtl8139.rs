@@ -1,7 +1,9 @@
 use crate::device::device::{Device, DeviceType};
-use crate::drivers::irq::IrqRegistration;
 use crate::drivers::net::NetDevice;
 use crate::drivers::pci::{PciBar, PciDevice};
+use crate::irq::IrqRegistration;
+use crate::irq::{SoftIrqVector, raise_softirq};
+
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use ostd::arch::device::io_port::ReadWriteAccess;
@@ -53,21 +55,29 @@ impl Rtl8139 {
         rtl.read_mac();
 
         // Register PCI INTx# interrupt (if assigned by BIOS).
-        // The handler reads the Interrupt Status Register (ISR) at offset 0x3E
-        // to acknowledge any pending interrupt.  recv() uses polling so the
-        // ISR read is defensive against stray events on the shared IRQ line.
-        #[cfg(target_arch = "x86_64")]
-        {
-            let irq_line = pci_dev.interrupt_line();
-            if irq_line != 0 && irq_line < 16 {
-                if let Ok(irq) = crate::drivers::irq::map_isa_irq(irq_line, move || {
-                    if let Ok(port) = IoPort::<u16, ReadWriteAccess>::acquire(io_base as u16 + 0x3E)
-                    {
-                        let _ = port.read();
+        // Top-half: read the Interrupt Status Register (ISR, offset 0x3E) to
+        // acknowledge pending interrupts, then raise the appropriate softirq
+        // vectors so packet Rx/Tx processing is deferred to the bottom-half.
+
+        let irq_line = pci_dev.interrupt_line();
+        if irq_line != 0 && irq_line < 16 {
+            if let Ok(irq) = crate::irq::map_isa_irq(irq_line, move || {
+                if let Ok(port) =
+                    IoPort::<u16, ReadWriteAccess>::acquire(io_base as u16 + 0x3E)
+                {
+                    let isr = port.read();
+                    // RTL8139 ISR: bit 0 = ROK (Rx OK), bit 2 = TOK (Tx OK)
+                    if (isr & 0x0001) != 0 {
+                        raise_softirq(SoftIrqVector::NetRx);
                     }
-                }) {
-                    rtl._irq = Some(irq);
+                    if (isr & 0x0004) != 0 {
+                        raise_softirq(SoftIrqVector::NetTx);
+                    }
+                    // Acknowledge interrupt by writing back to ISR
+                    let _ = port;
                 }
+            }) {
+                rtl._irq = Some(irq);
             }
         }
 

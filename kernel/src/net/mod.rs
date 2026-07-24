@@ -28,6 +28,17 @@ pub static NET_STACK: SpinLock<Option<NetStack>> = SpinLock::new(None);
 
 /// Initialize the global smoltcp network stack.
 pub fn init() {
+    // Register the NetRx and NetTx softirq bottom-half handlers.
+    // Network drivers raise these vectors from their ISR top-half after
+    // acknowledging the hardware interrupt; the bottom-half then polls the
+    // smoltcp stack to process received packets and tx completions.
+    crate::irq::open_softirq(crate::irq::SoftIrqVector::NetRx, || {
+        poll();
+    });
+    crate::irq::open_softirq(crate::irq::SoftIrqVector::NetTx, || {
+        poll();
+    });
+
     let now_ns = Tsc::new().current_time_ns();
     let timestamp = Instant::from_millis((now_ns / 1_000_000) as i64);
 
@@ -71,6 +82,7 @@ pub fn init() {
         NET_STACK.lock().replace(stack);
     }
 }
+
 
 /// Poll the global network stack to process packets.
 /// Handles DHCP configuration updates and ICMP echo requests automatically.

@@ -28,6 +28,7 @@ mod config {
         config_write_u32,
     };
 }
+pub use arch::msi;
 pub use config::{
     config_read_u8, config_read_u16, config_read_u32, config_write_u8, config_write_u16,
     config_write_u32,
