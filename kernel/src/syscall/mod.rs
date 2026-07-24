@@ -122,6 +122,7 @@ syscall_table! {
 45  => net::syscall_recvfrom,          // SYS_recvfrom
 49  => net::syscall_bind,              // SYS_bind
 50  => net::syscall_listen,            // SYS_listen
+56  => proc::syscall_clone,             // SYS_clone
 57  => proc::syscall_fork,             // SYS_fork
 59  => proc::syscall_execve,           // SYS_execve
 60  => proc::syscall_exit,            // SYS_exit

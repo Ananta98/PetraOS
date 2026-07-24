@@ -175,7 +175,7 @@ impl Process {
     /// parent's name (it will be overwritten by `execve` once a
     /// program-loader layer exists). The new process is registered in
     /// `PROCESS_TABLE` and added to the parent's child list.
-    fn new_child(parent: &Process, vm: Arc<VmaManager>) -> Process {
+    pub fn new_child(parent: &Process, vm: Arc<VmaManager>) -> Process {
         let child_pid = Pid::new();
         // The forked child joins the parent's process group.
         parent.process_group.add_member(child_pid);
