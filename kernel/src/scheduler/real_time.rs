@@ -5,7 +5,7 @@ use alloc::sync::Arc;
 use ostd::task::Task;
 
 use super::policy::SchedClassPolicy;
-use crate::scheduler::{SchedClass, get_sched_data};
+use crate::scheduler::{SchedClass, TaskData};
 
 /// Run queue logic dedicated to Real-Time scheduling.
 #[derive(Debug)]
@@ -55,7 +55,7 @@ pub struct RtSchedClass;
 
 impl SchedClassPolicy for RtRunQueue {
     fn enqueue(&mut self, task: Arc<Task>, _vtime: u64) {
-        let (class, _) = get_sched_data(&task);
+        let (class, _) = TaskData::sched_data(&task);
         if let SchedClass::RealTime { priority } = class {
             self.enqueue_prio(task, priority);
         }
@@ -72,8 +72,8 @@ impl SchedClassPolicy for RtRunQueue {
     }
 
     fn check_preempt_curr(&self, curr: &Task, newcomer: &Task, _vtime: u64) -> bool {
-        let (curr_class, _) = get_sched_data(curr);
-        let (new_class, _) = get_sched_data(newcomer);
+        let (curr_class, _) = TaskData::sched_data(curr);
+        let (new_class, _) = TaskData::sched_data(newcomer);
 
         match (curr_class, new_class) {
             (SchedClass::Fair { .. }, SchedClass::RealTime { .. }) => true,

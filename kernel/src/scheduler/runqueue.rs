@@ -7,11 +7,10 @@ use ostd::task::scheduler::info::CommonSchedInfo;
 use ostd::task::scheduler::{LocalRunQueue, UpdateFlags};
 use ostd::task::Task;
 
-
 use super::fair::FairRunQueue;
 use super::policy::SchedClassPolicy;
 use super::real_time::RtRunQueue;
-use super::{SchedClass, TaskData, get_deadline, get_sched_data, set_vruntime};
+use super::{SchedClass, TaskData};
 
 /// Represents the run queue set for a single CPU core.
 ///
@@ -41,7 +40,7 @@ impl PerCpuClassRqSet {
     /// Minimum virtual runtime of tasks in this per-CPU run queue set.
     pub fn min_vruntime(&self) -> u64 {
         let mut min_val = if let Some(curr) = &self.current {
-            let (class, vruntime) = get_sched_data(curr);
+            let (class, vruntime) = TaskData::sched_data(curr);
             match class {
                 SchedClass::RealTime { .. } => 0,
                 SchedClass::Fair { .. } => vruntime,
@@ -62,7 +61,7 @@ impl PerCpuClassRqSet {
     fn total_fair_weight(&self) -> u64 {
         let mut total = self.fair.total_weight();
         if let Some(curr) = &self.current {
-            let (class, _) = get_sched_data(curr);
+            let (class, _) = TaskData::sched_data(curr);
             if let SchedClass::Fair { nice } = class {
                 total += nice.to_weight();
             }
@@ -72,7 +71,7 @@ impl PerCpuClassRqSet {
 
     /// Enqueue a task into the appropriate scheduling class runqueue.
     pub fn enqueue_task(&mut self, task: Arc<Task>) {
-        let (class, vruntime) = get_sched_data(&task);
+        let (class, vruntime) = TaskData::sched_data(&task);
         match class {
             SchedClass::RealTime { priority } => {
                 let mut effective_priority = priority;
@@ -97,7 +96,7 @@ impl PerCpuClassRqSet {
             return false;
         };
 
-        let (curr_class, curr_vruntime) = get_sched_data(curr);
+        let (curr_class, curr_vruntime) = TaskData::sched_data(curr);
 
         match curr_class {
             SchedClass::RealTime {
@@ -119,11 +118,11 @@ impl PerCpuClassRqSet {
                     return false;
                 }
 
-                let curr_deadline = get_deadline(curr_vruntime, curr_class, Some(&**curr));
+                let curr_deadline = TaskData::deadline(curr_vruntime, curr_class, Some(&**curr));
                 for (&vruntime, queue) in self.fair.tasks.range(..=self.vtime) {
                     for task in queue {
-                        let (class, _) = get_sched_data(task);
-                        let deadline = get_deadline(vruntime, class, Some(&**task));
+                        let (class, _) = TaskData::sched_data(task);
+                        let deadline = TaskData::deadline(vruntime, class, Some(&**task));
                         if deadline + 1000 < curr_deadline {
                             return true;
                         }
@@ -142,7 +141,7 @@ impl LocalRunQueue<Task> for PerCpuClassRqSet {
 
     fn update_current(&mut self, flags: UpdateFlags) -> bool {
         if let Some(curr) = &self.current {
-            let (class, vruntime) = get_sched_data(curr);
+            let (class, vruntime) = TaskData::sched_data(curr);
             match class {
                 SchedClass::RealTime { .. } => {
                     if flags == UpdateFlags::Tick {
@@ -163,7 +162,7 @@ impl LocalRunQueue<Task> for PerCpuClassRqSet {
                         let weight = nice.to_weight();
                         let delta = 1000;
                         let vruntime_delta = delta * 1024 / weight.max(1);
-                        set_vruntime(curr, vruntime + vruntime_delta);
+                        TaskData::set_vruntime(curr, vruntime + vruntime_delta);
 
                         if let Some(data) = curr.data().downcast_ref::<TaskData>() {
                             let ema = data.ema.load(Ordering::Relaxed);

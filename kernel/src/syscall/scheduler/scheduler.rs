@@ -1,7 +1,7 @@
 use crate::proc::pid_table::Pid;
 use crate::proc::thread::KernelThread;
 use crate::proc::tid_table::THREAD_TABLE;
-use crate::scheduler::{SchedClass, get_sched_data};
+use crate::scheduler::{SchedClass, task_data::TaskData};
 use crate::syscall::SyscallResult;
 use crate::vm::vma::VmaManager;
 use alloc::vec;
@@ -40,7 +40,7 @@ pub fn syscall_sched_getscheduler(
         threads[0].clone()
     };
 
-    let (class, _) = get_sched_data(&thread.task);
+    let (class, _) = TaskData::sched_data(&thread.task);
 
     let policy = match class {
         SchedClass::Fair { .. } => SCHED_NORMAL,

@@ -26,13 +26,21 @@ pub mod nice;
 pub mod policy;
 pub mod real_time;
 pub mod runqueue;
+pub mod task_data;
 
 pub use fair::FairRunQueue;
 pub use policy::SchedClassPolicy;
 pub use real_time::{RtRunQueue, RtSchedClass};
 pub use runqueue::PerCpuClassRqSet;
+pub use crate::scheduler::task_data::TaskData;
+
+/// Alias for `TaskData::sched_data`.
+pub fn get_sched_data(task: &ostd::task::Task) -> (SchedClass, u64) {
+    TaskData::sched_data(task)
+}
 
 pub fn nice_to_weight(nice: i32) -> u64 {
+
     NiceWeight::new(nice).to_weight()
 }
 
@@ -43,74 +51,16 @@ pub enum SchedClass {
     Fair { nice: NiceWeight },
 }
 
-/// Per-task scheduling metadata attached to every `ostd::task::Task`.
-pub struct TaskData {
-    /// Scheduling class and parameters.
-    pub class: SchedClass,
-    /// Accumulated virtual runtime (nanoseconds, CFS bookkeeping).
-    pub vruntime: AtomicU64,
-    /// Infinity Scheduler: Exponential Moving Average for execution slices.
-    pub ema: AtomicU64,
-    /// Last time this task was dequeued (vtime).
-    pub last_dequeue_vtime: AtomicU64,
-    /// Owning process identifier.
-    pub pid: Pid,
-    /// This thread's unique identifier.
-    pub tid: Tid,
-}
-
-impl TaskData {
-    /// Create `TaskData` with an explicit scheduling class, `Pid`, and `Tid`.
-    pub fn new(class: SchedClass, pid: Pid, tid: Tid) -> Self {
-        Self {
-            class,
-            vruntime: AtomicU64::new(0),
-            ema: AtomicU64::new(0),
-            last_dequeue_vtime: AtomicU64::new(0),
-            pid,
-            tid,
+impl SchedClass {
+    /// Return the weight associated with this scheduling class.
+    pub fn weight(&self) -> u64 {
+        match self {
+            Self::RealTime { .. } => 0,
+            Self::Fair { nice } => nice.to_weight(),
         }
     }
 }
 
-pub(crate) fn get_sched_data(task: &Task) -> (SchedClass, u64) {
-    if let Some(data) = task.data().downcast_ref::<TaskData>() {
-        (data.class, data.vruntime.load(Ordering::Relaxed))
-    } else {
-        (
-            SchedClass::Fair {
-                nice: NiceWeight::new(0),
-            },
-            0,
-        )
-    }
-}
-
-pub(crate) fn set_vruntime(task: &Task, vruntime: u64) {
-    if let Some(data) = task.data().downcast_ref::<TaskData>() {
-        data.vruntime.store(vruntime, Ordering::Relaxed);
-    }
-}
-
-pub(crate) fn get_weight(class: SchedClass) -> u64 {
-    match class {
-        SchedClass::RealTime { .. } => 0,
-        SchedClass::Fair { nice } => nice.to_weight(),
-    }
-}
-
-pub(crate) fn get_deadline(vruntime: u64, class: SchedClass, task: Option<&Task>) -> u64 {
-    let mut weight = get_weight(class);
-    if let Some(task) = task {
-        if let Some(data) = task.data().downcast_ref::<TaskData>() {
-            let ema = data.ema.load(Ordering::Relaxed);
-            let ema_pct = (ema * 100 / 2_000_000).min(100);
-            let weight_factor = 100 - ema_pct * 75 / 100;
-            weight = weight * 100 / weight_factor.max(1);
-        }
-    }
-    vruntime + 1024_000 / weight.max(1)
-}
 
 /// Top-level multi-core scheduler managing per-CPU runqueue sets (`PerCpuClassRqSet`).
 pub struct ClassScheduler {
@@ -285,7 +235,9 @@ mod tests {
                 .unwrap(),
         );
 
-        set_vruntime(&current, 1500);
+        TaskData::set_vruntime(&current, 1500);
+
+
         rq.current = Some(current.clone());
         rq.vtime = 0;
         rq.enqueue_task(newcomer.clone());

@@ -6,7 +6,7 @@ use core::sync::atomic::Ordering;
 use ostd::task::Task;
 
 use super::policy::SchedClassPolicy;
-use crate::scheduler::{SchedClass, TaskData, get_deadline, get_sched_data, set_vruntime};
+use crate::scheduler::{SchedClass, TaskData};
 
 /// Run queue logic dedicated to EEVDF (Earliest Eligible Virtual Deadline First) scheduling.
 #[derive(Debug)]
@@ -35,7 +35,7 @@ impl FairRunQueue {
             }
         }
         let new_vruntime = vruntime.max(vtime);
-        set_vruntime(&task, new_vruntime);
+        TaskData::set_vruntime(&task, new_vruntime);
         self.tasks
             .entry(new_vruntime)
             .or_insert_with(VecDeque::new)
@@ -52,7 +52,7 @@ impl FairRunQueue {
         let mut total = 0;
         for queue in self.tasks.values() {
             for task in queue {
-                let (class, _) = get_sched_data(task);
+                let (class, _) = TaskData::sched_data(task);
                 if let SchedClass::Fair { nice } = class {
                     let base_weight = nice.to_weight();
                     if let Some(data) = task.data().downcast_ref::<TaskData>() {
@@ -82,7 +82,7 @@ impl FairRunQueue {
 
 impl SchedClassPolicy for FairRunQueue {
     fn enqueue(&mut self, task: Arc<Task>, vtime: u64) {
-        let (_, vruntime) = get_sched_data(&task);
+        let (_, vruntime) = TaskData::sched_data(&task);
         self.enqueue_fair(task, vruntime, vtime);
     }
 
@@ -97,8 +97,8 @@ impl SchedClassPolicy for FairRunQueue {
 
         for (&vruntime, queue) in self.tasks.range(..=vtime) {
             for (dq_idx, task) in queue.iter().enumerate() {
-                let (class, _) = get_sched_data(task);
-                let deadline = get_deadline(vruntime, class, Some(&**task));
+                let (class, _) = TaskData::sched_data(task);
+                let deadline = TaskData::deadline(vruntime, class, Some(&**task));
                 if deadline < best_deadline {
                     best_deadline = deadline;
                     best_key = Some(vruntime);
@@ -124,13 +124,13 @@ impl SchedClassPolicy for FairRunQueue {
     }
 
     fn check_preempt_curr(&self, curr: &Task, newcomer: &Task, vtime: u64) -> bool {
-        let (curr_class, curr_vruntime) = get_sched_data(curr);
-        let (new_class, new_vruntime) = get_sched_data(newcomer);
+        let (curr_class, curr_vruntime) = TaskData::sched_data(curr);
+        let (new_class, new_vruntime) = TaskData::sched_data(newcomer);
 
         if let (SchedClass::Fair { .. }, SchedClass::Fair { .. }) = (curr_class, new_class) {
             let effective_new_vruntime = new_vruntime.max(vtime);
-            let curr_deadline = get_deadline(curr_vruntime, curr_class, Some(curr));
-            let new_deadline = get_deadline(effective_new_vruntime, new_class, Some(newcomer));
+            let curr_deadline = TaskData::deadline(curr_vruntime, curr_class, Some(curr));
+            let new_deadline = TaskData::deadline(effective_new_vruntime, new_class, Some(newcomer));
 
             new_deadline < curr_deadline
         } else {

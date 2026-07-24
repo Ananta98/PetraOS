@@ -6,7 +6,7 @@ extern crate alloc;
 mod device;
 mod drivers;
 mod fs;
-pub mod irq;
+mod irq;
 mod ipc;
 mod net;
 mod proc;
