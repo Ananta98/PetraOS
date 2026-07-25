@@ -6,6 +6,7 @@ use ostd::arch::trap::TrapFrame;
 use ostd::io::IoPort;
 use ostd::irq::IrqLine;
 use ostd::sync::SpinLock;
+use ps2_mouse::{Mouse as Ps2Mouse, MouseFlags, MouseState};
 use spin::Once;
 
 // ---------------------------------------------------------------------------
@@ -112,61 +113,65 @@ fn encode_packet(pkt: &MousePacket) -> [u8; 3] {
 // Packet decoder state machine
 // ---------------------------------------------------------------------------
 
-/// Tracks partial packet assembly from raw PS/2 mouse bytes.
-#[derive(Debug, Clone)]
+static LAST_DECODED_STATE: SpinLock<Option<MouseState>> = SpinLock::new(None);
+
+fn on_packet_complete(state: MouseState) {
+    *LAST_DECODED_STATE.lock() = Some(state);
+}
+
+/// Tracks partial packet assembly from raw PS/2 mouse bytes using the `ps2-mouse` crate.
+#[derive(Debug)]
 struct PacketDecoder {
-    count: u8,
-    buf: [u8; 3],
+    inner: Ps2Mouse,
+    state: u8,
+    b0: u8,
 }
 
 impl PacketDecoder {
-    const fn new() -> Self {
+    fn new() -> Self {
+        let mut inner = Ps2Mouse::new();
+        inner.set_on_complete(on_packet_complete);
         Self {
-            count: 0,
-            buf: [0u8; 3],
+            inner,
+            state: 0,
+            b0: 0,
         }
     }
 
     /// Feed one raw byte from the mouse.
     ///
     /// Returns `Some(packet)` when a complete, synchronised 3-byte packet has
-    /// been assembled.  Synchronisation is done by checking that every packet
-    /// starts with bit 3 set (byte 0 flag) — bytes that violate this are
-    /// silently discarded.
+    /// been assembled.
     fn feed(&mut self, byte: u8) -> Option<MousePacket> {
-        if self.count == 0 {
-            if byte & 0x08 == 0 {
-                return None;
+        if self.state == 0 {
+            if byte & 0x08 != 0 {
+                self.b0 = byte;
+                self.state = 1;
             }
-            self.buf[0] = byte;
-            self.count = 1;
-            return None;
+        } else if self.state == 1 {
+            self.state = 2;
+        } else if self.state == 2 {
+            self.state = 0;
         }
 
-        self.buf[self.count as usize] = byte;
-        self.count += 1;
+        self.inner.process_packet(byte);
 
-        if self.count >= 3 {
-            self.count = 0;
-            Some(self.decode())
+        if let Some(state) = LAST_DECODED_STATE.lock().take() {
+            let b0 = self.b0;
+            Some(MousePacket {
+                buttons: MouseButtons {
+                    left: state.left_button_down(),
+                    right: state.right_button_down(),
+                    middle: b0 & 0x04 != 0,
+                },
+                dx: state.get_x() as i8,
+                dy: state.get_y() as i8,
+                x_overflow: b0 & 0x40 != 0,
+                y_overflow: b0 & 0x80 != 0,
+                scroll: 0,
+            })
         } else {
             None
-        }
-    }
-
-    fn decode(&self) -> MousePacket {
-        let b0 = self.buf[0];
-        MousePacket {
-            buttons: MouseButtons {
-                left: b0 & 0x01 != 0,
-                right: b0 & 0x02 != 0,
-                middle: b0 & 0x04 != 0,
-            },
-            dx: self.buf[1] as i8,
-            dy: self.buf[2] as i8,
-            x_overflow: b0 & 0x40 != 0,
-            y_overflow: b0 & 0x80 != 0,
-            scroll: 0,
         }
     }
 }
