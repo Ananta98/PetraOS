@@ -4,6 +4,7 @@
 //! file descriptor tables (`CLONE_FILES`), filesystem info (`CLONE_FS`),
 //! or signal handlers (`CLONE_SIGHAND`).
 
+use crate::arch::set_fs_base;
 use crate::proc::pid_table::PROCESS_TABLE;
 use crate::proc::process::Process;
 use crate::syscall::{SyscallResult, dispatch_syscall, to_continue_i32};
@@ -80,7 +81,7 @@ pub fn syscall_clone(
     let child_clone = child.clone();
     let spawn_res = child.spawn_thread("clone_task", move || {
         if is_settls && tls != 0 {
-            crate::proc::thread_local::set_fs_base(tls);
+            set_fs_base(tls);
         }
 
         let mut user_mode = UserMode::new(child_context);

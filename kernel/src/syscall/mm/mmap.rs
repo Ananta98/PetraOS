@@ -1,4 +1,3 @@
-use crate::fs::fd_table::OpenFile;
 use crate::fs::vfs::FileOps;
 use crate::proc::process::Process;
 use crate::syscall::SyscallResult;

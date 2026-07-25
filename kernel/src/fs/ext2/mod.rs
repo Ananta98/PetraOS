@@ -11,5 +11,4 @@ pub mod superblock;
 pub use file::Ext2File;
 pub use format::format_ext2;
 pub use inode::Ext2Inode;
-pub use layout::{Ext2FileInfo, GroupDescriptor, Inode, Superblock};
 pub use superblock::{Ext2Fs, Ext2FsState};

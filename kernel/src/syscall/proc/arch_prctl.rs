@@ -1,4 +1,4 @@
-use crate::proc::thread_local::{get_fs_base, get_gs_base, set_fs_base, set_gs_base};
+use crate::arch::{get_fs_base, get_gs_base, set_fs_base, set_gs_base};
 use crate::syscall::{SyscallResult, to_continue_unit};
 use crate::vm::vma::VmaManager;
 use ostd::Error;

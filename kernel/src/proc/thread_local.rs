@@ -67,39 +67,6 @@ pub fn allocate_tls_block(vm: &VmaManager, tpl: &TlsTemplate) -> Result<Vaddr, E
     Ok(addr + tpl.mem_size())
 }
 
-/// Write `addr` into the FS-base MSR on the **current CPU** using
-/// the `wrfsbase` instruction.
-///
-/// The FSGSBASE CPU feature is enabled by the OSTD boot code, so this
-/// instruction is available at privilege level 0.
-pub fn set_fs_base(addr: Vaddr) {
-    FsBase::new(addr).load();
-}
-
-/// Read the current CPU's FS-base MSR using the `rdfsbase` instruction.
-pub fn get_fs_base() -> Vaddr {
-    use ostd::arch::cpu::context::FsBase;
-    let mut fs = FsBase::default();
-    fs.save();
-    fs.addr()
-}
-
-/// Write `addr` into the GS-base MSR on the **current CPU** using
-/// the `wrgsbase` instruction.
-pub fn set_gs_base(addr: Vaddr) {
-    let guard = disable_local();
-    GsBase::new(addr).load(&guard);
-}
-
-/// Read the current CPU's GS-base MSR using the `rdgsbase` instruction.
-pub fn get_gs_base() -> Vaddr {
-    use ostd::arch::cpu::context::GsBase;
-    let mut gs = GsBase::default();
-    let guard = disable_local();
-    gs.save(&guard);
-    gs.addr()
-}
-
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
