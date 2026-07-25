@@ -19,6 +19,7 @@ mod vm;
 
 #[ostd::main]
 fn kernel_main() {
+    arch::power::init();
     vm::init();
     irq::init();
     device::manager::init();
