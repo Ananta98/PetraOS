@@ -190,6 +190,68 @@ pub fn setup_signal_frame(
     Ok(new_sp)
 }
 
+/// Restores `UserContext` and reads saved `uc.sigmask` from the `SignalFrame`
+/// located on the user stack at `sp`.
+///
+/// Returns the saved `sigmask` as a `u64` on success.
+pub fn restore_signal_frame(
+    vm: &VmaManager,
+    context: &mut UserContext,
+    sp: usize,
+) -> Result<u64, Error> {
+    const FRAME_SIZE: usize = 232;
+    let mut frame_bytes = [0u8; FRAME_SIZE];
+    vm.copy_from_user(sp, &mut frame_bytes)?;
+
+    let read_u64 = |word_idx: usize| -> u64 {
+        let offset = word_idx * 8;
+        u64::from_le_bytes(
+            frame_bytes[offset..offset + 8]
+                .try_into()
+                .unwrap_or([0u8; 8]),
+        )
+    };
+
+    let segs = read_u64(23);
+    let cs = (segs & 0xFFFF) as u16;
+    let gs = ((segs >> 16) & 0xFFFF) as u16;
+    let fs = ((segs >> 32) & 0xFFFF) as u16;
+    let ss = ((segs >> 48) & 0xFFFF) as u16;
+
+    let sigctx = SigContext {
+        r8: read_u64(5),
+        r9: read_u64(6),
+        r10: read_u64(7),
+        r11: read_u64(8),
+        r12: read_u64(9),
+        r13: read_u64(10),
+        r14: read_u64(11),
+        r15: read_u64(12),
+        rdi: read_u64(13),
+        rsi: read_u64(14),
+        rbp: read_u64(15),
+        rbx: read_u64(16),
+        rdx: read_u64(17),
+        rax: read_u64(18),
+        rcx: read_u64(19),
+        rsp: read_u64(20),
+        rip: read_u64(21),
+        eflags: read_u64(22),
+        cs,
+        gs,
+        fs,
+        ss,
+        err: read_u64(24),
+        trapno: read_u64(25),
+        oldmask: read_u64(26),
+        cr2: read_u64(27),
+    };
+
+    sigctx.apply_to_user_context(context);
+    let sigmask = read_u64(28);
+    Ok(sigmask)
+}
+
 #[cfg(ktest)]
 mod tests {
     use super::*;

@@ -29,41 +29,35 @@
 ///
 /// Returns: does not normally return — the interrupted context is resumed.
 /// If restoration is not possible, returns `0` (continue normally).
+use crate::ipc::SigSet;
 use crate::proc::process::Process;
 use crate::syscall::{SyscallResult, to_continue_unit};
 use crate::vm::vma::VmaManager;
 
 /// System call entry: `rt_sigreturn()`.
 ///
-/// The signal frame address will be passed in `arg0` once the architecture
-/// trampoline is implemented.  For now the argument is ignored.
+/// Restores the saved CPU register context and precise signal mask (`uc_sigmask`)
+/// from the `SignalFrame` on the user stack.
 pub fn syscall_rt_sigreturn(
-    _arg0: usize, // Reserved: future signal-frame pointer from trampoline
+    arg0: usize, // Signal-frame pointer from trampoline (or 0 to use context.rsp())
     _: usize,
     _: usize,
     _: usize,
     _: usize,
     _: usize,
-    _: &VmaManager,
-    _: &mut ostd::arch::cpu::context::UserContext,
+    vm: &VmaManager,
+    context: &mut ostd::arch::cpu::context::UserContext,
 ) -> SyscallResult {
     let process = Process::current();
     let signals = process.signals.clone();
 
-    // Restore the signal mask that was saved before the handler was invoked.
-    //
-    // When the trampoline is implemented, the saved mask will be read from
-    // the `uc_sigmask` field of the `ucontext_t` stored in the signal frame.
-    // For now we unblock the entire signal set as a safe approximation (the
-    // dispatcher already re-adds the handler's own signal to the mask when it
-    // invokes the handler).
-    //
-    // TODO(agent): read uc_sigmask from the user-stack signal frame once the
-    // architecture trampoline is implemented and use it to restore the mask
-    // precisely.
-    let current_mask = signals.queue.get_mask();
-    signals.queue.set_mask(current_mask);
+    let sp = if arg0 != 0 { arg0 } else { context.rsp() };
 
-    // Return 0: the interrupted code resumes from where it was preempted.
-    to_continue_unit(Ok(()))
+    match crate::arch::signal::restore_signal_frame(vm, context, sp) {
+        Ok(sigmask) => {
+            signals.queue.set_mask(SigSet::from_u64(sigmask));
+            to_continue_unit(Ok(()))
+        }
+        Err(err) => to_continue_unit(Err(err)),
+    }
 }

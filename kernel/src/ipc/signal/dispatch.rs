@@ -173,6 +173,22 @@ fn notify_parent_sigchld(ppid: Option<Arc<Process>>, child_pid: Pid) {
 // Public: send a signal to a process by PID
 // ──────────────────────────────────────────────────────────────
 
+/// Deliver a specific [`SigInfo`] to the process identified by `target_pid`.
+///
+/// Returns `Ok(())` if the signal was enqueued, or
+/// `Err(ostd::Error::InvalidArgs)` if no process with `target_pid` exists or
+/// the signal number is invalid.
+pub fn send_siginfo_to_pid(target_pid: Pid, info: SigInfo) -> Result<(), ostd::Error> {
+    if info.signum == 0 || info.signum > super::types::SIGRTMAX {
+        return Err(ostd::Error::InvalidArgs);
+    }
+    let process = PROCESS_TABLE
+        .get_process(target_pid)
+        .ok_or(ostd::Error::InvalidArgs)?;
+    process.signals.queue.enqueue(info);
+    Ok(())
+}
+
 /// Deliver signal `signum` to the process identified by `target_pid`.
 ///
 /// `sender_pid` is the PID of the sender (0 for kernel-generated signals).
@@ -185,15 +201,7 @@ pub fn send_signal_to_pid(
     signum: u32,
     sender_pid: u32,
 ) -> Result<(), ostd::Error> {
-    if signum == 0 || signum > super::types::SIGRTMAX {
-        return Err(ostd::Error::InvalidArgs);
-    }
-    let process = PROCESS_TABLE
-        .get_process(target_pid)
-        .ok_or(ostd::Error::InvalidArgs)?;
-    let info = SigInfo::user(signum, sender_pid);
-    process.signals.queue.enqueue(info);
-    Ok(())
+    send_siginfo_to_pid(target_pid, SigInfo::user(signum, sender_pid))
 }
 
 /// Deliver signal `signum` to every process in the process group with PGID
