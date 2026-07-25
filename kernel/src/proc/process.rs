@@ -532,6 +532,8 @@ impl Process {
 mod tests {
     use super::*;
     use crate::vm::VMA_MANAGER;
+    use alloc::sync::Arc;
+    use core::sync::atomic::{AtomicBool, Ordering};
     use ostd::prelude::ktest;
 
     /// Helper: initialise the VM subsystem once and return the global manager.
@@ -740,17 +742,79 @@ mod tests {
     fn test_process_current() {
         let vm = vm();
         let init_pid = Pid::from_raw(1);
-        let init = Process::new_with_pid(init_pid, vm.clone(), "init");
+        let _init = Process::new_with_pid(init_pid, vm.clone(), "init");
 
-        // Verify fallback when no task data is set returns init (PID 1)
-        let curr = Process::current();
-        assert_eq!(curr.pid, init_pid);
-        assert_eq!(curr.name, "init");
+        // 1. Verify fallback to init (PID 1) on main context
+        let curr_main = Process::current();
+        assert_eq!(curr_main.pid, init_pid);
 
-        // Verify custom process registration in PROCESS_TABLE
-        let custom_pid = Pid::from_raw(42);
-        let custom_proc = Process::new_with_pid(custom_pid, vm, "custom_proc");
-        assert!(PROCESS_TABLE.get_process(custom_pid).is_some());
-        assert_eq!(custom_proc.name, "custom_proc");
+        // 2. Create distinct processes
+        let proc_alpha = Process::new(vm.clone(), "alpha_proc");
+        let proc_beta = Process::new(vm.clone(), "beta_proc");
+        let proc_gamma = Process::new(vm.clone(), "gamma_proc");
+
+        let alpha_pid = proc_alpha.pid;
+        let beta_pid = proc_beta.pid;
+        let gamma_pid = proc_gamma.pid;
+
+        let alpha_ran = Arc::new(AtomicBool::new(false));
+        let beta_ran = Arc::new(AtomicBool::new(false));
+        let gamma_ran = Arc::new(AtomicBool::new(false));
+
+        let a_flag = alpha_ran.clone();
+        let thread_a = proc_alpha
+            .spawn_thread("alpha_worker", move || {
+                let current = Process::current();
+                assert_eq!(current.pid, alpha_pid);
+                assert_eq!(current.name, "alpha_proc");
+                a_flag.store(true, Ordering::Release);
+            })
+            .expect("spawn thread alpha failed");
+
+        let b_flag = beta_ran.clone();
+        let thread_b = proc_beta
+            .spawn_thread("beta_worker", move || {
+                let current = Process::current();
+                assert_eq!(current.pid, beta_pid);
+                assert_eq!(current.name, "beta_proc");
+                b_flag.store(true, Ordering::Release);
+            })
+            .expect("spawn thread beta failed");
+
+        let g_flag = gamma_ran.clone();
+        let thread_g = proc_gamma
+            .spawn_thread("gamma_worker", move || {
+                let current = Process::current();
+                assert_eq!(current.pid, gamma_pid);
+                assert_eq!(current.name, "gamma_proc");
+                g_flag.store(true, Ordering::Release);
+            })
+            .expect("spawn thread gamma failed");
+
+        // 3. Test Process::current() inside forked process thread
+        let child_proc = proc_alpha.fork().expect("fork failed");
+        let child_pid = child_proc.pid;
+        let child_ran = Arc::new(AtomicBool::new(false));
+        let c_flag = child_ran.clone();
+
+        let thread_c = child_proc
+            .spawn_thread("child_worker", move || {
+                let current = Process::current();
+                assert_eq!(current.pid, child_pid);
+                assert_eq!(current.ppid.unwrap().pid, alpha_pid);
+                c_flag.store(true, Ordering::Release);
+            })
+            .expect("spawn thread child failed");
+
+        // Join all threads
+        proc_alpha.join_thread(thread_a.tid);
+        proc_beta.join_thread(thread_b.tid);
+        proc_gamma.join_thread(thread_g.tid);
+        child_proc.join_thread(thread_c.tid);
+
+        assert!(alpha_ran.load(Ordering::Acquire));
+        assert!(beta_ran.load(Ordering::Acquire));
+        assert!(gamma_ran.load(Ordering::Acquire));
+        assert!(child_ran.load(Ordering::Acquire));
     }
 }
