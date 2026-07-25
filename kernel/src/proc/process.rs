@@ -735,4 +735,22 @@ mod tests {
         assert_eq!(counter.load(Ordering::Relaxed), 4);
         assert_eq!(proc.threads.lock().len(), 0);
     }
+
+    #[ktest]
+    fn test_process_current() {
+        let vm = vm();
+        let init_pid = Pid::from_raw(1);
+        let init = Process::new_with_pid(init_pid, vm.clone(), "init");
+
+        // Verify fallback when no task data is set returns init (PID 1)
+        let curr = Process::current();
+        assert_eq!(curr.pid, init_pid);
+        assert_eq!(curr.name, "init");
+
+        // Verify custom process registration in PROCESS_TABLE
+        let custom_pid = Pid::from_raw(42);
+        let custom_proc = Process::new_with_pid(custom_pid, vm, "custom_proc");
+        assert!(PROCESS_TABLE.get_process(custom_pid).is_some());
+        assert_eq!(custom_proc.name, "custom_proc");
+    }
 }
