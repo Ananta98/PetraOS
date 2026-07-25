@@ -145,21 +145,21 @@ mod tests {
 
     #[ktest]
     fn test_shift_produces_uppercase_and_symbols() {
-        let s = type_keys(&[0x2A, 0x1E, 0xF0, 0x2A]);
+        let s = type_keys(&[0x2A, 0x1E, 0xAA]);
         assert_eq!(s, "A");
 
-        let s = type_keys(&[0x2A, 0x02, 0xF0, 0x2A]);
+        let s = type_keys(&[0x2A, 0x02, 0xAA]);
         assert_eq!(s, "!");
     }
 
     #[ktest]
     fn test_caps_lock_toggles_case() {
         let kb = Keyboard::new();
-        kb.push_scancodes(&[0x3A, 0xF0, 0x3A, 0x1E]);
+        kb.push_scancodes(&[0x3A, 0xBA, 0x1E]);
         let mut buf = [0u8; 64];
         let n = kb.read(&mut buf).unwrap();
         assert_eq!(&buf[..n], b"A");
-        kb.push_scancodes(&[0x3A, 0xF0, 0x3A, 0x1E]);
+        kb.push_scancodes(&[0x3A, 0xBA, 0x1E]);
         let n = kb.read(&mut buf).unwrap();
         assert_eq!(&buf[..n], b"a");
     }
