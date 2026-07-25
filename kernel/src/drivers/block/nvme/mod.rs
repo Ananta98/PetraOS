@@ -231,7 +231,6 @@ fn init_controller(
 
         let mut irq_assigned = false;
 
-        #[cfg(target_arch = "x86_64")]
         if let Ok(mut msi_config) = pci_dev.enable_msi(handler.clone()) {
             if let Some(irq) = msi_config.vectors.pop() {
                 NVME_IRQ.call_once(|| irq);

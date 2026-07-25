@@ -121,8 +121,7 @@ pub fn init() {
                 // registers, then defer completion work to the Block softirq.
                 for port in 0..32 {
                     if (pi & (1 << port)) != 0 {
-                        let _ =
-                            isr_abar_cb.read_once::<u32>(hba::port_offset(port) + hba::PORT_IS);
+                        let _ = isr_abar_cb.read_once::<u32>(hba::port_offset(port) + hba::PORT_IS);
                     }
                 }
                 // Signal the Block bottom-half.
@@ -131,7 +130,6 @@ pub fn init() {
 
             let mut irq_assigned = false;
 
-            #[cfg(target_arch = "x86_64")]
             if let Ok(mut msi_config) = pci_dev.enable_msi(handler.clone()) {
                 if let Some(irq) = msi_config.vectors.pop() {
                     AHCI_IRQ.call_once(|| irq);

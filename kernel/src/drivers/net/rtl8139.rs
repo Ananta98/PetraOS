@@ -71,7 +71,6 @@ impl Rtl8139 {
             }
         };
 
-        #[cfg(target_arch = "x86_64")]
         if let Ok(mut msi_config) = pci_dev.enable_msi(handler.clone()) {
             rtl._irq = msi_config.vectors.pop();
         }
