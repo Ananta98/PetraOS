@@ -223,7 +223,7 @@ impl Process {
     /// Get the current process executing in the current task context, or fall back to PID 1 (init).
     pub fn current() -> Process {
         if let Some(task) = ostd::task::Task::current() {
-            if let Some(task_data) = task.data().downcast_ref::<crate::scheduler::TaskData>() {
+            if let Some(task_data) = crate::scheduler::TaskData::from_task(&task) {
                 if let Some(proc) = PROCESS_TABLE.get_process(task_data.pid) {
                     return proc;
                 }
