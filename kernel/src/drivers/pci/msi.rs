@@ -1,30 +1,17 @@
-//! MSI interrupt support for PCI devices on x86_64 architecture.
+//! Vendor-neutral Message Signaled Interrupts (MSI) support for PCI devices.
 //!
-//! On x86_64 with Local APIC:
-//! - An MSI write targets physical address `0xFEE0_0000 | (APIC_ID << 12)`.
-//! - The message data encodes the assigned interrupt vector (range 32..255).
+//! Provides capability discovery, register programming (32-bit and 64-bit addresses),
+//! and interrupt enablement/disablement in PCI configuration space per the PCI Local Bus Specification.
 
 use alloc::vec::Vec;
 use ostd::Error;
 
+use crate::drivers::pci::arch::{self, msi_address, msi_data};
 use crate::drivers::pci::capability::{CAP_MSI, capabilities};
 use crate::drivers::pci::device::PciDevice;
 use crate::irq::{IrqHandler, IrqRegistration};
 
-/// The base Local APIC message address for x86_64 MSI.
-pub const MSI_ADDR_BASE: u32 = 0xFEE0_0000;
-
-/// Construct an x86_64 MSI Message Address targeting a specific CPU APIC ID.
-pub fn msi_address(apic_id: u8) -> u32 {
-    MSI_ADDR_BASE | ((apic_id as u32) << 12)
-}
-
-/// Construct an x86_64 MSI Message Data value for a given APIC interrupt vector.
-pub fn msi_data(vector: u8) -> u16 {
-    vector as u16
-}
-
-/// Descriptor for a configured MSI interrupt on x86_64.
+/// Descriptor for a configured MSI interrupt.
 pub struct MsiConfig {
     /// Allocated IRQ registration.
     pub vectors: Vec<IrqRegistration>,
@@ -44,7 +31,7 @@ pub fn find_msi_capability(device: &PciDevice) -> Option<u8> {
         .map(|cap| cap.offset)
 }
 
-/// Enable single-vector MSI for a PCI device on x86_64.
+/// Enable single-vector MSI for a PCI device.
 pub fn enable_msi(device: &PciDevice, handler: impl IrqHandler) -> Result<MsiConfig, Error> {
     let cap_offset = find_msi_capability(device).ok_or(Error::NotEnoughResources)?;
 
@@ -101,5 +88,3 @@ mod tests {
         assert_eq!(msi_data(255), 255);
     }
 }
-
-

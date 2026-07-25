@@ -16,10 +16,18 @@
 use ostd::arch::device::io_port::ReadWriteAccess;
 use ostd::io::IoPort;
 
-pub mod msi;
-pub use msi::{
-    MsiConfig, disable_msi, enable_msi, find_msi_capability, msi_address, msi_data,
-};
+/// The base Local APIC message address for x86_64 MSI.
+pub const MSI_ADDR_BASE: u32 = 0xFEE0_0000;
+
+/// Construct an x86_64 MSI Message Address targeting a specific CPU APIC ID.
+pub fn msi_address(apic_id: u8) -> u32 {
+    MSI_ADDR_BASE | ((apic_id as u32) << 12)
+}
+
+/// Construct an x86_64 MSI Message Data value for a given APIC interrupt vector.
+pub fn msi_data(vector: u8) -> u16 {
+    vector as u16
+}
 
 /// Build the PCI configuration address for the given BDF and register offset.
 fn make_address(bus: u8, device: u8, func: u8, offset: u8) -> u32 {

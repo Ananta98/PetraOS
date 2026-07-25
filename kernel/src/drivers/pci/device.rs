@@ -132,19 +132,17 @@ impl PciDevice {
         self.read_config_u8(CFG_CAP_PTR) & 0xFC
     }
 
-    /// Enable single-vector MSI on this PCI device (x86_64).
-    #[cfg(target_arch = "x86_64")]
+    /// Enable single-vector MSI on this PCI device.
     pub fn enable_msi(
         &self,
         handler: impl crate::irq::IrqHandler,
-    ) -> Result<arch::msi::MsiConfig, ostd::Error> {
-        arch::msi::enable_msi(self, handler)
+    ) -> Result<super::msi::MsiConfig, ostd::Error> {
+        super::msi::enable_msi(self, handler)
     }
 
-    /// Disable MSI on this PCI device (x86_64).
-    #[cfg(target_arch = "x86_64")]
+    /// Disable MSI on this PCI device.
     pub fn disable_msi(&self) {
-        arch::msi::disable_msi(self);
+        super::msi::disable_msi(self);
     }
 }
 

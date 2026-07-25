@@ -15,6 +15,7 @@ mod device;
 
 #[cfg_attr(target_arch = "x86_64", path = "arch/x86_64/mod.rs")]
 mod arch;
+pub mod msi;
 
 pub use bus::{enumerate, find_device, find_devices_by_class};
 pub use capability::{
@@ -28,7 +29,6 @@ mod config {
         config_write_u32,
     };
 }
-pub use arch::msi;
 pub use config::{
     config_read_u8, config_read_u16, config_read_u32, config_write_u8, config_write_u16,
     config_write_u32,
