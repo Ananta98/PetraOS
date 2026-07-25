@@ -1,79 +1,26 @@
-use super::{CharDevice, InputBuffer, register_char_device};
+use super::{register_char_device, CharDevice, InputBuffer};
 use alloc::sync::Arc;
 use ostd::arch::device::io_port::ReadWriteAccess;
-use ostd::arch::irq::{IRQ_CHIP, MappedIrqLine};
+use ostd::arch::irq::{MappedIrqLine, IRQ_CHIP};
 use ostd::arch::trap::TrapFrame;
 use ostd::io::IoPort;
 use ostd::irq::IrqLine;
 use ostd::sync::SpinLock;
+use pc_keyboard::{layouts, DecodedKey, HandleControl, Keyboard as PcKeyboard, ScancodeSet1};
 use spin::Once;
 
 /// Default capacity (in bytes) of the keyboard's internal character buffer.
 const DEFAULT_BUFFER_CAPACITY: usize = 4096;
 
-/// Keyboard modifier (Shift / Ctrl / Alt / Caps-Lock) state.
-///
-/// Modifier state is tracked by the decoder as scancodes arrive so that
-/// decoded output reflects the currently held modifier keys.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct Modifiers {
-    /// Left Shift key currently held.
-    pub left_shift: bool,
-    /// Right Shift key currently held.
-    pub right_shift: bool,
-    /// Control key currently held (left or right).
-    pub ctrl: bool,
-    /// Alt key currently held (left or right).
-    pub alt: bool,
-    /// Caps Lock toggle state.
-    pub caps_lock: bool,
-}
-
-impl Modifiers {
-    /// Whether either Shift key is currently held.
-    pub fn is_shift_active(&self) -> bool {
-        self.left_shift || self.right_shift
-    }
-}
-
-/// Internal decoder state machine for the PS/2 Scan Code Set 1 protocol.
-///
-/// Scancodes may arrive one byte at a time from the keyboard ISR, so the
-/// state needed to interpret multi-byte sequences (the `0xE0` extended
-/// prefix and the `0xF0` key-up prefix) and to track held modifiers must
-/// persist across [`Keyboard::push_scancode`] calls.
-struct DecoderState {
-    /// The previous byte was the `0xE0` extended-key prefix.
-    extended: bool,
-    /// The previous byte was the `0xF0` key-up prefix.
-    expect_break: bool,
-    /// Currently held modifiers.
-    modifiers: Modifiers,
-    /// Num Lock toggle state (affects the numeric keypad).
-    num_lock: bool,
-}
-
-impl Default for DecoderState {
-    fn default() -> Self {
-        Self {
-            extended: false,
-            expect_break: false,
-            modifiers: Modifiers::default(),
-            num_lock: true,
-        }
-    }
-}
-
 /// A character device that decodes PS/2 (Scan Code Set 1) scancodes pushed by
-/// the keyboard interrupt handler into ASCII text.
+/// the keyboard interrupt handler into ASCII/UTF-8 text using the `pc-keyboard` crate.
 ///
 /// Use [`Keyboard::push_scancode`] from the keyboard ISR to feed raw
-/// scancodes; the decoder translates them (honouring Shift, Ctrl, Alt and
-/// Caps Lock) and enqueues the resulting characters. User-space reads the
-/// decoded stream via `/dev/keyboard`, which drains the buffer.
+/// scancodes; the decoder translates them and enqueues the resulting characters.
+/// User-space reads the decoded stream via `/dev/keyboard`, which drains the buffer.
 pub struct Keyboard {
     buf: InputBuffer,
-    state: SpinLock<DecoderState>,
+    decoder: SpinLock<PcKeyboard<layouts::Us104Key, ScancodeSet1>>,
 }
 
 impl Keyboard {
@@ -81,55 +28,30 @@ impl Keyboard {
     pub fn new() -> Self {
         Self {
             buf: InputBuffer::new(DEFAULT_BUFFER_CAPACITY),
-            state: SpinLock::new(DecoderState::default()),
+            decoder: SpinLock::new(PcKeyboard::new(
+                ScancodeSet1::new(),
+                layouts::Us104Key,
+                HandleControl::MapLettersToUnicode,
+            )),
         }
     }
 
     /// Feed a single raw scancode byte from the keyboard ISR.
     ///
-    /// Multi-byte sequences are assembled internally: a `0xE0` byte marks the
-    /// following code as an "extended" key, and a `0xF0` byte marks the
-    /// following code as a key *release*. On a key *press* of a printable key,
-    /// the decoded ASCII character is enqueued into the read buffer.
+    /// The `pc-keyboard` decoder handles scancode state machine, modifier state,
+    /// and multi-byte extended key sequences internally.
     pub fn push_scancode(&self, scancode: u8) {
-        let mut state = self.state.lock();
-
-        match scancode {
-            0xE0 => {
-                state.extended = true;
-                return;
-            }
-            0xF0 => {
-                state.expect_break = true;
-                return;
-            }
-            _ => {}
-        }
-
-        let code = scancode;
-        let pressed = !state.expect_break;
-        let extended = state.extended;
-
-        state.extended = false;
-        state.expect_break = false;
-
-        match (extended, code) {
-            (false, 0x2A) => state.modifiers.left_shift = pressed,
-            (false, 0x36) => state.modifiers.right_shift = pressed,
-            (false, 0x1D) | (true, 0x1D) => state.modifiers.ctrl = pressed,
-            (false, 0x38) | (true, 0x38) => state.modifiers.alt = pressed,
-            (false, 0x3A) if pressed => state.modifiers.caps_lock = !state.modifiers.caps_lock,
-            (false, 0x45) if pressed => state.num_lock = !state.num_lock,
-            _ => {}
-        }
-
-        if !pressed || matches!(code, 0x2A | 0x36 | 0x1D | 0x38 | 0x3A | 0x45 | 0x46) {
-            return;
-        }
-
-        if !extended {
-            if let Some(ch) = decode_char(code, &state.modifiers) {
-                self.buf.push(&[ch]);
+        let mut decoder = self.decoder.lock();
+        if let Ok(Some(key_event)) = decoder.add_byte(scancode) {
+            if let Some(key) = decoder.process_keyevent(key_event) {
+                match key {
+                    DecodedKey::Unicode(ch) => {
+                        let mut tmp = [0u8; 4];
+                        let s = ch.encode_utf8(&mut tmp);
+                        self.buf.push(s.as_bytes());
+                    }
+                    DecodedKey::RawKey(_raw) => {}
+                }
             }
         }
     }
@@ -146,102 +68,11 @@ impl Keyboard {
     pub fn available(&self) -> usize {
         self.buf.available()
     }
-
-    /// Snapshot of the current modifier state (handy for consumers that want
-    /// to know which modifiers were held for the most recent key event).
-    pub fn modifiers(&self) -> Modifiers {
-        self.state.lock().modifiers
-    }
 }
 
-fn ascii_pair(code: u8) -> Option<(u8, u8)> {
-    Some(match code {
-        0x01 => (0x1B, 0x1B),
-        0x02 => (b'1', b'!'),
-        0x03 => (b'2', b'@'),
-        0x04 => (b'3', b'#'),
-        0x05 => (b'4', b'$'),
-        0x06 => (b'5', b'%'),
-        0x07 => (b'6', b'^'),
-        0x08 => (b'7', b'&'),
-        0x09 => (b'8', b'*'),
-        0x0A => (b'9', b'('),
-        0x0B => (b'0', b')'),
-        0x0C => (b'-', b'_'),
-        0x0D => (b'=', b'+'),
-        0x0E => (0x08, 0x08),
-        0x0F => (0x09, 0x09),
-        0x10 => (b'q', b'Q'),
-        0x11 => (b'w', b'W'),
-        0x12 => (b'e', b'E'),
-        0x13 => (b'r', b'R'),
-        0x14 => (b't', b'T'),
-        0x15 => (b'y', b'Y'),
-        0x16 => (b'u', b'U'),
-        0x17 => (b'i', b'I'),
-        0x18 => (b'o', b'O'),
-        0x19 => (b'p', b'P'),
-        0x1A => (b'[', b'{'),
-        0x1B => (b']', b'}'),
-        0x1C => (0x0A, 0x0A),
-        0x1E => (b'a', b'A'),
-        0x1F => (b's', b'S'),
-        0x20 => (b'd', b'D'),
-        0x21 => (b'f', b'F'),
-        0x22 => (b'g', b'G'),
-        0x23 => (b'h', b'H'),
-        0x24 => (b'j', b'J'),
-        0x25 => (b'k', b'K'),
-        0x26 => (b'l', b'L'),
-        0x27 => (b';', b':'),
-        0x28 => (b'\'', b'"'),
-        0x29 => (b'`', b'~'),
-        0x2B => (b'\\', b'|'),
-        0x2C => (b'z', b'Z'),
-        0x2D => (b'x', b'X'),
-        0x2E => (b'c', b'C'),
-        0x2F => (b'v', b'V'),
-        0x30 => (b'b', b'B'),
-        0x31 => (b'n', b'N'),
-        0x32 => (b'm', b'M'),
-        0x33 => (b',', b'<'),
-        0x34 => (b'.', b'>'),
-        0x35 => (b'/', b'?'),
-        0x37 => (b'*', b'*'),
-        0x39 => (b' ', b' '),
-        0x47 => (b'7', b'7'),
-        0x48 => (b'8', b'8'),
-        0x49 => (b'9', b'9'),
-        0x4B => (b'4', b'4'),
-        0x4C => (b'5', b'5'),
-        0x4D => (b'6', b'6'),
-        0x4F => (b'1', b'1'),
-        0x50 => (b'2', b'2'),
-        0x51 => (b'3', b'3'),
-        0x52 => (b'0', b'0'),
-        0x53 => (b'.', b'.'),
-        _ => return None,
-    })
-}
-
-fn decode_char(code: u8, modifiers: &Modifiers) -> Option<u8> {
-    let (base, shifted) = ascii_pair(code)?;
-    let mut ch = if modifiers.is_shift_active() {
-        shifted
-    } else {
-        base
-    };
-    if modifiers.caps_lock {
-        ch = toggle_case(ch);
-    }
-    Some(ch)
-}
-
-fn toggle_case(c: u8) -> u8 {
-    match c {
-        b'a'..=b'z' => c - (b'a' - b'A'),
-        b'A'..=b'Z' => c + (b'a' - b'A'),
-        _ => c,
+impl Default for Keyboard {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
