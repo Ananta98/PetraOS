@@ -6,7 +6,7 @@ pub mod recvfrom;
 pub mod sendto;
 pub mod socket;
 
-pub use accept::syscall_accept;
+pub use accept::{syscall_accept, syscall_accept4};
 pub use bind::syscall_bind;
 pub use connect::syscall_connect;
 pub use listen::syscall_listen;

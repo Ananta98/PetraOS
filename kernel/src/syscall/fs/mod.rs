@@ -1,3 +1,4 @@
+pub mod access;
 pub mod chdir;
 pub mod chmod;
 pub mod chown;
@@ -5,6 +6,7 @@ pub mod close;
 pub mod dup;
 pub mod dup2;
 pub mod dup3;
+pub mod epoll;
 pub mod lseek;
 pub mod mount;
 pub mod open;
@@ -12,6 +14,7 @@ pub mod pipe;
 pub mod read;
 pub mod write;
 
+pub use access::{syscall_access, syscall_faccessat};
 pub use chdir::syscall_chdir;
 pub use chmod::syscall_chmod;
 pub use chown::syscall_chown;
@@ -19,6 +22,10 @@ pub use close::syscall_close;
 pub use dup::syscall_dup;
 pub use dup2::syscall_dup2;
 pub use dup3::syscall_dup3;
+pub use epoll::{
+    syscall_epoll_create, syscall_epoll_create1, syscall_epoll_ctl, syscall_epoll_pwait,
+    syscall_epoll_wait,
+};
 pub use lseek::syscall_lseek;
 pub use mount::syscall_mount;
 pub use open::syscall_open;

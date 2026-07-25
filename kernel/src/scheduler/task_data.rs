@@ -34,38 +34,28 @@ impl TaskData {
         }
     }
 
-    /// Extract `(SchedClass, vruntime)` from an `ostd::task::Task` reference.
-    pub fn sched_data(task: &Task) -> (SchedClass, u64) {
-        if let Some(data) = task.data().downcast_ref::<Self>() {
-            (data.class, data.vruntime.load(Ordering::Relaxed))
-        } else {
-            (
-                SchedClass::Fair {
-                    nice: NiceWeight::new(0),
-                },
-                0,
-            )
-        }
+    /// Extract `TaskData` reference from an `ostd::task::Task`.
+    pub fn from_task(task: &Task) -> Option<&Self> {
+        task.data().downcast_ref::<Self>()
     }
 
-    /// Update the virtual runtime of an `ostd::task::Task`.
-    pub fn set_vruntime(task: &Task, vruntime: u64) {
-        if let Some(data) = task.data().downcast_ref::<Self>() {
-            data.vruntime.store(vruntime, Ordering::Relaxed);
-        }
+    /// Extract `(SchedClass, vruntime)` for this task.
+    pub fn sched_data(&self) -> (SchedClass, u64) {
+        (self.class, self.vruntime.load(Ordering::Relaxed))
     }
 
-    /// Calculate the EEVDF virtual deadline for a task.
-    pub fn deadline(vruntime: u64, class: SchedClass, task: Option<&Task>) -> u64 {
-        let mut weight = class.weight();
-        if let Some(task) = task {
-            if let Some(data) = task.data().downcast_ref::<Self>() {
-                let ema = data.ema.load(Ordering::Relaxed);
-                let ema_pct = (ema * 100 / 2_000_000).min(100);
-                let weight_factor = 100 - ema_pct * 75 / 100;
-                weight = weight * 100 / weight_factor.max(1);
-            }
-        }
+    /// Update the virtual runtime for this task.
+    pub fn set_vruntime(&self, vruntime: u64) {
+        self.vruntime.store(vruntime, Ordering::Relaxed);
+    }
+
+    /// Calculate the EEVDF virtual deadline for this task.
+    pub fn deadline(&self, vruntime: u64) -> u64 {
+        let mut weight = self.class.weight();
+        let ema = self.ema.load(Ordering::Relaxed);
+        let ema_pct = (ema * 100 / 2_000_000).min(100);
+        let weight_factor = 100 - ema_pct * 75 / 100;
+        weight = weight * 100 / weight_factor.max(1);
         vruntime + 1024_000 / weight.max(1)
     }
 }

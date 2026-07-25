@@ -40,7 +40,7 @@ pub fn syscall_sched_getscheduler(
         threads[0].clone()
     };
 
-    let (class, _) = TaskData::sched_data(&thread.task);
+    let (class, _) = crate::scheduler::get_sched_data(&thread.task);
 
     let policy = match class {
         SchedClass::Fair { .. } => SCHED_NORMAL,

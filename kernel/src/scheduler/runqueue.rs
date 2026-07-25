@@ -40,7 +40,7 @@ impl PerCpuClassRqSet {
     /// Minimum virtual runtime of tasks in this per-CPU run queue set.
     pub fn min_vruntime(&self) -> u64 {
         let mut min_val = if let Some(curr) = &self.current {
-            let (class, vruntime) = TaskData::sched_data(curr);
+            let (class, vruntime) = crate::scheduler::get_sched_data(curr);
             match class {
                 SchedClass::RealTime { .. } => 0,
                 SchedClass::Fair { .. } => vruntime,
@@ -61,7 +61,7 @@ impl PerCpuClassRqSet {
     fn total_fair_weight(&self) -> u64 {
         let mut total = self.fair.total_weight();
         if let Some(curr) = &self.current {
-            let (class, _) = TaskData::sched_data(curr);
+            let (class, _) = crate::scheduler::get_sched_data(curr);
             if let SchedClass::Fair { nice } = class {
                 total += nice.to_weight();
             }
@@ -71,11 +71,11 @@ impl PerCpuClassRqSet {
 
     /// Enqueue a task into the appropriate scheduling class runqueue.
     pub fn enqueue_task(&mut self, task: Arc<Task>) {
-        let (class, vruntime) = TaskData::sched_data(&task);
+        let (class, vruntime) = crate::scheduler::get_sched_data(&task);
         match class {
             SchedClass::RealTime { priority } => {
                 let mut effective_priority = priority;
-                if let Some(data) = task.data().downcast_ref::<TaskData>() {
+                if let Some(data) = TaskData::from_task(&task) {
                     let ema = data.ema.load(Ordering::Relaxed);
                     let decay = (ema * 10 / 2_000_000) as u32; // Drop up to 10 prio levels based on CPU usage
                     effective_priority = priority.saturating_sub(decay);
@@ -96,7 +96,7 @@ impl PerCpuClassRqSet {
             return false;
         };
 
-        let (curr_class, curr_vruntime) = TaskData::sched_data(curr);
+        let (curr_class, curr_vruntime) = crate::scheduler::get_sched_data(curr);
 
         match curr_class {
             SchedClass::RealTime {
@@ -118,11 +118,14 @@ impl PerCpuClassRqSet {
                     return false;
                 }
 
-                let curr_deadline = TaskData::deadline(curr_vruntime, curr_class, Some(&**curr));
+                let curr_deadline = TaskData::from_task(curr)
+                    .map(|d| d.deadline(curr_vruntime))
+                    .unwrap_or(curr_vruntime + 1024_000);
                 for (&vruntime, queue) in self.fair.tasks.range(..=self.vtime) {
                     for task in queue {
-                        let (class, _) = TaskData::sched_data(task);
-                        let deadline = TaskData::deadline(vruntime, class, Some(&**task));
+                        let deadline = TaskData::from_task(task)
+                            .map(|d| d.deadline(vruntime))
+                            .unwrap_or(vruntime + 1024_000);
                         if deadline + 1000 < curr_deadline {
                             return true;
                         }
@@ -141,11 +144,11 @@ impl LocalRunQueue<Task> for PerCpuClassRqSet {
 
     fn update_current(&mut self, flags: UpdateFlags) -> bool {
         if let Some(curr) = &self.current {
-            let (class, vruntime) = TaskData::sched_data(curr);
+            let (class, vruntime) = crate::scheduler::get_sched_data(curr);
             match class {
                 SchedClass::RealTime { .. } => {
                     if flags == UpdateFlags::Tick {
-                        if let Some(data) = curr.data().downcast_ref::<TaskData>() {
+                        if let Some(data) = TaskData::from_task(curr) {
                             let ema = data.ema.load(Ordering::Relaxed);
                             let rt_budget: u64 = 2_000_000;
                             let delta_ns: u64 = 1_000_000;
@@ -162,9 +165,9 @@ impl LocalRunQueue<Task> for PerCpuClassRqSet {
                         let weight = nice.to_weight();
                         let delta = 1000;
                         let vruntime_delta = delta * 1024 / weight.max(1);
-                        TaskData::set_vruntime(curr, vruntime + vruntime_delta);
 
-                        if let Some(data) = curr.data().downcast_ref::<TaskData>() {
+                        if let Some(data) = TaskData::from_task(curr) {
+                            data.set_vruntime(vruntime + vruntime_delta);
                             let ema = data.ema.load(Ordering::Relaxed);
                             let budget_max: u64 = 2_000_000;
                             let delta_ns: u64 = 1_000_000;

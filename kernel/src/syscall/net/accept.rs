@@ -10,10 +10,23 @@ use ostd::sync::SpinLock;
 use smoltcp::socket::tcp::State;
 
 pub fn syscall_accept(
+    arg0: usize,
+    arg1: usize,
+    arg2: usize,
+    arg3: usize,
+    arg4: usize,
+    arg5: usize,
+    vm: &VmaManager,
+    context: &mut ostd::arch::cpu::context::UserContext,
+) -> SyscallResult {
+    syscall_accept4(arg0, arg1, arg2, 0, arg4, arg5, vm, context)
+}
+
+pub fn syscall_accept4(
     arg0: usize, // sockfd
     arg1: usize, // addr
     arg2: usize, // addrlen
-    _: usize,
+    arg3: usize, // flags
     _: usize,
     _: usize,
     vm: &VmaManager,
@@ -22,6 +35,7 @@ pub fn syscall_accept(
     let sockfd = arg0 as i32;
     let addr_ptr = arg1;
     let addrlen_ptr = arg2;
+    let _flags = arg3 as u32;
 
     let process = Process::current();
     let fd_table = process.fd_table.lock();

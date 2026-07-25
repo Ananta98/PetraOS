@@ -34,9 +34,18 @@ pub use policy::SchedClassPolicy;
 pub use real_time::{RtRunQueue, RtSchedClass};
 pub use runqueue::PerCpuClassRqSet;
 
-/// Alias for `TaskData::sched_data`.
+/// Helper to extract `(SchedClass, vruntime)` from an `ostd::task::Task`.
 pub fn get_sched_data(task: &ostd::task::Task) -> (SchedClass, u64) {
-    TaskData::sched_data(task)
+    if let Some(data) = TaskData::from_task(task) {
+        data.sched_data()
+    } else {
+        (
+            SchedClass::Fair {
+                nice: NiceWeight::new(0),
+            },
+            0,
+        )
+    }
 }
 
 pub fn nice_to_weight(nice: i32) -> u64 {
@@ -61,12 +70,12 @@ impl SchedClass {
 }
 
 /// Top-level multi-core scheduler managing per-CPU runqueue sets (`PerCpuClassRqSet`).
-pub struct ClassScheduler {
+pub struct PerCpuScheduler {
     rqs: Vec<SpinLock<PerCpuClassRqSet>>,
 }
 
-impl ClassScheduler {
-    /// Create a new `ClassScheduler` configured for `nr_cpus` cores.
+impl PerCpuScheduler {
+    /// Create a new `PerCpuScheduler` configured for `nr_cpus` cores.
     pub fn new(nr_cpus: usize) -> Self {
         let mut rqs = Vec::with_capacity(nr_cpus);
         for _ in 0..nr_cpus {
@@ -93,13 +102,13 @@ impl ClassScheduler {
     }
 }
 
-impl Default for ClassScheduler {
+impl Default for PerCpuScheduler {
     fn default() -> Self {
         Self::new(num_cpus())
     }
 }
 
-impl Scheduler<Task> for ClassScheduler {
+impl Scheduler<Task> for PerCpuScheduler {
     fn enqueue(&self, runnable: Arc<Task>, flags: EnqueueFlags) -> Option<CpuId> {
         let (still_in_rq, target_cpu) = {
             let selected_cpu_id = if flags == EnqueueFlags::Spawn {
@@ -149,7 +158,7 @@ impl Scheduler<Task> for ClassScheduler {
 
 /// Initialize the scheduler subsystem by injecting the per-CPU `ClassScheduler`.
 pub fn init() {
-    let scheduler = Box::new(ClassScheduler::default());
+    let scheduler = Box::new(PerCpuScheduler::default());
     let scheduler_ref = Box::leak(scheduler);
     inject_scheduler(scheduler_ref);
     enable_preemption_on_cpu();
@@ -233,7 +242,9 @@ mod tests {
                 .unwrap(),
         );
 
-        TaskData::set_vruntime(&current, 1500);
+        if let Some(data) = TaskData::from_task(&current) {
+            data.set_vruntime(1500);
+        }
 
         rq.current = Some(current.clone());
         rq.vtime = 0;
