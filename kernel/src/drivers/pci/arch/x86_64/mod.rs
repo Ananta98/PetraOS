@@ -18,9 +18,7 @@ use ostd::io::IoPort;
 
 pub mod msi;
 pub use msi::{
-    MsiConfig, MsiVectorCount, MsixConfig, MsixEntry, disable_msi, disable_msix, enable_msi,
-    enable_msi_vectors, enable_msix, find_msi_capability, find_msix_capability, mask_msi_vector,
-    msi_address, msi_data,
+    MsiConfig, disable_msi, enable_msi, find_msi_capability, msi_address, msi_data,
 };
 
 /// Build the PCI configuration address for the given BDF and register offset.
