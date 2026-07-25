@@ -102,27 +102,34 @@ impl E1000 {
 
         dev.init_hardware()?;
 
-        // Register PCI INTx# interrupt (if assigned by BIOS).
-        // Top-half: read ICR to acknowledge pending hardware interrupts, then
-        // raise the NetRx and NetTx softirq vectors so packet Rx/Tx processing
-        // happens in the deferred bottom-half context.
-
-        let irq_line = pci_dev.interrupt_line();
-        if irq_line != 0 && irq_line < 16 {
-            if let Ok(irq) = crate::irq::map_isa_irq(irq_line, move || {
-                // Top-half: clear the interrupt by reading ICR.
-                let icr: Result<u32, _> = isr_mem.read_once(REG_ICR as usize);
-                if let Ok(icr_val) = icr {
-                    // ICR bit 7: RXT0 (Rx timer), bit 0: TXDW (Tx desc write-back)
-                    if (icr_val & 0x80) != 0 {
-                        raise_softirq(SoftIrqVector::NetRx);
-                    }
-                    if (icr_val & 0x01) != 0 {
-                        raise_softirq(SoftIrqVector::NetTx);
-                    }
+        // Register PCI interrupt handler: try single-vector MSI first, fall back
+        // to legacy INTx IRQ if MSI is unavailable or unsupported by device.
+        let isr_mem_cb = isr_mem.clone();
+        let handler = move || {
+            // Top-half: clear the interrupt by reading ICR.
+            let icr: Result<u32, _> = isr_mem_cb.read_once(REG_ICR as usize);
+            if let Ok(icr_val) = icr {
+                // ICR bit 7: RXT0 (Rx timer), bit 0: TXDW (Tx desc write-back)
+                if (icr_val & 0x80) != 0 {
+                    raise_softirq(SoftIrqVector::NetRx);
                 }
-            }) {
-                dev._irq = Some(irq);
+                if (icr_val & 0x01) != 0 {
+                    raise_softirq(SoftIrqVector::NetTx);
+                }
+            }
+        };
+
+        #[cfg(target_arch = "x86_64")]
+        if let Ok(mut msi_config) = pci_dev.enable_msi(handler.clone()) {
+            dev._irq = msi_config.vectors.pop();
+        }
+
+        if dev._irq.is_none() {
+            let irq_line = pci_dev.interrupt_line();
+            if irq_line != 0 && irq_line < 16 {
+                if let Ok(irq) = crate::irq::map_isa_irq(irq_line, handler) {
+                    dev._irq = Some(irq);
+                }
             }
         }
 

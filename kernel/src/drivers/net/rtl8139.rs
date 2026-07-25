@@ -54,28 +54,34 @@ impl Rtl8139 {
         rtl.init_hardware()?;
         rtl.read_mac();
 
-        // Register PCI INTx# interrupt (if assigned by BIOS).
-        // Top-half: read the Interrupt Status Register (ISR, offset 0x3E) to
-        // acknowledge pending interrupts, then raise the appropriate softirq
-        // vectors so packet Rx/Tx processing is deferred to the bottom-half.
-
-        let irq_line = pci_dev.interrupt_line();
-        if irq_line != 0 && irq_line < 16 {
-            if let Ok(irq) = crate::irq::map_isa_irq(irq_line, move || {
-                if let Ok(port) = IoPort::<u16, ReadWriteAccess>::acquire(io_base as u16 + 0x3E) {
-                    let isr = port.read();
-                    // RTL8139 ISR: bit 0 = ROK (Rx OK), bit 2 = TOK (Tx OK)
-                    if (isr & 0x0001) != 0 {
-                        raise_softirq(SoftIrqVector::NetRx);
-                    }
-                    if (isr & 0x0004) != 0 {
-                        raise_softirq(SoftIrqVector::NetTx);
-                    }
-                    // Acknowledge interrupt by writing back to ISR
-                    let _ = port;
+        // Register PCI interrupt handler: try single-vector MSI first, fall back
+        // to legacy INTx IRQ if MSI is unavailable or unsupported by device.
+        let handler = move || {
+            if let Ok(port) = IoPort::<u16, ReadWriteAccess>::acquire(io_base as u16 + 0x3E) {
+                let isr = port.read();
+                // RTL8139 ISR: bit 0 = ROK (Rx OK), bit 2 = TOK (Tx OK)
+                if (isr & 0x0001) != 0 {
+                    raise_softirq(SoftIrqVector::NetRx);
                 }
-            }) {
-                rtl._irq = Some(irq);
+                if (isr & 0x0004) != 0 {
+                    raise_softirq(SoftIrqVector::NetTx);
+                }
+                // Acknowledge interrupt by writing back to ISR
+                let _ = port;
+            }
+        };
+
+        #[cfg(target_arch = "x86_64")]
+        if let Ok(mut msi_config) = pci_dev.enable_msi(handler.clone()) {
+            rtl._irq = msi_config.vectors.pop();
+        }
+
+        if rtl._irq.is_none() {
+            let irq_line = pci_dev.interrupt_line();
+            if irq_line != 0 && irq_line < 16 {
+                if let Ok(irq) = crate::irq::map_isa_irq(irq_line, handler) {
+                    rtl._irq = Some(irq);
+                }
             }
         }
 

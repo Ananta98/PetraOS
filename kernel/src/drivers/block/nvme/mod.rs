@@ -209,6 +209,7 @@ fn identify_namespace(
 /// 5. Create IO queue pair (CQ first, then SQ).
 /// 6. Return a fully initialized [`NvmeBlockDevice`].
 fn init_controller(
+    pci_dev: &crate::drivers::pci::PciDevice,
     mmio_base: usize,
     controller_index: usize,
     irq_line: u8,
@@ -217,20 +218,31 @@ fn init_controller(
     // doorbell registers for up to 1024 queue pairs with 4-byte stride).
     let mmio = IoMem::acquire(mmio_base..mmio_base + 0x4000)?;
 
-    // Register PCI INTx# interrupt handler for this NVMe controller.
-    // Top-half: read CSTS to acknowledge the interrupt and raise the Block
-    // softirq so that CQ completion processing happens in a bottom-half
-    // context, not inside the ISR.
-    #[cfg(target_arch = "x86_64")]
-    if !NVME_IRQ.is_completed() && irq_line != 0 && irq_line < 16 {
+    // Register PCI interrupt handler for this NVMe controller:
+    // Try single-vector MSI first, fall back to legacy INTx IRQ.
+    if !NVME_IRQ.is_completed() {
         let isr_mmio = mmio.clone();
-        if let Ok(irq) = crate::irq::map_isa_irq(irq_line, move || {
+        let handler = move || {
             // Top-half: ACK the controller interrupt by reading CSTS.
             let _: Result<u32, _> = isr_mmio.read_once(regs::REG_CSTS);
             // Defer CQ processing to the Block bottom-half.
             raise_softirq(SoftIrqVector::Block);
-        }) {
-            NVME_IRQ.call_once(|| irq);
+        };
+
+        let mut irq_assigned = false;
+
+        #[cfg(target_arch = "x86_64")]
+        if let Ok(mut msi_config) = pci_dev.enable_msi(handler.clone()) {
+            if let Some(irq) = msi_config.vectors.pop() {
+                NVME_IRQ.call_once(|| irq);
+                irq_assigned = true;
+            }
+        }
+
+        if !irq_assigned && irq_line != 0 && irq_line < 16 {
+            if let Ok(irq) = crate::irq::map_isa_irq(irq_line, handler) {
+                NVME_IRQ.call_once(|| irq);
+            }
         }
     }
 
@@ -357,7 +369,7 @@ pub fn init() {
 
         let irq_line = pci_dev.interrupt_line();
 
-        match init_controller(mmio_base, controller_index, irq_line) {
+        match init_controller(&pci_dev, mmio_base, controller_index, irq_line) {
             Ok(device) => {
                 let name = device.name.clone();
                 if register_block_device(&name, device).is_ok() {

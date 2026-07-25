@@ -115,21 +115,36 @@ pub fn init() {
         open_softirq(SoftIrqVector::Block, || {});
 
         if !AHCI_IRQ.is_completed() {
-            let irq_line = pci_dev.interrupt_line();
-            if irq_line != 0 && irq_line < 16 {
-                if let Ok(irq) = crate::irq::map_isa_irq(irq_line, move || {
-                    // Top-half: acknowledge all pending port interrupt status
-                    // registers, then defer completion work to the Block softirq.
-                    for port in 0..32 {
-                        if (pi & (1 << port)) != 0 {
-                            let _ =
-                                isr_abar.read_once::<u32>(hba::port_offset(port) + hba::PORT_IS);
-                        }
+            let isr_abar_cb = isr_abar.clone();
+            let handler = move || {
+                // Top-half: acknowledge all pending port interrupt status
+                // registers, then defer completion work to the Block softirq.
+                for port in 0..32 {
+                    if (pi & (1 << port)) != 0 {
+                        let _ =
+                            isr_abar_cb.read_once::<u32>(hba::port_offset(port) + hba::PORT_IS);
                     }
-                    // Signal the Block bottom-half.
-                    raise_softirq(SoftIrqVector::Block);
-                }) {
+                }
+                // Signal the Block bottom-half.
+                raise_softirq(SoftIrqVector::Block);
+            };
+
+            let mut irq_assigned = false;
+
+            #[cfg(target_arch = "x86_64")]
+            if let Ok(mut msi_config) = pci_dev.enable_msi(handler.clone()) {
+                if let Some(irq) = msi_config.vectors.pop() {
                     AHCI_IRQ.call_once(|| irq);
+                    irq_assigned = true;
+                }
+            }
+
+            if !irq_assigned {
+                let irq_line = pci_dev.interrupt_line();
+                if irq_line != 0 && irq_line < 16 {
+                    if let Ok(irq) = crate::irq::map_isa_irq(irq_line, handler) {
+                        AHCI_IRQ.call_once(|| irq);
+                    }
                 }
             }
         }

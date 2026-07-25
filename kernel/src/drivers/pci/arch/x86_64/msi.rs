@@ -86,3 +86,20 @@ pub fn disable_msi(device: &PciDevice) {
     }
 }
 
+#[cfg(ktest)]
+mod tests {
+    use super::*;
+    use ostd::prelude::ktest;
+
+    #[ktest]
+    fn test_msi_address_and_data() {
+        assert_eq!(msi_address(0), 0xFEE0_0000);
+        assert_eq!(msi_address(1), 0xFEE0_1000);
+        assert_eq!(msi_address(4), 0xFEE0_4000);
+
+        assert_eq!(msi_data(32), 32);
+        assert_eq!(msi_data(255), 255);
+    }
+}
+
+
