@@ -90,6 +90,85 @@ impl UserRegsStruct {
         ctx.set_rflags(self.eflags as usize);
         ctx.set_rsp(self.rsp as usize);
     }
+
+    /// Size of `UserRegsStruct` representation in bytes.
+    pub const SIZE: usize = 216;
+
+    /// Converts `UserRegsStruct` into a 216-byte array in safe Rust.
+    pub fn to_bytes(&self) -> [u8; Self::SIZE] {
+        let mut bytes = [0u8; Self::SIZE];
+        let fields = [
+            self.r15,
+            self.r14,
+            self.r13,
+            self.r12,
+            self.rbp,
+            self.rbx,
+            self.r11,
+            self.r10,
+            self.r9,
+            self.r8,
+            self.rax,
+            self.rcx,
+            self.rdx,
+            self.rsi,
+            self.rdi,
+            self.orig_rax,
+            self.rip,
+            self.cs,
+            self.eflags,
+            self.rsp,
+            self.ss,
+            self.fs_base,
+            self.gs_base,
+            self.ds,
+            self.es,
+            self.fs,
+            self.gs,
+        ];
+        for (i, &val) in fields.iter().enumerate() {
+            bytes[i * 8..(i + 1) * 8].copy_from_slice(&val.to_ne_bytes());
+        }
+        bytes
+    }
+
+    /// Constructs `UserRegsStruct` from a 216-byte array in safe Rust.
+    pub fn from_bytes(bytes: &[u8; Self::SIZE]) -> Self {
+        let mut vals = [0u64; 27];
+        for i in 0..27 {
+            let chunk: [u8; 8] = bytes[i * 8..(i + 1) * 8].try_into().unwrap();
+            vals[i] = u64::from_ne_bytes(chunk);
+        }
+        Self {
+            r15: vals[0],
+            r14: vals[1],
+            r13: vals[2],
+            r12: vals[3],
+            rbp: vals[4],
+            rbx: vals[5],
+            r11: vals[6],
+            r10: vals[7],
+            r9: vals[8],
+            r8: vals[9],
+            rax: vals[10],
+            rcx: vals[11],
+            rdx: vals[12],
+            rsi: vals[13],
+            rdi: vals[14],
+            orig_rax: vals[15],
+            rip: vals[16],
+            cs: vals[17],
+            eflags: vals[18],
+            rsp: vals[19],
+            ss: vals[20],
+            fs_base: vals[21],
+            gs_base: vals[22],
+            ds: vals[23],
+            es: vals[24],
+            fs: vals[25],
+            gs: vals[26],
+        }
+    }
 }
 
 /// Reads a single user register by offset index from `UserContext` in Safe Rust.
@@ -120,6 +199,34 @@ pub fn peek_user_reg(ctx: &UserContext, reg_idx: usize) -> Option<u64> {
     }
 }
 
+/// Writes a single user register by offset index to `UserContext` in Safe Rust.
+pub fn poke_user_reg(ctx: &mut UserContext, reg_idx: usize, val: u64) -> bool {
+    let val_usize = val as usize;
+    match reg_idx {
+        0 => ctx.set_r15(val_usize),
+        1 => ctx.set_r14(val_usize),
+        2 => ctx.set_r13(val_usize),
+        3 => ctx.set_r12(val_usize),
+        4 => ctx.set_rbp(val_usize),
+        5 => ctx.set_rbx(val_usize),
+        6 => ctx.set_r11(val_usize),
+        7 => ctx.set_r10(val_usize),
+        8 => ctx.set_r9(val_usize),
+        9 => ctx.set_r8(val_usize),
+        10 => ctx.set_rax(val_usize),
+        11 => ctx.set_rcx(val_usize),
+        12 => ctx.set_rdx(val_usize),
+        13 => ctx.set_rsi(val_usize),
+        14 => ctx.set_rdi(val_usize),
+        15 => ctx.set_rax(val_usize),
+        16 => ctx.set_rip(val_usize),
+        18 => ctx.set_rflags(val_usize),
+        19 => ctx.set_rsp(val_usize),
+        _ => return false,
+    }
+    true
+}
+
 #[cfg(ktest)]
 mod tests {
     use super::*;
@@ -142,13 +249,22 @@ mod tests {
         assert_eq!(ctx2.rax(), 0x1234_5678);
         assert_eq!(ctx2.rip(), 0x4000_0000);
         assert_eq!(ctx2.rsp(), 0x7FFF_0000);
+
+        let bytes = regs.to_bytes();
+        let regs_from_bytes = UserRegsStruct::from_bytes(&bytes);
+        assert_eq!(regs, regs_from_bytes);
     }
 
     #[ktest]
-    fn test_peek_user_reg() {
+    fn test_peek_and_poke_user_reg() {
         let mut ctx = UserContext::default();
         ctx.set_rax(0x42);
         assert_eq!(peek_user_reg(&ctx, 10), Some(0x42));
         assert_eq!(peek_user_reg(&ctx, 999), None);
+
+        assert!(poke_user_reg(&mut ctx, 10, 0x99));
+        assert_eq!(ctx.rax(), 0x99);
+        assert!(!poke_user_reg(&mut ctx, 999, 0x99));
     }
 }
+

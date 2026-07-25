@@ -5,6 +5,7 @@ pub mod execve;
 pub mod exit;
 pub mod fork;
 pub mod pid;
+pub mod ptrace;
 pub mod wait4;
 pub mod waitid;
 
@@ -22,5 +23,6 @@ pub use pid::{
     syscall_getpgid, syscall_getpid, syscall_getppid, syscall_getsid, syscall_setpgid,
     syscall_setsid,
 };
+pub use ptrace::syscall_ptrace;
 pub use wait4::syscall_wait4;
 pub use waitid::syscall_waitid;

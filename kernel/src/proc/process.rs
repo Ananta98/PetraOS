@@ -123,6 +123,12 @@ pub struct Process {
     /// Thread-Local Storage template parsed from the executable's
     /// `PT_TLS` segment.  Used to initialise per-thread TLS blocks.
     pub tls_template: TlsTemplate,
+
+    /// PID of tracing process (if any).
+    pub tracer_pid: Arc<SpinLock<Option<Pid>>>,
+
+    /// Active ptrace option flags for this process.
+    pub ptrace_options: Arc<SpinLock<u32>>,
 }
 
 // ---------------------------------------------------------------------------
@@ -163,6 +169,8 @@ impl Process {
             threads: Arc::new(SpinLock::new(BTreeMap::new())),
             signals: Arc::new(ProcessSignals::new()),
             tls_template: TlsTemplate::default(),
+            tracer_pid: Arc::new(SpinLock::new(None)),
+            ptrace_options: Arc::new(SpinLock::new(0)),
         };
 
         PROCESS_TABLE.register_process(proc.clone());
@@ -202,6 +210,8 @@ impl Process {
             // Inherit the TLS template; each thread will get its own copy
             // of the TLS block from this template.
             tls_template: parent.tls_template.clone(),
+            tracer_pid: Arc::new(SpinLock::new(None)),
+            ptrace_options: Arc::new(SpinLock::new(0)),
         };
 
         PROCESS_TABLE.register_process(child.clone());
@@ -435,6 +445,35 @@ impl Process {
             self.state = ProcessState::Ready;
             PROCESS_TABLE.update_process(self.pid, |p| p.state = ProcessState::Ready);
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // Ptrace tracing state
+    // -----------------------------------------------------------------------
+
+    /// Returns the PID of the process tracing this process (if any).
+    pub fn tracer_pid(&self) -> Option<Pid> {
+        *self.tracer_pid.lock()
+    }
+
+    /// Sets or clears the tracer process PID.
+    pub fn set_tracer_pid(&self, tracer: Option<Pid>) {
+        *self.tracer_pid.lock() = tracer;
+    }
+
+    /// Returns whether this process is currently being traced.
+    pub fn is_traced(&self) -> bool {
+        self.tracer_pid.lock().is_some()
+    }
+
+    /// Returns the ptrace options set for this process.
+    pub fn ptrace_options(&self) -> u32 {
+        *self.ptrace_options.lock()
+    }
+
+    /// Sets ptrace options for this process.
+    pub fn set_ptrace_options(&self, opts: u32) {
+        *self.ptrace_options.lock() = opts;
     }
 
     // -----------------------------------------------------------------------

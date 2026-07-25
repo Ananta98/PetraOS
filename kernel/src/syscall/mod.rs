@@ -133,6 +133,7 @@ syscall_table! {
     90  => fs::syscall_chmod,              // SYS_chmod
     92  => fs::syscall_chown,              // SYS_chown
     96  => time::syscall_gettimeofday,     // SYS_gettimeofday
+    101 => proc::syscall_ptrace,           // SYS_ptrace
     102 => proc::syscall_getuid,           // SYS_getuid
     104 => proc::syscall_getgid,           // SYS_getgid
     105 => proc::syscall_setuid,           // SYS_setuid
