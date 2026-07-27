@@ -80,7 +80,7 @@ macro_rules! module_init {
                 author: "PetraOS Core",
                 description: "Built-in Kernel Module",
                 version: "1.0.0",
-                license: "GPL-2.0",
+                license: "BSD-2.0",
                 init_fn: $init_fn,
                 exit_fn: None,
             };
@@ -97,7 +97,7 @@ macro_rules! module_init {
                 author: "PetraOS Core",
                 description: "Built-in Kernel Module",
                 version: "1.0.0",
-                license: "GPL-2.0",
+                license: "BSD-2.0",
                 init_fn: $init_fn,
                 exit_fn: None,
             };
@@ -114,7 +114,7 @@ macro_rules! module_init {
                 author: "PetraOS Core",
                 description: "Built-in Kernel Module",
                 version: "1.0.0",
-                license: "GPL-2.0",
+                license: "BSD-2.0",
                 init_fn: $init_fn,
                 exit_fn: Some($exit_fn),
             };
