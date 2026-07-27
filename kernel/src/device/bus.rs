@@ -67,3 +67,12 @@ impl Bus for VirtualBus {
         driver.match_device(device)
     }
 }
+
+fn init_system_buses() -> Result<(), ostd::Error> {
+    let _ = crate::device::manager::register_bus(Arc::new(PciBus));
+    let _ = crate::device::manager::register_bus(Arc::new(PlatformBus));
+    let _ = crate::device::manager::register_bus(Arc::new(VirtualBus));
+    Ok(())
+}
+
+crate::module_init!(BUSES_INITCALL, "system_buses", init_system_buses);

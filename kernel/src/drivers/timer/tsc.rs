@@ -43,6 +43,8 @@ impl Driver for Tsc {
     }
 }
 
+crate::module_driver!(TSC_INITCALL, tsc_driver_init, "tsc", Tsc);
+
 impl Timer for Tsc {
     fn current_time_ns(&self) -> u64 {
         let cycles = ostd::arch::read_tsc();

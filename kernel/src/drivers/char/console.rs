@@ -245,6 +245,8 @@ impl crate::device::Driver for ConsoleDriver {
     }
 }
 
+crate::module_driver!(CONSOLE_INITCALL, console_driver_init, "console", ConsoleDriver::new());
+
 /// Return a reference to the global console driver (used by keyboard ISRs to
 /// push input bytes).
 pub(crate) fn console() -> Option<Arc<ConsoleDriver>> {

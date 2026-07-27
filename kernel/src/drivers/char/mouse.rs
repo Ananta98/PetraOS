@@ -434,6 +434,8 @@ impl crate::device::Driver for MouseDriver {
     }
 }
 
+crate::module_driver!(MOUSE_INITCALL, mouse_driver_init, "mouse", MouseDriver);
+
 // ---------------------------------------------------------------------------
 // Unit tests
 // ---------------------------------------------------------------------------

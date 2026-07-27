@@ -138,6 +138,8 @@ impl crate::device::Driver for KeyboardDriver {
     }
 }
 
+crate::module_driver!(KEYBOARD_INITCALL, keyboard_driver_init, "keyboard", KeyboardDriver);
+
 #[cfg(ktest)]
 mod tests {
     use super::*;
