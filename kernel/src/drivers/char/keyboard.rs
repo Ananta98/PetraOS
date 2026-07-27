@@ -1,12 +1,12 @@
-use super::{register_char_device, CharDevice, InputBuffer};
+use super::{CharDevice, InputBuffer, register_char_device};
 use alloc::sync::Arc;
 use ostd::arch::device::io_port::ReadWriteAccess;
-use ostd::arch::irq::{MappedIrqLine, IRQ_CHIP};
+use ostd::arch::irq::{IRQ_CHIP, MappedIrqLine};
 use ostd::arch::trap::TrapFrame;
 use ostd::io::IoPort;
 use ostd::irq::IrqLine;
 use ostd::sync::SpinLock;
-use pc_keyboard::{layouts, DecodedKey, HandleControl, Keyboard as PcKeyboard, ScancodeSet1};
+use pc_keyboard::{DecodedKey, HandleControl, Keyboard as PcKeyboard, ScancodeSet1, layouts};
 use spin::Once;
 
 /// Default capacity (in bytes) of the keyboard's internal character buffer.
@@ -104,24 +104,38 @@ fn handle_keyboard_input(_trap_frame: &TrapFrame) {
 // Initialisation
 // ---------------------------------------------------------------------------
 
-/// Register the keyboard device with devfs and attach the ISA IRQ 1 handler.
-pub fn init() {
-    let keyboard = Arc::new(Keyboard::new());
-    KEYBOARD_DEV.call_once(|| keyboard.clone());
+pub struct KeyboardDriver;
 
-    let mut irq_line = IrqLine::alloc()
-        .and_then(|irq_line| {
+impl crate::device::Driver for KeyboardDriver {
+    fn name(&self) -> &str {
+        "keyboard"
+    }
+
+    fn bus_name(&self) -> &str {
+        "platform"
+    }
+
+    fn description(&self) -> &str {
+        "PS/2 Keyboard Input Device Driver"
+    }
+
+    fn probe(&self) -> Result<(), ostd::Error> {
+        let keyboard = Arc::new(Keyboard::new());
+        KEYBOARD_DEV.call_once(|| keyboard.clone());
+
+        if let Ok(mut irq_line) = IrqLine::alloc().and_then(|irq_line| {
             IRQ_CHIP
                 .get()
                 .unwrap()
                 .map_isa_pin_to(irq_line, ISA_INTR_NUM)
-        })
-        .expect("keyboard IRQ 1 registration failed");
+        }) {
+            irq_line.on_active(handle_keyboard_input);
+            IRQ_LINE.call_once(|| irq_line);
+        }
 
-    irq_line.on_active(handle_keyboard_input);
-    IRQ_LINE.call_once(|| irq_line);
-
-    let _ = register_char_device("keyboard", keyboard);
+        let _ = register_char_device("keyboard", keyboard);
+        Ok(())
+    }
 }
 
 #[cfg(ktest)]

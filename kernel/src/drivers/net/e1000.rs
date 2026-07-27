@@ -1,5 +1,6 @@
 use crate::device::device::{Device, DeviceType};
-use crate::drivers::net::NetDevice;
+use crate::drivers::net::{DEFAULT_NET_DEVICE, NetDevice, register_net_device};
+use crate::drivers::pci;
 use crate::drivers::pci::{PciBar, PciDevice};
 use crate::irq::IrqRegistration;
 use crate::irq::{SoftIrqVector, raise_softirq};
@@ -358,3 +359,34 @@ impl NetDevice for E1000 {
         Ok(read_len)
     }
 }
+
+pub struct E1000Driver;
+
+impl crate::device::Driver for E1000Driver {
+    fn name(&self) -> &str {
+        "e1000"
+    }
+
+    fn bus_name(&self) -> &str {
+        "pci"
+    }
+
+    fn description(&self) -> &str {
+        "Intel E1000 Gigabit Ethernet Network Adapter Driver"
+    }
+
+    fn probe(&self) -> Result<(), ostd::Error> {
+        if let Some(pci_dev) = pci::find_device(0x8086, 0x100E) {
+            if let Ok(e1000_dev) = E1000::new(&pci_dev) {
+                let device = Arc::new(e1000_dev);
+                if register_net_device("e1000", device.clone()).is_ok() {
+                    DEFAULT_NET_DEVICE.call_once(|| device);
+                    return Ok(());
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+crate::module_driver!(E1000_INITCALL, e1000_driver_init, "e1000", E1000Driver);

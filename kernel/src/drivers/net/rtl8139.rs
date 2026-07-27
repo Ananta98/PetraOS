@@ -1,6 +1,6 @@
 use crate::device::device::{Device, DeviceType};
-use crate::drivers::net::NetDevice;
-use crate::drivers::pci::{PciBar, PciDevice};
+use crate::drivers::net::{DEFAULT_NET_DEVICE, NetDevice, register_net_device};
+use crate::drivers::pci::{self, PciBar, PciDevice};
 use crate::irq::IrqRegistration;
 use crate::irq::{SoftIrqVector, raise_softirq};
 
@@ -231,3 +231,34 @@ impl NetDevice for Rtl8139 {
         Ok(read_len)
     }
 }
+
+pub struct Rtl8139Driver;
+
+impl crate::device::Driver for Rtl8139Driver {
+    fn name(&self) -> &str {
+        "rtl8139"
+    }
+
+    fn bus_name(&self) -> &str {
+        "pci"
+    }
+
+    fn description(&self) -> &str {
+        "Realtek RTL8139 PCI Fast Ethernet Network Adapter Driver"
+    }
+
+    fn probe(&self) -> Result<(), ostd::Error> {
+        if let Some(pci_dev) = pci::find_device(0x10EC, 0x8139) {
+            if let Ok(rtl) = Rtl8139::new(&pci_dev) {
+                let device = Arc::new(rtl);
+                if register_net_device("rtl8139", device.clone()).is_ok() {
+                    DEFAULT_NET_DEVICE.call_once(|| device);
+                    return Ok(());
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+crate::module_driver!(RTL8139_INITCALL, rtl8139_driver_init, "rtl8139", Rtl8139Driver);

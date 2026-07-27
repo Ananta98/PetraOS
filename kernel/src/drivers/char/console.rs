@@ -228,14 +228,21 @@ impl CharDevice for ConsoleDriver {
 
 static CONSOLE: Once<Arc<ConsoleDriver>> = Once::new();
 
-/// Register the console driver with devfs and store the global singleton.
-///
-/// Safe to call before `fs::init()` – devfs uses a lazy root inode, so the
-/// device node merely becomes visible once `/dev` is mounted.
-pub fn init() {
-    let driver = Arc::new(ConsoleDriver::new());
-    let _ = super::register_char_device("console", driver.clone());
-    CONSOLE.call_once(|| driver);
+impl crate::device::Driver for ConsoleDriver {
+    fn name(&self) -> &str {
+        "console"
+    }
+
+    fn bus_name(&self) -> &str {
+        "platform"
+    }
+
+    fn probe(&self) -> Result<(), ostd::Error> {
+        let driver = Arc::new(ConsoleDriver::new());
+        let _ = super::register_char_device("console", driver.clone());
+        CONSOLE.call_once(|| driver);
+        Ok(())
+    }
 }
 
 /// Return a reference to the global console driver (used by keyboard ISRs to

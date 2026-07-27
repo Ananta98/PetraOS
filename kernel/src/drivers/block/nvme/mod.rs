@@ -335,63 +335,66 @@ fn init_controller(
 // Driver entry point
 // ──────────────────────────────────────────────────────────────
 
-/// Initialize the NVMe driver.
-///
-/// Enumerates the PCI bus for NVMe controllers (PCI class 0x01, subclass 0x08,
-/// prog_if 0x02), initializes each one found, and registers the resulting
-/// block devices with the kernel device layer.
-///
-/// Falls back to a simulated in-memory device if no physical controller is
-/// detected — this keeps the system functional under QEMU configurations
-/// that omit NVMe hardware.
-pub fn init() {
-    let mut physical_found = false;
+pub struct NvmeDriver;
 
-    // NVMe: class 0x01 (mass storage), subclass 0x08 (non-volatile memory)
-    let pci_devices = crate::drivers::pci::find_devices_by_class(0x01, 0x08);
-
-    for (controller_index, pci_dev) in pci_devices.into_iter().enumerate() {
-        // prog_if 0x02 = NVM Express
-        if pci_dev.prog_if != 0x02 {
-            continue;
-        }
-
-        // NVMe registers live in BAR0 (64-bit MMIO)
-        let mmio_base = match pci_dev.bars[0] {
-            PciBar::MemoryMapped { base_addr, .. } if base_addr != 0 => base_addr as usize,
-            _ => continue,
-        };
-
-        // Enable MMIO and bus mastering in PCI command register
-        pci_dev.enable_memory_space();
-        pci_dev.enable_bus_mastering();
-
-        let irq_line = pci_dev.interrupt_line();
-
-        match init_controller(&pci_dev, mmio_base, controller_index, irq_line) {
-            Ok(device) => {
-                let name = device.name.clone();
-                if register_block_device(&name, device).is_ok() {
-                    physical_found = true;
-                }
-            }
-            Err(_) => continue,
-        }
+impl crate::device::Driver for NvmeDriver {
+    fn name(&self) -> &str {
+        "nvme"
     }
 
-    if !physical_found {
-        // Fallback: provide a 64 KiB simulated NVMe device (128 × 512-byte blocks)
-        let sim_blocks = 128usize;
-        let name = String::from("nvme-simulated");
-        let device = Arc::new(NvmeBlockDevice {
-            name: name.clone(),
-            inner: SpinLock::new(NvmeBlockDeviceInner::Simulated {
-                data: alloc::vec![0u8; sim_blocks * regs::NVME_BLOCK_SIZE],
-            }),
-        });
-        let _ = register_block_device(&name, device);
+    fn bus_name(&self) -> &str {
+        "pci"
+    }
+
+    fn probe(&self) -> Result<(), ostd::Error> {
+        let mut physical_found = false;
+
+        let pci_devices = crate::drivers::pci::find_devices_by_class(0x01, 0x08);
+
+        for (controller_index, pci_dev) in pci_devices.into_iter().enumerate() {
+            if pci_dev.prog_if != 0x02 {
+                continue;
+            }
+
+            let mmio_base = match pci_dev.bars[0] {
+                PciBar::MemoryMapped { base_addr, .. } if base_addr != 0 => base_addr as usize,
+                _ => continue,
+            };
+
+            pci_dev.enable_memory_space();
+            pci_dev.enable_bus_mastering();
+
+            let irq_line = pci_dev.interrupt_line();
+
+            match init_controller(&pci_dev, mmio_base, controller_index, irq_line) {
+                Ok(device) => {
+                    let name = device.name.clone();
+                    if register_block_device(&name, device).is_ok() {
+                        physical_found = true;
+                    }
+                }
+                Err(_) => continue,
+            }
+        }
+
+        if !physical_found {
+            let sim_blocks = 128usize;
+            let name = String::from("nvme-simulated");
+            let device = Arc::new(NvmeBlockDevice {
+                name: name.clone(),
+                inner: SpinLock::new(NvmeBlockDeviceInner::Simulated {
+                    data: alloc::vec![0u8; sim_blocks * regs::NVME_BLOCK_SIZE],
+                }),
+            });
+            let _ = register_block_device(&name, device);
+        }
+
+        Ok(())
     }
 }
+
+// Independent Linux C-style driver registration
+crate::module_driver!(NVME_INITCALL, nvme_driver_init, "nvme", NvmeDriver);
 
 // ──────────────────────────────────────────────────────────────
 // Kernel tests
@@ -400,6 +403,7 @@ pub fn init() {
 #[cfg(ktest)]
 mod tests {
     use super::*;
+    use crate::device::driver::Driver;
     use crate::fs::ramfs::RamFs;
     use crate::fs::vfs::{init_root_fs, mount, register_filesystem, resolve_path};
     use ostd::prelude::ktest;
@@ -408,8 +412,7 @@ mod tests {
     /// block device node is present, and perform a write-then-read round-trip.
     #[ktest]
     fn test_nvme_driver() {
-        init();
-
+        let _ = NvmeDriver.probe();
         let ramfs = Arc::new(RamFs);
         let _ = register_filesystem(ramfs);
         let _ = init_root_fs("ramfs", &[]);

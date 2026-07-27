@@ -178,13 +178,3 @@ impl FileOps for CharDeviceFile {
 // =============================================================================
 // Initialization — register all built-in char devices with devfs
 // =============================================================================
-
-/// Register all character devices (keyboard, mouse, console).
-///
-/// Safe to call before `fs::init()` – devfs uses a lazy root inode, so device
-/// nodes merely become visible once `/dev` is mounted.
-pub fn init() {
-    keyboard::init();
-    mouse::init();
-    console::init();
-}

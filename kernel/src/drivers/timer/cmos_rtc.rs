@@ -82,18 +82,42 @@ impl Device for CmosRtc {
     }
 }
 
+pub struct CmosRtcDriver;
+
+impl Driver for CmosRtcDriver {
+    fn name(&self) -> &str {
+        "cmos-rtc"
+    }
+
+    fn bus_name(&self) -> &str {
+        "platform"
+    }
+
+    fn description(&self) -> &str {
+        "CMOS Real-Time Clock (RTC) Driver"
+    }
+
+    fn probe(&self) -> Result<(), ostd::Error> {
+        if let Ok(rtc) = CmosRtc::new() {
+            let _ = crate::device::register_device(alloc::sync::Arc::new(rtc));
+            Ok(())
+        } else {
+            Err(ostd::Error::InvalidArgs)
+        }
+    }
+}
+
 impl Driver for CmosRtc {
     fn name(&self) -> &str {
         "cmos-rtc"
     }
 
-    fn probe(&self) -> Result<(), ostd::Error> {
-        let reg_a = self.read_register(0x0A);
-        if reg_a == 0xFF {
-            Err(ostd::Error::InvalidArgs)
-        } else {
-            Ok(())
-        }
+    fn bus_name(&self) -> &str {
+        "platform"
+    }
+
+    fn description(&self) -> &str {
+        "CMOS Real-Time Clock (RTC) Driver"
     }
 }
 

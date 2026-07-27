@@ -10,6 +10,9 @@ use spin::Once;
 pub mod e1000;
 pub mod rtl8139;
 
+/// Global reference to the active network interface.
+pub static DEFAULT_NET_DEVICE: Once<Arc<dyn NetDevice>> = Once::new();
+
 /// Interface for network drivers in PetraOS.
 pub trait NetDevice: Send + Sync {
     /// Return the MAC address of the network interface.
@@ -88,46 +91,5 @@ impl NetDevice for SimulatedNetDevice {
         } else {
             Ok(0)
         }
-    }
-}
-
-/// Global reference to the active network interface.
-pub static DEFAULT_NET_DEVICE: Once<Arc<dyn NetDevice>> = Once::new();
-
-/// Initialize network drivers.
-///
-/// Scans the PCI bus for an E1000 controller or an RTL8139 controller.
-/// Otherwise, falls back to the simulated loopback interface.
-pub fn init() {
-    let mut physical_found = false;
-
-    // Search for E1000 network card on the PCI bus (Vendor ID 0x8086, Device ID 0x100E)
-    if let Some(pci_dev) = pci::find_device(0x8086, 0x100E) {
-        if let Ok(e1000_dev) = e1000::E1000::new(&pci_dev) {
-            let device = Arc::new(e1000_dev);
-            if register_net_device("e1000", device.clone()).is_ok() {
-                DEFAULT_NET_DEVICE.call_once(|| device);
-                physical_found = true;
-            }
-        }
-    }
-
-    // Search for RTL8139 network card on the PCI bus (Vendor ID 0x10EC, Device ID 0x8139)
-    if !physical_found {
-        if let Some(pci_dev) = pci::find_device(0x10EC, 0x8139) {
-            if let Ok(rtl) = rtl8139::Rtl8139::new(&pci_dev) {
-                let device = Arc::new(rtl);
-                if register_net_device("rtl8139", device.clone()).is_ok() {
-                    DEFAULT_NET_DEVICE.call_once(|| device);
-                    physical_found = true;
-                }
-            }
-        }
-    }
-
-    if !physical_found {
-        let device = Arc::new(SimulatedNetDevice::new());
-        let _ = register_net_device("net", device.clone());
-        DEFAULT_NET_DEVICE.call_once(|| device);
     }
 }

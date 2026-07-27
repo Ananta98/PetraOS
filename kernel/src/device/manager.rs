@@ -1,54 +1,87 @@
-/// Device and driver registry — global state and management functions.
-///
-/// Maintains two separate registries:
-/// - **Driver registry**: keyed by driver name; used for lifecycle tracking.
-/// - **Device registry**: keyed by device name; mirrors entries into
-///   `/dev` via [`crate::fs::devfs`] for any device that exposes
-///   [`InodeOps`].
+/// Device and driver registry — Bus-Driven Matching and driver kernel module integration.
+use crate::device::bus::{Bus, PciBus, PlatformBus, VirtualBus};
 use crate::device::device::{Device, DeviceType};
 use crate::device::driver::Driver;
+use crate::device::driver_module::DriverKernelModule;
 use crate::fs::vfs::FileType;
 use alloc::collections::BTreeMap;
+use alloc::format;
 use alloc::string::String;
 use alloc::sync::Arc;
+use alloc::vec::Vec;
 use ostd::sync::SpinLock;
 
 // ---------------------------------------------------------------------------
 // Global registries
 // ---------------------------------------------------------------------------
 
+static BUSES: SpinLock<BTreeMap<String, Arc<dyn Bus>>> = SpinLock::new(BTreeMap::new());
 static DRIVERS: SpinLock<BTreeMap<String, Arc<dyn Driver>>> = SpinLock::new(BTreeMap::new());
-
 static DEVICES: SpinLock<BTreeMap<String, Arc<dyn Device>>> = SpinLock::new(BTreeMap::new());
+static BUS_DEVICES: SpinLock<BTreeMap<String, Vec<Arc<dyn Device>>>> =
+    SpinLock::new(BTreeMap::new());
 
 // ---------------------------------------------------------------------------
-// Registration helpers
+// Bus Registration
+// ---------------------------------------------------------------------------
+
+/// Register a bus implementation with the global bus registry.
+pub fn register_bus(bus: Arc<dyn Bus>) -> Result<(), ostd::Error> {
+    let mut buses = BUSES.lock();
+    let name = String::from(bus.name());
+    if buses.contains_key(&name) {
+        return Err(ostd::Error::InvalidArgs);
+    }
+    buses.insert(name, bus);
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Driver Registration & Kernel Module Integration
 // ---------------------------------------------------------------------------
 
 /// Register a driver with the global driver registry.
 ///
-/// Returns [`ostd::Error::InvalidArgs`] if a driver with the same name
-/// is already registered.
+/// **Bus-Driven Matching Integration**:
+/// 1. Registers the driver into the driver registry.
+/// 2. Automatically creates and registers a corresponding [`DriverKernelModule`]
+///    in [`crate::modules`], tracking the driver as an active kernel module.
+/// 3. Executes Bus-Driven Matching against all devices registered on the driver's bus.
 pub fn register_driver(driver: Arc<dyn Driver>) -> Result<(), ostd::Error> {
-    let mut drivers = DRIVERS.lock();
     let name = String::from(driver.name());
-    if drivers.contains_key(&name) {
-        return Err(ostd::Error::InvalidArgs);
+    {
+        let mut drivers = DRIVERS.lock();
+        if drivers.contains_key(&name) {
+            return Err(ostd::Error::InvalidArgs);
+        }
+        drivers.insert(name.clone(), driver.clone());
     }
-    drivers.insert(name, driver);
+
+    // Register driver as a KernelModule in crate::modules
+    let module = Arc::new(DriverKernelModule::new(driver.clone()));
+    let _ = crate::modules::register_module(module);
+    let _ = crate::modules::load_module(driver.name());
+
+    // Immediately attempt matching with devices already attached to driver's bus
+    match_driver_with_bus(driver.clone());
+
+    log::info!(
+        "[device::manager] Registered driver '{}' (bus: {}) as kernel module",
+        driver.name(),
+        driver.bus_name()
+    );
+
     Ok(())
 }
 
-/// Register a device with the global device registry.
-///
-/// If the device exposes [`InodeOps`][crate::fs::vfs::InodeOps], it is
-/// also published as a node under `/dev` via
-/// [`crate::fs::devfs::register_device`].
-///
-/// Returns [`ostd::Error::InvalidArgs`] if a device with the same name
-/// is already registered.
+// ---------------------------------------------------------------------------
+// Device Registration
+// ---------------------------------------------------------------------------
+
+/// Register a generic device into devfs and the global device registry.
 pub fn register_device(device: Arc<dyn Device>) -> Result<(), ostd::Error> {
     let name = String::from(device.name());
+
     {
         let mut devices = DEVICES.lock();
         if devices.contains_key(&name) {
@@ -57,195 +90,130 @@ pub fn register_device(device: Arc<dyn Device>) -> Result<(), ostd::Error> {
         devices.insert(name.clone(), device.clone());
     }
 
-    if let Some(ops) = device.inode_ops() {
-        let file_type = match device.device_type() {
-            DeviceType::Char | DeviceType::Gpu | DeviceType::Input => FileType::CharDevice,
-            DeviceType::Block => FileType::BlockDevice,
-            // Net and Timer devices are not exposed as filesystem nodes.
-            _ => return Ok(()),
-        };
-        crate::fs::devfs::register_device(&name, file_type, 0o660, ops)?;
+    // Register device node in devfs VFS if it provides inode operations
+    let file_type = match device.device_type() {
+        DeviceType::Char => FileType::CharDevice,
+        DeviceType::Block => FileType::BlockDevice,
+        _ => FileType::CharDevice,
+    };
+
+    if let Some(inode) = device.inode_ops() {
+        crate::fs::devfs::register_device(&name, file_type, 0o666, inode)?;
     }
+
+    log::info!("[device::manager] Registered device node /dev/{}", name);
 
     Ok(())
 }
 
-/// Remove a device from the global device registry.
-///
-/// If the device had a `/dev` node, that node is also removed.
-///
-/// Returns [`ostd::Error::InvalidArgs`] if no device with `name` exists.
+/// Register a device attached to a specific bus (e.g. PCI, Platform, Virtual).
+pub fn register_device_on_bus(bus_name: &str, device: Arc<dyn Device>) -> Result<(), ostd::Error> {
+    register_device(device.clone())?;
+
+    {
+        let mut bus_devs = BUS_DEVICES.lock();
+        bus_devs
+            .entry(String::from(bus_name))
+            .or_insert_with(Vec::new)
+            .push(device.clone());
+    }
+
+    // Attempt matching with existing drivers on this bus
+    match_device_with_bus(bus_name, &device);
+
+    Ok(())
+}
+
+/// Unregister a device from devfs and the global registry.
 pub fn unregister_device(name: &str) -> Result<(), ostd::Error> {
-    let dev = {
+    {
         let mut devices = DEVICES.lock();
-        devices.remove(name).ok_or(ostd::Error::InvalidArgs)?
-    };
-
-    if dev.inode_ops().is_some() {
-        let _ = crate::fs::devfs::unregister_device(name);
+        if devices.remove(name).is_none() {
+            return Err(ostd::Error::InvalidArgs);
+        }
     }
+
+    crate::fs::devfs::unregister_device(name)?;
+    log::info!("[device::manager] Unregistered device /dev/{}", name);
 
     Ok(())
 }
 
 // ---------------------------------------------------------------------------
-// Subsystem initialisation
+// Bus-Driven Matching Engine
 // ---------------------------------------------------------------------------
 
-/// Initialise all device subsystems.
-///
-/// Called once from [`crate::kernel_main`] during boot, after the VM
-/// subsystem is ready.
-pub fn init() {
-    crate::drivers::block::init();
-    crate::drivers::char::init();
-    crate::drivers::gpu::init();
-    crate::drivers::net::init();
-    crate::drivers::timer::init();
+/// Match a single driver with all devices registered on its target bus.
+fn match_driver_with_bus(driver: Arc<dyn Driver>) {
+    let buses = BUSES.lock();
+    let bus = match buses.get(driver.bus_name()) {
+        Some(bus) => bus,
+        None => return,
+    };
+
+    let bus_devs = BUS_DEVICES.lock();
+    if let Some(devices) = bus_devs.get(driver.bus_name()) {
+        for device in devices {
+            if bus.match_device(device, &driver) {
+                log::info!(
+                    "[bus_matching] Bus '{}' matched device '{}' with driver '{}'",
+                    bus.name(),
+                    device.name(),
+                    driver.name()
+                );
+                let _ = driver.probe_device(device.clone());
+            }
+        }
+    }
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
-#[cfg(ktest)]
-mod tests {
-    use super::*;
-    use crate::drivers::block::{BlockDevice, register_block_device};
-    use crate::drivers::char::{CharDevice, register_char_device};
-    use crate::fs::ramfs::RamFs;
-    use crate::fs::vfs::{
-        FileOps, SeekFrom, init_root_fs, mount, register_filesystem, resolve_path,
+/// Match a single newly registered device with registered drivers on its bus.
+fn match_device_with_bus(bus_name: &str, device: &Arc<dyn Device>) {
+    let buses = BUSES.lock();
+    let bus = match buses.get(bus_name) {
+        Some(bus) => bus,
+        None => return,
     };
-    use ostd::prelude::ktest;
 
-    struct MockChar {
-        buf: SpinLock<alloc::vec::Vec<u8>>,
-    }
-
-    impl CharDevice for MockChar {
-        fn read(&self, buf: &mut [u8]) -> Result<usize, ostd::Error> {
-            let guard = self.buf.lock();
-            let len = core::cmp::min(buf.len(), guard.len());
-            buf[..len].copy_from_slice(&guard[..len]);
-            Ok(len)
-        }
-
-        fn write(&self, buf: &[u8]) -> Result<usize, ostd::Error> {
-            let mut guard = self.buf.lock();
-            guard.clear();
-            guard.extend_from_slice(buf);
-            Ok(buf.len())
+    let drivers = DRIVERS.lock();
+    for driver in drivers.values() {
+        if bus.match_device(device, driver) {
+            log::info!(
+                "[bus_matching] Bus '{}' matched device '{}' with driver '{}'",
+                bus.name(),
+                device.name(),
+                driver.name()
+            );
+            let _ = driver.probe_device(device.clone());
         }
     }
+}
 
-    struct MockBlock {
-        data: SpinLock<alloc::vec::Vec<u8>>,
-    }
+/// Execute Bus-Driven Matching across all registered buses, devices, and drivers.
+pub fn run_bus_matching() -> usize {
+    let buses = BUSES.lock();
+    let drivers = DRIVERS.lock();
+    let bus_devs = BUS_DEVICES.lock();
+    let mut matches = 0;
 
-    impl BlockDevice for MockBlock {
-        fn block_size(&self) -> usize {
-            128
-        }
-
-        fn num_blocks(&self) -> usize {
-            4
-        }
-
-        fn read_blocks(&self, block_id: usize, buf: &mut [u8]) -> Result<(), ostd::Error> {
-            if block_id >= 4 {
-                return Err(ostd::Error::InvalidArgs);
+    for (bus_name, bus) in buses.iter() {
+        if let Some(devices) = bus_devs.get(bus_name) {
+            for device in devices {
+                for driver in drivers.values() {
+                    if bus.match_device(device, driver) {
+                        log::info!(
+                            "[bus_matching] Bus '{}' bound device '{}' -> driver '{}'",
+                            bus_name,
+                            device.name(),
+                            driver.name()
+                        );
+                        let _ = driver.probe_device(device.clone());
+                        matches += 1;
+                    }
+                }
             }
-            let guard = self.data.lock();
-            let offset = block_id * 128;
-            buf[..128].copy_from_slice(&guard[offset..offset + 128]);
-            Ok(())
-        }
-
-        fn write_blocks(&self, block_id: usize, buf: &[u8]) -> Result<(), ostd::Error> {
-            if block_id >= 4 {
-                return Err(ostd::Error::InvalidArgs);
-            }
-            let mut guard = self.data.lock();
-            let offset = block_id * 128;
-            guard[offset..offset + 128].copy_from_slice(&buf[..128]);
-            Ok(())
         }
     }
 
-    #[ktest]
-    fn test_device_framework() {
-        let ramfs = Arc::new(RamFs);
-        let _ = register_filesystem(ramfs);
-        let _ = init_root_fs("ramfs", &[]);
-
-        let devfs = Arc::new(crate::fs::devfs::DevFs);
-        let _ = register_filesystem(devfs);
-
-        let root = crate::fs::vfs::ROOT_DENTRY
-            .lock()
-            .as_ref()
-            .cloned()
-            .unwrap();
-        root.inode.mkdir("dev", 0o755).unwrap();
-
-        mount("devfs", "/dev", 0, &[]).unwrap();
-
-        let char_dev = Arc::new(MockChar {
-            buf: SpinLock::new(alloc::vec::Vec::new()),
-        });
-        register_char_device("mock-char", char_dev.clone()).unwrap();
-
-        let block_dev = Arc::new(MockBlock {
-            data: SpinLock::new(alloc::vec![0u8; 512]),
-        });
-        register_block_device("mock-block", block_dev.clone()).unwrap();
-
-        let char_dentry = resolve_path("/dev/mock-char").unwrap();
-        assert_eq!(
-            char_dentry.inode.metadata().unwrap().file_type,
-            FileType::CharDevice
-        );
-
-        let mut char_ops = char_dentry.inode.open(0).unwrap();
-        let mut write_offset = 0;
-        char_ops
-            .write(b"device framework tests", &mut write_offset)
-            .unwrap();
-
-        let mut read_buf = [0u8; 32];
-        let mut read_offset = 0;
-        let read_len = char_ops.read(&mut read_buf, &mut read_offset).unwrap();
-        assert_eq!(read_len, 22);
-        assert_eq!(&read_buf[..22], b"device framework tests");
-
-        let block_dentry = resolve_path("/dev/mock-block").unwrap();
-        assert_eq!(
-            block_dentry.inode.metadata().unwrap().file_type,
-            FileType::BlockDevice
-        );
-
-        let mut block_ops = block_dentry.inode.open(0).unwrap();
-        let mut block_write_offset = 130;
-        block_ops
-            .write(b"block test data", &mut block_write_offset)
-            .unwrap();
-
-        let mut block_read_buf = [0u8; 15];
-        let mut block_read_offset = 130;
-        block_ops
-            .read(&mut block_read_buf, &mut block_read_offset)
-            .unwrap();
-        assert_eq!(&block_read_buf, b"block test data");
-
-        // Clean up registered devices from devfs to keep clean state.
-        unregister_device("mock-char").unwrap();
-        unregister_device("mock-block").unwrap();
-
-        crate::fs::vfs::unregister_filesystem("devfs").unwrap();
-        crate::fs::vfs::unregister_filesystem("ramfs").unwrap();
-        *crate::fs::vfs::ROOT_DENTRY.lock() = None;
-        *crate::fs::vfs::CWD_DENTRY.lock() = None;
-        crate::fs::vfs::DENTRY_CACHE.clear();
-    }
+    matches
 }

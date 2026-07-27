@@ -1,6 +1,4 @@
 use crate::drivers::{Device, DeviceType, Driver};
-use alloc::sync::Arc;
-use ostd::Error;
 
 /// A generic trait for all Timer devices.
 pub trait Timer: Device + Driver {
@@ -13,16 +11,3 @@ pub mod tsc;
 
 pub use cmos_rtc::CmosRtc;
 pub use tsc::Tsc;
-
-/// Initialize and register both the TSC and CMOS-RTC timer drivers.
-pub fn init() {
-    let tsc = Arc::new(Tsc::new());
-    let _ = crate::drivers::register_driver(tsc.clone());
-    let _ = crate::drivers::register_device(tsc);
-
-    if let Ok(rtc) = CmosRtc::new() {
-        let rtc = Arc::new(rtc);
-        let _ = crate::drivers::register_driver(rtc.clone());
-        let _ = crate::drivers::register_device(rtc);
-    }
-}

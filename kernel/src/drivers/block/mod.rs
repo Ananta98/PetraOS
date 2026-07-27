@@ -7,11 +7,6 @@ use alloc::vec::Vec;
 pub mod ahci;
 pub mod nvme;
 
-pub fn init() {
-    ahci::init();
-    nvme::init();
-}
-
 pub trait BlockDevice: Send + Sync {
     fn block_size(&self) -> usize;
     fn num_blocks(&self) -> usize;

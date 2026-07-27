@@ -218,8 +218,3 @@ impl FileOps for GpuFile {
         Err(ostd::Error::InvalidArgs)
     }
 }
-
-/// Initialize all GPU/display related drivers.
-pub fn init() {
-    framebuffer::init();
-}

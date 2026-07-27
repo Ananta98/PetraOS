@@ -42,22 +42,37 @@ pub fn framebuffer() -> Option<Arc<Framebuffer>> {
     FRAMEBUFFER.get().cloned()
 }
 
-/// Initialize the framebuffer and register it as a GPU driver.
-pub fn init() {
-    let mode = VideoMode {
-        width: 1024,
-        height: 768,
-        pitch: 1024 * 4,
-        bpp: 32,
-        format: PixelFormat::Rgba8888,
-    };
-    let fb = Arc::new(Framebuffer::new(mode));
-    FRAMEBUFFER.call_once(|| fb.clone());
+pub struct FramebufferDriver;
 
-    GPU_MANAGER
-        .register_driver(fb)
-        .expect("failed to register framebuffer driver");
+impl crate::device::Driver for FramebufferDriver {
+    fn name(&self) -> &str {
+        "framebuffer"
+    }
+
+    fn bus_name(&self) -> &str {
+        "virtual"
+    }
+
+    fn description(&self) -> &str {
+        "VESA/VGA Framebuffer Graphics Display Driver"
+    }
+
+    fn probe(&self) -> Result<(), ostd::Error> {
+        let mode = VideoMode {
+            width: 1024,
+            height: 768,
+            pitch: 1024 * 4,
+            bpp: 32,
+            format: PixelFormat::Rgba8888,
+        };
+        let fb = Arc::new(Framebuffer::new(mode));
+        FRAMEBUFFER.call_once(|| fb.clone());
+        let _ = GPU_MANAGER.register_driver(fb);
+        Ok(())
+    }
 }
+
+declare_driver!(FramebufferDriver);
 
 #[cfg(ktest)]
 mod tests {

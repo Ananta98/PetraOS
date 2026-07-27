@@ -23,7 +23,6 @@ fn kernel_main() {
     arch::power::init();
     vm::init();
     irq::init();
-    device::manager::init();
     net::init();
     fs::init().expect("failed to initialize filesystem");
     modules::init().expect("failed to initialize kernel modules");

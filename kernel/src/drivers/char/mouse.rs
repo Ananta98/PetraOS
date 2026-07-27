@@ -402,26 +402,36 @@ fn handle_mouse_input(_trap_frame: &TrapFrame) {
 // ---------------------------------------------------------------------------
 
 /// Register the mouse device with devfs, initialise PS/2 hardware, and
-/// attach the ISA IRQ 12 (AUX) handler.
-pub fn init() {
-    let _ = Mouse::init_hardware();
+pub struct MouseDriver;
 
-    let mouse = Arc::new(Mouse::new());
-    MOUSE_DEV.call_once(|| mouse.clone());
+impl crate::device::Driver for MouseDriver {
+    fn name(&self) -> &str {
+        "mouse"
+    }
 
-    let mut irq_line = IrqLine::alloc()
-        .and_then(|irq_line| {
+    fn bus_name(&self) -> &str {
+        "platform"
+    }
+
+    fn probe(&self) -> Result<(), ostd::Error> {
+        let _ = Mouse::init_hardware();
+
+        let mouse = Arc::new(Mouse::new());
+        MOUSE_DEV.call_once(|| mouse.clone());
+
+        if let Ok(mut irq_line) = IrqLine::alloc().and_then(|irq_line| {
             IRQ_CHIP
                 .get()
                 .unwrap()
                 .map_isa_pin_to(irq_line, ISA_INTR_NUM)
-        })
-        .expect("mouse IRQ 12 registration failed");
+        }) {
+            irq_line.on_active(handle_mouse_input);
+            IRQ_LINE.call_once(|| irq_line);
+        }
 
-    irq_line.on_active(handle_mouse_input);
-    IRQ_LINE.call_once(|| irq_line);
-
-    let _ = register_char_device("mouse", mouse);
+        let _ = register_char_device("mouse", mouse);
+        Ok(())
+    }
 }
 
 // ---------------------------------------------------------------------------

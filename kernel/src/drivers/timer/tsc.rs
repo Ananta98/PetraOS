@@ -26,6 +26,14 @@ impl Driver for Tsc {
         "tsc"
     }
 
+    fn bus_name(&self) -> &str {
+        "platform"
+    }
+
+    fn description(&self) -> &str {
+        "CPU Time Stamp Counter (TSC) High-Resolution Timer Driver"
+    }
+
     fn probe(&self) -> Result<(), ostd::Error> {
         if ostd::arch::tsc_freq() == 0 {
             Err(ostd::Error::InvalidArgs)

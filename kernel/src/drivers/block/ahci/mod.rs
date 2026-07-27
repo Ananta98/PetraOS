@@ -64,139 +64,139 @@ fn init_physical_port(abar: &IoMem, port: usize) -> Result<Arc<AhciBlockDevice>,
     }))
 }
 
-/// Initialize the AHCI driver.
-///
-/// Scans the PCI bus for AHCI controllers, configures the controller
-/// and port(s), and registers any found SATA disks. Falls back to a
-/// simulated in-memory block device if no controller is present.
-pub fn init() {
-    let mut physical_found = false;
+pub struct AhciDriver;
 
-    // Find AHCI SATA controllers: class 0x01 (mass storage), subclass 0x06 (SATA)
-    let pci_devices = crate::drivers::pci::find_devices_by_class(0x01, 0x06);
+impl crate::device::Driver for AhciDriver {
+    fn name(&self) -> &str {
+        "ahci"
+    }
 
-    for pci_dev in pci_devices {
-        // Confirm prog_if == 0x01 (AHCI 1.0)
-        if pci_dev.prog_if != 0x01 {
-            continue;
-        }
+    fn bus_name(&self) -> &str {
+        "pci"
+    }
 
-        // AHCI registers are mapped via BAR5
-        let base_addr = match pci_dev.bars[5] {
-            PciBar::MemoryMapped { base_addr, .. } if base_addr != 0 => base_addr,
-            _ => continue,
-        };
+    fn description(&self) -> &str {
+        "AHCI SATA Mass Storage Controller Driver"
+    }
 
-        // Enable device in PCI configuration space
-        pci_dev.enable_memory_space();
-        pci_dev.enable_bus_mastering();
+    fn probe(&self) -> Result<(), ostd::Error> {
+        let mut physical_found = false;
 
-        // Acquire the controller's MMIO register space (4KB length)
-        let abar = match IoMem::acquire(base_addr as usize..base_addr as usize + 0x1000) {
-            Ok(abar) => abar,
-            Err(_) => continue,
-        };
+        let pci_devices = crate::drivers::pci::find_devices_by_class(0x01, 0x06);
 
-        if hba::init_controller(&abar).is_err() {
-            continue;
-        }
+        for pci_dev in pci_devices {
+            if pci_dev.prog_if != 0x01 {
+                continue;
+            }
 
-        // Register PCI INTx# interrupt handler for this HBA.
-        // The handler reads PORT_IS for each implemented port to acknowledge
-        // port-level interrupts.  Port interrupts are NOT enabled (IE bit is
-        // not set in PORT_CMD), so the handler is defensive against stray
-        // events; I/O completion uses polling (PORT_CI).
-        let pi: u32 = abar.read_once(hba::HBA_PI).unwrap_or(0);
-        let isr_abar = abar.clone();
-
-        // Register the Block softirq bottom-half once for AHCI completion.
-        // The bottom-half handler is a no-op by default (AHCI uses polling via
-        // PORT_CI); drivers that want interrupt-driven I/O can hook this vector.
-        open_softirq(SoftIrqVector::Block, || {});
-
-        if !AHCI_IRQ.is_completed() {
-            let isr_abar_cb = isr_abar.clone();
-            let handler = move || {
-                // Top-half: acknowledge all pending port interrupt status
-                // registers, then defer completion work to the Block softirq.
-                for port in 0..32 {
-                    if (pi & (1 << port)) != 0 {
-                        let _ = isr_abar_cb.read_once::<u32>(hba::port_offset(port) + hba::PORT_IS);
-                    }
-                }
-                // Signal the Block bottom-half.
-                raise_softirq(SoftIrqVector::Block);
+            let base_addr = match pci_dev.bars[5] {
+                PciBar::MemoryMapped { base_addr, .. } if base_addr != 0 => base_addr,
+                _ => continue,
             };
 
-            let mut irq_assigned = false;
+            pci_dev.enable_memory_space();
+            pci_dev.enable_bus_mastering();
 
-            if let Ok(mut msi_config) = pci_dev.enable_msi(handler.clone()) {
-                if let Some(irq) = msi_config.vectors.pop() {
-                    AHCI_IRQ.call_once(|| irq);
-                    irq_assigned = true;
-                }
+            let abar = match IoMem::acquire(base_addr as usize..base_addr as usize + 0x1000) {
+                Ok(abar) => abar,
+                Err(_) => continue,
+            };
+
+            if hba::init_controller(&abar).is_err() {
+                continue;
             }
 
-            if !irq_assigned {
-                let irq_line = pci_dev.interrupt_line();
-                if irq_line != 0 && irq_line < 16 {
-                    if let Ok(irq) = crate::irq::map_isa_irq(irq_line, handler) {
+            let pi: u32 = abar.read_once(hba::HBA_PI).unwrap_or(0);
+            let isr_abar = abar.clone();
+
+            open_softirq(SoftIrqVector::Block, || {});
+
+            if !AHCI_IRQ.is_completed() {
+                let isr_abar_cb = isr_abar.clone();
+                let handler = move || {
+                    for port in 0..32 {
+                        if (pi & (1 << port)) != 0 {
+                            let _ =
+                                isr_abar_cb.read_once::<u32>(hba::port_offset(port) + hba::PORT_IS);
+                        }
+                    }
+                    raise_softirq(SoftIrqVector::Block);
+                };
+
+                let mut irq_assigned = false;
+
+                if let Ok(mut msi_config) = pci_dev.enable_msi(handler.clone()) {
+                    if let Some(irq) = msi_config.vectors.pop() {
                         AHCI_IRQ.call_once(|| irq);
+                        irq_assigned = true;
+                    }
+                }
+
+                if !irq_assigned {
+                    let irq_line = pci_dev.interrupt_line();
+                    if irq_line != 0 && irq_line < 16 {
+                        if let Ok(irq) = crate::irq::map_isa_irq(irq_line, handler) {
+                            AHCI_IRQ.call_once(|| irq);
+                        }
                     }
                 }
             }
-        }
-        let mut count = 0;
+            let mut count = 0;
 
-        // Check each implemented port (up to 32 ports)
-        for port in 0..32 {
-            if (pi & (1 << port)) == 0 {
-                continue;
-            }
-            if hba::port_connected(&abar, port) != Ok(true) {
-                continue;
-            }
-            if hba::port_signature(&abar, port) != Ok(hba::SATA_SIG_DISK) {
-                continue;
-            }
+            for port in 0..32 {
+                if (pi & (1 << port)) == 0 {
+                    continue;
+                }
+                if hba::port_connected(&abar, port) != Ok(true) {
+                    continue;
+                }
+                if hba::port_signature(&abar, port) != Ok(hba::SATA_SIG_DISK) {
+                    continue;
+                }
 
-            if let Ok(device) = init_physical_port(&abar, port) {
-                let name = alloc::format!("ahci-port{}", port);
-                if register_block_device(&name, device).is_ok() {
-                    count += 1;
+                if let Ok(device) = init_physical_port(&abar, port) {
+                    let name = alloc::format!("ahci-port{}", port);
+                    if register_block_device(&name, device).is_ok() {
+                        count += 1;
+                    }
                 }
             }
+
+            if count > 0 {
+                physical_found = true;
+                break;
+            }
         }
 
-        if count > 0 {
-            physical_found = true;
-            break;
+        if !physical_found {
+            let name = String::from("ahci-simulated");
+            let device = Arc::new(AhciBlockDevice {
+                name: name.clone(),
+                inner: SpinLock::new(AhciBlockDeviceInner::Simulated {
+                    data: alloc::vec![0u8; 512 * 128],
+                }),
+            });
+            let _ = register_block_device(&name, device);
         }
-    }
 
-    if !physical_found {
-        // Fallback: register a simulated device if no physical AHCI controller was found
-        let name = String::from("ahci-simulated");
-        let device = Arc::new(AhciBlockDevice {
-            name: name.clone(),
-            inner: SpinLock::new(AhciBlockDeviceInner::Simulated {
-                data: alloc::vec![0u8; 512 * 128],
-            }),
-        });
-        let _ = register_block_device(&name, device);
+        Ok(())
     }
 }
+
+// Independent Linux C-style driver registration
+crate::module_driver!(AHCI_INITCALL, ahci_driver_init, "ahci", AhciDriver);
 
 #[cfg(ktest)]
 mod tests {
     use super::*;
+    use crate::device::driver::Driver;
     use crate::fs::ramfs::RamFs;
     use crate::fs::vfs::{init_root_fs, mount, register_filesystem, resolve_path};
     use ostd::prelude::ktest;
 
     #[ktest]
     fn test_ahci_driver() {
-        init();
+        let _ = AhciDriver.probe();
 
         let ramfs = Arc::new(RamFs);
         let _ = register_filesystem(ramfs);

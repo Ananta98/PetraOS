@@ -1,5 +1,4 @@
 /// Global module registry and lifecycle management.
-
 use crate::modules::module::{KernelModule, ModuleInfo, ModuleState};
 use alloc::collections::BTreeMap;
 use alloc::string::String;
@@ -153,11 +152,28 @@ pub fn list_modules() -> Vec<ModuleInfo> {
         .collect()
 }
 
-/// Initializes the kernel module management subsystem and auto-loads built-in modules.
+/// Initializes the kernel module management subsystem and auto-loads built-in modules & initcalls.
+///
+/// Iterates over all module and driver initcalls registered via `module_init!` in `.initcall` section.
 ///
 /// # Errors
 /// Returns [`ostd::Error`] if registering or initializing built-in modules fails.
 pub fn init() -> Result<(), ostd::Error> {
-    crate::modules::builtin::init_builtin_modules()?;
+    log::info!(
+        "[module_manager] Initializing kernel module subsystem and auto-loading initcalls..."
+    );
+
+    // Auto-register and load all module initcalls registered independently across kernel files via module_init!
+    for reg in crate::modules::MODULE_INITCALLS {
+        log::info!(
+            "[module_initcall] Auto-registering module/driver: {}",
+            reg.name
+        );
+        let module = Arc::new(crate::modules::StaticKernelModule::new(reg));
+        if register_module(module).is_ok() {
+            let _ = load_module(reg.name);
+        }
+    }
+
     Ok(())
 }

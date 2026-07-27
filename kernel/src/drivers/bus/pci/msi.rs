@@ -6,9 +6,9 @@
 use alloc::vec::Vec;
 use ostd::Error;
 
-use crate::drivers::pci::arch::{self, msi_address, msi_data};
-use crate::drivers::pci::capability::{CAP_MSI, capabilities};
-use crate::drivers::pci::device::PciDevice;
+use super::arch::{self, msi_address, msi_data};
+use super::capability::{CAP_MSI, capabilities};
+use super::device::PciDevice;
 use crate::irq::{IrqHandler, IrqRegistration};
 
 /// Descriptor for a configured MSI interrupt.
