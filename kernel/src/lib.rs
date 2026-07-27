@@ -11,6 +11,7 @@ mod drivers;
 mod fs;
 mod ipc;
 mod irq;
+mod modules;
 mod net;
 mod proc;
 mod scheduler;
@@ -25,6 +26,7 @@ fn kernel_main() {
     device::manager::init();
     net::init();
     fs::init().expect("failed to initialize filesystem");
+    modules::init().expect("failed to initialize kernel modules");
     proc::spawn_init_process();
     scheduler::init();
 }
