@@ -1,11 +1,9 @@
 //! EXT2 Filesystem Formatter (`mkfs.ext2`).
 
+use super::layout::{EXT2_S_IFDIR, GroupDescriptor as Gd, Inode as In, Superblock as Sb};
+use super::superblock::write_blocks;
 use crate::drivers::block::BlockDevice;
 use crate::fs::vfs::Result;
-use super::layout::{
-    EXT2_S_IFDIR, GroupDescriptor as Gd, Inode as In, Superblock as Sb,
-};
-use super::superblock::write_blocks;
 
 /// Formats a block device as a valid EXT2 filesystem with a 1024-byte block size,
 /// a primary superblock, a single block group descriptor, bitmap blocks, an inode table,

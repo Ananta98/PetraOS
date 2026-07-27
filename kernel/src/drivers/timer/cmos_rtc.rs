@@ -107,7 +107,12 @@ impl Driver for CmosRtcDriver {
     }
 }
 
-crate::module_driver!(CMOS_RTC_INITCALL, cmos_rtc_driver_init, "cmos-rtc", CmosRtcDriver);
+crate::module_driver!(
+    CMOS_RTC_INITCALL,
+    cmos_rtc_driver_init,
+    "cmos-rtc",
+    CmosRtcDriver
+);
 
 impl Driver for CmosRtc {
     fn name(&self) -> &str {

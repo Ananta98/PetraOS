@@ -6,11 +6,11 @@ use alloc::vec::Vec;
 
 use ostd::Error;
 
-use crate::fs::vfs::{DirEntry, FileOps, FileType, Result, SeekFrom};
 use super::dir::{read_directory_entries, write_dir_entry_set};
 use super::fat::{read_bytes, write_bytes};
 use super::inode::ExFatInode;
 use super::superblock::ExFatFsState;
+use crate::fs::vfs::{DirEntry, FileOps, FileType, Result, SeekFrom};
 
 pub fn read_file_data(
     fs_state: &ExFatFsState,
@@ -35,7 +35,10 @@ pub fn read_file_data(
         let curr_offset = offset + bytes_read as u64;
         let cluster_idx = (curr_offset / cluster_size) as usize;
         let offset_in_cluster = (curr_offset % cluster_size) as usize;
-        let chunk_len = core::cmp::min(read_len - bytes_read, cluster_size as usize - offset_in_cluster);
+        let chunk_len = core::cmp::min(
+            read_len - bytes_read,
+            cluster_size as usize - offset_in_cluster,
+        );
 
         if cluster_idx >= chain.len() {
             break;
@@ -45,7 +48,11 @@ pub fn read_file_data(
         let sector = fs_state.cluster_to_sector(cluster);
         let byte_offset = sector * sector_size + offset_in_cluster as u64;
 
-        read_bytes(&*fs_state.block_dev, byte_offset, &mut buf[bytes_read..bytes_read + chunk_len])?;
+        read_bytes(
+            &*fs_state.block_dev,
+            byte_offset,
+            &mut buf[bytes_read..bytes_read + chunk_len],
+        )?;
         bytes_read += chunk_len;
     }
     Ok(bytes_read)
@@ -68,7 +75,10 @@ pub fn write_file_data(
         let curr_offset = offset + bytes_written as u64;
         let cluster_idx = (curr_offset / cluster_size) as usize;
         let offset_in_cluster = (curr_offset % cluster_size) as usize;
-        let chunk_len = core::cmp::min(buf.len() - bytes_written, cluster_size as usize - offset_in_cluster);
+        let chunk_len = core::cmp::min(
+            buf.len() - bytes_written,
+            cluster_size as usize - offset_in_cluster,
+        );
 
         if cluster_idx >= chain.len() {
             break;
@@ -78,7 +88,11 @@ pub fn write_file_data(
         let sector = fs_state.cluster_to_sector(cluster);
         let byte_offset = sector * sector_size + offset_in_cluster as u64;
 
-        write_bytes(&*fs_state.block_dev, byte_offset, &buf[bytes_written..bytes_written + chunk_len])?;
+        write_bytes(
+            &*fs_state.block_dev,
+            byte_offset,
+            &buf[bytes_written..bytes_written + chunk_len],
+        )?;
         bytes_written += chunk_len;
     }
     Ok(bytes_written)
@@ -120,11 +134,17 @@ pub fn extend_file(
             }
             if !*no_fat_chain {
                 for i in 0..new_chain.len() - 1 {
-                    super::fat::set_next_cluster(&*fs_state.block_dev, &fs_state.boot_sector, new_chain[i], new_chain[i + 1])?;
+                    super::fat::set_next_cluster(
+                        &*fs_state.block_dev,
+                        &fs_state.boot_sector,
+                        new_chain[i],
+                        new_chain[i + 1],
+                    )?;
                 }
             }
         } else {
-            let existing_chain = fs_state.get_cluster_chain(*first_cluster, *no_fat_chain, *size)?;
+            let existing_chain =
+                fs_state.get_cluster_chain(*first_cluster, *no_fat_chain, *size)?;
             let last_cluster = *existing_chain.last().unwrap();
 
             if *no_fat_chain && new_chain[0] == last_cluster + 1 {
@@ -145,9 +165,19 @@ pub fn extend_file(
                             existing_chain[i + 1],
                         )?;
                     }
-                    super::fat::set_next_cluster(&*fs_state.block_dev, &fs_state.boot_sector, last_cluster, new_chain[0])?;
+                    super::fat::set_next_cluster(
+                        &*fs_state.block_dev,
+                        &fs_state.boot_sector,
+                        last_cluster,
+                        new_chain[0],
+                    )?;
                     for i in 0..new_chain.len() - 1 {
-                        super::fat::set_next_cluster(&*fs_state.block_dev, &fs_state.boot_sector, new_chain[i], new_chain[i + 1])?;
+                        super::fat::set_next_cluster(
+                            &*fs_state.block_dev,
+                            &fs_state.boot_sector,
+                            new_chain[i],
+                            new_chain[i + 1],
+                        )?;
                     }
                 }
             } else {
@@ -162,9 +192,19 @@ pub fn extend_file(
                         )?;
                     }
                 }
-                super::fat::set_next_cluster(&*fs_state.block_dev, &fs_state.boot_sector, last_cluster, new_chain[0])?;
+                super::fat::set_next_cluster(
+                    &*fs_state.block_dev,
+                    &fs_state.boot_sector,
+                    last_cluster,
+                    new_chain[0],
+                )?;
                 for i in 0..new_chain.len() - 1 {
-                    super::fat::set_next_cluster(&*fs_state.block_dev, &fs_state.boot_sector, new_chain[i], new_chain[i + 1])?;
+                    super::fat::set_next_cluster(
+                        &*fs_state.block_dev,
+                        &fs_state.boot_sector,
+                        new_chain[i],
+                        new_chain[i + 1],
+                    )?;
                 }
             }
         }

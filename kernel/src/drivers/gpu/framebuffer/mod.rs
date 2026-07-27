@@ -72,9 +72,12 @@ impl crate::device::Driver for FramebufferDriver {
     }
 }
 
-crate::module_driver!(FRAMEBUFFER_INITCALL, framebuffer_driver_init, "framebuffer", FramebufferDriver);
-
-
+crate::module_driver!(
+    FRAMEBUFFER_INITCALL,
+    framebuffer_driver_init,
+    "framebuffer",
+    FramebufferDriver
+);
 
 #[cfg(ktest)]
 mod tests {

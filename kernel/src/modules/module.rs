@@ -1,7 +1,6 @@
 /// Kernel module definitions and trait abstractions.
 ///
 /// All kernel modules must implement the [`KernelModule`] trait.
-
 use alloc::string::String;
 
 /// Represents the lifecycle state of a kernel module.

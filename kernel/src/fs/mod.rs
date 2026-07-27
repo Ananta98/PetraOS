@@ -5,6 +5,7 @@ pub mod ext2;
 pub mod fd_table;
 pub mod procfs;
 pub mod ramfs;
+pub mod socketfs;
 pub mod vfs;
 
 use alloc::sync::Arc;

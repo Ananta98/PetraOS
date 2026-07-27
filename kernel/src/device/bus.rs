@@ -2,7 +2,6 @@
 ///
 /// A bus represents a physical or logical interconnection (e.g. PCI, Platform, Virtual).
 /// Bus-Driven Matching decouples device enumeration from specific driver implementations.
-
 use crate::device::device::Device;
 use crate::device::driver::Driver;
 use alloc::sync::Arc;

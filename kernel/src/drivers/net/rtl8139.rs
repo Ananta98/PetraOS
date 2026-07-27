@@ -261,4 +261,9 @@ impl crate::device::Driver for Rtl8139Driver {
     }
 }
 
-crate::module_driver!(RTL8139_INITCALL, rtl8139_driver_init, "rtl8139", Rtl8139Driver);
+crate::module_driver!(
+    RTL8139_INITCALL,
+    rtl8139_driver_init,
+    "rtl8139",
+    Rtl8139Driver
+);

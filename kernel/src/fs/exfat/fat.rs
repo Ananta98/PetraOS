@@ -4,9 +4,9 @@ use alloc::vec::Vec;
 use core::sync::atomic::Ordering;
 use ostd::Error;
 
+use super::layout::BootSector;
 use crate::drivers::block::BlockDevice;
 use crate::fs::vfs::Result;
-use super::layout::BootSector;
 
 pub fn read_bytes(block_dev: &dyn BlockDevice, offset: u64, buf: &mut [u8]) -> Result<()> {
     let mut block_buf = [0u8; 512];
@@ -45,7 +45,11 @@ pub fn write_bytes(block_dev: &dyn BlockDevice, offset: u64, buf: &[u8]) -> Resu
     Ok(())
 }
 
-pub fn get_next_cluster(block_dev: &dyn BlockDevice, boot_sector: &BootSector, cluster: u32) -> Result<u32> {
+pub fn get_next_cluster(
+    block_dev: &dyn BlockDevice,
+    boot_sector: &BootSector,
+    cluster: u32,
+) -> Result<u32> {
     let sector_size = 1u64 << boot_sector.bytes_per_sector_shift;
     let fat_offset_bytes = (boot_sector.fat_offset as u64) * sector_size;
     let entry_offset = fat_offset_bytes + (cluster as u64) * 4;
@@ -54,7 +58,12 @@ pub fn get_next_cluster(block_dev: &dyn BlockDevice, boot_sector: &BootSector, c
     Ok(u32::from_le_bytes(buf))
 }
 
-pub fn set_next_cluster(block_dev: &dyn BlockDevice, boot_sector: &BootSector, cluster: u32, next: u32) -> Result<()> {
+pub fn set_next_cluster(
+    block_dev: &dyn BlockDevice,
+    boot_sector: &BootSector,
+    cluster: u32,
+    next: u32,
+) -> Result<()> {
     let sector_size = 1u64 << boot_sector.bytes_per_sector_shift;
     let fat_offset_bytes = (boot_sector.fat_offset as u64) * sector_size;
     let entry_offset = fat_offset_bytes + (cluster as u64) * 4;

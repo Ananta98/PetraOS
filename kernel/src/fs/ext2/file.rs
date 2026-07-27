@@ -4,11 +4,11 @@ use alloc::sync::Arc;
 use alloc::vec::Vec;
 use ostd::Error;
 
-use crate::fs::vfs::{DirEntry, FileOps, FileType, Result, SeekFrom};
 use super::dir::read_directory_entries;
 use super::inode::Ext2Inode;
 use super::layout::{EXT2_S_IFDIR, Inode};
 use super::superblock::{Ext2FsState, read_blocks, write_blocks};
+use crate::fs::vfs::{DirEntry, FileOps, FileType, Result, SeekFrom};
 
 pub fn get_or_alloc_block(
     fs_state: &Ext2FsState,
@@ -84,14 +84,20 @@ pub fn read_file_data(
         let curr_offset = offset + bytes_read as u64;
         let block_index = (curr_offset / block_size) as u32;
         let offset_in_block = (curr_offset % block_size) as usize;
-        let chunk_len = core::cmp::min(read_len - bytes_read, block_size as usize - offset_in_block);
+        let chunk_len =
+            core::cmp::min(read_len - bytes_read, block_size as usize - offset_in_block);
 
         let block_id = get_or_alloc_block(fs_state, inode, block_index, false)?;
         if block_id == 0 {
             buf[bytes_read..bytes_read + chunk_len].fill(0);
         } else {
             let mut block_buf = alloc::vec![0u8; block_size as usize];
-            read_blocks(&*fs_state.block_dev, fs_state.block_size, block_id, &mut block_buf)?;
+            read_blocks(
+                &*fs_state.block_dev,
+                fs_state.block_size,
+                block_id,
+                &mut block_buf,
+            )?;
             buf[bytes_read..bytes_read + chunk_len]
                 .copy_from_slice(&block_buf[offset_in_block..offset_in_block + chunk_len]);
         }
@@ -114,18 +120,31 @@ pub fn write_file_data(
         let curr_offset = offset + bytes_written as u64;
         let block_index = (curr_offset / block_size) as u32;
         let offset_in_block = (curr_offset % block_size) as usize;
-        let chunk_len = core::cmp::min(buf.len() - bytes_written, block_size as usize - offset_in_block);
+        let chunk_len = core::cmp::min(
+            buf.len() - bytes_written,
+            block_size as usize - offset_in_block,
+        );
 
         let block_id = get_or_alloc_block(fs_state, inode, block_index, true)?;
         let mut block_buf = alloc::vec![0u8; block_size as usize];
 
         if chunk_len < block_size as usize && block_id != 0 {
-            read_blocks(&*fs_state.block_dev, fs_state.block_size, block_id, &mut block_buf)?;
+            read_blocks(
+                &*fs_state.block_dev,
+                fs_state.block_size,
+                block_id,
+                &mut block_buf,
+            )?;
         }
 
         block_buf[offset_in_block..offset_in_block + chunk_len]
             .copy_from_slice(&buf[bytes_written..bytes_written + chunk_len]);
-        write_blocks(&*fs_state.block_dev, fs_state.block_size, block_id, &block_buf)?;
+        write_blocks(
+            &*fs_state.block_dev,
+            fs_state.block_size,
+            block_id,
+            &block_buf,
+        )?;
 
         bytes_written += chunk_len;
     }
@@ -156,7 +175,12 @@ pub fn truncate_inode_blocks(
 
     if inode.i_block[12] != 0 {
         let mut buf = alloc::vec![0u8; block_size as usize];
-        read_blocks(&*fs_state.block_dev, block_size, inode.i_block[12], &mut buf)?;
+        read_blocks(
+            &*fs_state.block_dev,
+            block_size,
+            inode.i_block[12],
+            &mut buf,
+        )?;
         for i in 0..ptrs_per_block {
             let offset = (i * 4) as usize;
             let block_id = u32::from_le_bytes([
@@ -186,16 +210,26 @@ pub struct Ext2File {
 impl FileOps for Ext2File {
     fn read(&mut self, buf: &mut [u8], offset: &mut usize) -> Result<usize> {
         let mut guard = self.inode.inode.lock();
-        let bytes_read =
-            read_file_data(&self.inode.fs, &mut guard, self.inode.inode_num, *offset as u64, buf)?;
+        let bytes_read = read_file_data(
+            &self.inode.fs,
+            &mut guard,
+            self.inode.inode_num,
+            *offset as u64,
+            buf,
+        )?;
         *offset += bytes_read;
         Ok(bytes_read)
     }
 
     fn write(&mut self, buf: &[u8], offset: &mut usize) -> Result<usize> {
         let mut guard = self.inode.inode.lock();
-        let bytes_written =
-            write_file_data(&self.inode.fs, &mut guard, self.inode.inode_num, *offset as u64, buf)?;
+        let bytes_written = write_file_data(
+            &self.inode.fs,
+            &mut guard,
+            self.inode.inode_num,
+            *offset as u64,
+            buf,
+        )?;
         *offset += bytes_written;
         Ok(bytes_written)
     }

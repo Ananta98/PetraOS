@@ -14,94 +14,12 @@ pub use recvfrom::syscall_recvfrom;
 pub use sendto::syscall_sendto;
 pub use socket::syscall_socket;
 
-use crate::fs::vfs::{FileOps, SeekFrom};
+// Re-export SocketFile from the fs layer where it logically belongs.
+pub use crate::fs::socketfs::SocketFile;
+
 use ostd::Error;
 use ostd::sync::SpinLock;
-use smoltcp::iface::SocketHandle;
 use smoltcp::wire::{IpAddress, IpEndpoint, Ipv4Address, Ipv6Address};
-
-pub struct SocketFile {
-    pub handle: SpinLock<SocketHandle>,
-    pub domain: i32,
-    pub socket_type: i32,
-    pub protocol: i32,
-    pub local: SpinLock<Option<IpEndpoint>>,
-    pub remote: SpinLock<Option<IpEndpoint>>,
-}
-
-impl FileOps for SocketFile {
-    fn read(&mut self, buf: &mut [u8], _offset: &mut usize) -> Result<usize, Error> {
-        let mut stack_guard = crate::net::NET_STACK.lock();
-        let stack = stack_guard.as_mut().ok_or(Error::InvalidArgs)?;
-        let sockets = &mut stack.sockets;
-
-        let handle = *self.handle.lock();
-        if self.socket_type == 1 {
-            let tcp_socket = sockets.get_mut::<smoltcp::socket::tcp::Socket>(handle);
-            if !tcp_socket.is_active() && !tcp_socket.may_recv() {
-                return Err(Error::IoError);
-            }
-            tcp_socket.recv_slice(buf).map_err(|_| Error::IoError)
-        } else if self.socket_type == 2 {
-            let udp_socket = sockets.get_mut::<smoltcp::socket::udp::Socket>(handle);
-            udp_socket
-                .recv_slice(buf)
-                .map(|(len, _)| len)
-                .map_err(|_| Error::IoError)
-        } else {
-            Err(Error::InvalidArgs)
-        }
-    }
-
-    fn write(&mut self, buf: &[u8], _offset: &mut usize) -> Result<usize, Error> {
-        let mut stack_guard = crate::net::NET_STACK.lock();
-        let stack = stack_guard.as_mut().ok_or(Error::InvalidArgs)?;
-        let sockets = &mut stack.sockets;
-
-        let handle = *self.handle.lock();
-        if self.socket_type == 1 {
-            let tcp_socket = sockets.get_mut::<smoltcp::socket::tcp::Socket>(handle);
-            if !tcp_socket.is_active() && !tcp_socket.may_send() {
-                return Err(Error::IoError);
-            }
-            tcp_socket.send_slice(buf).map_err(|_| Error::IoError)
-        } else if self.socket_type == 2 {
-            let udp_socket = sockets.get_mut::<smoltcp::socket::udp::Socket>(handle);
-            let remote = self.remote.lock();
-            if let Some(dest) = *remote {
-                udp_socket
-                    .send_slice(buf, dest)
-                    .map(|_| buf.len())
-                    .map_err(|_| Error::IoError)
-            } else {
-                Err(Error::InvalidArgs)
-            }
-        } else {
-            Err(Error::InvalidArgs)
-        }
-    }
-
-    fn seek(&mut self, _pos: SeekFrom, _offset: &mut usize) -> Result<usize, Error> {
-        Err(Error::InvalidArgs)
-    }
-
-    fn readdir(&mut self) -> Result<alloc::vec::Vec<crate::fs::vfs::DirEntry>, Error> {
-        Err(Error::InvalidArgs)
-    }
-
-    fn as_any(&self) -> Option<&dyn core::any::Any> {
-        Some(self)
-    }
-}
-
-impl Drop for SocketFile {
-    fn drop(&mut self) {
-        let mut stack_guard = crate::net::NET_STACK.lock();
-        if let Some(stack) = stack_guard.as_mut() {
-            stack.sockets.remove(*self.handle.lock());
-        }
-    }
-}
 
 static EPHEMERAL_PORT: SpinLock<u16> = SpinLock::new(49152);
 

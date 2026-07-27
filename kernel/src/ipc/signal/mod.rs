@@ -16,7 +16,8 @@ pub mod table;
 pub mod types;
 
 pub use dispatch::{
-    DispatchOutcome, dispatch_pending, send_siginfo_to_pid, send_signal_to_group, send_signal_to_pid,
+    DispatchOutcome, dispatch_pending, send_siginfo_to_pid, send_signal_to_group,
+    send_signal_to_pid,
 };
 pub use queue::SigQueue;
 pub use table::{SigHandlerKind, SigTable};

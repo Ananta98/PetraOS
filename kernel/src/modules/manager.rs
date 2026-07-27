@@ -401,8 +401,12 @@ mod tests {
                     info.name = self.scoped_name.clone();
                     info
                 }
-                fn init(&self) -> Result<(), ostd::Error> { Ok(()) }
-                fn exit(&self) -> Result<(), ostd::Error> { Ok(()) }
+                fn init(&self) -> Result<(), ostd::Error> {
+                    Ok(())
+                }
+                fn exit(&self) -> Result<(), ostd::Error> {
+                    Ok(())
+                }
             }
 
             let scoped: Arc<dyn KernelModule> = Arc::new(ScopedModule {
@@ -458,7 +462,6 @@ mod tests {
             registered.len()
         );
     }
-
 
     /// StaticKernelModule adapter correctly exposes registration metadata.
     #[ktest]

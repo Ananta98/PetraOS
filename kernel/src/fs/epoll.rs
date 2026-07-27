@@ -100,13 +100,15 @@ impl EpollFile {
                 if let Some(socket_file) = open_file
                     .file_ops
                     .as_any()
-                    .and_then(|any| any.downcast_ref::<crate::syscall::net::SocketFile>())
+                    .and_then(|any| any.downcast_ref::<crate::fs::socketfs::SocketFile>())
                 {
                     let mut stack_guard = crate::net::NET_STACK.lock();
                     if let Some(stack) = stack_guard.as_mut() {
                         let handle = *socket_file.handle.lock();
                         if socket_file.socket_type == 1 {
-                            let tcp = stack.sockets.get_mut::<smoltcp::socket::tcp::Socket>(handle);
+                            let tcp = stack
+                                .sockets
+                                .get_mut::<smoltcp::socket::tcp::Socket>(handle);
                             if tcp.can_recv() {
                                 revents |= EPOLLIN;
                             }
@@ -114,7 +116,9 @@ impl EpollFile {
                                 revents |= EPOLLOUT;
                             }
                         } else if socket_file.socket_type == 2 {
-                            let udp = stack.sockets.get_mut::<smoltcp::socket::udp::Socket>(handle);
+                            let udp = stack
+                                .sockets
+                                .get_mut::<smoltcp::socket::udp::Socket>(handle);
                             if udp.can_recv() {
                                 revents |= EPOLLIN;
                             }

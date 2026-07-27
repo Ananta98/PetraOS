@@ -4,10 +4,10 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use ostd::Error;
 
-use crate::fs::vfs::Result;
 use super::file::{read_file_data, write_file_data};
 use super::layout::ExFatFileInfo;
 use super::superblock::ExFatFsState;
+use crate::fs::vfs::Result;
 
 pub fn read_directory_entries(
     fs_state: &ExFatFsState,
@@ -62,10 +62,8 @@ pub fn read_directory_entries(
                         if name_offset + 32 <= buf.len() && buf[name_offset] == 0xC1 {
                             for k in 0..15 {
                                 let ch_offset = name_offset + 2 + k * 2;
-                                let code_unit = u16::from_le_bytes([
-                                    buf[ch_offset],
-                                    buf[ch_offset + 1],
-                                ]);
+                                let code_unit =
+                                    u16::from_le_bytes([buf[ch_offset], buf[ch_offset + 1]]);
                                 if code_unit == 0 {
                                     break;
                                 }
@@ -192,7 +190,14 @@ pub fn write_dir_entry_set(
     file_entry[1] = secondary_count as u8;
     file_entry[4..6].copy_from_slice(&attributes.to_le_bytes());
 
-    write_file_data(fs_state, dir_cluster, dir_no_fat, dir_size, start_offset as u64, &file_entry)?;
+    write_file_data(
+        fs_state,
+        dir_cluster,
+        dir_no_fat,
+        dir_size,
+        start_offset as u64,
+        &file_entry,
+    )?;
 
     // Stream Extension Entry (0xC0)
     let mut stream_entry = [0u8; 32];
@@ -202,7 +207,14 @@ pub fn write_dir_entry_set(
     stream_entry[20..24].copy_from_slice(&first_cluster.to_le_bytes());
     stream_entry[24..32].copy_from_slice(&file_size.to_le_bytes());
 
-    write_file_data(fs_state, dir_cluster, dir_no_fat, dir_size, (start_offset + 32) as u64, &stream_entry)?;
+    write_file_data(
+        fs_state,
+        dir_cluster,
+        dir_no_fat,
+        dir_size,
+        (start_offset + 32) as u64,
+        &stream_entry,
+    )?;
 
     // File Name Entries (0xC1)
     for i in 0..name_entries_count {

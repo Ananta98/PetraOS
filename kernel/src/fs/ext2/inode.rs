@@ -6,11 +6,11 @@ use alloc::sync::Arc;
 use ostd::Error;
 use ostd::sync::SpinLock;
 
-use crate::fs::vfs::{FileOps, FileType, InodeOps, Metadata, Result};
 use super::dir::{add_directory_entry, read_directory_entries, remove_directory_entry};
 use super::file::{Ext2File, truncate_inode_blocks};
 use super::layout::{EXT2_S_IFDIR, EXT2_S_IFREG, Inode};
 use super::superblock::{Ext2FsState, write_blocks};
+use crate::fs::vfs::{FileOps, FileType, InodeOps, Metadata, Result};
 
 pub struct Ext2Inode {
     pub fs: Arc<Ext2FsState>,

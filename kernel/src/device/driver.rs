@@ -2,7 +2,6 @@
 ///
 /// Implement [`Driver`] for each hardware driver. Drivers register on a specific
 /// bus (e.g., "pci", "platform", "virtual") and participate in Bus-Driven Matching.
-
 use crate::device::device::Device;
 use alloc::sync::Arc;
 

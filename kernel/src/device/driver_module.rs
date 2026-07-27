@@ -2,7 +2,6 @@
 ///
 /// Wraps any [`Driver`] into a [`KernelModule`] so that driver registration
 /// automatically registers and tracks a corresponding kernel module in `crate::modules`.
-
 use crate::device::driver::Driver;
 use crate::modules::{KernelModule, ModuleInfo, ModuleState};
 use alloc::format;

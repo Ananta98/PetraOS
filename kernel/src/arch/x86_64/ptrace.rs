@@ -267,4 +267,3 @@ mod tests {
         assert!(!poke_user_reg(&mut ctx, 999, 0x99));
     }
 }
-

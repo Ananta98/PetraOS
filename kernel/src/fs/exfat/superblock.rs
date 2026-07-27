@@ -28,8 +28,19 @@ impl ExFatFsState {
         cluster_heap_offset_sectors + (cluster as u64 - 2) * sectors_per_cluster
     }
 
-    pub fn get_cluster_chain(&self, first_cluster: u32, no_fat_chain: bool, size: u64) -> Result<alloc::vec::Vec<u32>> {
-        get_cluster_chain(&*self.block_dev, &self.boot_sector, first_cluster, no_fat_chain, size)
+    pub fn get_cluster_chain(
+        &self,
+        first_cluster: u32,
+        no_fat_chain: bool,
+        size: u64,
+    ) -> Result<alloc::vec::Vec<u32>> {
+        get_cluster_chain(
+            &*self.block_dev,
+            &self.boot_sector,
+            first_cluster,
+            no_fat_chain,
+            size,
+        )
     }
 
     pub fn alloc_cluster(&self) -> Result<u32> {
@@ -53,7 +64,8 @@ impl ExFatFsState {
                 if byte != 0xFF {
                     for bit in 0..8 {
                         if (byte & (1 << bit)) == 0 {
-                            let cluster_index = (c_idx * cluster_size as usize + byte_idx) * 8 + bit;
+                            let cluster_index =
+                                (c_idx * cluster_size as usize + byte_idx) * 8 + bit;
                             let allocated_cluster = cluster_index as u32 + 2;
 
                             if allocated_cluster >= self.boot_sector.cluster_count + 2 {
@@ -62,7 +74,12 @@ impl ExFatFsState {
 
                             buf[byte_idx] |= 1 << bit;
                             write_bytes(&*self.block_dev, sector * sector_size, &buf)?;
-                            super::fat::set_next_cluster(&*self.block_dev, &self.boot_sector, allocated_cluster, 0xFFFFFFFF)?;
+                            super::fat::set_next_cluster(
+                                &*self.block_dev,
+                                &self.boot_sector,
+                                allocated_cluster,
+                                0xFFFFFFFF,
+                            )?;
                             return Ok(allocated_cluster);
                         }
                     }
@@ -72,7 +89,12 @@ impl ExFatFsState {
         Err(Error::NotEnoughResources)
     }
 
-    pub fn free_cluster_chain(&self, first_cluster: u32, no_fat_chain: bool, size: u64) -> Result<()> {
+    pub fn free_cluster_chain(
+        &self,
+        first_cluster: u32,
+        no_fat_chain: bool,
+        size: u64,
+    ) -> Result<()> {
         let chain = self.get_cluster_chain(first_cluster, no_fat_chain, size)?;
         let bitmap_first_cluster = self.bitmap_first_cluster.load(Ordering::Relaxed);
         let bitmap_size = self.bitmap_size.load(Ordering::Relaxed);
@@ -92,7 +114,8 @@ impl ExFatFsState {
                 let bitmap_cluster_idx = byte_idx / cluster_size as usize;
                 let offset_in_cluster = byte_idx % cluster_size as usize;
 
-                let bitmap_chain = self.get_cluster_chain(bitmap_first_cluster, true, bitmap_size)?;
+                let bitmap_chain =
+                    self.get_cluster_chain(bitmap_first_cluster, true, bitmap_size)?;
                 if bitmap_cluster_idx < bitmap_chain.len() {
                     let target_cluster = bitmap_chain[bitmap_cluster_idx];
                     let sector = self.cluster_to_sector(target_cluster);

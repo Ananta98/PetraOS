@@ -4,10 +4,10 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use ostd::Error;
 
-use crate::fs::vfs::Result;
 use super::file::read_file_data;
 use super::layout::{EXT2_FT_DIR, EXT2_FT_REG_FILE, Ext2FileInfo, Inode};
 use super::superblock::{Ext2FsState, write_blocks};
+use crate::fs::vfs::Result;
 
 pub fn read_directory_entries(
     fs_state: &Ext2FsState,
@@ -26,8 +26,12 @@ pub fn read_directory_entries(
             break;
         }
 
-        let inode_num =
-            u32::from_le_bytes([buf[offset], buf[offset + 1], buf[offset + 2], buf[offset + 3]]);
+        let inode_num = u32::from_le_bytes([
+            buf[offset],
+            buf[offset + 1],
+            buf[offset + 2],
+            buf[offset + 3],
+        ]);
         let rec_len = u16::from_le_bytes([buf[offset + 4], buf[offset + 5]]) as usize;
         let name_len = buf[offset + 6] as usize;
         let file_type = buf[offset + 7];
@@ -76,7 +80,12 @@ pub fn add_directory_entry(
         }
 
         let mut block_buf = alloc::vec![0u8; block_size];
-        super::superblock::read_blocks(&*fs_state.block_dev, fs_state.block_size, block_id, &mut block_buf)?;
+        super::superblock::read_blocks(
+            &*fs_state.block_dev,
+            fs_state.block_size,
+            block_id,
+            &mut block_buf,
+        )?;
 
         let mut offset = 0;
         while offset < block_size {
@@ -94,8 +103,7 @@ pub fn add_directory_entry(
                 let new_offset = offset + actual_len;
                 let new_rec_len = rec_len - actual_len;
 
-                block_buf[new_offset..new_offset + 4]
-                    .copy_from_slice(&new_inode_num.to_le_bytes());
+                block_buf[new_offset..new_offset + 4].copy_from_slice(&new_inode_num.to_le_bytes());
                 block_buf[new_offset + 4..new_offset + 6]
                     .copy_from_slice(&(new_rec_len as u16).to_le_bytes());
                 block_buf[new_offset + 6] = name_bytes.len() as u8;
@@ -107,7 +115,12 @@ pub fn add_directory_entry(
                 block_buf[new_offset + 8..new_offset + 8 + name_bytes.len()]
                     .copy_from_slice(name_bytes);
 
-                write_blocks(&*fs_state.block_dev, fs_state.block_size, block_id, &block_buf)?;
+                write_blocks(
+                    &*fs_state.block_dev,
+                    fs_state.block_size,
+                    block_id,
+                    &block_buf,
+                )?;
                 return Ok(());
             }
 
@@ -139,7 +152,12 @@ pub fn add_directory_entry(
     };
     block_buf[8..8 + name_bytes.len()].copy_from_slice(name_bytes);
 
-    write_blocks(&*fs_state.block_dev, fs_state.block_size, new_block_id, &block_buf)?;
+    write_blocks(
+        &*fs_state.block_dev,
+        fs_state.block_size,
+        new_block_id,
+        &block_buf,
+    )?;
     Ok(())
 }
 
@@ -158,7 +176,12 @@ pub fn remove_directory_entry(
         }
 
         let mut block_buf = alloc::vec![0u8; block_size];
-        super::superblock::read_blocks(&*fs_state.block_dev, fs_state.block_size, block_id, &mut block_buf)?;
+        super::superblock::read_blocks(
+            &*fs_state.block_dev,
+            fs_state.block_size,
+            block_id,
+            &mut block_buf,
+        )?;
 
         let mut offset = 0;
         let mut prev_offset = None;
@@ -183,10 +206,9 @@ pub fn remove_directory_entry(
                 if let Ok(entry_name) = core::str::from_utf8(name_bytes) {
                     if entry_name == name {
                         if let Some(prev) = prev_offset {
-                            let prev_rec_len = u16::from_le_bytes([
-                                block_buf[prev + 4],
-                                block_buf[prev + 5],
-                            ]) as usize;
+                            let prev_rec_len =
+                                u16::from_le_bytes([block_buf[prev + 4], block_buf[prev + 5]])
+                                    as usize;
                             let new_prev_rec_len = prev_rec_len + rec_len;
                             block_buf[prev + 4..prev + 6]
                                 .copy_from_slice(&(new_prev_rec_len as u16).to_le_bytes());

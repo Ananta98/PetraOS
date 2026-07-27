@@ -9,7 +9,6 @@
 /// | [`driver`] | [`Driver`] trait with Bus-Driven Matching interface |
 /// | [`driver_module`] | Kernel module adapter for drivers |
 /// | [`manager`] | Global registries, Bus-Driven Matching engine, and `init()` |
-
 pub mod bus;
 pub mod device;
 pub mod driver;

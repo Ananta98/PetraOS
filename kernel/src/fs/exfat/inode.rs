@@ -6,12 +6,14 @@ use alloc::sync::Arc;
 use ostd::Error;
 use ostd::sync::SpinLock;
 
-use crate::fs::vfs::{FileOps, FileType, InodeOps, Metadata, Result};
-use super::dir::{delete_dir_entry_set, find_free_dir_slots, read_directory_entries, write_dir_entry_set};
+use super::dir::{
+    delete_dir_entry_set, find_free_dir_slots, read_directory_entries, write_dir_entry_set,
+};
 use super::fat::write_bytes;
 use super::file::ExFatFile;
 use super::layout::ExFatFileInfo;
 use super::superblock::ExFatFsState;
+use crate::fs::vfs::{FileOps, FileType, InodeOps, Metadata, Result};
 
 pub struct ExFatInode {
     pub fs: Arc<ExFatFsState>,

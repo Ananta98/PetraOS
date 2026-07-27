@@ -1,9 +1,9 @@
 //! exFAT Formatter Utility (`mkfs.exfat`).
 
-use crate::drivers::block::BlockDevice;
-use crate::fs::vfs::Result;
 use super::fat::write_bytes;
 use super::layout::BootSector;
+use crate::drivers::block::BlockDevice;
+use crate::fs::vfs::Result;
 
 /// Formats a block device with valid exFAT structures: Boot sector, FAT, Allocation Bitmap,
 /// and Root directory containing default bitmap/upcase entries.
@@ -108,9 +108,9 @@ pub fn format_exfat(block_dev: &dyn BlockDevice) -> Result<()> {
     let mut bitmap_data = alloc::vec![0u8; cluster_size as usize];
     bitmap_data[0] = 0x03; // Bits 0 (Cluster 2) and 1 (Cluster 3) set
 
-    let bitmap_cluster_offset =
-        (cluster_heap_offset as u64 + (bitmap_cluster as u64 - 2) * sectors_per_cluster as u64)
-            * 512;
+    let bitmap_cluster_offset = (cluster_heap_offset as u64
+        + (bitmap_cluster as u64 - 2) * sectors_per_cluster as u64)
+        * 512;
     write_bytes(block_dev, bitmap_cluster_offset, &bitmap_data)?;
 
     Ok(())

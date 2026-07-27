@@ -1,4 +1,4 @@
-use crate::fs::epoll::{EpollEvent, EpollFile, EPOLL_CTL_DEL};
+use crate::fs::epoll::{EPOLL_CTL_DEL, EpollEvent, EpollFile};
 use crate::fs::fd_table::FileDescriptor;
 use crate::proc::process::Process;
 use crate::syscall::time::monotonic_ns;

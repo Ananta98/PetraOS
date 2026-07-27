@@ -270,11 +270,7 @@ impl CpuInfo {
         let s = str::from_utf8(&self.vendor_id)
             .map(|s| s.trim_matches('\0').trim())
             .unwrap_or("");
-        if s.is_empty() {
-            "Unknown"
-        } else {
-            s
-        }
+        if s.is_empty() { "Unknown" } else { s }
     }
 
     /// Returns the CPU brand name string (e.g., "QEMU Virtual CPU...").
@@ -349,4 +345,3 @@ mod tests {
         assert_eq!(info, get_cpu_info());
     }
 }
-
