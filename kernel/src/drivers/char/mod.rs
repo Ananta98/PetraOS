@@ -1,6 +1,9 @@
 pub mod console;
 pub mod keyboard;
 pub mod mouse;
+pub mod virtio_console;
+
+pub use virtio_console::{VirtioConsole, VirtioConsoleDriver};
 
 use super::{Device, DeviceType, register_device};
 use crate::fs::vfs::{DirEntry, FileOps, FileType, InodeOps, Metadata, SeekFrom};

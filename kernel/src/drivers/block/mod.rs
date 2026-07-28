@@ -6,6 +6,7 @@ use alloc::sync::Arc;
 use alloc::vec::Vec;
 pub mod ahci;
 pub mod nvme;
+pub mod virtio_blk;
 
 pub trait BlockDevice: Send + Sync {
     fn block_size(&self) -> usize;
