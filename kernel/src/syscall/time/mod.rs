@@ -30,12 +30,15 @@ pub mod clock_gettime;
 pub mod gettimeofday;
 pub mod nanosleep;
 pub mod sys_time;
+pub mod timerfd;
 
 pub use clock_getres::syscall_clock_getres;
 pub use clock_gettime::syscall_clock_gettime;
 pub use gettimeofday::syscall_gettimeofday;
 pub use nanosleep::syscall_nanosleep;
 pub use sys_time::syscall_time;
+pub use timerfd::{syscall_timerfd_create, syscall_timerfd_gettime, syscall_timerfd_settime};
+
 
 use crate::drivers::timer::{CmosRtc, Timer, Tsc};
 use crate::vm::vma::VmaManager;

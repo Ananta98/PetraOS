@@ -1,3 +1,4 @@
+use crate::proc::process::Process;
 use crate::syscall::SyscallResult;
 use crate::syscall::to_continue_unit;
 use crate::vm::vma::VmaManager;
@@ -9,15 +10,8 @@ use super::{Timespec, monotonic_ns, read_timespec, write_timespec};
 /// **`nanosleep(const struct timespec *req, struct timespec *rem)`** — SYS 35
 ///
 /// Suspends the calling thread for at least the duration specified by
-/// `req`.  On early wake-up (signal delivery), the remaining time is
+/// `req`. On early wake-up (signal delivery), the remaining time is
 /// written to `rem` when `rem` is non-null.
-///
-/// Because PetraOS does not yet implement a sleep queue, this performs a
-/// busy-wait spin loop against the TSC — acceptable for early-stage kernel
-/// testing; a blocking implementation can replace the loop later.
-///
-/// # Errors
-/// - `EINVAL` if `req` is null or contains a negative / out-of-range value.
 pub fn syscall_nanosleep(
     arg0: usize, // *req
     arg1: usize, // *rem (nullable)
@@ -43,17 +37,32 @@ pub fn syscall_nanosleep(
         let start_ns = monotonic_ns();
         let deadline_ns = start_ns.saturating_add(sleep_ns);
 
-        // Busy-wait until the deadline passes.
-        // TODO(kernel): replace with a proper timer-interrupt-based sleep queue.
+        let process = Process::current();
+        let signals = process.signals.clone();
+
         loop {
             let now = monotonic_ns();
             if now >= deadline_ns {
                 break;
             }
+
+            // Check if any signal was delivered to interrupt nanosleep
+            if signals.queue.has_pending() {
+                let rem_ns = deadline_ns.saturating_sub(now);
+                if arg1 != 0 {
+                    let rem_ts = Timespec {
+                        tv_sec: (rem_ns / 1_000_000_000) as i64,
+                        tv_nsec: (rem_ns % 1_000_000_000) as i64,
+                    };
+                    let _ = write_timespec(vm, arg1, rem_ts);
+                }
+                return Err(Error::IoError); // Interrupted by signal (-EINTR)
+            }
+
             core::hint::spin_loop();
         }
 
-        // Write zero remainder — we always sleep the full duration.
+        // Write zero remainder — slept full duration.
         if arg1 != 0 {
             write_timespec(
                 vm,

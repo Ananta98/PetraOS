@@ -2,17 +2,26 @@ pub mod accept;
 pub mod bind;
 pub mod connect;
 pub mod listen;
+pub mod msg;
 pub mod recvfrom;
 pub mod sendto;
 pub mod socket;
+pub mod socketpair;
+pub mod sockopts;
 
 pub use accept::{syscall_accept, syscall_accept4};
 pub use bind::syscall_bind;
 pub use connect::syscall_connect;
 pub use listen::syscall_listen;
+pub use msg::{syscall_recvmsg, syscall_sendmsg};
 pub use recvfrom::syscall_recvfrom;
 pub use sendto::syscall_sendto;
 pub use socket::syscall_socket;
+pub use socketpair::syscall_socketpair;
+pub use sockopts::{
+    syscall_getpeername, syscall_getsockname, syscall_getsockopt, syscall_setsockopt,
+    syscall_shutdown,
+};
 
 // Re-export SocketFile from the fs layer where it logically belongs.
 pub use crate::fs::socketfs::SocketFile;

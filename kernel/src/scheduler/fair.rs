@@ -1,8 +1,7 @@
-//! Fair scheduling class implementation using EEVDF (Earliest Eligible Virtual Deadline First).
-
 use alloc::collections::{BTreeMap, VecDeque};
 use alloc::sync::Arc;
 use core::sync::atomic::Ordering;
+
 use ostd::task::Task;
 
 use super::policy::SchedClassPolicy;
@@ -128,7 +127,7 @@ impl SchedClassPolicy for FairRunQueue {
 
         if let (Some(curr_data), Some(new_data)) = (curr_data, new_data) {
             if let (SchedClass::Fair { .. }, SchedClass::Fair { .. }) =
-                (curr_data.class, new_data.class)
+                (curr_data.sched_data().0, new_data.sched_data().0)
             {
                 let curr_vruntime = curr_data.vruntime.load(Ordering::Relaxed);
                 let new_vruntime = new_data.vruntime.load(Ordering::Relaxed);

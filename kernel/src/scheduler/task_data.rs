@@ -3,12 +3,13 @@ use crate::proc::tid_table::Tid;
 use crate::scheduler::SchedClass;
 use crate::scheduler::nice::NiceWeight;
 use core::sync::atomic::{AtomicU64, Ordering};
+use ostd::sync::SpinLock;
 use ostd::task::Task;
 
 /// Per-task scheduling metadata attached to every `ostd::task::Task`.
 pub struct TaskData {
     /// Scheduling class and parameters.
-    pub class: SchedClass,
+    pub class: SpinLock<SchedClass>,
     /// Accumulated virtual runtime (nanoseconds, CFS bookkeeping).
     pub vruntime: AtomicU64,
     /// Infinity Scheduler: Exponential Moving Average for execution slices.
@@ -25,7 +26,7 @@ impl TaskData {
     /// Create `TaskData` with an explicit scheduling class, `Pid`, and `Tid`.
     pub fn new(class: SchedClass, pid: Pid, tid: Tid) -> Self {
         Self {
-            class,
+            class: SpinLock::new(class),
             vruntime: AtomicU64::new(0),
             ema: AtomicU64::new(0),
             last_dequeue_vtime: AtomicU64::new(0),
@@ -39,9 +40,19 @@ impl TaskData {
         task.data().downcast_ref::<Self>()
     }
 
+    /// Get current scheduling class.
+    pub fn class(&self) -> SchedClass {
+        *self.class.lock()
+    }
+
+    /// Set scheduling class.
+    pub fn set_class(&self, new_class: SchedClass) {
+        *self.class.lock() = new_class;
+    }
+
     /// Extract `(SchedClass, vruntime)` for this task.
     pub fn sched_data(&self) -> (SchedClass, u64) {
-        (self.class, self.vruntime.load(Ordering::Relaxed))
+        (self.class(), self.vruntime.load(Ordering::Relaxed))
     }
 
     /// Update the virtual runtime for this task.
@@ -51,7 +62,7 @@ impl TaskData {
 
     /// Calculate the EEVDF virtual deadline for this task.
     pub fn deadline(&self, vruntime: u64) -> u64 {
-        let mut weight = self.class.weight();
+        let mut weight = self.class().weight();
         let ema = self.ema.load(Ordering::Relaxed);
         let ema_pct = (ema * 100 / 2_000_000).min(100);
         let weight_factor = 100 - ema_pct * 75 / 100;

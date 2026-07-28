@@ -1,6 +1,7 @@
 use crate::proc::pid_table::Pid;
 use crate::proc::thread::KernelThread;
 use crate::proc::tid_table::THREAD_TABLE;
+use crate::scheduler::nice::NiceWeight;
 use crate::scheduler::{SchedClass, task_data::TaskData};
 use crate::syscall::SyscallResult;
 use crate::vm::vma::VmaManager;
@@ -76,9 +77,9 @@ pub fn syscall_sched_setscheduler(
     if let Err(e) = vm.copy_from_user(param_ptr, &mut param_buf) {
         return SyscallResult::Continue(-(e as isize) as usize);
     }
-    let _priority = i32::from_ne_bytes(param_buf);
+    let priority = i32::from_ne_bytes(param_buf);
 
-    let _threads = if pid == 0 {
+    let threads = if pid == 0 {
         match KernelThread::current() {
             Some(t) => vec![t],
             None => return SyscallResult::Continue(-(Error::InvalidArgs as isize) as usize),
@@ -91,9 +92,52 @@ pub fn syscall_sched_setscheduler(
         threads
     };
 
-    // TODO(agent): To fully implement this, we need to update the threads' SchedClass
-    // and correctly requeue them in the scheduler (moving them between Fair and RT queues).
-    // For now, we validate the arguments and return success to unblock user applications.
+    let target_class = match policy as usize {
+        SCHED_NORMAL => SchedClass::Fair {
+            nice: NiceWeight::new(0),
+        },
+        SCHED_FIFO | SCHED_RR => SchedClass::RealTime {
+            priority: priority.max(0) as u32,
+        },
+        _ => return SyscallResult::Continue(-(Error::InvalidArgs as isize) as usize),
+    };
+
+    for thread in threads {
+        if let Some(data) = TaskData::from_task(&thread.task) {
+            data.set_class(target_class);
+        }
+    }
 
     SyscallResult::Continue(0)
+}
+
+#[cfg(ktest)]
+mod tests {
+    use super::*;
+    use ostd::arch::cpu::context::UserContext;
+    use ostd::prelude::ktest;
+
+    #[ktest]
+    fn test_sched_getscheduler_invalid_args() {
+        let vm = VmaManager::new();
+        let mut context = UserContext::default();
+
+        let res = syscall_sched_getscheduler(-1_isize as usize, 0, 0, 0, 0, 0, &vm, &mut context);
+        assert!(matches!(res, SyscallResult::Continue(val) if val == (-(Error::InvalidArgs as isize) as usize)));
+
+        let res = syscall_sched_getscheduler(999999, 0, 0, 0, 0, 0, &vm, &mut context);
+        assert!(matches!(res, SyscallResult::Continue(val) if val == ((-3_isize) as usize)));
+    }
+
+    #[ktest]
+    fn test_sched_setscheduler_invalid_args() {
+        let vm = VmaManager::new();
+        let mut context = UserContext::default();
+
+        let res = syscall_sched_setscheduler(-1_isize as usize, 0, 0x1000, 0, 0, 0, &vm, &mut context);
+        assert!(matches!(res, SyscallResult::Continue(val) if val == (-(Error::InvalidArgs as isize) as usize)));
+
+        let res = syscall_sched_setscheduler(0, 99, 0x1000, 0, 0, 0, &vm, &mut context);
+        assert!(matches!(res, SyscallResult::Continue(val) if val == (-(Error::InvalidArgs as isize) as usize)));
+    }
 }

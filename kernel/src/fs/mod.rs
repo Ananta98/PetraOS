@@ -1,11 +1,15 @@
 pub mod devfs;
 pub mod epoll;
+pub mod eventfd;
 pub mod exfat;
 pub mod ext2;
 pub mod fd_table;
+pub mod inotify;
 pub mod procfs;
 pub mod ramfs;
+pub mod signalfd;
 pub mod socketfs;
+pub mod timerfd;
 pub mod vfs;
 
 use alloc::sync::Arc;

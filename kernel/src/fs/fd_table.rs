@@ -1,4 +1,4 @@
-use crate::fs::vfs::{FileOps, SeekFrom};
+use crate::fs::vfs::{FileOps, InodeOps, SeekFrom};
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
@@ -9,20 +9,36 @@ use ostd::sync::SpinLock;
 /// Contains the underlying `FileOps` implementation, the current offset,
 /// and flags used to open the file.
 pub struct OpenFile {
+    /// Associated VFS inode if applicable.
+    pub inode: Option<Arc<dyn InodeOps>>,
     /// The VFS file operations.
     pub file_ops: Box<dyn FileOps>,
     /// Current seek offset.
     pub offset: usize,
     /// File status and access flags.
     pub flags: u32,
+    /// CLOEXEC flag.
+    pub cloexec: bool,
 }
 
 impl OpenFile {
     pub fn new(file_ops: Box<dyn FileOps>, flags: u32) -> Self {
         Self {
+            inode: None,
             file_ops,
             offset: 0,
             flags,
+            cloexec: (flags & 0x80000) != 0,
+        }
+    }
+
+    pub fn with_inode(inode: Arc<dyn InodeOps>, file_ops: Box<dyn FileOps>, flags: u32) -> Self {
+        Self {
+            inode: Some(inode),
+            file_ops,
+            offset: 0,
+            flags,
+            cloexec: (flags & 0x80000) != 0,
         }
     }
 }
@@ -63,6 +79,12 @@ impl FileDescriptor {
             open_file: Arc::new(SpinLock::new(OpenFile::new(file_ops, flags))),
         }
     }
+
+    pub fn with_inode(inode: Arc<dyn InodeOps>, file_ops: Box<dyn FileOps>, flags: u32) -> Self {
+        Self {
+            open_file: Arc::new(SpinLock::new(OpenFile::with_inode(inode, file_ops, flags))),
+        }
+    }
 }
 
 /// A file descriptor table for a process.
@@ -96,10 +118,52 @@ impl FdTable {
             }
         };
         let file_ops = dentry.inode.open(flags)?;
-        let fd_entry = FileDescriptor::new(file_ops, flags);
+        let fd_entry = FileDescriptor::with_inode(dentry.inode.clone(), file_ops, flags);
 
         let fd = self.alloc_fd(0)?;
         self.fds.insert(fd, fd_entry);
+        Ok(fd)
+    }
+
+    /// Insert a custom inode and file_ops into the descriptor table.
+    pub fn insert_custom(
+        &mut self,
+        inode: Arc<dyn InodeOps>,
+        file_ops: Box<dyn FileOps>,
+        flags: u32,
+        mode: u32,
+    ) -> Result<i32, Error> {
+        let _ = mode;
+        let fd = self.alloc_fd(0)?;
+        let fd_entry = FileDescriptor::with_inode(inode, file_ops, flags);
+        self.fds.insert(fd, fd_entry);
+        Ok(fd)
+    }
+
+    pub fn insert_pipe_reader(&mut self, ops: Box<dyn FileOps>) -> Result<i32, Error> {
+        let fd = self.alloc_fd(0)?;
+        let fd_entry = FileDescriptor::new(ops, 0);
+        self.fds.insert(fd, fd_entry);
+        Ok(fd)
+    }
+
+    pub fn insert_pipe_writer(&mut self, ops: Box<dyn FileOps>) -> Result<i32, Error> {
+        let fd = self.alloc_fd(0)?;
+        let fd_entry = FileDescriptor::new(ops, 0);
+        self.fds.insert(fd, fd_entry);
+        Ok(fd)
+    }
+
+    pub fn insert_at_or_above(
+        &mut self,
+        file: FileDescriptor,
+        min_fd: i32,
+        cloexec: bool,
+    ) -> Result<i32, Error> {
+        let fd = self.alloc_fd(min_fd.max(0))?;
+        let new_entry = file.clone();
+        new_entry.open_file.lock().cloexec = cloexec;
+        self.fds.insert(fd, new_entry);
         Ok(fd)
     }
 
@@ -204,6 +268,27 @@ impl FdTable {
         self.fds.get(&fd).cloned().ok_or(Error::InvalidArgs)
     }
 
+    pub fn get(&self, fd: i32) -> Result<FileDescriptor, Error> {
+        self.get_fd(fd)
+    }
+
+    pub fn is_cloexec(&self, fd: i32) -> bool {
+        if let Ok(entry) = self.get_fd(fd) {
+            entry.open_file.lock().cloexec
+        } else {
+            false
+        }
+    }
+
+    pub fn set_cloexec(&mut self, fd: i32, cloexec: bool) -> Result<(), Error> {
+        if let Ok(entry) = self.get_fd(fd) {
+            entry.open_file.lock().cloexec = cloexec;
+            Ok(())
+        } else {
+            Err(Error::InvalidArgs)
+        }
+    }
+
     /// Insert an open file descriptor entry into the table at `fd`.
     pub fn insert(&mut self, fd: i32, fd_entry: FileDescriptor) {
         self.fds.insert(fd, fd_entry);
@@ -227,4 +312,54 @@ impl FdTable {
     pub fn list_fds(&self) -> alloc::vec::Vec<i32> {
         self.fds.keys().copied().collect()
     }
+}
+
+pub struct FdFileRef {
+    pub inode: Arc<dyn InodeOps>,
+    pub ops: Box<dyn FileOps>,
+    pub flags: u32,
+}
+
+impl FileDescriptor {
+    pub fn get_file_ref(&self) -> FdFileRef {
+        let open = self.open_file.lock();
+        let dummy_inode = Arc::new(DummyInode);
+        FdFileRef {
+            inode: open.inode.clone().unwrap_or(dummy_inode),
+            ops: open.file_ops.as_ref().as_any().map(|_| Box::new(DummyOps) as Box<dyn FileOps>).unwrap_or_else(|| Box::new(DummyOps)),
+            flags: open.flags,
+        }
+    }
+}
+
+pub struct DummyInode;
+impl InodeOps for DummyInode {
+    fn lookup(&self, _: &str) -> Result<Arc<dyn InodeOps>, Error> { Err(Error::InvalidArgs) }
+    fn create(&self, _: &str, _: u32) -> Result<Arc<dyn InodeOps>, Error> { Err(Error::InvalidArgs) }
+    fn mkdir(&self, _: &str, _: u32) -> Result<Arc<dyn InodeOps>, Error> { Err(Error::InvalidArgs) }
+    fn symlink(&self, _: &str, _: &str) -> Result<Arc<dyn InodeOps>, Error> { Err(Error::InvalidArgs) }
+    fn metadata(&self) -> Result<crate::fs::vfs::Metadata, Error> {
+        Ok(crate::fs::vfs::Metadata {
+            size: 0,
+            file_type: crate::fs::vfs::FileType::Regular,
+            mode: 0o600,
+            uid: 0,
+            gid: 0,
+            inode_num: 1,
+            nlink: 1,
+        })
+    }
+    fn read_link(&self) -> Result<alloc::string::String, Error> { Err(Error::InvalidArgs) }
+    fn open(&self, _: u32) -> Result<Box<dyn FileOps>, Error> { Ok(Box::new(DummyOps)) }
+    fn as_any(&self) -> &dyn core::any::Any { self }
+    fn unlink(&self, _: &str) -> Result<(), Error> { Err(Error::InvalidArgs) }
+    fn rename(&self, _: &str, _: &Arc<dyn InodeOps>, _: &str) -> Result<(), Error> { Err(Error::InvalidArgs) }
+}
+
+pub struct DummyOps;
+impl FileOps for DummyOps {
+    fn read(&mut self, _: &mut [u8], _: &mut usize) -> Result<usize, Error> { Ok(0) }
+    fn write(&mut self, _: &[u8], _: &mut usize) -> Result<usize, Error> { Ok(0) }
+    fn seek(&mut self, _: SeekFrom, _: &mut usize) -> Result<usize, Error> { Err(Error::InvalidArgs) }
+    fn readdir(&mut self) -> Result<alloc::vec::Vec<crate::fs::vfs::DirEntry>, Error> { Err(Error::InvalidArgs) }
 }
