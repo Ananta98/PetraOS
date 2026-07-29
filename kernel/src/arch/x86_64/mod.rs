@@ -9,3 +9,7 @@ pub use cpu::*;
 pub use power::*;
 pub use ptrace::*;
 pub use signal::*;
+
+pub fn init() {
+    power::init();
+}

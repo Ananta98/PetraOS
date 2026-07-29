@@ -20,12 +20,16 @@ mod vm;
 
 #[ostd::main]
 fn kernel_main() {
-    arch::power::init();
+    log::arch::init();
     vm::init();
     irq::init();
-    net::init();
-    fs::init().expect("failed to initialize filesystem");
     modules::init().expect("failed to initialize kernel modules");
     proc::spawn_init_process();
     scheduler::init();
+    fs::init().expect("failed to initialize filesystem");
+    net::init();
+
+    loop {
+        ostd::task::halt_cpu();
+    }
 }
