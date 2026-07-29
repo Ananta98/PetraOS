@@ -1,16 +1,13 @@
 pub mod devfs;
-pub mod epoll;
-pub mod eventfd;
 pub mod exfat;
 pub mod ext2;
-pub mod fd_table;
-pub mod inotify;
+pub mod fd;
 pub mod procfs;
 pub mod ramfs;
-pub mod signalfd;
 pub mod socketfs;
-pub mod timerfd;
 pub mod vfs;
+
+pub use fd::*;
 
 use alloc::sync::Arc;
 use vfs::Result;
