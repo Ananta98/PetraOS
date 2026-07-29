@@ -10,6 +10,7 @@ use alloc::vec::Vec;
 use ostd::sync::SpinLock;
 
 pub mod framebuffer;
+pub mod virtio_gpu;
 
 /// Trait that all current and future GPU/display drivers must implement.
 pub trait GpuDriver: Send + Sync {
