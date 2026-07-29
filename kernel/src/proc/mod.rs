@@ -35,7 +35,7 @@ use process::Process;
 /// Panics if `vm::init()` has not been called before this function, or if
 /// none of the probed paths can be loaded.
 pub fn spawn_init_process() {
-    const DEFAULT_INIT_EXEC_PATHS: &[&str] = &["/sbin/init"];
+    const DEFAULT_INIT_EXEC_PATHS: &[&str] = &["/sbin/init", "/etc/init", "/bin/init", "/bin/sh"];
 
     let vm = VMA_MANAGER
         .get()
