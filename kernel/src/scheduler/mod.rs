@@ -14,7 +14,7 @@ use ostd::task::scheduler::info::CommonSchedInfo;
 use ostd::task::scheduler::{
     EnqueueFlags, LocalRunQueue, Scheduler, enable_preemption_on_cpu, inject_scheduler,
 };
-use ostd::task::{Task, disable_preempt};
+use ostd::task::{Task, TaskOptions, disable_preempt};
 use ostd::util::id_set::Id;
 
 use crate::proc::pid_table::Pid;
@@ -57,6 +57,7 @@ pub fn nice_to_weight(nice: i32) -> u64 {
 pub enum SchedClass {
     RealTime { priority: u32 }, // Higher value is higher priority
     Fair { nice: NiceWeight },
+    Idle, // Per-CPU idle thread; picked only when nothing else is runnable
 }
 
 impl SchedClass {
@@ -65,6 +66,7 @@ impl SchedClass {
         match self {
             Self::RealTime { .. } => 0,
             Self::Fair { nice } => nice.to_weight(),
+            Self::Idle => 0,
         }
     }
 }
@@ -112,7 +114,11 @@ impl Scheduler<Task> for PerCpuScheduler {
     fn enqueue(&self, runnable: Arc<Task>, flags: EnqueueFlags) -> Option<CpuId> {
         let (still_in_rq, target_cpu) = {
             let selected_cpu_id = if flags == EnqueueFlags::Spawn {
-                self.select_cpu()
+                // Respect explicit CPU affinity (e.g. per-CPU idle threads);
+                // other new tasks go to the least-loaded core.
+                TaskData::from_task(&runnable)
+                    .and_then(|data| data.cpu_affinity)
+                    .unwrap_or_else(|| self.select_cpu())
             } else {
                 CpuId::current_racy()
             };

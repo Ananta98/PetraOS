@@ -31,10 +31,11 @@ const S_IFLNK: u32 = 0o120000;
 /// by the bootloader.
 pub fn unpack_initramfs(root: &Arc<Dentry>) -> Result<()> {
     let Some(archive) = ostd::boot::boot_info().initramfs else {
+        ostd::early_println!("[initramfs] WARNING: No initramfs archive provided by bootloader!");
         return Ok(());
     };
 
-    log::info!("[initramfs] unpacking {} bytes", archive.len());
+    ostd::early_println!("[initramfs] Unpacking {} bytes...", archive.len());
 
     let mut offset = 0usize;
     while offset + CPIO_HEADER_SIZE <= archive.len() {
@@ -44,7 +45,8 @@ pub fn unpack_initramfs(root: &Arc<Dentry>) -> Result<()> {
         }
 
         let hex_field = |start: usize, end: usize| -> Result<usize> {
-            let field = core::str::from_utf8(&header[start..end]).map_err(|_| Error::InvalidArgs)?;
+            let field =
+                core::str::from_utf8(&header[start..end]).map_err(|_| Error::InvalidArgs)?;
             usize::from_str_radix(field, 16).map_err(|_| Error::InvalidArgs)
         };
 
@@ -57,8 +59,8 @@ pub fn unpack_initramfs(root: &Arc<Dentry>) -> Result<()> {
         if name_end > archive.len() {
             return Err(Error::InvalidArgs);
         }
-        let name = String::from_utf8(archive[pos..name_end].to_vec())
-            .map_err(|_| Error::InvalidArgs)?;
+        let name =
+            String::from_utf8(archive[pos..name_end].to_vec()).map_err(|_| Error::InvalidArgs)?;
         pos = align4(name_end);
 
         if name.trim_end_matches('\0') == CPIO_TRAILER {

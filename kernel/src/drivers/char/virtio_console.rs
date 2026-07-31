@@ -42,7 +42,9 @@ impl VirtioBar {
     pub fn read_u8(&self, offset: u16) -> u8 {
         match self {
             VirtioBar::Io { port_base } => {
-                if let Ok(port) = IoPort::<u8, ReadWriteAccess>::acquire_overlapping(port_base + offset) {
+                if let Ok(port) =
+                    IoPort::<u8, ReadWriteAccess>::acquire_overlapping(port_base + offset)
+                {
                     port.read()
                 } else {
                     0
@@ -55,7 +57,9 @@ impl VirtioBar {
     pub fn write_u8(&self, offset: u16, val: u8) {
         match self {
             VirtioBar::Io { port_base } => {
-                if let Ok(port) = IoPort::<u8, ReadWriteAccess>::acquire_overlapping(port_base + offset) {
+                if let Ok(port) =
+                    IoPort::<u8, ReadWriteAccess>::acquire_overlapping(port_base + offset)
+                {
                     port.write(val);
                 }
             }
@@ -68,7 +72,9 @@ impl VirtioBar {
     pub fn read_u16(&self, offset: u16) -> u16 {
         match self {
             VirtioBar::Io { port_base } => {
-                if let Ok(port) = IoPort::<u16, ReadWriteAccess>::acquire_overlapping(port_base + offset) {
+                if let Ok(port) =
+                    IoPort::<u16, ReadWriteAccess>::acquire_overlapping(port_base + offset)
+                {
                     port.read()
                 } else {
                     0
@@ -81,7 +87,9 @@ impl VirtioBar {
     pub fn write_u16(&self, offset: u16, val: u16) {
         match self {
             VirtioBar::Io { port_base } => {
-                if let Ok(port) = IoPort::<u16, ReadWriteAccess>::acquire_overlapping(port_base + offset) {
+                if let Ok(port) =
+                    IoPort::<u16, ReadWriteAccess>::acquire_overlapping(port_base + offset)
+                {
                     port.write(val);
                 }
             }
@@ -94,7 +102,9 @@ impl VirtioBar {
     pub fn read_u32(&self, offset: u16) -> u32 {
         match self {
             VirtioBar::Io { port_base } => {
-                if let Ok(port) = IoPort::<u32, ReadWriteAccess>::acquire_overlapping(port_base + offset) {
+                if let Ok(port) =
+                    IoPort::<u32, ReadWriteAccess>::acquire_overlapping(port_base + offset)
+                {
                     port.read()
                 } else {
                     0
@@ -107,7 +117,9 @@ impl VirtioBar {
     pub fn write_u32(&self, offset: u16, val: u32) {
         match self {
             VirtioBar::Io { port_base } => {
-                if let Ok(port) = IoPort::<u32, ReadWriteAccess>::acquire_overlapping(port_base + offset) {
+                if let Ok(port) =
+                    IoPort::<u32, ReadWriteAccess>::acquire_overlapping(port_base + offset)
+                {
                     port.write(val);
                 }
             }
@@ -142,7 +154,14 @@ impl Virtqueue {
         (self.dma.daddr() >> 12) as u32
     }
 
-    pub fn set_desc(&self, idx: u16, addr: u64, len: u32, flags: u16, next: u16) -> Result<(), ostd::Error> {
+    pub fn set_desc(
+        &self,
+        idx: u16,
+        addr: u64,
+        len: u32,
+        flags: u16,
+        next: u16,
+    ) -> Result<(), ostd::Error> {
         let mut buf = [0u8; 16];
         buf[0..8].copy_from_slice(&addr.to_le_bytes());
         buf[8..12].copy_from_slice(&len.to_le_bytes());
@@ -152,11 +171,14 @@ impl Virtqueue {
     }
 
     pub fn push_avail(&mut self, desc_idx: u16) -> Result<(), ostd::Error> {
-        let ring_offset = (self.queue_size as usize) * 16 + 4 + (self.avail_idx as usize % self.queue_size as usize) * 2;
+        let ring_offset = (self.queue_size as usize) * 16
+            + 4
+            + (self.avail_idx as usize % self.queue_size as usize) * 2;
         self.dma.write_bytes(ring_offset, &desc_idx.to_le_bytes())?;
         self.avail_idx = self.avail_idx.wrapping_add(1);
         let idx_offset = (self.queue_size as usize) * 16 + 2;
-        self.dma.write_bytes(idx_offset, &self.avail_idx.to_le_bytes())
+        self.dma
+            .write_bytes(idx_offset, &self.avail_idx.to_le_bytes())
     }
 
     pub fn pop_used(&mut self) -> Result<Option<(u16, u32)>, ostd::Error> {
@@ -199,9 +221,13 @@ impl VirtioConsole {
         let bar = match pci_dev.bars[0] {
             PciBar::IoSpace { port, .. } => {
                 pci_dev.enable_io_space();
-                VirtioBar::Io { port_base: port as u16 }
+                VirtioBar::Io {
+                    port_base: port as u16,
+                }
             }
-            PciBar::MemoryMapped { base_addr, size, .. } if base_addr != 0 => {
+            PciBar::MemoryMapped {
+                base_addr, size, ..
+            } if base_addr != 0 => {
                 pci_dev.enable_memory_space();
                 let mem_size = if size > 0 { size as usize } else { 0x1000 };
                 let mem = IoMem::acquire(base_addr as usize..base_addr as usize + mem_size)?;
@@ -229,7 +255,13 @@ impl VirtioConsole {
         const NUM_SLOTS: usize = 16;
         for i in 0..NUM_SLOTS {
             let slot_paddr = rx_buf_dma.daddr() as u64 + (i * SLOT_SIZE) as u64;
-            rx_vq.set_desc(i as u16, slot_paddr, SLOT_SIZE as u32, VIRTQ_DESC_F_WRITE, 0)?;
+            rx_vq.set_desc(
+                i as u16,
+                slot_paddr,
+                SLOT_SIZE as u32,
+                VIRTQ_DESC_F_WRITE,
+                0,
+            )?;
             rx_vq.push_avail(i as u16)?;
         }
         bar.write_u16(REG_QUEUE_NOTIFY, 0);
@@ -271,7 +303,11 @@ impl VirtioConsole {
             let desc_idx = desc_id as usize;
             let copy_len = core::cmp::min(len as usize, 512);
             if copy_len > 0 && desc_idx < 16 {
-                if self.rx_buf_dma.read_bytes(desc_idx * 512, &mut read_buf[..copy_len]).is_ok() {
+                if self
+                    .rx_buf_dma
+                    .read_bytes(desc_idx * 512, &mut read_buf[..copy_len])
+                    .is_ok()
+                {
                     self.input_buffer.push(&read_buf[..copy_len]);
                     received_any = true;
                 }

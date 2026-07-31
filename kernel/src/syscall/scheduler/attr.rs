@@ -131,15 +131,21 @@ mod tests {
 
         // Negative PID
         let res = syscall_sched_getattr(-1_isize as usize, 0x1000, 56, 0, 0, 0, &vm, &mut context);
-        assert!(matches!(res, SyscallResult::Continue(val) if val == (-(Error::InvalidArgs as isize) as usize)));
+        assert!(
+            matches!(res, SyscallResult::Continue(val) if val == (-(Error::InvalidArgs as isize) as usize))
+        );
 
         // Small size (< 56)
         let res = syscall_sched_getattr(0, 0x1000, 32, 0, 0, 0, &vm, &mut context);
-        assert!(matches!(res, SyscallResult::Continue(val) if val == (-(Error::InvalidArgs as isize) as usize)));
+        assert!(
+            matches!(res, SyscallResult::Continue(val) if val == (-(Error::InvalidArgs as isize) as usize))
+        );
 
         // Null attr pointer
         let res = syscall_sched_getattr(0, 0, 56, 0, 0, 0, &vm, &mut context);
-        assert!(matches!(res, SyscallResult::Continue(val) if val == (-(Error::InvalidArgs as isize) as usize)));
+        assert!(
+            matches!(res, SyscallResult::Continue(val) if val == (-(Error::InvalidArgs as isize) as usize))
+        );
 
         // Non-existent PID
         let res = syscall_sched_getattr(999999, 0x1000, 56, 0, 0, 0, &vm, &mut context);
@@ -153,10 +159,14 @@ mod tests {
 
         // Negative PID
         let res = syscall_sched_setattr(-1_isize as usize, 0x1000, 0, 0, 0, 0, &vm, &mut context);
-        assert!(matches!(res, SyscallResult::Continue(val) if val == (-(Error::InvalidArgs as isize) as usize)));
+        assert!(
+            matches!(res, SyscallResult::Continue(val) if val == (-(Error::InvalidArgs as isize) as usize))
+        );
 
         // Null attr pointer
         let res = syscall_sched_setattr(0, 0, 0, 0, 0, 0, &vm, &mut context);
-        assert!(matches!(res, SyscallResult::Continue(val) if val == (-(Error::InvalidArgs as isize) as usize)));
+        assert!(
+            matches!(res, SyscallResult::Continue(val) if val == (-(Error::InvalidArgs as isize) as usize))
+        );
     }
 }

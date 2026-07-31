@@ -136,13 +136,13 @@ macro_rules! device_initcall {
 #[macro_export]
 macro_rules! module_driver {
     ($static_ident:ident, $init_fn_ident:ident, $driver_expr:expr) => {
-        fn $init_fn_ident() -> Result<(), ostd::Error> {
+        pub(crate) fn $init_fn_ident() -> Result<(), ostd::Error> {
             $crate::device::register_driver(alloc::sync::Arc::new($driver_expr))
         }
         $crate::module_init!($static_ident, $init_fn_ident);
     };
     ($static_ident:ident, $init_fn_ident:ident, $name:expr, $driver_expr:expr) => {
-        fn $init_fn_ident() -> Result<(), ostd::Error> {
+        pub(crate) fn $init_fn_ident() -> Result<(), ostd::Error> {
             $crate::device::register_driver(alloc::sync::Arc::new($driver_expr))
         }
         $crate::module_init!($static_ident, $name, $init_fn_ident);

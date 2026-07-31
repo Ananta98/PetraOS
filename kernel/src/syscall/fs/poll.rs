@@ -70,7 +70,10 @@ pub fn syscall_poll(
             }
         }
 
-        if vm.copy_to_user(entry_ptr + 6, &revents.to_ne_bytes()).is_err() {
+        if vm
+            .copy_to_user(entry_ptr + 6, &revents.to_ne_bytes())
+            .is_err()
+        {
             return to_continue_i32(Err(Error::InvalidArgs));
         }
     }

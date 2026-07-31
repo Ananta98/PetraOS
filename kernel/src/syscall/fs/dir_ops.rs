@@ -191,7 +191,12 @@ pub fn syscall_rename(
         Ok(p) => p,
         Err(e) => return to_continue_i32(Err(e)),
     };
-    to_continue_i32(old_parent.inode.rename(old_filename, &new_parent.inode, new_filename).map(|_| 0))
+    to_continue_i32(
+        old_parent
+            .inode
+            .rename(old_filename, &new_parent.inode, new_filename)
+            .map(|_| 0),
+    )
 }
 
 /// `renameat()` — SYS_renameat = 264

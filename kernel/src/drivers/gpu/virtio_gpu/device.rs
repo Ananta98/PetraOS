@@ -1,5 +1,4 @@
 /// VirtIO GPU Device Implementation and GpuDriver Trait Integration.
-
 use super::regs::*;
 use super::virtqueue::Virtqueue;
 use crate::drivers::char::virtio_console::VirtioBar;

@@ -74,6 +74,21 @@ CROSS_ENV := \
 	ac_cv_func_getgroups=yes \
 	ac_cv_type_intmax_t=yes \
 	ac_cv_type_uintmax_t=yes \
+	ac_cv_sizeof_char=1 \
+	ac_cv_sizeof_short=2 \
+	ac_cv_sizeof_int=4 \
+	ac_cv_sizeof_long=8 \
+	ac_cv_sizeof_char_p=8 \
+	ac_cv_sizeof_size_t=8 \
+	ac_cv_sizeof_double=8 \
+	ac_cv_sizeof_long_long=8 \
+	ac_cv_sizeof_intmax_t=8 \
+	ac_cv_sizeof_uintmax_t=8 \
+	ac_cv_sizeof_off_t=8 \
+	ac_cv_sizeof_pid_t=4 \
+	ac_cv_sizeof_uid_t=4 \
+	ac_cv_sizeof_gid_t=4 \
+	ac_cv_sizeof_time_t=8 \
 	ac_cv_func_strtoimax=yes \
 	ac_cv_func_strtoumax=yes \
 	bash_cv_posix_signals=yes \
@@ -167,46 +182,53 @@ install: build
 	@echo "==> Installing musl libc into sysroot ($(SYSROOT))..."
 	@$(MAKE) -C $(MUSL_BUILD) install
 	@ls -la $(SYSROOT)/lib/libc.a 2>/dev/null || { echo "ERROR: libc.a not found in $(SYSROOT)/lib after install"; exit 1; }
-	@echo "==> musl libc sysroot ready. Proceeding to bash build..."
-	@$(MAKE) bash-install
+	@echo "==> musl libc sysroot ready."
 
 # ------------------------------------------------------------------------------
 # 7. Configure, Build & Install GNU Bash into Initramfs
 # ------------------------------------------------------------------------------
-bash-install:
-	@rm -rf $(BASH_BUILD)
-	@mkdir -p $(BASH_BUILD)
-	@echo "==> Configuring GNU Bash $(BASH_VERSION) for $(HOST_TRIPLE)..."
-	@chmod +x $(BASH_SRC)/support/config.sub $(BASH_SRC)/support/config.guess $(BASH_SRC)/configure
-	@cd $(BASH_BUILD) && $(CROSS_ENV) $(BASH_SRC)/configure \
-		--host=$(HOST_TRIPLE) \
-		--build=$(BUILD_TRIPLE) \
-		--prefix=/ \
-		--enable-static-link \
-		--without-bash-malloc \
-		--disable-nls \
-		--disable-job-control \
-		--disable-net-redirections \
-		--disable-rpath \
-		--with-installed-readline=no
-	@echo "==> Compiling GNU Bash..."
-	@$(MAKE) -C $(BASH_BUILD)
-	@echo "==> Installing GNU Bash binary into initramfs..."
-	@mkdir -p $(INITRAMFS_DIR)/bin $(INITRAMFS_DIR)/sbin $(INITRAMFS_DIR)/etc $(INITRAMFS_DIR)/tmp
-	@cp $(BASH_BUILD)/bash $(INITRAMFS_DIR)/bin/bash
-	@$(STRIP) --strip-all $(INITRAMFS_DIR)/bin/bash 2>/dev/null || true
-	@cp $(INITRAMFS_DIR)/bin/bash $(INITRAMFS_DIR)/bin/sh
-	@cp $(INITRAMFS_DIR)/bin/bash $(INITRAMFS_DIR)/sbin/init
-	@cp $(INITRAMFS_DIR)/bin/bash $(INITRAMFS_DIR)/etc/init
+bash-configure: install
+	@if [ ! -f $(BASH_BUILD)/Makefile ]; then \
+		echo "==> Configuring GNU Bash $(BASH_VERSION) for $(HOST_TRIPLE)..."; \
+		mkdir -p $(BASH_BUILD); \
+		chmod +x $(BASH_SRC)/support/config.sub $(BASH_SRC)/support/config.guess $(BASH_SRC)/configure; \
+		cd $(BASH_BUILD) && $(CROSS_ENV) $(BASH_SRC)/configure \
+			--host=$(HOST_TRIPLE) \
+			--build=$(BUILD_TRIPLE) \
+			--prefix=/ \
+			--enable-static-link \
+			--without-bash-malloc \
+			--disable-nls \
+			--disable-job-control \
+			--disable-net-redirections \
+			--disable-rpath \
+			--with-installed-readline=no; \
+	fi
+
+bash-build: bash-configure
+	@if [ ! -f $(INITRAMFS_DIR)/bin/bash ]; then \
+		echo "==> Compiling GNU Bash..."; \
+		$(MAKE) -C $(BASH_BUILD); \
+		echo "==> Installing GNU Bash binary into initramfs..."; \
+		mkdir -p $(INITRAMFS_DIR)/bin $(INITRAMFS_DIR)/sbin $(INITRAMFS_DIR)/etc $(INITRAMFS_DIR)/tmp $(INITRAMFS_DIR)/dev; \
+		cp $(BASH_BUILD)/bash $(INITRAMFS_DIR)/bin/bash; \
+		$(STRIP) --strip-all $(INITRAMFS_DIR)/bin/bash 2>/dev/null || true; \
+		cp $(INITRAMFS_DIR)/bin/bash $(INITRAMFS_DIR)/bin/sh; \
+		cp $(INITRAMFS_DIR)/bin/bash $(INITRAMFS_DIR)/sbin/init; \
+		cp $(INITRAMFS_DIR)/bin/bash $(INITRAMFS_DIR)/etc/init; \
+	fi
+
+initramfs: bash-build
 	@echo "==> Packing initramfs.cpio archive..."
 	@cd $(INITRAMFS_DIR) && find . -print0 | cpio --null -ov --format=newc > $(INITRAMFS_CPIO)
 	@echo "==> Build complete!"
-	@file $(INITRAMFS_DIR)/bin/bash
+
+bash-install: initramfs
 
 # ------------------------------------------------------------------------------
 # 8. Run in QEMU via cargo-osdk
 # ------------------------------------------------------------------------------
-run: install
+run: bash-install
 	@echo "==> Launching Petra OS in QEMU via cargo osdk..."
 	cargo osdk run
 

@@ -44,7 +44,7 @@ pub fn syscall_sched_getscheduler(
     let (class, _) = crate::scheduler::get_sched_data(&thread.task);
 
     let policy = match class {
-        SchedClass::Fair { .. } => SCHED_NORMAL,
+        SchedClass::Fair { .. } | SchedClass::Idle => SCHED_NORMAL,
         SchedClass::RealTime { .. } => SCHED_RR,
     };
 
@@ -123,7 +123,9 @@ mod tests {
         let mut context = UserContext::default();
 
         let res = syscall_sched_getscheduler(-1_isize as usize, 0, 0, 0, 0, 0, &vm, &mut context);
-        assert!(matches!(res, SyscallResult::Continue(val) if val == (-(Error::InvalidArgs as isize) as usize)));
+        assert!(
+            matches!(res, SyscallResult::Continue(val) if val == (-(Error::InvalidArgs as isize) as usize))
+        );
 
         let res = syscall_sched_getscheduler(999999, 0, 0, 0, 0, 0, &vm, &mut context);
         assert!(matches!(res, SyscallResult::Continue(val) if val == ((-3_isize) as usize)));
@@ -134,10 +136,15 @@ mod tests {
         let vm = VmaManager::new();
         let mut context = UserContext::default();
 
-        let res = syscall_sched_setscheduler(-1_isize as usize, 0, 0x1000, 0, 0, 0, &vm, &mut context);
-        assert!(matches!(res, SyscallResult::Continue(val) if val == (-(Error::InvalidArgs as isize) as usize)));
+        let res =
+            syscall_sched_setscheduler(-1_isize as usize, 0, 0x1000, 0, 0, 0, &vm, &mut context);
+        assert!(
+            matches!(res, SyscallResult::Continue(val) if val == (-(Error::InvalidArgs as isize) as usize))
+        );
 
         let res = syscall_sched_setscheduler(0, 99, 0x1000, 0, 0, 0, &vm, &mut context);
-        assert!(matches!(res, SyscallResult::Continue(val) if val == (-(Error::InvalidArgs as isize) as usize)));
+        assert!(
+            matches!(res, SyscallResult::Continue(val) if val == (-(Error::InvalidArgs as isize) as usize))
+        );
     }
 }

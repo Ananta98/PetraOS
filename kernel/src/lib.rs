@@ -18,24 +18,31 @@ mod scheduler;
 mod syscall;
 mod vm;
 
+use ostd::{early_println, task::scheduler::enable_preemption_on_cpu};
+use proc::thread::KernelThread;
+
+fn ap_entry() {
+    enable_preemption_on_cpu();
+    if KernelThread::spawn_idle(|| {}).is_err() {
+        loop {
+            ostd::task::halt_cpu();
+        }
+    }
+}
+
 #[ostd::main]
 fn kernel_main() {
     arch::init();
     vm::init();
     irq::init();
+    drivers::init().expect("failed to initialize drivers");
     modules::init().expect("failed to initialize kernel modules");
     fs::init().expect("failed to initialize filesystem");
     net::init();
-
-    // The scheduler must be injected *before* any task is spawned; otherwise
-    // OSTD lazily installs its default FIFO scheduler when `spawn_init_process`
-    // enqueues the init task, and the subsequent `inject_scheduler` call would
-    // panic ("a scheduler has already been initialized").
     scheduler::init();
-
-    // Spawn the init process (PID 1).  With a correctly-injected scheduler its
-    // main thread immediately enters user mode and runs the init program.
-    proc::spawn_init_process();
+    ostd::boot::smp::register_ap_entry(ap_entry);
+    crate::proc::thread::KernelThread::spawn_idle(proc::spawn_init_process)
+        .expect("failed to spawn BSP idle thread");
 
     loop {
         ostd::task::halt_cpu();

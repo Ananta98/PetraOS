@@ -26,7 +26,9 @@ pub fn syscall_getrandom(
     let mut state = seed;
     let mut dummy_buf = alloc::vec![0u8; buflen];
     for byte in dummy_buf.iter_mut() {
-        state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        state = state
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         *byte = (state >> 32) as u8;
     }
 

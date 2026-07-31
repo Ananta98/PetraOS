@@ -85,10 +85,14 @@ mod tests {
 
         // Invalid sigsetsize != 8
         let res = syscall_rt_sigtimedwait(0x1000, 0, 0, 4, 0, 0, &vm, &mut context);
-        assert!(matches!(res, SyscallResult::Continue(val) if val == (-(Error::InvalidArgs as isize) as usize)));
+        assert!(
+            matches!(res, SyscallResult::Continue(val) if val == (-(Error::InvalidArgs as isize) as usize))
+        );
 
         // Null set pointer
         let res = syscall_rt_sigtimedwait(0, 0, 0, 8, 0, 0, &vm, &mut context);
-        assert!(matches!(res, SyscallResult::Continue(val) if val == (-(Error::InvalidArgs as isize) as usize)));
+        assert!(
+            matches!(res, SyscallResult::Continue(val) if val == (-(Error::InvalidArgs as isize) as usize))
+        );
     }
 }

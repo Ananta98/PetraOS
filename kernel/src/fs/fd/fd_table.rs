@@ -326,7 +326,12 @@ impl FileDescriptor {
         let dummy_inode = Arc::new(DummyInode);
         FdFileRef {
             inode: open.inode.clone().unwrap_or(dummy_inode),
-            ops: open.file_ops.as_ref().as_any().map(|_| Box::new(DummyOps) as Box<dyn FileOps>).unwrap_or_else(|| Box::new(DummyOps)),
+            ops: open
+                .file_ops
+                .as_ref()
+                .as_any()
+                .map(|_| Box::new(DummyOps) as Box<dyn FileOps>)
+                .unwrap_or_else(|| Box::new(DummyOps)),
             flags: open.flags,
         }
     }
@@ -334,10 +339,18 @@ impl FileDescriptor {
 
 pub struct DummyInode;
 impl InodeOps for DummyInode {
-    fn lookup(&self, _: &str) -> Result<Arc<dyn InodeOps>, Error> { Err(Error::InvalidArgs) }
-    fn create(&self, _: &str, _: u32) -> Result<Arc<dyn InodeOps>, Error> { Err(Error::InvalidArgs) }
-    fn mkdir(&self, _: &str, _: u32) -> Result<Arc<dyn InodeOps>, Error> { Err(Error::InvalidArgs) }
-    fn symlink(&self, _: &str, _: &str) -> Result<Arc<dyn InodeOps>, Error> { Err(Error::InvalidArgs) }
+    fn lookup(&self, _: &str) -> Result<Arc<dyn InodeOps>, Error> {
+        Err(Error::InvalidArgs)
+    }
+    fn create(&self, _: &str, _: u32) -> Result<Arc<dyn InodeOps>, Error> {
+        Err(Error::InvalidArgs)
+    }
+    fn mkdir(&self, _: &str, _: u32) -> Result<Arc<dyn InodeOps>, Error> {
+        Err(Error::InvalidArgs)
+    }
+    fn symlink(&self, _: &str, _: &str) -> Result<Arc<dyn InodeOps>, Error> {
+        Err(Error::InvalidArgs)
+    }
     fn metadata(&self) -> Result<crate::fs::vfs::Metadata, Error> {
         Ok(crate::fs::vfs::Metadata {
             size: 0,
@@ -349,17 +362,35 @@ impl InodeOps for DummyInode {
             nlink: 1,
         })
     }
-    fn read_link(&self) -> Result<alloc::string::String, Error> { Err(Error::InvalidArgs) }
-    fn open(&self, _: u32) -> Result<Box<dyn FileOps>, Error> { Ok(Box::new(DummyOps)) }
-    fn as_any(&self) -> &dyn core::any::Any { self }
-    fn unlink(&self, _: &str) -> Result<(), Error> { Err(Error::InvalidArgs) }
-    fn rename(&self, _: &str, _: &Arc<dyn InodeOps>, _: &str) -> Result<(), Error> { Err(Error::InvalidArgs) }
+    fn read_link(&self) -> Result<alloc::string::String, Error> {
+        Err(Error::InvalidArgs)
+    }
+    fn open(&self, _: u32) -> Result<Box<dyn FileOps>, Error> {
+        Ok(Box::new(DummyOps))
+    }
+    fn as_any(&self) -> &dyn core::any::Any {
+        self
+    }
+    fn unlink(&self, _: &str) -> Result<(), Error> {
+        Err(Error::InvalidArgs)
+    }
+    fn rename(&self, _: &str, _: &Arc<dyn InodeOps>, _: &str) -> Result<(), Error> {
+        Err(Error::InvalidArgs)
+    }
 }
 
 pub struct DummyOps;
 impl FileOps for DummyOps {
-    fn read(&mut self, _: &mut [u8], _: &mut usize) -> Result<usize, Error> { Ok(0) }
-    fn write(&mut self, _: &[u8], _: &mut usize) -> Result<usize, Error> { Ok(0) }
-    fn seek(&mut self, _: SeekFrom, _: &mut usize) -> Result<usize, Error> { Err(Error::InvalidArgs) }
-    fn readdir(&mut self) -> Result<alloc::vec::Vec<crate::fs::vfs::DirEntry>, Error> { Err(Error::InvalidArgs) }
+    fn read(&mut self, _: &mut [u8], _: &mut usize) -> Result<usize, Error> {
+        Ok(0)
+    }
+    fn write(&mut self, _: &[u8], _: &mut usize) -> Result<usize, Error> {
+        Ok(0)
+    }
+    fn seek(&mut self, _: SeekFrom, _: &mut usize) -> Result<usize, Error> {
+        Err(Error::InvalidArgs)
+    }
+    fn readdir(&mut self) -> Result<alloc::vec::Vec<crate::fs::vfs::DirEntry>, Error> {
+        Err(Error::InvalidArgs)
+    }
 }

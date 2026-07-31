@@ -3,6 +3,7 @@ use crate::proc::tid_table::Tid;
 use crate::scheduler::SchedClass;
 use crate::scheduler::nice::NiceWeight;
 use core::sync::atomic::{AtomicU64, Ordering};
+use ostd::cpu::CpuId;
 use ostd::sync::SpinLock;
 use ostd::task::Task;
 
@@ -20,6 +21,8 @@ pub struct TaskData {
     pub pid: Pid,
     /// This thread's unique identifier.
     pub tid: Tid,
+    /// CPU this thread is pinned to, if any (used for per-CPU idle threads).
+    pub cpu_affinity: Option<CpuId>,
 }
 
 impl TaskData {
@@ -32,6 +35,7 @@ impl TaskData {
             last_dequeue_vtime: AtomicU64::new(0),
             pid,
             tid,
+            cpu_affinity: None,
         }
     }
 

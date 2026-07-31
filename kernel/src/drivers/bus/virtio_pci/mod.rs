@@ -36,7 +36,6 @@
 /// | [`capability`] | VirtIO PCI vendor capability parsing (`VIRTIO_PCI_CAP_*`) |
 /// | [`transport`]  | [`VirtioPciTransport`] — unified legacy/modern transport API |
 /// | [`virtqueue`]  | [`SplitVirtqueue`] — shared split virtqueue for all VirtIO device drivers |
-
 mod capability;
 pub mod regs;
 mod transport;

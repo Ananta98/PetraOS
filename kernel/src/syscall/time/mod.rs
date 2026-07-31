@@ -39,7 +39,6 @@ pub use nanosleep::syscall_nanosleep;
 pub use sys_time::syscall_time;
 pub use timerfd::{syscall_timerfd_create, syscall_timerfd_gettime, syscall_timerfd_settime};
 
-
 use crate::drivers::timer::{CmosRtc, Timer, Tsc};
 use crate::vm::vma::VmaManager;
 use ostd::Error;

@@ -41,7 +41,10 @@ pub fn syscall_sched_getaffinity(
         mask_buf[0] = 0xFF; // Bitmask for CPUs 0-7
     }
 
-    to_continue_i32(vm.copy_to_user(mask_ptr, &mask_buf).map(|_| copy_bytes as i32))
+    to_continue_i32(
+        vm.copy_to_user(mask_ptr, &mask_buf)
+            .map(|_| copy_bytes as i32),
+    )
 }
 
 /// `sched_setaffinity(pid, cpusetsize, mask)` — SYS_sched_setaffinity = 203
@@ -92,16 +95,23 @@ mod tests {
         let mut context = UserContext::default();
 
         // Negative PID
-        let res = syscall_sched_getaffinity(-1_isize as usize, 8, 0x1000, 0, 0, 0, &vm, &mut context);
-        assert!(matches!(res, SyscallResult::Continue(val) if val == (-(Error::InvalidArgs as isize) as usize)));
+        let res =
+            syscall_sched_getaffinity(-1_isize as usize, 8, 0x1000, 0, 0, 0, &vm, &mut context);
+        assert!(
+            matches!(res, SyscallResult::Continue(val) if val == (-(Error::InvalidArgs as isize) as usize))
+        );
 
         // Zero cpusetsize
         let res = syscall_sched_getaffinity(0, 0, 0x1000, 0, 0, 0, &vm, &mut context);
-        assert!(matches!(res, SyscallResult::Continue(val) if val == (-(Error::InvalidArgs as isize) as usize)));
+        assert!(
+            matches!(res, SyscallResult::Continue(val) if val == (-(Error::InvalidArgs as isize) as usize))
+        );
 
         // Null mask pointer
         let res = syscall_sched_getaffinity(0, 8, 0, 0, 0, 0, &vm, &mut context);
-        assert!(matches!(res, SyscallResult::Continue(val) if val == (-(Error::InvalidArgs as isize) as usize)));
+        assert!(
+            matches!(res, SyscallResult::Continue(val) if val == (-(Error::InvalidArgs as isize) as usize))
+        );
 
         // Non-existent PID
         let res = syscall_sched_getaffinity(999999, 8, 0x1000, 0, 0, 0, &vm, &mut context);
@@ -114,11 +124,16 @@ mod tests {
         let mut context = UserContext::default();
 
         // Negative PID
-        let res = syscall_sched_setaffinity(-1_isize as usize, 8, 0x1000, 0, 0, 0, &vm, &mut context);
-        assert!(matches!(res, SyscallResult::Continue(val) if val == (-(Error::InvalidArgs as isize) as usize)));
+        let res =
+            syscall_sched_setaffinity(-1_isize as usize, 8, 0x1000, 0, 0, 0, &vm, &mut context);
+        assert!(
+            matches!(res, SyscallResult::Continue(val) if val == (-(Error::InvalidArgs as isize) as usize))
+        );
 
         // Null mask pointer
         let res = syscall_sched_setaffinity(0, 8, 0, 0, 0, 0, &vm, &mut context);
-        assert!(matches!(res, SyscallResult::Continue(val) if val == (-(Error::InvalidArgs as isize) as usize)));
+        assert!(
+            matches!(res, SyscallResult::Continue(val) if val == (-(Error::InvalidArgs as isize) as usize))
+        );
     }
 }

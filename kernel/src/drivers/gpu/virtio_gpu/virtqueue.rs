@@ -2,7 +2,6 @@
 ///
 /// Provides descriptor ring configuration, available ring updates,
 /// and used ring polling over DMA-coherent memory.
-
 use ostd::mm::dma::DmaCoherent;
 use ostd::mm::{HasDaddr, VmIo};
 
@@ -56,7 +55,8 @@ impl Virtqueue {
         self.dma.write_bytes(ring_offset, &desc_idx.to_le_bytes())?;
         self.avail_idx = self.avail_idx.wrapping_add(1);
         let idx_offset = qsize * 16 + 2;
-        self.dma.write_bytes(idx_offset, &self.avail_idx.to_le_bytes())
+        self.dma
+            .write_bytes(idx_offset, &self.avail_idx.to_le_bytes())
     }
 
     /// Poll used ring for completed buffer notifications.

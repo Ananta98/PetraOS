@@ -42,7 +42,7 @@ pub fn syscall_sched_getparam(
     let (class, _) = crate::scheduler::get_sched_data(&thread.task);
     let priority: i32 = match class {
         SchedClass::RealTime { priority } => priority as i32,
-        SchedClass::Fair { .. } => 0,
+        SchedClass::Fair { .. } | SchedClass::Idle => 0,
     };
 
     let param_bytes = priority.to_ne_bytes();

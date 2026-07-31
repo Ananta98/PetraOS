@@ -15,12 +15,16 @@ use super::{SchedClass, TaskData};
 /// Represents the run queue set for a single CPU core.
 ///
 /// Holds the active task currently executing on this CPU core along with
-/// the per-class runqueues (`real_time`, `fair`).
+/// the per-class runqueues (`real_time`, `fair`) and the CPU's idle thread.
 #[derive(Debug)]
 pub struct PerCpuClassRqSet {
     pub current: Option<Arc<Task>>,
     pub real_time: RtRunQueue,
     pub fair: FairRunQueue,
+    /// The per-CPU idle thread. Always present once the CPU is brought up;
+    /// it is picked only when no real-time or fair task is runnable and never
+    /// blocks, so the runqueue always has a task to fall back to.
+    pub idle: Option<Arc<Task>>,
     pub vtime: u64,
     pub nr_runnable: usize,
 }
@@ -32,6 +36,7 @@ impl PerCpuClassRqSet {
             current: None,
             real_time: RtRunQueue::new(),
             fair: FairRunQueue::new(),
+            idle: None,
             vtime: 0,
             nr_runnable: 0,
         }
@@ -42,7 +47,7 @@ impl PerCpuClassRqSet {
         let mut min_val = if let Some(curr) = &self.current {
             let (class, vruntime) = crate::scheduler::get_sched_data(curr);
             match class {
-                SchedClass::RealTime { .. } => 0,
+                SchedClass::RealTime { .. } | SchedClass::Idle => 0,
                 SchedClass::Fair { .. } => vruntime,
             }
         } else {
@@ -85,6 +90,12 @@ impl PerCpuClassRqSet {
             SchedClass::Fair { .. } => {
                 self.fair.enqueue_fair(task, vruntime, self.vtime);
             }
+            SchedClass::Idle => {
+                debug_assert!(self.idle.is_none(), "only one idle task per CPU");
+                self.idle = Some(task);
+                // The idle thread is not counted as a runnable task.
+                return;
+            }
         }
         self.nr_runnable += 1;
         self.vtime = self.vtime.max(self.min_vruntime());
@@ -97,9 +108,10 @@ impl PerCpuClassRqSet {
         // preemption is needed — "anything is better than nothing".  This is
         // essential for scheduling the very first task: the boot task that
         // runs `kernel_main` executes outside the runqueue, so `current` is
-        // `None` until the first context switch.
+        // `None` until the first context switch. The per-CPU idle thread also
+        // qualifies as a valid first target.
         let Some(curr) = &self.current else {
-            return self.nr_runnable > 0;
+            return self.nr_runnable > 0 || self.idle.is_some();
         };
 
         let (curr_class, curr_vruntime) = crate::scheduler::get_sched_data(curr);
@@ -138,6 +150,10 @@ impl PerCpuClassRqSet {
                     }
                 }
                 false
+            }
+            SchedClass::Idle => {
+                // The idle thread must yield to any runnable real task.
+                self.nr_runnable > 0
             }
         }
     }
@@ -189,6 +205,9 @@ impl LocalRunQueue<Task> for PerCpuClassRqSet {
                         self.vtime += vtime_delta;
                     }
                 }
+                SchedClass::Idle => {
+                    // The idle thread never accumulates scheduling statistics.
+                }
             }
         }
 
@@ -196,7 +215,11 @@ impl LocalRunQueue<Task> for PerCpuClassRqSet {
 
         match flags {
             UpdateFlags::Tick => self.should_preempt_current(),
-            UpdateFlags::Wait | UpdateFlags::Yield | UpdateFlags::Exit => self.nr_runnable > 0,
+            UpdateFlags::Wait | UpdateFlags::Yield | UpdateFlags::Exit => {
+                // The per-CPU idle thread is always a valid fallback, so a
+                // blocking or exiting task never forces a busy-wait.
+                self.nr_runnable > 0 || self.idle.is_some()
+            }
         }
     }
 
@@ -209,6 +232,8 @@ impl LocalRunQueue<Task> for PerCpuClassRqSet {
             let task = SchedClassPolicy::pick_next(&mut self.fair, self.vtime).unwrap();
             self.nr_runnable -= 1;
             task
+        } else if let Some(idle) = &self.idle {
+            idle.clone()
         } else {
             return None;
         };

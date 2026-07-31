@@ -34,7 +34,6 @@
 /// # References
 /// - VirtIO 1.2 Specification §2.7 (Split Virtqueues)
 /// - VirtIO 1.2 Specification §4.1.5 (Driver Requirements: Virtqueues)
-
 use super::regs;
 use super::transport::VirtioPciTransport;
 use ostd::mm::dma::DmaCoherent;
@@ -306,7 +305,13 @@ impl SplitVirtqueue {
             };
             let next = if is_last { 0u16 } else { indices[i + 1] };
 
-            self.write_descriptor(indices[i], descriptors[i].address, descriptors[i].length, flags, next)?;
+            self.write_descriptor(
+                indices[i],
+                descriptors[i].address,
+                descriptors[i].length,
+                flags,
+                next,
+            )?;
         }
 
         let head = indices[0];
@@ -392,8 +397,7 @@ impl SplitVirtqueue {
                 // flags = NEXT; next = i + 1
                 self.dma
                     .write_bytes(base + 12, &VirtqDescFlags::NEXT.0.to_le_bytes())?;
-                self.dma
-                    .write_bytes(base + 14, &(i + 1).to_le_bytes())?;
+                self.dma.write_bytes(base + 14, &(i + 1).to_le_bytes())?;
             } else {
                 // Last entry: no next
                 self.dma.write_bytes(base + 12, &0u16.to_le_bytes())?;

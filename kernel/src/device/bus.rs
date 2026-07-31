@@ -67,7 +67,7 @@ impl Bus for VirtualBus {
     }
 }
 
-fn init_system_buses() -> Result<(), ostd::Error> {
+pub(crate) fn init_system_buses() -> Result<(), ostd::Error> {
     let _ = crate::device::manager::register_bus(Arc::new(PciBus));
     let _ = crate::device::manager::register_bus(Arc::new(PlatformBus));
     let _ = crate::device::manager::register_bus(Arc::new(VirtualBus));

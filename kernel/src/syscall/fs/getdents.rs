@@ -68,17 +68,26 @@ pub fn syscall_getdents64(
         };
 
         // Write d_ino (8 bytes)
-        if vm.copy_to_user(current_offset, &entry.inode_num.to_ne_bytes()).is_err() {
+        if vm
+            .copy_to_user(current_offset, &entry.inode_num.to_ne_bytes())
+            .is_err()
+        {
             return to_continue_i32(Err(Error::InvalidArgs));
         }
         // Write d_off (8 bytes)
         let next_off = (idx + 1) as i64;
-        if vm.copy_to_user(current_offset + 8, &next_off.to_ne_bytes()).is_err() {
+        if vm
+            .copy_to_user(current_offset + 8, &next_off.to_ne_bytes())
+            .is_err()
+        {
             return to_continue_i32(Err(Error::InvalidArgs));
         }
         // Write d_reclen (2 bytes)
         let rec_len_u16 = rec_len as u16;
-        if vm.copy_to_user(current_offset + 16, &rec_len_u16.to_ne_bytes()).is_err() {
+        if vm
+            .copy_to_user(current_offset + 16, &rec_len_u16.to_ne_bytes())
+            .is_err()
+        {
             return to_continue_i32(Err(Error::InvalidArgs));
         }
         // Write d_type (1 byte)
@@ -89,7 +98,10 @@ pub fn syscall_getdents64(
         if vm.copy_to_user(current_offset + 19, name_bytes).is_err() {
             return to_continue_i32(Err(Error::InvalidArgs));
         }
-        if vm.copy_to_user(current_offset + 19 + name_len, &[0u8]).is_err() {
+        if vm
+            .copy_to_user(current_offset + 19 + name_len, &[0u8])
+            .is_err()
+        {
             return to_continue_i32(Err(Error::InvalidArgs));
         }
 

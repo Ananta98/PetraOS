@@ -198,7 +198,12 @@ impl crate::device::Driver for VirtioBlkDriver {
 }
 
 // Independent Linux C-style driver registration
-crate::module_driver!(VIRTIO_BLK_INITCALL, virtio_blk_driver_init, "virtio-blk", VirtioBlkDriver);
+crate::module_driver!(
+    VIRTIO_BLK_INITCALL,
+    virtio_blk_driver_init,
+    "virtio-blk",
+    VirtioBlkDriver
+);
 
 // ──────────────────────────────────────────────────────────────
 // Kernel tests

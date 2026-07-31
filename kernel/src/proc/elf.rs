@@ -27,7 +27,14 @@ pub struct LoadedElf {
 /// maps page-aligned regions, copies file-backed bytes, and leaves BSS zeroed
 /// by [`VmaManager::map_region`].
 pub fn load_elf_image(vm: &Arc<VmaManager>, elf_image: &[u8]) -> Result<LoadedElf, Error> {
-    let elf = ElfFile::new(elf_image).map_err(|_| Error::InvalidArgs)?;
+    ostd::early_println!("[load_elf_image] Parsing ELF of size {}", elf_image.len());
+    let elf = match ElfFile::new(elf_image) {
+        Ok(e) => e,
+        Err(err) => {
+            ostd::early_println!("[load_elf_image] ElfFile::new failed: {:?}", err);
+            return Err(Error::InvalidArgs);
+        }
+    };
     let mut load_start = usize::MAX;
     let mut load_end = 0usize;
     let mut tls_template = TlsTemplate::default();

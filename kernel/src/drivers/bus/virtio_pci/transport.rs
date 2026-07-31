@@ -30,7 +30,6 @@
 /// # References
 /// - VirtIO 1.2 Specification §3.1 (Driver Requirements: Device Initialization)
 /// - VirtIO 1.2 Specification §4.1  (Virtio Over PCI Bus)
-
 use super::capability::{VirtioPciCapability, find_cap, parse_virtio_capabilities};
 use super::regs;
 use crate::drivers::bus::pci::{PciBar, PciDevice};
@@ -175,9 +174,7 @@ impl VirtioPciTransport {
     /// Read the device status register.
     pub fn get_status(&self) -> Result<u8, ostd::Error> {
         match &self.kind {
-            TransportKind::Legacy { io_bar } => {
-                io_bar.read_once(regs::LEGACY_DEVICE_STATUS)
-            }
+            TransportKind::Legacy { io_bar } => io_bar.read_once(regs::LEGACY_DEVICE_STATUS),
             TransportKind::Modern { common_bar, .. } => {
                 common_bar.read_once(regs::COMMON_DEVICE_STATUS)
             }
@@ -293,9 +290,7 @@ impl VirtioPciTransport {
     /// On modern devices this is a no-op; use `write_queue_descriptor_addr` etc.
     pub fn write_legacy_queue_pfn(&self, pfn: u32) -> Result<(), ostd::Error> {
         match &self.kind {
-            TransportKind::Legacy { io_bar } => {
-                io_bar.write_once(regs::LEGACY_QUEUE_PFN, &pfn)
-            }
+            TransportKind::Legacy { io_bar } => io_bar.write_once(regs::LEGACY_QUEUE_PFN, &pfn),
             TransportKind::Modern { .. } => Ok(()), // no-op on modern
         }
     }
@@ -550,10 +545,7 @@ impl VirtioPciTransport {
 ///
 /// Resolves the BAR base address from the `PciDevice`'s parsed BAR table,
 /// then maps the sub-region `[bar_base + cap.offset, bar_base + cap.offset + cap.length)`.
-fn map_bar(
-    pci_device: &PciDevice,
-    cap: &VirtioPciCapability,
-) -> Result<IoMem, ostd::Error> {
+fn map_bar(pci_device: &PciDevice, cap: &VirtioPciCapability) -> Result<IoMem, ostd::Error> {
     let bar_base = match pci_device.bars[cap.bar as usize] {
         PciBar::MemoryMapped { base_addr, .. } if base_addr != 0 => base_addr as usize,
         PciBar::IoSpace { port, .. } if port != 0 => port as usize,

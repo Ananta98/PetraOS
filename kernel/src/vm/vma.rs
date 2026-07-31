@@ -613,9 +613,7 @@ impl VmaManager {
         }
 
         // Relocate to a new address range
-        let new_addr = self
-            .find_free_region(new_aligned)
-            .ok_or(Error::NoMemory)?;
+        let new_addr = self.find_free_region(new_aligned).ok_or(Error::NoMemory)?;
 
         if let Some(ref backing) = old_vma.file_backing {
             self.mmap_file(
@@ -867,8 +865,12 @@ mod tests {
     #[ktest]
     fn test_coalesce_regions() {
         let vma_manager = VmaManager::new();
-        vma_manager.map_region(0x10000, 0x1000, PageFlags::RW).unwrap();
-        vma_manager.map_region(0x11000, 0x1000, PageFlags::RW).unwrap();
+        vma_manager
+            .map_region(0x10000, 0x1000, PageFlags::RW)
+            .unwrap();
+        vma_manager
+            .map_region(0x11000, 0x1000, PageFlags::RW)
+            .unwrap();
         {
             let regions = vma_manager.regions.lock();
             assert_eq!(regions.len(), 2);
@@ -887,7 +889,9 @@ mod tests {
         let vma_manager = Arc::new(VmaManager::new());
         vma_manager.activate();
 
-        let addr = vma_manager.mmap_anon(Some(0x20000), 0x1000, PageFlags::RW, true).unwrap();
+        let addr = vma_manager
+            .mmap_anon(Some(0x20000), 0x1000, PageFlags::RW, true)
+            .unwrap();
         vma_manager.copy_to_user(addr, b"mremap_data").unwrap();
 
         // Shrink mapping
@@ -902,8 +906,12 @@ mod tests {
         let vma_manager = Arc::new(VmaManager::new());
         vma_manager.activate();
 
-        vma_manager.map_region(0x30000, 0x1000, PageFlags::RW).unwrap();
-        vma_manager.madvise(0x30000, 0x1000, AdviseFlag::DontNeed).unwrap();
+        vma_manager
+            .map_region(0x30000, 0x1000, PageFlags::RW)
+            .unwrap();
+        vma_manager
+            .madvise(0x30000, 0x1000, AdviseFlag::DontNeed)
+            .unwrap();
 
         vma_manager.unmap_region(0x30000, 0x1000).unwrap();
     }

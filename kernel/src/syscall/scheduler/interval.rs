@@ -56,12 +56,17 @@ mod tests {
         let mut context = UserContext::default();
 
         // Negative PID
-        let res = syscall_sched_rr_get_interval(-1_isize as usize, 0x1000, 0, 0, 0, 0, &vm, &mut context);
-        assert!(matches!(res, SyscallResult::Continue(val) if val == (-(Error::InvalidArgs as isize) as usize)));
+        let res =
+            syscall_sched_rr_get_interval(-1_isize as usize, 0x1000, 0, 0, 0, 0, &vm, &mut context);
+        assert!(
+            matches!(res, SyscallResult::Continue(val) if val == (-(Error::InvalidArgs as isize) as usize))
+        );
 
         // Null timespec pointer
         let res = syscall_sched_rr_get_interval(0, 0, 0, 0, 0, 0, &vm, &mut context);
-        assert!(matches!(res, SyscallResult::Continue(val) if val == (-(Error::InvalidArgs as isize) as usize)));
+        assert!(
+            matches!(res, SyscallResult::Continue(val) if val == (-(Error::InvalidArgs as isize) as usize))
+        );
 
         // Non-existent PID
         let res = syscall_sched_rr_get_interval(999999, 0x1000, 0, 0, 0, 0, &vm, &mut context);

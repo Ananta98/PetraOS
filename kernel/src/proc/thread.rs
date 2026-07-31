@@ -226,6 +226,58 @@ impl KernelThread {
         Ok(thread)
     }
 
+    /// Spawn a per-CPU idle thread pinned to the current CPU.
+    ///
+    /// The idle thread runs `body` once and then halts the CPU whenever the
+    /// runqueue is empty, instead of busy-waiting. This guarantees that OSTD's
+    /// `reschedule` always finds a task to switch to.
+    pub fn spawn_idle<F>(body: F) -> Result<Arc<Self>, ostd::Error>
+    where
+        F: FnOnce() + Send + 'static,
+    {
+        let tid = Tid::from_raw(0);
+        let pid = Pid::from_raw(0);
+        let inner = KernelThreadInner::new();
+        let inner_for_task = inner.clone();
+        let current_cpu = ostd::cpu::CpuId::current_racy();
+
+        let mut data = TaskData::new(SchedClass::Idle, pid, tid);
+        data.cpu_affinity = Some(current_cpu);
+
+        let task = TaskOptions::new(move || {
+            inner_for_task.set_state(ThreadState::Running);
+            body();
+            loop {
+                ostd::task::halt_cpu();
+            }
+        })
+        .data(data)
+        .spawn()
+        .map_err(|_| ostd::Error::NoMemory)?;
+
+        let thread = Arc::new(KernelThread {
+            tid,
+            pid,
+            name: String::from("idle"),
+            inner,
+            task,
+            tls_fs_base: AtomicUsize::new(0),
+        });
+
+        thread
+            .inner
+            .state
+            .compare_exchange(
+                ThreadState::New as u8,
+                ThreadState::Ready as u8,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            )
+            .ok();
+
+        Ok(thread)
+    }
+
     // -----------------------------------------------------------------------
     // Lifecycle
     // -----------------------------------------------------------------------

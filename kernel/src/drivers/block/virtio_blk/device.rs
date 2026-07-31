@@ -5,7 +5,9 @@
 /// a simulated in-memory fallback device for environments without virtio support.
 use super::regs;
 use crate::drivers::block::BlockDevice;
-use crate::drivers::bus::virtio_pci::{SplitVirtqueue, VirtqDescFlags, VirtqDescriptor, VirtioPciTransport};
+use crate::drivers::bus::virtio_pci::{
+    SplitVirtqueue, VirtioPciTransport, VirtqDescFlags, VirtqDescriptor,
+};
 use alloc::string::String;
 use alloc::vec::Vec;
 use ostd::mm::dma::DmaCoherent;

@@ -10,7 +10,6 @@
 ///
 /// References:
 /// - VirtIO 1.2 Specification §4.1.4.1 (VirtIO Structure PCI Capabilities)
-
 use super::regs;
 use crate::drivers::bus::pci::{CAP_VENDOR, PciDevice, capabilities};
 use alloc::vec::Vec;
@@ -95,10 +94,7 @@ pub fn parse_virtio_capabilities(device: &PciDevice) -> Vec<VirtioPciCapability>
 ///
 /// Convenience helper for the transport layer to locate specific regions
 /// (e.g., common config, notification, ISR, device config).
-pub fn find_cap(
-    caps: &[VirtioPciCapability],
-    cap_type: u8,
-) -> Option<&VirtioPciCapability> {
+pub fn find_cap(caps: &[VirtioPciCapability], cap_type: u8) -> Option<&VirtioPciCapability> {
     caps.iter().find(|cap| cap.cap_type == cap_type)
 }
 
