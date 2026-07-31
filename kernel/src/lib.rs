@@ -35,7 +35,6 @@ fn kernel_main() {
     arch::init();
     vm::init();
     irq::init();
-    drivers::init().expect("failed to initialize drivers");
     modules::init().expect("failed to initialize kernel modules");
     fs::init().expect("failed to initialize filesystem");
     net::init();
