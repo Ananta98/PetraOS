@@ -1,0 +1,242 @@
+diff -uprN a/config.sub b/config.sub
+--- a/config.sub	2023-01-20 00:00:00.000000000 +0000
++++ b/config.sub	2026-07-31 00:00:00.000000000 +0000
+@@ -1713,7 +1713,7 @@ case $os in
+ 	     | ptx* | coff* | ecoff* | winnt* | domain* | vsta* \
+ 	     | udi* | lites* | ieee* | go32* | aux* | hcos* \
+ 	     | chorusrdb* | cegcc* | glidix* \
+-	     | cygwin* | msys* | pe* | moss* | proelf* | rtems* \
++	     | cygwin* | msys* | pe* | moss* | proelf* | rtems* | petra* \
+ 	     | midipix* | mingw32* | mingw64* | mint* \
+ 	     | uxpv* | beos* | mpeix* | udk* | moxiebox* \
+ 	     | interix* | uwin* | mks* | rhapsody* | darwin* \
+diff -uprN a/newlib/configure.host b/newlib/configure.host
+--- a/newlib/configure.host	2023-01-20 00:00:00.000000000 +0000
++++ b/newlib/configure.host	2026-07-31 00:00:00.000000000 +0000
+@@ -434,6 +434,9 @@ case "${host}" in
+ 	posix_dir=posix
+ 	unix_dir=unix
+ 	;;
++  *-*-petra*)
++	sys_dir=petra
++	;;
+   *-*-tirtos*)
+ 	sys_dir=tirtos
+ 	have_crt0="no"
+diff -uprN a/newlib/libc/sys/petra/Makefile.am b/newlib/libc/sys/petra/Makefile.am
+--- /dev/null	1970-01-01 00:00:00.000000000 +0000
++++ b/newlib/libc/sys/petra/Makefile.am	2026-07-31 00:00:00.000000000 +0000
+@@ -0,0 +1,16 @@
++AUTOMAKE_OPTIONS = cygnus
++INCLUDES = $(NEWLIB_CFLAGS) $(CROSS_CFLAGS) $(TARGET_CFLAGS)
++AM_CCASFLAGS = $(INCLUDES)
++
++noinst_LIBRARIES = lib.a
++
++if HAVE_SYS_DIR
++extra_objs = crt0.o
++else
++extra_objs =
++endif
++
++lib_a_SOURCES = syscalls.c
++lib_a_LIBADD = $(extra_objs)
++EXTRA_lib_a_SOURCES = crt0.S
++lib_a_DEPENDENCIES = $(extra_objs)
++
++all: crt0.o
++
++ACLOCAL_AMFLAGS = -I ../../.. -I ../../../..
++CONFIG_STATUS_DEPENDENCIES = $(newlib_basedir)/configure.host
+diff -uprN a/newlib/libc/sys/petra/configure.in b/newlib/libc/sys/petra/configure.in
+--- /dev/null	1970-01-01 00:00:00.000000000 +0000
++++ b/newlib/libc/sys/petra/configure.in	2026-07-31 00:00:00.000000000 +0000
+@@ -0,0 +1,10 @@
++AC_PREREQ(2.59)
++AC_INIT([newlib], [NEWLIB_VERSION])
++AC_CONFIG_SRCDIR([syscalls.c])
++AC_CANONICAL_NEWLIB
++AC_CONFIG_HEADER(config.h)
++AC_CONFIG_AUX_DIR(../../..)
++NEWLIB_CONFIGURE(../../..)
++AC_CONFIG_FILES([Makefile])
++AC_OUTPUT
+diff -uprN a/newlib/libc/sys/petra/crt0.S b/newlib/libc/sys/petra/crt0.S
+--- /dev/null	1970-01-01 00:00:00.000000000 +0000
++++ b/newlib/libc/sys/petra/crt0.S	2026-07-31 00:00:00.000000000 +0000
+@@ -0,0 +1,41 @@
++/*
++ * Petra OS C Runtime Startup (crt0) for x86_64
++ * Target: x86_64-elf-gcc / System V AMD64 ABI
++ */
++
++.global _start
++.type _start, @function
++
++_start:
++    /* 1. Clear frame pointer to terminate stack backtraces cleanly */
++    xorq %rbp, %rbp
++
++    /* 2. Zero out the .bss section using linker symbols */
++    movq $__bss_start, %rdi
++    movq $_end, %rcx
++    subq %rdi, %rcx         /* count = _end - __bss_start */
++    xorl %eax, %eax         /* fill pattern = 0 */
++    cld
++    rep stosb               /* fill memory byte-by-byte */
++
++    /* 3. Align stack pointer to 16 bytes per System V ABI */
++    andq $-16, %rsp
++
++    /* 4. Prepare default main arguments (argc=0, argv=NULL, envp=NULL) */
++    xorl %edi, %edi         /* rdi = argc = 0 */
++    xorl %esi, %esi         /* rsi = argv = NULL */
++    xorl %edx, %edx         /* rdx = envp = NULL */
++
++    /* 5. Invoke main() */
++    call main
++
++    /* 6. Pass return code from main(argc, argv) to exit() */
++    movq %rax, %rdi         /* status = rax */
++    call exit
++
++    /* 7. Fallback trap if exit() ever returns */
++1:  hlt
++    jmp 1b
++
++.size _start, . - _start
+diff -uprN a/newlib/libc/sys/petra/syscalls.c b/newlib/libc/sys/petra/syscalls.c
+--- /dev/null	1970-01-01 00:00:00.000000000 +0000
++++ b/newlib/libc/sys/petra/syscalls.c	2026-07-31 00:00:00.000000000 +0000
+@@ -0,0 +1,124 @@
++/*
++ * Petra OS System Call Stubs for Newlib
++ * Linux ABI Compatible (x86_64)
++ */
++
++#include <sys/stat.h>
++#include <sys/types.h>
++#include <errno.h>
++#include <unistd.h>
++#include <stddef.h>
++
++#undef errno
++extern int errno;
++
++/* Standard Linux x86_64 Syscall Numbers */
++#define SYS_read     0
++#define SYS_write    1
++#define SYS_open     2
++#define SYS_close    3
++#define SYS_fstat    5
++#define SYS_lseek    8
++#define SYS_brk      12
++#define SYS_ioctl    16
++#define SYS_getpid   39
++#define SYS_kill     62
++#define SYS_exit     60
++
++/* Core x86_64 Syscall Primitive */
++static inline long __syscall6(long n, long a1, long a2, long a3, long a4, long a5, long a6) {
++    long ret;
++    register long r10 __asm__("r10") = a4;
++    register long r8  __asm__("r8")  = a5;
++    register long r9  __asm__("r9")  = a6;
++    __asm__ volatile (
++        "syscall"
++        : "=a"(ret)
++        : "a"(n), "D"(a1), "S"(a2), "d"(a3), "r"(r10), "r"(r8), "r"(r9)
++        : "rcx", "r11", "memory"
++    );
++    return ret;
++}
++
++/* Helper to map Linux negative return values (-errno) to newlib errno */
++static inline long __check_sys_err(long ret) {
++    if ((unsigned long)ret >= (unsigned long)-4095) {
++        errno = -ret;
++        return -1;
++    }
++    return ret;
++}
++
++int _read(int file, char *ptr, int len) {
++    return (int)__check_sys_err(__syscall6(SYS_read, file, (long)ptr, len, 0, 0, 0));
++}
++
++int _write(int file, char *ptr, int len) {
++    return (int)__check_sys_err(__syscall6(SYS_write, file, (long)ptr, len, 0, 0, 0));
++}
++
++int _open(const char *name, int flags, int mode) {
++    return (int)__check_sys_err(__syscall6(SYS_open, (long)name, flags, mode, 0, 0, 0));
++}
++
++int _close(int file) {
++    return (int)__check_sys_err(__syscall6(SYS_close, file, 0, 0, 0, 0, 0));
++}
++
++int _lseek(int file, int ptr, int dir) {
++    return (int)__check_sys_err(__syscall6(SYS_lseek, file, ptr, dir, 0, 0, 0));
++}
++
++int _getpid(void) {
++    return (int)__check_sys_err(__syscall6(SYS_getpid, 0, 0, 0, 0, 0, 0));
++}
++
++int _kill(int pid, int sig) {
++    return (int)__check_sys_err(__syscall6(SYS_kill, pid, sig, 0, 0, 0, 0));
++}
++
++void _exit(int status) {
++    __syscall6(SYS_exit, status, 0, 0, 0, 0, 0);
++    while (1) { }
++}
++
++int _isatty(int file) {
++    /* Standard streams (stdin, stdout, stderr) treated as tty */
++    if (file >= 0 && file <= 2) {
++        return 1;
++    }
++    return 0;
++}
++
++int _fstat(int file, struct stat *st) {
++    if (!st) {
++        errno = EINVAL;
++        return -1;
++    }
++    st->st_mode = S_IFCHR; /* Treat fds as character devices */
++    st->st_blksize = 2048;
++    return 0;
++}
++
++void *_sbrk(ptrdiff_t incr) {
++    static void *current_brk = NULL;
++    
++    /* Initialize current brk if first call */
++    if (current_brk == NULL) {
++        long res = __syscall6(SYS_brk, 0, 0, 0, 0, 0, 0);
++        if ((unsigned long)res >= (unsigned long)-4095) {
++            errno = ENOMEM;
++            return (void *)-1;
++        }
++        current_brk = (void *)res;
++    }
++    
++    if (incr == 0) {
++        return current_brk;
++    }
++    
++    void *new_brk = (char *)current_brk + incr;
++    long res = __syscall6(SYS_brk, (long)new_brk, 0, 0, 0, 0, 0);
++    
++    if ((void *)res < new_brk) {
++        errno = ENOMEM;
++        return (void *)-1;
++    }
++    
++    void *old_brk = current_brk;
++    current_brk = (void *)res;
++    return old_brk;
++}

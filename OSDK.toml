@@ -1,5 +1,19 @@
+# OSDK Manifest for Petra OS
+project_type = "kernel"
+supported_archs = ["x86_64"]
+
+[build]
+profile = "dev"
+strip_elf = false
+
 [boot]
 method = "grub-rescue-iso"
+kcmd_args = ["init=/test_app", "console=ttyS0"]
+initramfs = "build/initramfs.cpio"
+
+[grub]
+boot_protocol = "multiboot2"
+display_grub_menu = false
 
 [qemu]
 args = """\
