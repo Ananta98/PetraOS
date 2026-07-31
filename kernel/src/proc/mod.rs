@@ -15,6 +15,7 @@ use crate::proc::elf::LoadedElf;
 use crate::vm::VMA_MANAGER;
 use crate::vm::vma::VmaManager;
 use alloc::sync::Arc;
+use alloc::vec::Vec;
 use process::Process;
 
 /// Spawn the **init** process (PID 1).
@@ -22,8 +23,8 @@ use process::Process;
 /// Mirrors the logic in Linux `kernel_init()` and Asterinas
 /// `spawn_init_process()`:
 ///
-/// 1. If a custom path is provided (future: from `init=` on the kernel
-///    command line), use it.
+/// 1. If a custom path is provided via the `init=` kernel command line
+///    argument, use it.
 /// 2. Otherwise probe the canonical fallback list in order:
 ///    `/sbin/init` → `/etc/init` → `/bin/init` → `/bin/sh`.
 ///
@@ -32,8 +33,7 @@ use process::Process;
 /// becomes PID 1.
 ///
 /// # Panics
-/// Panics if `vm::init()` has not been called before this function, or if
-/// none of the probed paths can be loaded.
+/// Panics if `vm::init()` has not been called before this function.
 pub fn spawn_init_process() {
     const DEFAULT_INIT_EXEC_PATHS: &[&str] = &["/sbin/init", "/etc/init", "/bin/init", "/bin/sh"];
 
@@ -42,7 +42,18 @@ pub fn spawn_init_process() {
         .expect("vm::init() must be called before spawning init")
         .clone();
 
-    for &path in DEFAULT_INIT_EXEC_PATHS {
+    // Honour `init=...` from the kernel command line first, then fall back to
+    // the canonical init path list.
+    let cmdline = ostd::boot::boot_info().kernel_cmdline.clone();
+    let mut init_exec_paths: Vec<&str> = Vec::new();
+    for arg in cmdline.split_whitespace() {
+        if let Some(value) = arg.strip_prefix("init=") {
+            init_exec_paths.push(value);
+        }
+    }
+    init_exec_paths.extend_from_slice(DEFAULT_INIT_EXEC_PATHS);
+
+    for path in init_exec_paths {
         let executable_name = path.rfind('/').map_or(path, |i| &path[i + 1..]);
         if let Ok((process, loaded)) = load_init_exec(vm.clone(), path, executable_name) {
             let entry = loaded.entry;

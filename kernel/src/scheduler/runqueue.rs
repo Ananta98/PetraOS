@@ -92,8 +92,14 @@ impl PerCpuClassRqSet {
 
     /// Determine whether a queued task should preempt the currently executing task.
     pub fn should_preempt_current(&self) -> bool {
+        // OSTD's `LocalRunQueue` contract requires that when the runqueue is
+        // non-empty but no task is currently executing, we must report that a
+        // preemption is needed — "anything is better than nothing".  This is
+        // essential for scheduling the very first task: the boot task that
+        // runs `kernel_main` executes outside the runqueue, so `current` is
+        // `None` until the first context switch.
         let Some(curr) = &self.current else {
-            return false;
+            return self.nr_runnable > 0;
         };
 
         let (curr_class, curr_vruntime) = crate::scheduler::get_sched_data(curr);

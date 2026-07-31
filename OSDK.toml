@@ -8,7 +8,13 @@ strip_elf = false
 
 [boot]
 method = "grub-rescue-iso"
-kcmd_args = ["init=/test_app", "console=ttyS0"]
+kcmd_args = [
+    "init=/bin/bash",
+    "console=ttyS0",
+    "console=tty0",
+    "TERM=linux",
+    "PATH=/bin:/sbin"
+]
 initramfs = "build/initramfs.cpio"
 
 [grub]
@@ -26,7 +32,7 @@ args = """\
     -serial chardev:mux \
     -monitor chardev:mux \
     -chardev stdio,id=mux,mux=on,signal=off \
-    -display none \
+    -device virtio-gpu-pci \
     -device isa-debug-exit,iobase=0xf4,iosize=0x04 \
     -drive if=pflash,format=raw,unit=0,readonly=on,file=/usr/share/OVMF/OVMF_CODE_4M.fd \
     -drive if=pflash,format=raw,unit=1,file=/usr/share/OVMF/OVMF_VARS_4M.fd \

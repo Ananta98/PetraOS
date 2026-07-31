@@ -1,131 +1,219 @@
 # ==============================================================================
-# Petra OS - Newlib Porting & Integration Makefile
+# Petra OS - musl libc & GNU Bash Integration Makefile
+# ==============================================================================
+# Utilize musl libc (v1.2.5) for a full POSIX C library.
+# musl provides standard C library functions targeting Linux syscall ABI.
 # ==============================================================================
 
-NEWLIB_VERSION ?= 4.3.0.20230120
-NEWLIB_TARBALL := newlib-$(NEWLIB_VERSION).tar.gz
-NEWLIB_URL     := https://sourceware.org/pub/newlib/$(NEWLIB_TARBALL)
+MUSL_VERSION   ?= 1.2.5
+MUSL_TARBALL   := musl-$(MUSL_VERSION).tar.gz
+MUSL_URL       := https://musl.libc.org/releases/$(MUSL_TARBALL)
 
-TARGET   ?= x86_64-elf
-CC       := $(shell which $(TARGET)-gcc 2>/dev/null || which x86_64-linux-gnu-gcc 2>/dev/null || echo gcc)
-AS       := $(shell which $(TARGET)-as 2>/dev/null || which x86_64-linux-gnu-as 2>/dev/null || echo as)
-AR       := $(shell which $(TARGET)-ar 2>/dev/null || which x86_64-linux-gnu-ar 2>/dev/null || echo ar)
-RANLIB   := $(shell which $(TARGET)-ranlib 2>/dev/null || which x86_64-linux-gnu-ranlib 2>/dev/null || echo ranlib)
+BASH_VERSION   ?= 5.2.21
+BASH_TARBALL   := bash-$(BASH_VERSION).tar.gz
+BASH_URL       := https://mirrors.kernel.org/gnu/bash/$(BASH_TARBALL)
 
-ROOT_DIR        := $(shell pwd)
-DOWNLOAD_DIR    := $(ROOT_DIR)/downloads
-SRC_DIR         := $(ROOT_DIR)/src
-NEWLIB_SRC      := $(SRC_DIR)/newlib-$(NEWLIB_VERSION)
-PETRA_SYS_DIR   := $(NEWLIB_SRC)/newlib/libc/sys/petra
-PATCHES_DIR     := $(ROOT_DIR)/patches
-BUILD_DIR       := $(ROOT_DIR)/build
-NEWLIB_BUILD    := $(BUILD_DIR)/newlib
-SYSROOT         := $(ROOT_DIR)/sysroot
-INITRAMFS_DIR   := $(ROOT_DIR)/initramfs
-INITRAMFS_CPIO  := $(BUILD_DIR)/initramfs.cpio
+# Cross-compiler: prefer x86_64-linux-gnu toolchain, fall back to native gcc
+CC     := $(shell which x86_64-linux-gnu-gcc 2>/dev/null || echo gcc)
+CXX    := $(shell which x86_64-linux-gnu-g++ 2>/dev/null || echo g++)
+AR     := $(shell which x86_64-linux-gnu-ar  2>/dev/null || echo ar)
+RANLIB := $(shell which x86_64-linux-gnu-ranlib 2>/dev/null || echo ranlib)
+STRIP  := $(shell which x86_64-linux-gnu-strip   2>/dev/null || echo strip)
 
-.PHONY: all download extract patch configure build install test-app run clean
+HOST_TRIPLE  := x86_64-petra-linux
+BUILD_TRIPLE := $(shell gcc -dumpmachine)
 
-all: build install test-app
+ROOT_DIR       := $(shell pwd)
+DOWNLOAD_DIR   := $(ROOT_DIR)/downloads
+SRC_DIR        := $(ROOT_DIR)/src
+PATCHES_DIR    := $(ROOT_DIR)/patches
+BUILD_DIR      := $(ROOT_DIR)/build
 
-# 1. Create directory structure & download tarball
-download:
+MUSL_SRC       := $(SRC_DIR)/musl-$(MUSL_VERSION)
+MUSL_BUILD     := $(BUILD_DIR)/musl
+
+BASH_SRC       := $(SRC_DIR)/bash-$(BASH_VERSION)
+BASH_BUILD     := $(BUILD_DIR)/bash
+
+SYSROOT        := $(ROOT_DIR)/sysroot
+INITRAMFS_DIR  := $(ROOT_DIR)/initramfs
+INITRAMFS_CPIO := $(BUILD_DIR)/initramfs.cpio
+
+# Flags used when cross-compiling bash against the musl sysroot.
+SYSROOT_CFLAGS  := -O2 -g -isystem $(SYSROOT)/include -D_GNU_SOURCE -D_POSIX_C_SOURCE=200809L
+SYSROOT_LDFLAGS := -static -L$(SYSROOT)/lib -lc -lgcc
+
+# Autoconf cache overrides for bash cross-configure.
+CROSS_ENV := \
+	CC="$(CC)" \
+	CXX="$(CXX)" \
+	AR="$(AR)" \
+	RANLIB="$(RANLIB)" \
+	CFLAGS="$(SYSROOT_CFLAGS)" \
+	LDFLAGS="$(SYSROOT_LDFLAGS)" \
+	ac_cv_header_dirent_h=yes \
+	ac_cv_func_opendir=yes \
+	ac_cv_func_closedir=yes \
+	ac_cv_func_readdir=yes \
+	ac_cv_func_gethostname=yes \
+	ac_cv_func_sigsetjmp=yes \
+	ac_cv_type_sigjmp_buf=yes \
+	ac_cv_func_sigaction=yes \
+	ac_cv_func_sigprocmask=yes \
+	ac_cv_func_mkfifo=yes \
+	ac_cv_func_dup2=yes \
+	ac_cv_func_fcntl=yes \
+	ac_cv_func_isatty=yes \
+	ac_cv_func_lseek=yes \
+	ac_cv_func_open=yes \
+	ac_cv_func_close=yes \
+	ac_cv_func_read=yes \
+	ac_cv_func_write=yes \
+	ac_cv_func_getcwd=yes \
+	ac_cv_func_getpwuid=yes \
+	ac_cv_func_getgroups=yes \
+	ac_cv_type_intmax_t=yes \
+	ac_cv_type_uintmax_t=yes \
+	ac_cv_func_strtoimax=yes \
+	ac_cv_func_strtoumax=yes \
+	bash_cv_posix_signals=yes \
+	bash_cv_getcwd_malloc=yes \
+	bash_cv_func_sigsetjmp=present \
+	bash_cv_must_relink_at_exec=no \
+	bash_cv_sys_named_pipes=present \
+	bash_cv_dup2_clamper=yes \
+	bash_cv_job_control_missing=present \
+	bash_cv_sys_restartable_syscalls=yes \
+	bash_cv_wcwidth_broken=no \
+	bash_cv_func_strcoll_broken=no
+
+.PHONY: all check-tools download extract patch configure build install bash-install run clean
+
+all: install
+
+# ------------------------------------------------------------------------------
+# 0. Validate required build tools
+# ------------------------------------------------------------------------------
+check-tools:
+	@command -v $(CC) >/dev/null 2>&1 || { echo "ERROR: $(CC) not found"; exit 1; }
+	@command -v make >/dev/null 2>&1 || { echo "ERROR: make not found"; exit 1; }
+	@echo "==> Tool check passed (cc=$(CC))"
+
+# ------------------------------------------------------------------------------
+# 1. Download musl libc & GNU Bash Tarballs
+# ------------------------------------------------------------------------------
+download: check-tools
 	@mkdir -p $(DOWNLOAD_DIR) $(SRC_DIR) $(PATCHES_DIR) $(BUILD_DIR) $(SYSROOT) $(INITRAMFS_DIR)
-	@if [ ! -f $(DOWNLOAD_DIR)/$(NEWLIB_TARBALL) ]; then \
-		echo "==> Downloading newlib $(NEWLIB_VERSION)..."; \
-		curl -sSL $(NEWLIB_URL) -o $(DOWNLOAD_DIR)/$(NEWLIB_TARBALL); \
+	@if [ ! -f $(DOWNLOAD_DIR)/$(MUSL_TARBALL) ] || [ ! -s $(DOWNLOAD_DIR)/$(MUSL_TARBALL) ]; then \
+		echo "==> Downloading musl libc $(MUSL_VERSION)..."; \
+		curl -fSL $(MUSL_URL) -o $(DOWNLOAD_DIR)/$(MUSL_TARBALL); \
+	fi
+	@if [ ! -f $(DOWNLOAD_DIR)/$(BASH_TARBALL) ] || [ ! -s $(DOWNLOAD_DIR)/$(BASH_TARBALL) ]; then \
+		echo "==> Downloading GNU Bash $(BASH_VERSION)..."; \
+		curl -fSL $(BASH_URL) -o $(DOWNLOAD_DIR)/$(BASH_TARBALL); \
 	fi
 
-# 2. Extract source code
+# ------------------------------------------------------------------------------
+# 2. Extract Sources
+# ------------------------------------------------------------------------------
 extract: download
-	@if [ ! -d $(NEWLIB_SRC) ]; then \
-		echo "==> Extracting newlib tarball..."; \
-		tar -xzf $(DOWNLOAD_DIR)/$(NEWLIB_TARBALL) -C $(SRC_DIR); \
-		chmod -R +x $(NEWLIB_SRC); \
+	@if [ ! -f $(MUSL_SRC)/configure ]; then \
+		echo "==> Extracting musl libc $(MUSL_VERSION)..."; \
+		rm -rf $(MUSL_SRC); \
+		tar -xzf $(DOWNLOAD_DIR)/$(MUSL_TARBALL) -C $(SRC_DIR); \
+	fi
+	@if [ ! -f $(BASH_SRC)/support/config.sub ]; then \
+		echo "==> Extracting GNU Bash $(BASH_VERSION)..."; \
+		rm -rf $(BASH_SRC); \
+		tar -xzf $(DOWNLOAD_DIR)/$(BASH_TARBALL) -C $(SRC_DIR); \
+		chmod -R +w $(BASH_SRC); \
 	fi
 
-# 3. Apply custom Petra OS patch & generate petra sys_dir files
+# ------------------------------------------------------------------------------
+# 3. Patch GNU Bash (petra* OS recognition)
+# ------------------------------------------------------------------------------
 patch: extract
-	@echo "==> Patching config.sub and configure.host for petra OS target..."; \
-	grep -q "petra\*" $(NEWLIB_SRC)/config.sub || sed -i 's/| rtems\*/| rtems* | petra*/g' $(NEWLIB_SRC)/config.sub; \
-	grep -q "petra\*" $(NEWLIB_SRC)/newlib/configure.host || sed -i '/\*\-\*\-rtems\*/a \  *-*-petra*)\n\tsys_dir=petra\n\t;;' $(NEWLIB_SRC)/newlib/configure.host; \
-	echo "==> Creating $(PETRA_SYS_DIR)..."; \
-	mkdir -p $(PETRA_SYS_DIR); \
-	printf '/*\n * Petra OS C Runtime Startup (crt0) for x86_64\n */\n.global _start\n.type _start, @function\n\n_start:\n    xorq %%rbp, %%rbp\n    movq $$__bss_start, %%rdi\n    movq $$_end, %%rcx\n    subq %%rdi, %%rcx\n    xorl %%eax, %%eax\n    cld\n    rep stosb\n    andq $$-16, %%rsp\n    xorl %%edi, %%edi\n    xorl %%esi, %%esi\n    xorl %%edx, %%edx\n    call main\n    movq %%rax, %%rdi\n    call exit\n1:  hlt\n    jmp 1b\n.size _start, . - _start\n' > $(PETRA_SYS_DIR)/crt0.S; \
-	printf '#include <sys/stat.h>\n#include <sys/types.h>\n#include <errno.h>\n#include <unistd.h>\n#include <stddef.h>\n\n#undef errno\nextern int errno;\n\n#define SYS_read     0\n#define SYS_write    1\n#define SYS_open     2\n#define SYS_close    3\n#define SYS_fstat    5\n#define SYS_lseek    8\n#define SYS_brk      12\n#define SYS_ioctl    16\n#define SYS_getpid   39\n#define SYS_kill     62\n#define SYS_exit     60\n\nstatic inline long __syscall6(long n, long a1, long a2, long a3, long a4, long a5, long a6) {\n    long ret;\n    register long r10 __asm__("r10") = a4;\n    register long r8  __asm__("r8")  = a5;\n    register long r9  __asm__("r9")  = a6;\n    __asm__ volatile (\n        "syscall"\n        : "=a"(ret)\n        : "a"(n), "D"(a1), "S"(a2), "d"(a3), "r"(r10), "r"(r8), "r"(r9)\n        : "rcx", "r11", "memory"\n    );\n    return ret;\n}\n\nstatic inline long __check_sys_err(long ret) {\n    if ((unsigned long)ret >= (unsigned long)-4095) {\n        errno = -ret;\n        return -1;\n    }\n    return ret;\n}\n\nint _read(int file, char *ptr, int len) { return (int)__check_sys_err(__syscall6(SYS_read, file, (long)ptr, len, 0, 0, 0)); }\nint _write(int file, char *ptr, int len) { return (int)__check_sys_err(__syscall6(SYS_write, file, (long)ptr, len, 0, 0, 0)); }\nint _open(const char *name, int flags, int mode) { return (int)__check_sys_err(__syscall6(SYS_open, (long)name, flags, mode, 0, 0, 0)); }\nint _close(int file) { return (int)__check_sys_err(__syscall6(SYS_close, file, 0, 0, 0, 0, 0)); }\nint _lseek(int file, int ptr, int dir) { return (int)__check_sys_err(__syscall6(SYS_lseek, file, ptr, dir, 0, 0, 0)); }\nint _getpid(void) { return (int)__check_sys_err(__syscall6(SYS_getpid, 0, 0, 0, 0, 0, 0)); }\nint _kill(int pid, int sig) { return (int)__check_sys_err(__syscall6(SYS_kill, pid, sig, 0, 0, 0, 0)); }\nvoid _exit(int status) { __syscall6(SYS_exit, status, 0, 0, 0, 0, 0); while (1) {} }\nint _isatty(int file) { return (file >= 0 && file <= 2) ? 1 : 0; }\nint _fstat(int file, struct stat *st) { if (!st) { errno = EINVAL; return -1; } st->st_mode = S_IFCHR; st->st_blksize = 2048; return 0; }\nvoid *_sbrk(ptrdiff_t incr) {\n    static void *current_brk = NULL;\n    if (current_brk == NULL) {\n        long res = __syscall6(SYS_brk, 0, 0, 0, 0, 0, 0);\n        if ((unsigned long)res >= (unsigned long)-4095) { errno = ENOMEM; return (void *)-1; }\n        current_brk = (void *)res;\n    }\n    if (incr == 0) return current_brk;\n    void *new_brk = (char *)current_brk + incr;\n    long res = __syscall6(SYS_brk, (long)new_brk, 0, 0, 0, 0, 0);\n    if ((void *)res < new_brk) { errno = ENOMEM; return (void *)-1; }\n    void *old_brk = current_brk;\n    current_brk = (void *)res;\n    return old_brk;\n}\n\nint read(int file, void *ptr, size_t len) { return _read(file, (char *)ptr, (int)len); }\nint write(int file, const void *ptr, size_t len) { return _write(file, (char *)ptr, (int)len); }\nint open(const char *name, int flags, int mode) { return _open(name, flags, mode); }\nint close(int file) { return _close(file); }\noff_t lseek(int file, off_t ptr, int dir) { return _lseek(file, (int)ptr, dir); }\nint fstat(int file, struct stat *st) { return _fstat(file, st); }\nint isatty(int file) { return _isatty(file); }\nvoid *sbrk(ptrdiff_t incr) { return _sbrk(incr); }\nint getpid(void) { return _getpid(); }\nint kill(int pid, int sig) { return _kill(pid, sig); }\n' > $(PETRA_SYS_DIR)/syscalls.c;
+	@echo "==> Applying bash petra-OS config patch..."
+	@grep -q "bash_cv_func_strtoimax = no" $(BASH_SRC)/configure || \
+		patch -p1 -d $(BASH_SRC) < $(PATCHES_DIR)/0001-Petra-OS-bash-port.patch
 
-# 4. Configure out-of-tree newlib build
+# ------------------------------------------------------------------------------
+# 4. Configure musl libc
+# ------------------------------------------------------------------------------
 configure: patch
-	@mkdir -p $(NEWLIB_BUILD)
-	@if [ ! -f $(NEWLIB_BUILD)/Makefile ]; then \
-		echo "==> Configuring newlib for target $(TARGET)-petra using CC=$(CC)..."; \
-		chmod +x $(NEWLIB_SRC)/config.sub $(NEWLIB_SRC)/configure $(NEWLIB_SRC)/newlib/configure; \
-		cd $(NEWLIB_BUILD) && $(NEWLIB_SRC)/configure \
-			--target=$(TARGET)-petra \
+	@if [ ! -f $(MUSL_BUILD)/Makefile ]; then \
+		echo "==> Configuring musl libc $(MUSL_VERSION)..."; \
+		mkdir -p $(MUSL_BUILD); \
+		cd $(MUSL_BUILD) && CC="$(CC)" $(MUSL_SRC)/configure \
 			--prefix=$(SYSROOT) \
-			--disable-newlib-supplied-syscalls \
-			--enable-newlib-io-long-long \
-			--disable-multilib \
-			--disable-dependency-tracking \
-			--disable-libgloss \
-			MAKEINFO=true \
-			CC_FOR_TARGET="$(CC)" \
-			AR_FOR_TARGET="$(AR)" \
-			AS_FOR_TARGET="$(AS)" \
-			RANLIB_FOR_TARGET="$(RANLIB)" \
-			LD_FOR_TARGET="$(CC)"; \
+			--exec-prefix=$(SYSROOT) \
+			--syslibdir=$(SYSROOT)/lib \
+			--includedir=$(SYSROOT)/include \
+			--disable-shared \
+			--enable-static; \
 	fi
 
-# 5. Compile newlib
+# ------------------------------------------------------------------------------
+# 5. Build musl static library
+# ------------------------------------------------------------------------------
 build: configure
-	@echo "==> Compiling newlib..."
-	@$(MAKE) -C $(NEWLIB_BUILD) \
-		MAKEINFO=true \
-		CC_FOR_TARGET="$(CC)" \
-		AR_FOR_TARGET="$(AR)" \
-		AS_FOR_TARGET="$(AS)" \
-		RANLIB_FOR_TARGET="$(RANLIB)" \
-		LD_FOR_TARGET="$(CC)"
+	@echo "==> Compiling musl libc..."
+	@$(MAKE) -C $(MUSL_BUILD)
 
-# 6. Install headers and libraries into sysroot
+# ------------------------------------------------------------------------------
+# 6. Install musl libc headers & static library into sysroot
+# ------------------------------------------------------------------------------
 install: build
-	@echo "==> Installing libc to sysroot..."
-	@$(MAKE) -C $(NEWLIB_BUILD) install \
-		MAKEINFO=true \
-		CC_FOR_TARGET="$(CC)" \
-		AR_FOR_TARGET="$(AR)" \
-		AS_FOR_TARGET="$(AS)" \
-		RANLIB_FOR_TARGET="$(RANLIB)" \
-		LD_FOR_TARGET="$(CC)"
-	@if [ -d $(SYSROOT)/$(TARGET)-petra ]; then \
-		cp -r $(SYSROOT)/$(TARGET)-petra/* $(SYSROOT)/; \
-	fi
-	@echo "==> Compiling Petra OS crt0.o and system call stubs..."
-	@$(CC) -I$(SYSROOT)/include -c $(PETRA_SYS_DIR)/crt0.S -o $(SYSROOT)/lib/crt0.o
-	@$(CC) -I$(SYSROOT)/include -c $(PETRA_SYS_DIR)/syscalls.c -o $(BUILD_DIR)/syscalls.o
-	@$(AR) r $(SYSROOT)/lib/libc.a $(BUILD_DIR)/syscalls.o
-	@$(RANLIB) $(SYSROOT)/lib/libc.a
+	@echo "==> Installing musl libc into sysroot ($(SYSROOT))..."
+	@$(MAKE) -C $(MUSL_BUILD) install
+	@ls -la $(SYSROOT)/lib/libc.a 2>/dev/null || { echo "ERROR: libc.a not found in $(SYSROOT)/lib after install"; exit 1; }
+	@echo "==> musl libc sysroot ready. Proceeding to bash build..."
+	@$(MAKE) bash-install
 
-# 7. Generate test C application and pack initramfs
-test-app: install
-	@echo "==> Creating test_app source..."
-	@mkdir -p $(INITRAMFS_DIR) $(INITRAMFS_DIR)/sbin $(INITRAMFS_DIR)/etc $(INITRAMFS_DIR)/bin
-	@printf '#include <stdio.h>\n#include <stdlib.h>\n#include <string.h>\n\nint main(int argc, char **argv) {\n    printf("[Petra OS Userland] Hello from newlib C Standard Library!\\n");\n    void *ptr = malloc(1024);\n    if (!ptr) {\n        printf("[Petra OS Userland] Error: malloc failed!\\n");\n        return 1;\n    }\n    strcpy((char *)ptr, "[Petra OS Userland] Dynamic memory allocation (sbrk/malloc) verified successfully.");\n    printf("%%s\\n", (char *)ptr);\n    free(ptr);\n    return 0;\n}\n' > $(BUILD_DIR)/test_app.c
-	@echo "==> Compiling test_app with $(CC)..."
-	@$(CC) -I$(SYSROOT)/include -L$(SYSROOT)/lib -nostdlib -no-pie $(SYSROOT)/lib/crt0.o $(BUILD_DIR)/test_app.c -lc -lgcc -o $(INITRAMFS_DIR)/test_app
-	@cp $(INITRAMFS_DIR)/test_app $(INITRAMFS_DIR)/sbin/init
-	@cp $(INITRAMFS_DIR)/test_app $(INITRAMFS_DIR)/etc/init
-	@cp $(INITRAMFS_DIR)/test_app $(INITRAMFS_DIR)/bin/init
-	@cp $(INITRAMFS_DIR)/test_app $(INITRAMFS_DIR)/bin/sh
+# ------------------------------------------------------------------------------
+# 7. Configure, Build & Install GNU Bash into Initramfs
+# ------------------------------------------------------------------------------
+bash-install:
+	@rm -rf $(BASH_BUILD)
+	@mkdir -p $(BASH_BUILD)
+	@echo "==> Configuring GNU Bash $(BASH_VERSION) for $(HOST_TRIPLE)..."
+	@chmod +x $(BASH_SRC)/support/config.sub $(BASH_SRC)/support/config.guess $(BASH_SRC)/configure
+	@cd $(BASH_BUILD) && $(CROSS_ENV) $(BASH_SRC)/configure \
+		--host=$(HOST_TRIPLE) \
+		--build=$(BUILD_TRIPLE) \
+		--prefix=/ \
+		--enable-static-link \
+		--without-bash-malloc \
+		--disable-nls \
+		--disable-job-control \
+		--disable-net-redirections \
+		--disable-rpath \
+		--with-installed-readline=no
+	@echo "==> Compiling GNU Bash..."
+	@$(MAKE) -C $(BASH_BUILD)
+	@echo "==> Installing GNU Bash binary into initramfs..."
+	@mkdir -p $(INITRAMFS_DIR)/bin $(INITRAMFS_DIR)/sbin $(INITRAMFS_DIR)/etc $(INITRAMFS_DIR)/tmp
+	@cp $(BASH_BUILD)/bash $(INITRAMFS_DIR)/bin/bash
+	@$(STRIP) --strip-all $(INITRAMFS_DIR)/bin/bash 2>/dev/null || true
+	@cp $(INITRAMFS_DIR)/bin/bash $(INITRAMFS_DIR)/bin/sh
+	@cp $(INITRAMFS_DIR)/bin/bash $(INITRAMFS_DIR)/sbin/init
+	@cp $(INITRAMFS_DIR)/bin/bash $(INITRAMFS_DIR)/etc/init
 	@echo "==> Packing initramfs.cpio archive..."
 	@cd $(INITRAMFS_DIR) && find . -print0 | cpio --null -ov --format=newc > $(INITRAMFS_CPIO)
+	@echo "==> Build complete!"
+	@file $(INITRAMFS_DIR)/bin/bash
 
+# ------------------------------------------------------------------------------
 # 8. Run in QEMU via cargo-osdk
-run: test-app
+# ------------------------------------------------------------------------------
+run: install
 	@echo "==> Launching Petra OS in QEMU via cargo osdk..."
 	cargo osdk run
 
-# 9. Clean artifacts
+# ------------------------------------------------------------------------------
+# 9. Clean Artifacts
+# ------------------------------------------------------------------------------
 clean:
 	@echo "==> Cleaning build environment..."
 	rm -rf $(BUILD_DIR) $(SRC_DIR) $(SYSROOT) $(INITRAMFS_DIR)
+

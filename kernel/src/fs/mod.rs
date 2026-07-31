@@ -2,6 +2,7 @@ pub mod devfs;
 pub mod exfat;
 pub mod ext2;
 pub mod fd;
+pub mod initramfs;
 pub mod procfs;
 pub mod ramfs;
 pub mod socketfs;
@@ -39,6 +40,11 @@ pub fn init() -> Result<()> {
     // Create /proc directory and mount procfs
     root.inode.mkdir("proc", 0o755)?;
     vfs::mount("procfs", "/proc", 0, &[])?;
+
+    // Unpack the bootloader-provided initramfs into the root filesystem so
+    // that user-space executables (e.g. /bin/bash) are available before the
+    // init process is spawned.
+    crate::fs::initramfs::unpack_initramfs(&root)?;
 
     Ok(())
 }
