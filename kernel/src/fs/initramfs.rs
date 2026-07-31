@@ -59,11 +59,17 @@ pub fn unpack_initramfs(root: &Arc<Dentry>) -> Result<()> {
         if name_end > archive.len() {
             return Err(Error::InvalidArgs);
         }
-        let name =
+        let raw_name =
             String::from_utf8(archive[pos..name_end].to_vec()).map_err(|_| Error::InvalidArgs)?;
         pos = align4(name_end);
 
-        if name.trim_end_matches('\0') == CPIO_TRAILER {
+        // The cpio `newc` format includes a NUL terminator in the name
+        // field (counted in `namesize`).  Strip it so that filesystem
+        // entry names do not contain embedded NUL bytes — otherwise
+        // later path resolution will fail to match them.
+        let name = raw_name.trim_end_matches('\0');
+
+        if name == CPIO_TRAILER {
             break;
         }
 
@@ -74,7 +80,7 @@ pub fn unpack_initramfs(root: &Arc<Dentry>) -> Result<()> {
         let data = &archive[pos..data_end];
         offset = align4(data_end);
 
-        unpack_entry(root, &name, mode, data)?;
+        unpack_entry(root, name, mode, data)?;
     }
 
     Ok(())
