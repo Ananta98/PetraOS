@@ -235,6 +235,19 @@ impl Process {
             .expect("init process not found")
     }
 
+    /// Returns the `VmaManager` of the currently-running process, if any.
+    ///
+    /// Unlike [`current`], this method does **not** fall back to PID 1 —
+    /// it returns `None` when no user process is associated with the current
+    /// task, which is the correct behaviour for the page fault handler (we do
+    /// not want to accidentally resolve a kernel page fault via the init VM).
+    pub fn current_vm() -> Option<Arc<VmaManager>> {
+        let task = ostd::task::Task::current()?;
+        let task_data = crate::scheduler::TaskData::from_task(&task)?;
+        let proc = PROCESS_TABLE.get_process(task_data.pid)?;
+        Some(proc.vm.clone())
+    }
+
     // ---------------------------------------------------------------------------
     // Unix-like lifecycle methods
     // ---------------------------------------------------------------------------

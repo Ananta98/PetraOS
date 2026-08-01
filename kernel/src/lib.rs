@@ -11,6 +11,7 @@ mod drivers;
 mod fs;
 mod ipc;
 mod irq;
+mod logger;
 mod modules;
 mod net;
 mod proc;
@@ -18,7 +19,7 @@ mod scheduler;
 mod syscall;
 mod vm;
 
-use ostd::{early_println, task::scheduler::enable_preemption_on_cpu};
+use ostd::task::scheduler::enable_preemption_on_cpu;
 use proc::thread::KernelThread;
 
 fn ap_entry() {
@@ -32,6 +33,7 @@ fn ap_entry() {
 
 #[ostd::main]
 fn kernel_main() {
+    logger::init();
     arch::init();
     vm::init();
     irq::init();

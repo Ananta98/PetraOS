@@ -45,6 +45,7 @@ pub fn load_elf_image(vm: &Arc<VmaManager>, elf_image: &[u8]) -> Result<LoadedEl
                 let file_size = checked_usize(ph.file_size())?;
                 let mem_size = checked_usize(ph.mem_size())?;
                 if file_size > mem_size {
+                    ostd::early_println!("[load_elf_image] Error: file_size > mem_size");
                     return Err(Error::InvalidArgs);
                 }
                 if mem_size == 0 {
@@ -56,6 +57,7 @@ pub fn load_elf_image(vm: &Arc<VmaManager>, elf_image: &[u8]) -> Result<LoadedEl
                     .checked_add(file_size)
                     .ok_or(Error::InvalidArgs)?;
                 if file_end > elf_image.len() {
+                    ostd::early_println!("[load_elf_image] Error: file_end > elf_image.len()");
                     return Err(Error::InvalidArgs);
                 }
 
@@ -66,6 +68,11 @@ pub fn load_elf_image(vm: &Arc<VmaManager>, elf_image: &[u8]) -> Result<LoadedEl
                 let mut map_start = align_down(segment_start);
                 let map_end = align_up(segment_end)?;
 
+                ostd::early_println!(
+                    "[load_elf_image] PT_LOAD segment: virt {:#x}..{:#x}, map {:#x}..{:#x}, file_sz {:#x}, mem_sz {:#x}",
+                    segment_start, segment_end, map_start, map_end, file_size, mem_size
+                );
+
                 if map_start < load_end {
                     map_start = load_end;
                 }
@@ -74,13 +81,13 @@ pub fn load_elf_image(vm: &Arc<VmaManager>, elf_image: &[u8]) -> Result<LoadedEl
                     let map_size = map_end.checked_sub(map_start).ok_or(Error::InvalidArgs)?;
                     let original_flags = page_flags_from_elf(ph);
                     vm.map_region(map_start, map_size, original_flags | PageFlags::W)?;
-                    if !original_flags.contains(PageFlags::W) {
-                        vm.mprotect(map_start, map_size, original_flags)?;
-                    }
                 }
 
                 if file_size > 0 {
-                    vm.copy_to_user(segment_start, &elf_image[file_offset..file_end])?;
+                    if let Err(e) = vm.copy_to_user(segment_start, &elf_image[file_offset..file_end]) {
+                        ostd::early_println!("[load_elf_image] copy_to_user failed at {:#x}: {:?}", segment_start, e);
+                        return Err(e);
+                    }
                 }
 
                 load_start = cmp::min(load_start, align_down(segment_start));
@@ -107,14 +114,44 @@ pub fn load_elf_image(vm: &Arc<VmaManager>, elf_image: &[u8]) -> Result<LoadedEl
         }
     }
 
+    // Apply final mprotect permissions for non-writable segments after all memory copies
+    for ph in elf.program_iter() {
+        if let Ok(Type::Load) = ph.get_type() {
+            let mem_size = checked_usize(ph.mem_size())?;
+            if mem_size == 0 {
+                continue;
+            }
+            let segment_start = checked_usize(ph.virtual_addr())?;
+            let segment_end = segment_start
+                .checked_add(mem_size)
+                .ok_or(Error::InvalidArgs)?;
+            let map_start = align_down(segment_start);
+            let map_end = align_up(segment_end)?;
+            let map_size = map_end.checked_sub(map_start).ok_or(Error::InvalidArgs)?;
+
+            let original_flags = page_flags_from_elf(ph);
+            if !original_flags.contains(PageFlags::W) {
+                if let Err(e) = vm.mprotect(map_start, map_size, original_flags) {
+                    ostd::early_println!("[load_elf_image] mprotect failed at {:#x}: {:?}", map_start, e);
+                    return Err(e);
+                }
+            }
+        }
+    }
+
     if load_end == 0 {
+        ostd::early_println!("[load_elf_image] Error: load_end is 0");
         return Err(Error::InvalidArgs);
     }
 
-    ostd::early_println!("[Load ELF] Successfully Loaded ELF");
+    let entry = checked_usize(elf.header.pt2.entry_point())?;
+    ostd::early_println!(
+        "[load_elf_image] Successfully Loaded ELF: entry={:#x}, load_start={:#x}, load_end={:#x}",
+        entry, load_start, load_end
+    );
 
     Ok(LoadedElf {
-        entry: checked_usize(elf.header.pt2.entry_point())?,
+        entry,
         load_start,
         load_end,
         tls: tls_template,

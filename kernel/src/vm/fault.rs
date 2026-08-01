@@ -122,13 +122,28 @@ impl VmaManager {
     }
 }
 
-/// Top-level page fault handler registered with the architectural CPU exception table.
+/// Top-level page fault handler for **kernel-mode** page faults on user-space addresses.
 ///
-/// Delegates processing of the user-space page fault to the active process's `VmaManager`.
+/// Registered via `inject_user_page_fault_handler` at boot.  This handler is
+/// invoked by OSTD's kernel trap path (e.g., during `copy_to_user` / `copy_from_user`).
+///
+/// **Note:** user-mode page faults (those occurring inside `UserMode::execute`)
+/// are returned as `ReturnReason::UserException` and handled in the userspace
+/// execution loop — they never reach this function.
 pub fn handle_page_fault(info: &CpuException) -> Result<(), ()> {
     if let CpuException::PageFault(pf_info) = info {
-        let vma_manager = VMA_MANAGER.get().cloned();
-        if let Some(manager) = vma_manager {
+        // Try the current process's address space first.
+        if let Some(manager) = crate::proc::process::Process::current_vm() {
+            if manager
+                .alloc_frame_for_fault(pf_info.addr, pf_info.error_code)
+                .is_ok()
+            {
+                return Ok(());
+            }
+        }
+
+        // Fallback: global VMA_MANAGER (early boot / kernel-mode faults).
+        if let Some(manager) = VMA_MANAGER.get().cloned() {
             if manager
                 .alloc_frame_for_fault(pf_info.addr, pf_info.error_code)
                 .is_ok()

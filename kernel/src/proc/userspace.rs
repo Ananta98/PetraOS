@@ -227,6 +227,26 @@ pub fn run_process_user_mode(
                 let ctx = user_mode.context_mut();
                 let trap = ctx.trap_number();
                 let err = ctx.trap_error_code();
+                if let Some(ostd::arch::cpu::context::CpuException::PageFault(info)) =
+                    ctx.take_exception()
+                {
+                    if process
+                        .vm
+                        .alloc_frame_for_fault(info.addr, info.error_code)
+                        .is_ok()
+                    {
+                        continue;
+                    }
+                }
+                ostd::early_println!(
+                    "[userspace] Unhandled User Exception for process '{}' (PID {}): trap_num={}, error_code={}, rip={:#x}, rsp={:#x}",
+                    process.name,
+                    process.pid.as_u32(),
+                    trap,
+                    err,
+                    ctx.rip(),
+                    ctx.rsp()
+                );
                 log::error!(
                     "Unhandled User Exception: trap_num={}, error_code={}",
                     trap,

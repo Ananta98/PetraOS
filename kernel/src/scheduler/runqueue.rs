@@ -232,14 +232,24 @@ impl LocalRunQueue<Task> for PerCpuClassRqSet {
             let task = SchedClassPolicy::pick_next(&mut self.fair, self.vtime).unwrap();
             self.nr_runnable -= 1;
             task
-        } else if let Some(idle) = &self.idle {
-            idle.clone()
+        } else if let Some(idle) = self.idle.take() {
+            // Take the idle task out of self.idle so the slot is vacant
+            // while the idle thread is executing. It will be restored below
+            // if / when it is displaced from `current`.
+            idle
         } else {
             return None;
         };
 
         if let Some(prev_task) = self.current.replace(next_task) {
-            self.enqueue_task(prev_task);
+            let (prev_class, _) = crate::scheduler::get_sched_data(&prev_task);
+            if matches!(prev_class, SchedClass::Idle) {
+                // The idle task is never counted in nr_runnable; put it back
+                // into its dedicated slot instead of going through enqueue_task.
+                self.idle = Some(prev_task);
+            } else {
+                self.enqueue_task(prev_task);
+            }
         }
 
         self.vtime = self.vtime.max(self.min_vruntime());
