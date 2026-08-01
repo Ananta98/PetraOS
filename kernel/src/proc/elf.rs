@@ -63,20 +63,27 @@ pub fn load_elf_image(vm: &Arc<VmaManager>, elf_image: &[u8]) -> Result<LoadedEl
                 let segment_end = segment_start
                     .checked_add(mem_size)
                     .ok_or(Error::InvalidArgs)?;
-                let map_start = align_down(segment_start);
+                let mut map_start = align_down(segment_start);
                 let map_end = align_up(segment_end)?;
-                let map_size = map_end.checked_sub(map_start).ok_or(Error::InvalidArgs)?;
 
-                let original_flags = page_flags_from_elf(ph);
-                vm.map_region(map_start, map_size, original_flags | PageFlags::W)?;
+                if map_start < load_end {
+                    map_start = load_end;
+                }
+
+                if map_start < map_end {
+                    let map_size = map_end.checked_sub(map_start).ok_or(Error::InvalidArgs)?;
+                    let original_flags = page_flags_from_elf(ph);
+                    vm.map_region(map_start, map_size, original_flags | PageFlags::W)?;
+                    if !original_flags.contains(PageFlags::W) {
+                        vm.mprotect(map_start, map_size, original_flags)?;
+                    }
+                }
+
                 if file_size > 0 {
                     vm.copy_to_user(segment_start, &elf_image[file_offset..file_end])?;
                 }
-                if !original_flags.contains(PageFlags::W) {
-                    vm.mprotect(map_start, map_size, original_flags)?;
-                }
 
-                load_start = cmp::min(load_start, map_start);
+                load_start = cmp::min(load_start, align_down(segment_start));
                 load_end = cmp::max(load_end, map_end);
             }
             Type::Tls => {
@@ -103,6 +110,8 @@ pub fn load_elf_image(vm: &Arc<VmaManager>, elf_image: &[u8]) -> Result<LoadedEl
     if load_end == 0 {
         return Err(Error::InvalidArgs);
     }
+
+    ostd::early_println!("[Load ELF] Successfully Loaded ELF");
 
     Ok(LoadedElf {
         entry: checked_usize(elf.header.pt2.entry_point())?,

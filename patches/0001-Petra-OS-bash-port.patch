@@ -22,7 +22,7 @@ diff --git a/configure b/configure
  case " $LIBOBJS " in
    *" strtoimax.$ac_objext "* ) ;;
    *) LIBOBJS="$LIBOBJS strtoimax.$ac_objext"
-  ;;
+   ;;
  esac
  
  fi

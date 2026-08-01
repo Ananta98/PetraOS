@@ -58,7 +58,7 @@ pub fn spawn_init_process() {
         let executable_name = path.rfind('/').map_or(path, |i| &path[i + 1..]);
         ostd::early_println!("[init] Trying to load {}", path);
         match load_init_exec(vm.clone(), path, executable_name) {
-            Ok((process, loaded)) => {
+            Ok((process, loaded, stack_ptr)) => {
                 let entry = loaded.entry;
                 ostd::early_println!("[init] Successfully loaded {} at {:#x}", path, entry);
 
@@ -73,11 +73,6 @@ pub fn spawn_init_process() {
                 let _stderr = fds
                     .open("/dev/console", 1, 0)
                     .expect("failed to open stderr");
-
-                // Set up the user-space stack (argv, envp, auxv per System V ABI).
-                let stack_ptr =
-                    crate::proc::userspace::setup_user_stack(&process.vm, &[path], &[], entry)
-                        .expect("failed to setup user stack");
 
                 ostd::early_println!(
                     "[init] Stack pointer ready: {:#x}. Running user mode...",
@@ -111,13 +106,13 @@ pub fn spawn_init_process() {
 /// Try to load `path` as an ELF executable and exec it into a new init process.
 ///
 /// Reads the file from the VFS, creates a fresh `Process`, and replaces its
-/// address space with the loaded ELF image.  Returns `Ok((process, loaded))`
+/// address space with the loaded ELF image.  Returns `Ok((process, loaded, stack_ptr))`
 /// on success, or `Err` if the path could not be resolved, read, or loaded.
 fn load_init_exec(
     vm: Arc<VmaManager>,
     path: &str,
     executable_name: &str,
-) -> core::result::Result<(Process, LoadedElf), ostd::Error> {
+) -> core::result::Result<(Process, LoadedElf, usize), ostd::Error> {
     ostd::early_println!("[load_init_exec] Resolving path: {}", path);
     let dentry = match crate::fs::vfs::resolve_path(path) {
         Ok(d) => d,
@@ -138,7 +133,7 @@ fn load_init_exec(
     );
 
     let mut process = Process::new(vm, executable_name);
-    let (loaded, _stack_ptr) = match process.exec(path, &elf_image, &[path], &[]) {
+    let (loaded, stack_ptr) = match process.exec(path, &elf_image, &[path], &[]) {
         Ok(res) => res,
         Err(e) => {
             ostd::early_println!("[load_init_exec] process.exec failed for {}: {:?}", path, e);
@@ -146,5 +141,5 @@ fn load_init_exec(
         }
     };
 
-    Ok((process, loaded))
+    Ok((process, loaded, stack_ptr))
 }

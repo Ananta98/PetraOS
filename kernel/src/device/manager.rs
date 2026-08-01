@@ -4,6 +4,7 @@ use crate::device::device::{Device, DeviceType};
 use crate::device::driver::Driver;
 use crate::device::driver_module::DriverKernelModule;
 use crate::fs::vfs::FileType;
+use crate::modules::KernelModule;
 use alloc::collections::BTreeMap;
 use alloc::format;
 use alloc::string::String;
@@ -59,8 +60,9 @@ pub fn register_driver(driver: Arc<dyn Driver>) -> Result<(), ostd::Error> {
 
     // Register driver as a KernelModule in crate::modules
     let module = Arc::new(DriverKernelModule::new(driver.clone()));
+    let module_name = module.info().name;
     let _ = crate::modules::register_module(module);
-    let _ = crate::modules::load_module(driver.name());
+    let _ = crate::modules::load_module(&module_name);
 
     // Immediately attempt matching with devices already attached to driver's bus
     match_driver_with_bus(driver.clone());
