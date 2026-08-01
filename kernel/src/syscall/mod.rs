@@ -133,6 +133,7 @@ syscall_table! {
     14  => signal::syscall_rt_sigprocmask,         // SYS_rt_sigprocmask
     15  => signal::syscall_rt_sigreturn,           // SYS_rt_sigreturn
     16  => fs::syscall_ioctl,                      // SYS_ioctl
+    20  => proc::syscall_getpid,                   // SYS_getpid
     21  => fs::syscall_access,                     // SYS_access
     22  => fs::syscall_pipe2,                      // SYS_pipe
     23  => fs::syscall_select,                     // SYS_select

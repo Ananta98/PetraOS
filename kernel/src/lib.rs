@@ -42,10 +42,6 @@ fn kernel_main() {
     net::init();
     scheduler::init();
     ostd::boot::smp::register_ap_entry(ap_entry);
-    crate::proc::thread::KernelThread::spawn_idle(proc::spawn_init_process)
-        .expect("failed to spawn BSP idle thread");
-
-    loop {
-        ostd::task::halt_cpu();
-    }
+    crate::proc::thread::spawn_kernel_thread("main", proc::spawn_init_process)
+        .expect("failed to spawn init thread");
 }

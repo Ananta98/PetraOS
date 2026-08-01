@@ -19,8 +19,13 @@ pub fn syscall_read(
 
 fn do_read(fd: i32, user_buf: usize, len: usize, vm: &VmaManager) -> Result<usize, Error> {
     let mut kbuf = alloc::vec![0u8; len];
-    let bytes = Process::current().fd_table.lock().read(fd, &mut kbuf)?;
-    vm.copy_to_user(user_buf, &kbuf[..bytes])
-        .map_err(|_| Error::AccessDenied)?;
-    Ok(bytes)
+    loop {
+        let bytes = Process::current().fd_table.lock().read(fd, &mut kbuf)?;
+        if bytes > 0 || fd != 0 {
+            vm.copy_to_user(user_buf, &kbuf[..bytes])
+                .map_err(|_| Error::AccessDenied)?;
+            return Ok(bytes);
+        }
+        ostd::task::Task::yield_now();
+    }
 }

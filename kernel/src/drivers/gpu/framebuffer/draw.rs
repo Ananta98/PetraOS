@@ -1,6 +1,7 @@
 use crate::drivers::gpu::framebuffer::color::{Color, PixelFormat, VideoMode};
 use crate::drivers::gpu::framebuffer::font;
 use alloc::vec::Vec;
+use core::sync::atomic::{AtomicU32, Ordering};
 use ostd::sync::SpinLock;
 
 /// A generic software-managed Framebuffer containing video mode metrics
@@ -8,6 +9,8 @@ use ostd::sync::SpinLock;
 pub struct Framebuffer {
     pub(crate) mode: VideoMode,
     pub pixels: SpinLock<Vec<u8>>,
+    pub cursor_x: AtomicU32,
+    pub cursor_y: AtomicU32,
 }
 
 impl Framebuffer {
@@ -17,7 +20,59 @@ impl Framebuffer {
         Self {
             mode,
             pixels: SpinLock::new(alloc::vec![0u8; size]),
+            cursor_x: AtomicU32::new(0),
+            cursor_y: AtomicU32::new(0),
         }
+    }
+
+    /// Write character bytes to the screen with line wrapping and scrolling.
+    pub fn write_bytes(&self, buf: &[u8]) {
+        let text_color = Color::WHITE;
+        let mut cx = self.cursor_x.load(Ordering::Relaxed);
+        let mut cy = self.cursor_y.load(Ordering::Relaxed);
+        let font_w = font::FONT_WIDTH as u32;
+        let font_h = font::FONT_HEIGHT as u32;
+
+        for &byte in buf {
+            match byte {
+                b'\n' => {
+                    cx = 0;
+                    cy += font_h;
+                }
+                b'\r' => {
+                    cx = 0;
+                }
+                0x08 | 0x7f => {
+                    if cx >= font_w {
+                        cx -= font_w;
+                        self.draw_rect(cx, cy, font_w, font_h, Color::BLACK);
+                    }
+                }
+                ch if ch >= 0x20 => {
+                    if cx + font_w > self.mode.width {
+                        cx = 0;
+                        cy += font_h;
+                    }
+                    if cy + font_h > self.mode.height {
+                        self.clear(Color::BLACK);
+                        cx = 0;
+                        cy = 0;
+                    }
+                    self.draw_char(cx, cy, ch as char, text_color);
+                    cx += font_w;
+                }
+                _ => {}
+            }
+
+            if cy + font_h > self.mode.height {
+                self.clear(Color::BLACK);
+                cx = 0;
+                cy = 0;
+            }
+        }
+
+        self.cursor_x.store(cx, Ordering::Relaxed);
+        self.cursor_y.store(cy, Ordering::Relaxed);
     }
 
     /// Returns the video mode metrics of the framebuffer.

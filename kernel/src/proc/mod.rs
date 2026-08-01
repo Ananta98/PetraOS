@@ -35,26 +35,20 @@ use process::Process;
 /// # Panics
 /// Panics if `vm::init()` has not been called before this function.
 pub fn spawn_init_process() {
-    const DEFAULT_INIT_EXEC_PATHS: &[&str] = &["/sbin/init", "/etc/init", "/bin/init", "/bin/sh"];
+    const DEFAULT_INIT_EXEC_PATHS: &[&str] = &[
+        "/bin/bash",
+        "/sbin/init",
+        "/etc/init",
+        "/bin/init",
+        "/bin/sh",
+    ];
 
     let vm = VMA_MANAGER
         .get()
         .expect("vm::init() must be called before spawning init")
         .clone();
 
-    // Honour `init=...` from the kernel command line first, then fall back to
-    // the canonical init path list.
-    let cmdline = ostd::boot::boot_info().kernel_cmdline.clone();
-    let mut init_exec_paths: Vec<&str> = Vec::new();
-    for arg in cmdline.split_whitespace() {
-        if let Some(value) = arg.strip_prefix("init=") {
-            init_exec_paths.push(value);
-        }
-    }
-    init_exec_paths.extend_from_slice(DEFAULT_INIT_EXEC_PATHS);
-
-    ostd::early_println!("[init] Spawning init process...");
-    for path in init_exec_paths {
+    for &path in DEFAULT_INIT_EXEC_PATHS {
         let executable_name = path.rfind('/').map_or(path, |i| &path[i + 1..]);
         ostd::early_println!("[init] Trying to load {}", path);
         match load_init_exec(vm.clone(), path, executable_name) {
@@ -79,7 +73,7 @@ pub fn spawn_init_process() {
                     stack_ptr
                 );
 
-                // Spawn the main thread.  Its body activates the process VM
+                // Spawn the main thread. Its body activates the process VM
                 // and enters user mode, executing the init program.
                 let mut process_for_thread = process.clone();
                 process
@@ -92,7 +86,6 @@ pub fn spawn_init_process() {
                         ostd::early_println!("[init] Process user mode returned: {:?}", res);
                     })
                     .expect("failed to spawn init thread");
-
                 return;
             }
             Err(e) => {
@@ -133,7 +126,15 @@ fn load_init_exec(
     );
 
     let mut process = Process::new(vm, executable_name);
-    let (loaded, stack_ptr) = match process.exec(path, &elf_image, &[path], &[]) {
+    let envp = &[
+        "PATH=/bin:/sbin:/usr/bin:/usr/sbin",
+        "PS1=bash-5.2# ",
+        "TERM=linux",
+        "HOME=/root",
+        "PWD=/",
+    ];
+    let argv = &[path, "-i"];
+    let (loaded, stack_ptr) = match process.exec(path, &elf_image, argv, envp) {
         Ok(res) => res,
         Err(e) => {
             ostd::early_println!("[load_init_exec] process.exec failed for {}: {:?}", path, e);

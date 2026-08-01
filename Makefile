@@ -210,7 +210,10 @@ bash-build: bash-configure
 		echo "==> Compiling GNU Bash..."; \
 		$(MAKE) -C $(BASH_BUILD); \
 		echo "==> Installing GNU Bash binary into initramfs..."; \
-		mkdir -p $(INITRAMFS_DIR)/bin $(INITRAMFS_DIR)/sbin $(INITRAMFS_DIR)/etc $(INITRAMFS_DIR)/tmp $(INITRAMFS_DIR)/dev; \
+		mkdir -p $(INITRAMFS_DIR)/bin $(INITRAMFS_DIR)/sbin $(INITRAMFS_DIR)/etc $(INITRAMFS_DIR)/tmp $(INITRAMFS_DIR)/dev $(INITRAMFS_DIR)/proc $(INITRAMFS_DIR)/sys $(INITRAMFS_DIR)/usr/bin $(INITRAMFS_DIR)/usr/sbin $(INITRAMFS_DIR)/usr/lib $(INITRAMFS_DIR)/root $(INITRAMFS_DIR)/var/tmp $(INITRAMFS_DIR)/var/log $(INITRAMFS_DIR)/var/run; \
+		echo "root:x:0:0:root:/root:/bin/bash" > $(INITRAMFS_DIR)/etc/passwd; \
+		echo "root:x:0:" > $(INITRAMFS_DIR)/etc/group; \
+		echo "export PATH=/bin:/sbin:/usr/bin:/usr/sbin" > $(INITRAMFS_DIR)/etc/profile; \
 		cp $(BASH_BUILD)/bash $(INITRAMFS_DIR)/bin/bash; \
 		$(STRIP) --strip-all $(INITRAMFS_DIR)/bin/bash 2>/dev/null || true; \
 		cp $(INITRAMFS_DIR)/bin/bash $(INITRAMFS_DIR)/bin/sh; \

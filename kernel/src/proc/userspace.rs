@@ -244,6 +244,7 @@ pub fn run_process_user_mode(
                         ctx.set_r11(rflags);
                     }
                     SyscallResult::Exit(status) => {
+                        ostd::early_println!("[userspace] Syscall {} requested exit with status {}", num, status);
                         exit_status = status;
                         break;
                     }

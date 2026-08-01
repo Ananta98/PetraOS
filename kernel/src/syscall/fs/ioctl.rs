@@ -93,6 +93,19 @@ pub fn syscall_ioctl(
             }
         }
         TCSETS => SyscallResult::from_result(Ok(0)),
-        _ => SyscallResult::from_result(Ok(0)),
+        0x540F => {
+            // TIOCGPGRP: Return current process group ID
+            if arg2 != 0 {
+                let pgid = proc.process_group.pgid.as_u32();
+                SyscallResult::from_result(vm.copy_to_user(arg2, &pgid.to_ne_bytes()).map(|_| 0))
+            } else {
+                SyscallResult::from_result(Ok(0))
+            }
+        }
+        0x5410 => {
+            // TIOCSPGRP: Set foreground process group
+            SyscallResult::from_result(Ok(0))
+        }
+        _ => SyscallResult::from_err(Error::InvalidArgs),
     }
 }

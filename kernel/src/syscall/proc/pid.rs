@@ -6,7 +6,7 @@ use crate::vm::vma::VmaManager;
 use ostd::Error;
 use ostd::arch::cpu::context::UserContext;
 
-/// `getpid()` — returns the process ID of the calling process (SYS_getpid = 39).
+/// `getpid()` — returns the process ID of the calling process (SYS_getpid = 39 or 20).
 pub fn syscall_getpid(
     _: usize,
     _: usize,

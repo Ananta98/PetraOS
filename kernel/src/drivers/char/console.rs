@@ -137,16 +137,22 @@ impl ConsoleDriver {
     // Output helpers
     // ------------------------------------------------------------------
 
-    /// Write bytes to the serial port (used for echoing as well).
+    /// Write bytes to the serial port and framebuffer display.
     fn serial_write(&self, buf: &[u8]) {
         if let Ok(s) = core::str::from_utf8(buf) {
             ostd::console::early_print(format_args!("{}", s));
         }
+        if let Some(fb) = crate::drivers::gpu::framebuffer::framebuffer() {
+            fb.write_bytes(buf);
+        }
     }
 
-    /// Echo a &str (avoids the UTF-8 check since it's already valid).
+    /// Echo a &str to serial port and framebuffer display.
     fn echo_str(&self, s: &str) {
         ostd::console::early_print(format_args!("{}", s));
+        if let Some(fb) = crate::drivers::gpu::framebuffer::framebuffer() {
+            fb.write_bytes(s.as_bytes());
+        }
     }
 
     /// Echo a byte slice.
@@ -248,6 +254,7 @@ impl crate::device::Driver for ConsoleDriver {
     fn probe(&self) -> Result<(), ostd::Error> {
         let driver = Arc::new(ConsoleDriver::new());
         let _ = super::register_char_device("console", driver.clone());
+        let _ = super::register_char_device("tty", driver.clone());
         CONSOLE.call_once(|| driver);
         Ok(())
     }
