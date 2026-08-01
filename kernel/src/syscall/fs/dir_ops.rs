@@ -1,7 +1,7 @@
 use crate::fs::vfs::resolve_path;
 use crate::proc::process::Process;
 use crate::proc::userspace::read_user_string;
-use crate::syscall::{SyscallResult, to_continue_i32};
+use crate::syscall::{SyscallResult};
 use crate::vm::vma::VmaManager;
 use alloc::string::String;
 use ostd::Error;
@@ -48,20 +48,20 @@ pub fn syscall_getcwd(
     let buf_ptr = arg0;
     let size = arg1;
     if buf_ptr == 0 || size < 2 {
-        return to_continue_i32(Err(Error::InvalidArgs));
+        return SyscallResult::from_err(Error::InvalidArgs);
     }
     let cwd = String::from("/");
     let bytes = cwd.as_bytes();
     if bytes.len() + 1 > size {
-        return to_continue_i32(Err(Error::InvalidArgs));
+        return SyscallResult::from_err(Error::InvalidArgs);
     }
     if vm.copy_to_user(buf_ptr, bytes).is_err() {
-        return to_continue_i32(Err(Error::InvalidArgs));
+        return SyscallResult::from_err(Error::InvalidArgs);
     }
     if vm.copy_to_user(buf_ptr + bytes.len(), &[0u8]).is_err() {
-        return to_continue_i32(Err(Error::InvalidArgs));
+        return SyscallResult::from_err(Error::InvalidArgs);
     }
-    to_continue_i32(Ok(buf_ptr as i32))
+    SyscallResult::from_result(Ok(buf_ptr as i32))
 }
 
 /// `mkdir()` — SYS_mkdir = 83
@@ -77,15 +77,15 @@ pub fn syscall_mkdir(
 ) -> SyscallResult {
     let path = match read_user_string(vm, arg0) {
         Ok(p) => p,
-        Err(e) => return to_continue_i32(Err(e)),
+        Err(e) => return SyscallResult::from_err(e),
     };
     let mode = arg1 as u32;
     let (parent_path, filename) = split_parent_filename(&path);
     let parent_dentry = match resolve_path(parent_path) {
         Ok(p) => p,
-        Err(e) => return to_continue_i32(Err(e)),
+        Err(e) => return SyscallResult::from_err(e),
     };
-    to_continue_i32(parent_dentry.inode.mkdir(filename, mode).map(|_| 0))
+    SyscallResult::from_result(parent_dentry.inode.mkdir(filename, mode).map(|_| 0))
 }
 
 /// `mkdirat()` — SYS_mkdirat = 258
@@ -115,14 +115,14 @@ pub fn syscall_rmdir(
 ) -> SyscallResult {
     let path = match read_user_string(vm, arg0) {
         Ok(p) => p,
-        Err(e) => return to_continue_i32(Err(e)),
+        Err(e) => return SyscallResult::from_err(e),
     };
     let (parent_path, filename) = split_parent_filename(&path);
     let parent_dentry = match resolve_path(parent_path) {
         Ok(p) => p,
-        Err(e) => return to_continue_i32(Err(e)),
+        Err(e) => return SyscallResult::from_err(e),
     };
-    to_continue_i32(parent_dentry.inode.unlink(filename).map(|_| 0))
+    SyscallResult::from_result(parent_dentry.inode.unlink(filename).map(|_| 0))
 }
 
 /// `unlink()` — SYS_unlink = 87
@@ -138,14 +138,14 @@ pub fn syscall_unlink(
 ) -> SyscallResult {
     let path = match read_user_string(vm, arg0) {
         Ok(p) => p,
-        Err(e) => return to_continue_i32(Err(e)),
+        Err(e) => return SyscallResult::from_err(e),
     };
     let (parent_path, filename) = split_parent_filename(&path);
     let parent_dentry = match resolve_path(parent_path) {
         Ok(p) => p,
-        Err(e) => return to_continue_i32(Err(e)),
+        Err(e) => return SyscallResult::from_err(e),
     };
-    to_continue_i32(parent_dentry.inode.unlink(filename).map(|_| 0))
+    SyscallResult::from_result(parent_dentry.inode.unlink(filename).map(|_| 0))
 }
 
 /// `unlinkat()` — SYS_unlinkat = 263
@@ -175,23 +175,23 @@ pub fn syscall_rename(
 ) -> SyscallResult {
     let old_path = match read_user_string(vm, arg0) {
         Ok(p) => p,
-        Err(e) => return to_continue_i32(Err(e)),
+        Err(e) => return SyscallResult::from_err(e),
     };
     let new_path = match read_user_string(vm, arg1) {
         Ok(p) => p,
-        Err(e) => return to_continue_i32(Err(e)),
+        Err(e) => return SyscallResult::from_err(e),
     };
     let (old_parent_path, old_filename) = split_parent_filename(&old_path);
     let (new_parent_path, new_filename) = split_parent_filename(&new_path);
     let old_parent = match resolve_path(old_parent_path) {
         Ok(p) => p,
-        Err(e) => return to_continue_i32(Err(e)),
+        Err(e) => return SyscallResult::from_err(e),
     };
     let new_parent = match resolve_path(new_parent_path) {
         Ok(p) => p,
-        Err(e) => return to_continue_i32(Err(e)),
+        Err(e) => return SyscallResult::from_err(e),
     };
-    to_continue_i32(
+    SyscallResult::from_result(
         old_parent
             .inode
             .rename(old_filename, &new_parent.inode, new_filename)
@@ -226,27 +226,27 @@ pub fn syscall_readlink(
 ) -> SyscallResult {
     let path = match read_user_string(vm, arg0) {
         Ok(p) => p,
-        Err(e) => return to_continue_i32(Err(e)),
+        Err(e) => return SyscallResult::from_err(e),
     };
     let buf_ptr = arg1;
     let bufsiz = arg2;
     if buf_ptr == 0 || bufsiz == 0 {
-        return to_continue_i32(Err(Error::InvalidArgs));
+        return SyscallResult::from_err(Error::InvalidArgs);
     }
     let dentry = match resolve_path(&path) {
         Ok(d) => d,
-        Err(e) => return to_continue_i32(Err(e)),
+        Err(e) => return SyscallResult::from_err(e),
     };
     let target = match dentry.inode.read_link() {
         Ok(t) => t,
-        Err(e) => return to_continue_i32(Err(e)),
+        Err(e) => return SyscallResult::from_err(e),
     };
     let bytes = target.as_bytes();
     let copy_len = bytes.len().min(bufsiz);
     if vm.copy_to_user(buf_ptr, &bytes[..copy_len]).is_err() {
-        return to_continue_i32(Err(Error::InvalidArgs));
+        return SyscallResult::from_err(Error::InvalidArgs);
     }
-    to_continue_i32(Ok(copy_len as i32))
+    SyscallResult::from_result(Ok(copy_len as i32))
 }
 
 /// `readlinkat()` — SYS_readlinkat = 267
@@ -275,7 +275,7 @@ pub fn syscall_umask(
     _: &mut UserContext,
 ) -> SyscallResult {
     let _mask = arg0 as u32;
-    to_continue_i32(Ok(0o022))
+    SyscallResult::from_result(Ok(0o022))
 }
 
 /// `statfs()` — SYS_statfs = 137
@@ -290,7 +290,7 @@ pub fn syscall_statfs(
     _: &mut UserContext,
 ) -> SyscallResult {
     if arg1 == 0 {
-        return to_continue_i32(Err(Error::InvalidArgs));
+        return SyscallResult::from_err(Error::InvalidArgs);
     }
     let sfs = Statfs {
         f_type: 0xadf5, // TMPFS_MAGIC
@@ -320,7 +320,7 @@ pub fn syscall_statfs(
     buf[72..80].copy_from_slice(&sfs.f_frsize.to_ne_bytes());
     buf[80..88].copy_from_slice(&sfs.f_flags.to_ne_bytes());
 
-    to_continue_i32(vm.copy_to_user(arg1, &buf).map(|_| 0))
+    SyscallResult::from_result(vm.copy_to_user(arg1, &buf).map(|_| 0))
 }
 
 /// `fstatfs()` — SYS_fstatfs = 138
@@ -352,8 +352,8 @@ pub fn syscall_openat(
     let mode = arg3 as u32;
     let path = match read_user_string(vm, arg1) {
         Ok(p) => p,
-        Err(e) => return to_continue_i32(Err(e)),
+        Err(e) => return SyscallResult::from_err(e),
     };
     let proc = Process::current();
-    to_continue_i32(proc.fd_table.lock().open(&path, flags, mode))
+    SyscallResult::from_result(proc.fd_table.lock().open(&path, flags, mode))
 }

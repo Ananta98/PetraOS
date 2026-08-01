@@ -1,7 +1,7 @@
 use crate::fs::timerfd::{TimerFdNode, TimerFdOps};
 use crate::fs::vfs::FileOps;
 use crate::proc::process::Process;
-use crate::syscall::{SyscallResult, to_continue_i32};
+use crate::syscall::{SyscallResult};
 use crate::vm::vma::VmaManager;
 use alloc::boxed::Box;
 use alloc::sync::Arc;
@@ -26,7 +26,7 @@ pub fn syscall_timerfd_create(
     });
     let ops: Box<dyn FileOps> = Box::new(TimerFdOps { node: node.clone() });
     let proc = Process::current();
-    to_continue_i32(proc.fd_table.lock().insert_custom(node, ops, flags, 0))
+    SyscallResult::from_result(proc.fd_table.lock().insert_custom(node, ops, flags, 0))
 }
 
 /// `timerfd_settime()` — SYS_timerfd_settime = 286
@@ -44,9 +44,9 @@ pub fn syscall_timerfd_settime(
     let proc = Process::current();
     let fd_table = proc.fd_table.lock();
     if fd_table.get_fd(fd).is_err() {
-        return to_continue_i32(Err(Error::InvalidArgs));
+        return SyscallResult::from_err(Error::InvalidArgs);
     }
-    to_continue_i32(Ok(0))
+    SyscallResult::from_result(Ok(0))
 }
 
 /// `timerfd_gettime()` — SYS_timerfd_gettime = 287
@@ -64,7 +64,7 @@ pub fn syscall_timerfd_gettime(
     let proc = Process::current();
     let fd_table = proc.fd_table.lock();
     if fd_table.get_fd(fd).is_err() {
-        return to_continue_i32(Err(Error::InvalidArgs));
+        return SyscallResult::from_err(Error::InvalidArgs);
     }
-    to_continue_i32(Ok(0))
+    SyscallResult::from_result(Ok(0))
 }

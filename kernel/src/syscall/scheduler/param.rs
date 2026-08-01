@@ -23,18 +23,18 @@ pub fn syscall_sched_getparam(
     let param_ptr = arg1;
 
     if pid < 0 || param_ptr == 0 {
-        return SyscallResult::Continue(-(Error::InvalidArgs as isize) as usize);
+        return SyscallResult::Return(-(Error::InvalidArgs as isize) as usize);
     }
 
     let thread = if pid == 0 {
         match KernelThread::current() {
             Some(t) => t,
-            None => return SyscallResult::Continue(-(Error::InvalidArgs as isize) as usize),
+            None => return SyscallResult::Return(-(Error::InvalidArgs as isize) as usize),
         }
     } else {
         let threads = THREAD_TABLE.threads_of_process(Pid::from_raw(pid as u32));
         if threads.is_empty() {
-            return SyscallResult::Continue(-3_isize as usize); // ESRCH
+            return SyscallResult::Return(-3_isize as usize); // ESRCH
         }
         threads[0].clone()
     };
@@ -47,10 +47,10 @@ pub fn syscall_sched_getparam(
 
     let param_bytes = priority.to_ne_bytes();
     if let Err(e) = vm.copy_to_user(param_ptr, &param_bytes) {
-        return SyscallResult::Continue(-(e as isize) as usize);
+        return SyscallResult::Return(-(e as isize) as usize);
     }
 
-    SyscallResult::Continue(0)
+    SyscallResult::Return(0)
 }
 
 /// Set scheduling parameters for the process specified by `pid`.
@@ -69,29 +69,29 @@ pub fn syscall_sched_setparam(
     let param_ptr = arg1;
 
     if pid < 0 || param_ptr == 0 {
-        return SyscallResult::Continue(-(Error::InvalidArgs as isize) as usize);
+        return SyscallResult::Return(-(Error::InvalidArgs as isize) as usize);
     }
 
     let mut param_buf = [0u8; 4];
     if let Err(e) = vm.copy_from_user(param_ptr, &mut param_buf) {
-        return SyscallResult::Continue(-(e as isize) as usize);
+        return SyscallResult::Return(-(e as isize) as usize);
     }
     let _priority = i32::from_ne_bytes(param_buf);
 
     let _threads = if pid == 0 {
         match KernelThread::current() {
             Some(t) => vec![t],
-            None => return SyscallResult::Continue(-(Error::InvalidArgs as isize) as usize),
+            None => return SyscallResult::Return(-(Error::InvalidArgs as isize) as usize),
         }
     } else {
         let threads = THREAD_TABLE.threads_of_process(Pid::from_raw(pid as u32));
         if threads.is_empty() {
-            return SyscallResult::Continue(-3_isize as usize); // ESRCH
+            return SyscallResult::Return(-3_isize as usize); // ESRCH
         }
         threads
     };
 
-    SyscallResult::Continue(0)
+    SyscallResult::Return(0)
 }
 
 #[cfg(ktest)]
@@ -108,18 +108,18 @@ mod tests {
         // Negative PID
         let res = syscall_sched_getparam(-1_isize as usize, 0x1000, 0, 0, 0, 0, &vm, &mut context);
         assert!(
-            matches!(res, SyscallResult::Continue(val) if val == (-(Error::InvalidArgs as isize) as usize))
+            matches!(res, SyscallResult::Return(val) if val == (-(Error::InvalidArgs as isize) as usize))
         );
 
         // Null pointer
         let res = syscall_sched_getparam(0, 0, 0, 0, 0, 0, &vm, &mut context);
         assert!(
-            matches!(res, SyscallResult::Continue(val) if val == (-(Error::InvalidArgs as isize) as usize))
+            matches!(res, SyscallResult::Return(val) if val == (-(Error::InvalidArgs as isize) as usize))
         );
 
         // Non-existent PID
         let res = syscall_sched_getparam(999999, 0x1000, 0, 0, 0, 0, &vm, &mut context);
-        assert!(matches!(res, SyscallResult::Continue(val) if val == ((-3_isize) as usize)));
+        assert!(matches!(res, SyscallResult::Return(val) if val == ((-3_isize) as usize)));
     }
 
     #[ktest]
@@ -130,13 +130,13 @@ mod tests {
         // Negative PID
         let res = syscall_sched_setparam(-1_isize as usize, 0x1000, 0, 0, 0, 0, &vm, &mut context);
         assert!(
-            matches!(res, SyscallResult::Continue(val) if val == (-(Error::InvalidArgs as isize) as usize))
+            matches!(res, SyscallResult::Return(val) if val == (-(Error::InvalidArgs as isize) as usize))
         );
 
         // Null pointer
         let res = syscall_sched_setparam(0, 0, 0, 0, 0, 0, &vm, &mut context);
         assert!(
-            matches!(res, SyscallResult::Continue(val) if val == (-(Error::InvalidArgs as isize) as usize))
+            matches!(res, SyscallResult::Return(val) if val == (-(Error::InvalidArgs as isize) as usize))
         );
     }
 }

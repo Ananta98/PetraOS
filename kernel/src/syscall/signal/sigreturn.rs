@@ -31,7 +31,7 @@
 /// If restoration is not possible, returns `0` (continue normally).
 use crate::ipc::SigSet;
 use crate::proc::process::Process;
-use crate::syscall::{SyscallResult, to_continue_unit};
+use crate::syscall::{SyscallResult};
 use crate::vm::vma::VmaManager;
 
 /// System call entry: `rt_sigreturn()`.
@@ -56,8 +56,8 @@ pub fn syscall_rt_sigreturn(
     match crate::arch::signal::restore_signal_frame(vm, context, sp) {
         Ok(sigmask) => {
             signals.queue.set_mask(SigSet::from_u64(sigmask));
-            to_continue_unit(Ok(()))
+            SyscallResult::from_result(Ok(()))
         }
-        Err(err) => to_continue_unit(Err(err)),
+        Err(err) => SyscallResult::from_err(err),
     }
 }

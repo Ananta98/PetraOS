@@ -41,7 +41,7 @@ pub fn syscall_mprotect(
 
     let flags = prot_to_pageflags(prot);
     match vm.mprotect(addr, len, flags) {
-        Ok(()) => SyscallResult::Continue(0),
-        Err(e) => SyscallResult::Continue(-(e as isize) as usize),
+        Ok(()) => SyscallResult::Return(0),
+        Err(e) => SyscallResult::Return(-(e as isize) as usize),
     }
 }

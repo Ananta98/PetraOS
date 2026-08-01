@@ -2,7 +2,6 @@ use crate::fs::fd_table::FileDescriptor;
 use crate::proc::process::Process;
 use crate::syscall::SyscallResult;
 use crate::syscall::net::SocketFile;
-use crate::syscall::to_continue;
 use crate::vm::vma::VmaManager;
 use alloc::boxed::Box;
 use ostd::Error;
@@ -41,7 +40,7 @@ pub fn syscall_accept4(
     let fd_table = process.fd_table.lock();
     let fd_entry = match fd_table.get_fd(sockfd) {
         Ok(entry) => entry,
-        Err(err) => return to_continue(Err(err)),
+        Err(err) => return SyscallResult::from_err(err),
     };
 
     let open_file = fd_entry.open_file.lock();
@@ -51,17 +50,17 @@ pub fn syscall_accept4(
         .and_then(|any| any.downcast_ref::<SocketFile>())
     {
         Some(sf) => sf,
-        None => return to_continue(Err(Error::InvalidArgs)),
+        None => return SyscallResult::from_err(Error::InvalidArgs),
     };
 
     if socket_file.socket_type != 1 {
-        return to_continue(Err(Error::InvalidArgs));
+        return SyscallResult::from_err(Error::InvalidArgs);
     }
 
     let listener_handle = *socket_file.handle.lock();
     let local_endpoint = match *socket_file.local.lock() {
         Some(ep) => ep,
-        None => return to_continue(Err(Error::InvalidArgs)),
+        None => return SyscallResult::from_err(Error::InvalidArgs),
     };
 
     let mut remote_ep = None;
@@ -90,7 +89,7 @@ pub fn syscall_accept4(
         let mut stack_guard = crate::net::NET_STACK.lock();
         let stack = match stack_guard.as_mut() {
             Some(s) => s,
-            None => return to_continue(Err(Error::InvalidArgs)),
+            None => return SyscallResult::from_err(Error::InvalidArgs),
         };
         let sockets = &mut stack.sockets;
         let rx_data = alloc::vec![0u8; 8192];
@@ -99,7 +98,7 @@ pub fn syscall_accept4(
         let tx_buffer = smoltcp::socket::tcp::SocketBuffer::new(tx_data);
         let mut new_tcp = smoltcp::socket::tcp::Socket::new(rx_buffer, tx_buffer);
         if let Err(_) = new_tcp.listen(local_endpoint) {
-            return to_continue(Err(Error::InvalidArgs));
+            return SyscallResult::from_err(Error::InvalidArgs);
         }
         sockets.add(new_tcp)
     };
@@ -132,7 +131,7 @@ pub fn syscall_accept4(
             if let Some(stack) = stack_guard.as_mut() {
                 stack.sockets.remove(connected_handle);
             }
-            return to_continue(Err(err));
+            return SyscallResult::from_err(err);
         }
     };
 
@@ -177,5 +176,5 @@ pub fn syscall_accept4(
         }
     }
 
-    to_continue(Ok(new_fd as usize))
+    SyscallResult::from_result(Ok(new_fd as usize))
 }

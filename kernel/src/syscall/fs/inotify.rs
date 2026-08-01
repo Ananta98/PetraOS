@@ -2,7 +2,7 @@ use crate::fs::inotify::{InotifyNode, InotifyOps};
 use crate::fs::vfs::FileOps;
 use crate::proc::process::Process;
 use crate::proc::userspace::read_user_string;
-use crate::syscall::{SyscallResult, to_continue_i32};
+use crate::syscall::{SyscallResult};
 use crate::vm::vma::VmaManager;
 use alloc::boxed::Box;
 use alloc::sync::Arc;
@@ -27,7 +27,7 @@ pub fn syscall_inotify_init1(
     });
     let ops: Box<dyn FileOps> = Box::new(InotifyOps);
     let proc = Process::current();
-    to_continue_i32(proc.fd_table.lock().insert_custom(node, ops, flags, 0))
+    SyscallResult::from_result(proc.fd_table.lock().insert_custom(node, ops, flags, 0))
 }
 
 /// `inotify_add_watch()` — SYS_inotify_add_watch = 254
@@ -43,7 +43,7 @@ pub fn syscall_inotify_add_watch(
 ) -> SyscallResult {
     let fd = arg0 as i32;
     if read_user_string(vm, arg1).is_err() {
-        return to_continue_i32(Err(Error::InvalidArgs));
+        return SyscallResult::from_err(Error::InvalidArgs);
     }
     let proc = Process::current();
     let fd_table = proc.fd_table.lock();
@@ -54,11 +54,11 @@ pub fn syscall_inotify_add_watch(
                 let mut counter = node.watch_counter.lock();
                 let wd = *counter;
                 *counter += 1;
-                return to_continue_i32(Ok(wd));
+                return SyscallResult::from_result(Ok(wd));
             }
         }
     }
-    to_continue_i32(Ok(1))
+    SyscallResult::from_result(Ok(1))
 }
 
 /// `inotify_rm_watch()` — SYS_inotify_rm_watch = 255
@@ -72,5 +72,5 @@ pub fn syscall_inotify_rm_watch(
     _: &VmaManager,
     _: &mut UserContext,
 ) -> SyscallResult {
-    to_continue_i32(Ok(0))
+    SyscallResult::from_result(Ok(0))
 }

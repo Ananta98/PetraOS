@@ -1,6 +1,6 @@
 use crate::proc::pid_table::PROCESS_TABLE;
 use crate::proc::process::Process;
-use crate::syscall::{SyscallResult, to_continue, to_continue_i32};
+use crate::syscall::{SyscallResult};
 use crate::vm::vma::VmaManager;
 use ostd::Error;
 use ostd::arch::cpu::context::UserContext;
@@ -16,7 +16,7 @@ pub fn syscall_getuid(
     _: &VmaManager,
     _: &mut UserContext,
 ) -> SyscallResult {
-    to_continue(Ok(Process::current().credentials.uid() as usize))
+    SyscallResult::from_result(Ok(Process::current().credentials.uid() as usize))
 }
 
 /// `geteuid()` — returns the effective user ID of the calling process (SYS_geteuid = 107).
@@ -30,7 +30,7 @@ pub fn syscall_geteuid(
     _: &VmaManager,
     _: &mut UserContext,
 ) -> SyscallResult {
-    to_continue(Ok(Process::current().credentials.euid() as usize))
+    SyscallResult::from_result(Ok(Process::current().credentials.euid() as usize))
 }
 
 /// `getgid()` — returns the real group ID of the calling process (SYS_getgid = 104).
@@ -44,7 +44,7 @@ pub fn syscall_getgid(
     _: &VmaManager,
     _: &mut UserContext,
 ) -> SyscallResult {
-    to_continue(Ok(Process::current().credentials.gid() as usize))
+    SyscallResult::from_result(Ok(Process::current().credentials.gid() as usize))
 }
 
 /// `getegid()` — returns the effective group ID of the calling process (SYS_getegid = 108).
@@ -58,7 +58,7 @@ pub fn syscall_getegid(
     _: &VmaManager,
     _: &mut UserContext,
 ) -> SyscallResult {
-    to_continue(Ok(Process::current().credentials.egid() as usize))
+    SyscallResult::from_result(Ok(Process::current().credentials.egid() as usize))
 }
 
 /// `setuid()` — sets the effective user ID of the calling process (SYS_setuid = 105).
@@ -91,7 +91,7 @@ pub fn syscall_setuid(
         }
     });
 
-    to_continue_i32(result)
+    SyscallResult::from_result(result)
 }
 
 /// `setgid()` — sets the effective group ID of the calling process (SYS_setgid = 106).
@@ -124,7 +124,7 @@ pub fn syscall_setgid(
         }
     });
 
-    to_continue_i32(result)
+    SyscallResult::from_result(result)
 }
 
 /// `setreuid()` — sets real and/or effective user ID (SYS_setreuid = 113).
@@ -181,7 +181,7 @@ pub fn syscall_setreuid(
         }
     });
 
-    to_continue_i32(result)
+    SyscallResult::from_result(result)
 }
 
 /// `setregid()` — sets real and/or effective group ID (SYS_setregid = 114).
@@ -238,7 +238,7 @@ pub fn syscall_setregid(
         }
     });
 
-    to_continue_i32(result)
+    SyscallResult::from_result(result)
 }
 
 /// `setresuid()` — sets real, effective, and saved user ID (SYS_setresuid = 117).
@@ -288,7 +288,7 @@ pub fn syscall_setresuid(
         }
     });
 
-    to_continue_i32(result)
+    SyscallResult::from_result(result)
 }
 
 /// `setresgid()` — sets real, effective, and saved group ID (SYS_setresgid = 119).
@@ -338,7 +338,7 @@ pub fn syscall_setresgid(
         }
     });
 
-    to_continue_i32(result)
+    SyscallResult::from_result(result)
 }
 
 /// `getresuid()` — returns real, effective, and saved user ID (SYS_getresuid = 118).
@@ -360,23 +360,23 @@ pub fn syscall_getresuid(
     if ruid_ptr != 0 {
         let val = current.credentials.uid();
         if let Err(err) = vm.copy_to_user(ruid_ptr, &val.to_ne_bytes()) {
-            return to_continue_i32(Err(err));
+            return SyscallResult::from_err(err);
         }
     }
     if euid_ptr != 0 {
         let val = current.credentials.euid();
         if let Err(err) = vm.copy_to_user(euid_ptr, &val.to_ne_bytes()) {
-            return to_continue_i32(Err(err));
+            return SyscallResult::from_err(err);
         }
     }
     if suid_ptr != 0 {
         let val = current.credentials.suid();
         if let Err(err) = vm.copy_to_user(suid_ptr, &val.to_ne_bytes()) {
-            return to_continue_i32(Err(err));
+            return SyscallResult::from_err(err);
         }
     }
 
-    to_continue_i32(Ok(0))
+    SyscallResult::from_result(Ok(0))
 }
 
 /// `getresgid()` — returns real, effective, and saved group ID (SYS_getresgid = 120).
@@ -398,23 +398,23 @@ pub fn syscall_getresgid(
     if rgid_ptr != 0 {
         let val = current.credentials.gid();
         if let Err(err) = vm.copy_to_user(rgid_ptr, &val.to_ne_bytes()) {
-            return to_continue_i32(Err(err));
+            return SyscallResult::from_err(err);
         }
     }
     if egid_ptr != 0 {
         let val = current.credentials.egid();
         if let Err(err) = vm.copy_to_user(egid_ptr, &val.to_ne_bytes()) {
-            return to_continue_i32(Err(err));
+            return SyscallResult::from_err(err);
         }
     }
     if sgid_ptr != 0 {
         let val = current.credentials.sgid();
         if let Err(err) = vm.copy_to_user(sgid_ptr, &val.to_ne_bytes()) {
-            return to_continue_i32(Err(err));
+            return SyscallResult::from_err(err);
         }
     }
 
-    to_continue_i32(Ok(0))
+    SyscallResult::from_result(Ok(0))
 }
 
 /// `setfsuid()` — sets the user ID used for filesystem checks (SYS_setfsuid = 122).
@@ -444,7 +444,7 @@ pub fn syscall_setfsuid(
         }
     });
 
-    to_continue(Ok(prev_fsuid as usize))
+    SyscallResult::from_result(Ok(prev_fsuid as usize))
 }
 
 /// `setfsgid()` — sets the group ID used for filesystem checks (SYS_setfsgid = 123).
@@ -474,5 +474,5 @@ pub fn syscall_setfsgid(
         }
     });
 
-    to_continue(Ok(prev_fsgid as usize))
+    SyscallResult::from_result(Ok(prev_fsgid as usize))
 }

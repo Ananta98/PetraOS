@@ -1,7 +1,6 @@
 use crate::proc::process::Process;
 use crate::syscall::SyscallResult;
 use crate::syscall::net::{SocketFile, allocate_ephemeral_port, parse_sockaddr};
-use crate::syscall::to_continue_unit;
 use crate::vm::vma::VmaManager;
 use ostd::Error;
 
@@ -21,7 +20,7 @@ pub fn syscall_bind(
 
     let mut endpoint = match parse_sockaddr(vm, addr_ptr, addrlen) {
         Ok(ep) => ep,
-        Err(err) => return to_continue_unit(Err(err)),
+        Err(err) => return SyscallResult::from_err(err),
     };
 
     if endpoint.port == 0 {
@@ -32,7 +31,7 @@ pub fn syscall_bind(
     let fd_table = process.fd_table.lock();
     let fd_entry = match fd_table.get_fd(sockfd) {
         Ok(entry) => entry,
-        Err(err) => return to_continue_unit(Err(err)),
+        Err(err) => return SyscallResult::from_err(err),
     };
 
     let open_file = fd_entry.open_file.lock();
@@ -42,7 +41,7 @@ pub fn syscall_bind(
         .and_then(|any| any.downcast_ref::<SocketFile>())
     {
         Some(sf) => sf,
-        None => return to_continue_unit(Err(Error::InvalidArgs)),
+        None => return SyscallResult::from_err(Error::InvalidArgs),
     };
 
     *socket_file.local.lock() = Some(endpoint);
@@ -50,16 +49,16 @@ pub fn syscall_bind(
     let mut stack_guard = crate::net::NET_STACK.lock();
     let stack = match stack_guard.as_mut() {
         Some(s) => s,
-        None => return to_continue_unit(Err(Error::InvalidArgs)),
+        None => return SyscallResult::from_err(Error::InvalidArgs),
     };
     let sockets = &mut stack.sockets;
 
     if socket_file.socket_type == 2 {
         let udp = sockets.get_mut::<smoltcp::socket::udp::Socket>(*socket_file.handle.lock());
         if let Err(_) = udp.bind(endpoint) {
-            return to_continue_unit(Err(Error::InvalidArgs));
+            return SyscallResult::from_err(Error::InvalidArgs);
         }
     }
 
-    to_continue_unit(Ok(()))
+    SyscallResult::from_result(Ok(()))
 }

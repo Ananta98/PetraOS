@@ -1,7 +1,7 @@
 use crate::proc::pid_table::Pid;
 use crate::proc::thread::KernelThread;
 use crate::proc::tid_table::THREAD_TABLE;
-use crate::syscall::{SyscallResult, to_continue_i32};
+use crate::syscall::{SyscallResult};
 use crate::vm::vma::VmaManager;
 use ostd::Error;
 use ostd::arch::cpu::context::UserContext;
@@ -38,16 +38,16 @@ pub fn syscall_sched_getattr(
     let flags = arg3 as u32;
 
     if pid < 0 || attr_ptr == 0 || size < 56 || flags != 0 {
-        return to_continue_i32(Err(Error::InvalidArgs));
+        return SyscallResult::from_err(Error::InvalidArgs);
     }
 
     if pid != 0 {
         let threads = THREAD_TABLE.threads_of_process(Pid::from_raw(pid as u32));
         if threads.is_empty() {
-            return SyscallResult::Continue(-3_isize as usize); // ESRCH
+            return SyscallResult::Return(-3_isize as usize); // ESRCH
         }
     } else if KernelThread::current().is_none() {
-        return to_continue_i32(Err(Error::InvalidArgs));
+        return SyscallResult::from_err(Error::InvalidArgs);
     }
 
     let attr = SchedAttr {
@@ -75,7 +75,7 @@ pub fn syscall_sched_getattr(
     buf[48..52].copy_from_slice(&attr.sched_util_min.to_ne_bytes());
     buf[52..56].copy_from_slice(&attr.sched_util_max.to_ne_bytes());
 
-    to_continue_i32(vm.copy_to_user(attr_ptr, &buf).map(|_| 0))
+    SyscallResult::from_result(vm.copy_to_user(attr_ptr, &buf).map(|_| 0))
 }
 
 /// `sched_setattr(pid, attr, flags)` — SYS_sched_setattr = 314
@@ -94,28 +94,28 @@ pub fn syscall_sched_setattr(
     let flags = arg2 as u32;
 
     if pid < 0 || attr_ptr == 0 || flags != 0 {
-        return to_continue_i32(Err(Error::InvalidArgs));
+        return SyscallResult::from_err(Error::InvalidArgs);
     }
 
     if pid != 0 {
         let threads = THREAD_TABLE.threads_of_process(Pid::from_raw(pid as u32));
         if threads.is_empty() {
-            return SyscallResult::Continue(-3_isize as usize); // ESRCH
+            return SyscallResult::Return(-3_isize as usize); // ESRCH
         }
     } else if KernelThread::current().is_none() {
-        return to_continue_i32(Err(Error::InvalidArgs));
+        return SyscallResult::from_err(Error::InvalidArgs);
     }
 
     let mut size_buf = [0u8; 4];
     if vm.copy_from_user(attr_ptr, &mut size_buf).is_err() {
-        return to_continue_i32(Err(Error::InvalidArgs));
+        return SyscallResult::from_err(Error::InvalidArgs);
     }
     let size = u32::from_ne_bytes(size_buf);
     if size < 56 {
-        return to_continue_i32(Err(Error::InvalidArgs));
+        return SyscallResult::from_err(Error::InvalidArgs);
     }
 
-    to_continue_i32(Ok(0))
+    SyscallResult::from_result(Ok(0))
 }
 
 #[cfg(ktest)]
@@ -132,24 +132,24 @@ mod tests {
         // Negative PID
         let res = syscall_sched_getattr(-1_isize as usize, 0x1000, 56, 0, 0, 0, &vm, &mut context);
         assert!(
-            matches!(res, SyscallResult::Continue(val) if val == (-(Error::InvalidArgs as isize) as usize))
+            matches!(res, SyscallResult::Return(val) if val == (-(Error::InvalidArgs as isize) as usize))
         );
 
         // Small size (< 56)
         let res = syscall_sched_getattr(0, 0x1000, 32, 0, 0, 0, &vm, &mut context);
         assert!(
-            matches!(res, SyscallResult::Continue(val) if val == (-(Error::InvalidArgs as isize) as usize))
+            matches!(res, SyscallResult::Return(val) if val == (-(Error::InvalidArgs as isize) as usize))
         );
 
         // Null attr pointer
         let res = syscall_sched_getattr(0, 0, 56, 0, 0, 0, &vm, &mut context);
         assert!(
-            matches!(res, SyscallResult::Continue(val) if val == (-(Error::InvalidArgs as isize) as usize))
+            matches!(res, SyscallResult::Return(val) if val == (-(Error::InvalidArgs as isize) as usize))
         );
 
         // Non-existent PID
         let res = syscall_sched_getattr(999999, 0x1000, 56, 0, 0, 0, &vm, &mut context);
-        assert!(matches!(res, SyscallResult::Continue(val) if val == ((-3_isize) as usize)));
+        assert!(matches!(res, SyscallResult::Return(val) if val == ((-3_isize) as usize)));
     }
 
     #[ktest]
@@ -160,13 +160,13 @@ mod tests {
         // Negative PID
         let res = syscall_sched_setattr(-1_isize as usize, 0x1000, 0, 0, 0, 0, &vm, &mut context);
         assert!(
-            matches!(res, SyscallResult::Continue(val) if val == (-(Error::InvalidArgs as isize) as usize))
+            matches!(res, SyscallResult::Return(val) if val == (-(Error::InvalidArgs as isize) as usize))
         );
 
         // Null attr pointer
         let res = syscall_sched_setattr(0, 0, 0, 0, 0, 0, &vm, &mut context);
         assert!(
-            matches!(res, SyscallResult::Continue(val) if val == (-(Error::InvalidArgs as isize) as usize))
+            matches!(res, SyscallResult::Return(val) if val == (-(Error::InvalidArgs as isize) as usize))
         );
     }
 }

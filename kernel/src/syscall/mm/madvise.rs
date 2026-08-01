@@ -29,11 +29,11 @@ pub fn syscall_madvise(
         MADV_SEQUENTIAL => AdviseFlag::Sequential,
         MADV_WILLNEED => AdviseFlag::WillNeed,
         MADV_DONTNEED => AdviseFlag::DontNeed,
-        _ => return SyscallResult::Continue(-(Error::InvalidArgs as isize) as usize),
+        _ => return SyscallResult::Return(-(Error::InvalidArgs as isize) as usize),
     };
 
     match vm.madvise(start, length, advice) {
-        Ok(()) => SyscallResult::Continue(0),
-        Err(e) => SyscallResult::Continue(-(e as isize) as usize),
+        Ok(()) => SyscallResult::Return(0),
+        Err(e) => SyscallResult::Return(-(e as isize) as usize),
     }
 }

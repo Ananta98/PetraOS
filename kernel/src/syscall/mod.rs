@@ -11,39 +11,66 @@ use ostd::Error;
 
 use ostd::arch::cpu::context::UserContext;
 
-/// The result of a system call dispatch.
-pub enum SyscallResult {
-    Continue(usize),
-    Exit(i32),
+/// Trait for types that can be converted into a system call return value register (`usize`).
+pub trait IntoSyscallValue {
+    fn into_syscall_value(self) -> usize;
 }
 
-// =============================================================================
-// Marshalling helpers
-//
-// Shared by all `syscall_*` entry points (across the `fs` and `proc`
-// submodules) to translate kernel results into the [`SyscallResult`] returned
-// to user space and to copy data across the user/kernel boundary.
-// =============================================================================
-
-/// Converts a `Result<usize, Error>` into a [`SyscallResult::Continue`],
-/// encoding the error code as a negated `isize` on failure.
-pub fn to_continue(result: Result<usize, Error>) -> SyscallResult {
-    match result {
-        Ok(value) => SyscallResult::Continue(value),
-        Err(error) => SyscallResult::Continue(-(error as isize) as usize),
+impl IntoSyscallValue for usize {
+    #[inline]
+    fn into_syscall_value(self) -> usize {
+        self
     }
 }
 
-/// Adapts a `Result<i32, Error>` (file descriptor or signed return) into a
-/// [`SyscallResult::Continue`], zero-extending the success value.
-pub fn to_continue_i32(result: Result<i32, Error>) -> SyscallResult {
-    to_continue(result.map(|value| value as usize))
+impl IntoSyscallValue for i32 {
+    #[inline]
+    fn into_syscall_value(self) -> usize {
+        self as usize
+    }
 }
 
-/// Adapts a `Result<(), Error>` (no return value) into a
-/// [`SyscallResult::Continue`] with a success value of `0`.
-pub fn to_continue_unit(result: Result<(), Error>) -> SyscallResult {
-    to_continue(result.map(|()| 0))
+impl IntoSyscallValue for () {
+    #[inline]
+    fn into_syscall_value(self) -> usize {
+        0
+    }
+}
+
+impl<T> IntoSyscallValue for *const T {
+    #[inline]
+    fn into_syscall_value(self) -> usize {
+        self as usize
+    }
+}
+
+impl<T> IntoSyscallValue for *mut T {
+    #[inline]
+    fn into_syscall_value(self) -> usize {
+        self as usize
+    }
+}
+
+/// The result of a system call dispatch.
+pub enum SyscallResult {
+    Return(usize),
+    Exit(i32),
+}
+
+impl SyscallResult {
+    /// Converts any kernel `Result<T, Error>` (where `T` implements [`IntoSyscallValue`])
+    /// into a [`SyscallResult::Return`], encoding errors as a negated `isize` on failure.
+    pub fn from_result<T: IntoSyscallValue>(result: Result<T, Error>) -> Self {
+        match result {
+            Ok(value) => SyscallResult::Return(value.into_syscall_value()),
+            Err(error) => Self::from_err(error),
+        }
+    }
+
+    /// Converts a kernel [`Error`] directly into a [`SyscallResult::Return`] with negated errno.
+    pub fn from_err(error: Error) -> Self {
+        SyscallResult::Return(-(error as isize) as usize)
+    }
 }
 
 /// Dispatch system calls from user mode to their corresponding kernel implementations.
@@ -64,7 +91,7 @@ pub fn dispatch_syscall(
 ) -> SyscallResult {
     match SYSCALL_TABLE.binary_search_by_key(&num, |(number, _)| *number) {
         Ok(index) => SYSCALL_TABLE[index].1(arg0, arg1, arg2, arg3, arg4, arg5, vm, context),
-        Err(_) => SyscallResult::Continue(-(Error::InvalidArgs as isize) as usize),
+        Err(_) => SyscallResult::Return(-(Error::InvalidArgs as isize) as usize),
     }
 }
 

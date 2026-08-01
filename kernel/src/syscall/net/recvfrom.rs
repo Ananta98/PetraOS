@@ -1,7 +1,6 @@
 use crate::proc::process::Process;
 use crate::syscall::SyscallResult;
 use crate::syscall::net::SocketFile;
-use crate::syscall::to_continue;
 use crate::vm::vma::VmaManager;
 use ostd::Error;
 
@@ -28,7 +27,7 @@ pub fn syscall_recvfrom(
     let fd_table = process.fd_table.lock();
     let fd_entry = match fd_table.get_fd(sockfd) {
         Ok(entry) => entry,
-        Err(err) => return to_continue(Err(err)),
+        Err(err) => return SyscallResult::from_err(err),
     };
 
     let open_file = fd_entry.open_file.lock();
@@ -38,7 +37,7 @@ pub fn syscall_recvfrom(
         .and_then(|any| any.downcast_ref::<SocketFile>())
     {
         Some(sf) => sf,
-        None => return to_continue(Err(Error::InvalidArgs)),
+        None => return SyscallResult::from_err(Error::InvalidArgs),
     };
 
     let handle = *socket_file.handle.lock();
@@ -46,7 +45,7 @@ pub fn syscall_recvfrom(
     let mut stack_guard = crate::net::NET_STACK.lock();
     let stack = match stack_guard.as_mut() {
         Some(s) => s,
-        None => return to_continue(Err(Error::InvalidArgs)),
+        None => return SyscallResult::from_err(Error::InvalidArgs),
     };
     let sockets = &mut stack.sockets;
 
@@ -55,11 +54,11 @@ pub fn syscall_recvfrom(
         // TCP
         let tcp = sockets.get_mut::<smoltcp::socket::tcp::Socket>(handle);
         if !tcp.is_active() && !tcp.may_recv() {
-            return to_continue(Err(Error::IoError));
+            return SyscallResult::from_err(Error::IoError);
         }
         let r = match tcp.recv_slice(&mut kbuf) {
             Ok(read) => read,
-            Err(_) => return to_continue(Err(Error::IoError)),
+            Err(_) => return SyscallResult::from_err(Error::IoError),
         };
         if tcp.is_active() {
             remote_endpoint = tcp.remote_endpoint();
@@ -70,14 +69,14 @@ pub fn syscall_recvfrom(
         let udp = sockets.get_mut::<smoltcp::socket::udp::Socket>(handle);
         let (r, rx_meta) = match udp.recv_slice(&mut kbuf) {
             Ok(res) => res,
-            Err(_) => return to_continue(Err(Error::IoError)),
+            Err(_) => return SyscallResult::from_err(Error::IoError),
         };
         remote_endpoint = Some(rx_meta.endpoint);
         r
     };
 
     if vm.copy_to_user(buf_ptr, &kbuf[..bytes_read]).is_err() {
-        return to_continue(Err(Error::AccessDenied));
+        return SyscallResult::from_err(Error::AccessDenied);
     }
 
     // Write source address to user space if requested
@@ -120,5 +119,5 @@ pub fn syscall_recvfrom(
         }
     }
 
-    to_continue(Ok(bytes_read))
+    SyscallResult::from_result(Ok(bytes_read))
 }

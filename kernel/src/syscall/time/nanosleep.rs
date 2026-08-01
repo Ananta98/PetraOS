@@ -1,6 +1,5 @@
 use crate::proc::process::Process;
 use crate::syscall::SyscallResult;
-use crate::syscall::to_continue_unit;
 use crate::vm::vma::VmaManager;
 use ostd::Error;
 use ostd::arch::cpu::context::UserContext;
@@ -22,7 +21,7 @@ pub fn syscall_nanosleep(
     vm: &VmaManager,
     _ctx: &mut UserContext,
 ) -> SyscallResult {
-    to_continue_unit((|| {
+    SyscallResult::from_result((|| {
         let req = read_timespec(vm, arg0)?;
 
         if req.tv_sec < 0 || req.tv_nsec < 0 || req.tv_nsec >= 1_000_000_000 {

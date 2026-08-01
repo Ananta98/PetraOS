@@ -1,5 +1,5 @@
 use crate::drivers::timer::{Timer, Tsc};
-use crate::syscall::{SyscallResult, to_continue_i32};
+use crate::syscall::SyscallResult;
 use crate::vm::vma::VmaManager;
 use ostd::Error;
 use ostd::arch::cpu::context::UserContext;
@@ -15,11 +15,15 @@ pub fn syscall_getrandom(
     vm: &VmaManager,
     _: &mut UserContext,
 ) -> SyscallResult {
+    SyscallResult::from_result(do_getrandom(buf_ptr, buflen, vm))
+}
+
+fn do_getrandom(buf_ptr: usize, buflen: usize, vm: &VmaManager) -> Result<i32, Error> {
     if buf_ptr == 0 {
-        return to_continue_i32(Err(Error::InvalidArgs));
+        return Err(Error::InvalidArgs);
     }
     if buflen == 0 {
-        return to_continue_i32(Ok(0));
+        return Ok(0);
     }
 
     let seed = Tsc::new().current_time_ns();
@@ -32,9 +36,8 @@ pub fn syscall_getrandom(
         *byte = (state >> 32) as u8;
     }
 
-    if vm.copy_to_user(buf_ptr, &dummy_buf).is_err() {
-        return to_continue_i32(Err(Error::InvalidArgs));
-    }
+    vm.copy_to_user(buf_ptr, &dummy_buf)
+        .map_err(|_| Error::InvalidArgs)?;
 
-    to_continue_i32(Ok(buflen as i32))
+    Ok(buflen as i32)
 }

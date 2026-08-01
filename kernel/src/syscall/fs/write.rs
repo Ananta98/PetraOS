@@ -1,6 +1,5 @@
 use crate::proc::process::Process;
 use crate::syscall::SyscallResult;
-use crate::syscall::to_continue;
 use crate::vm::vma::VmaManager;
 use ostd::Error;
 
@@ -15,12 +14,12 @@ pub fn syscall_write(
     vm: &VmaManager,
     _: &mut ostd::arch::cpu::context::UserContext,
 ) -> SyscallResult {
-    let fd = arg0 as i32;
-    let user_buf = arg1;
-    let len = arg2;
+    SyscallResult::from_result(do_write(arg0 as i32, arg1, arg2, vm))
+}
+
+fn do_write(fd: i32, user_buf: usize, len: usize, vm: &VmaManager) -> Result<usize, Error> {
     let mut kbuf = alloc::vec![0u8; len];
-    if vm.copy_from_user(user_buf, &mut kbuf).is_err() {
-        return to_continue(Err(Error::AccessDenied));
-    }
-    to_continue(Process::current().fd_table.lock().write(fd, &kbuf))
+    vm.copy_from_user(user_buf, &mut kbuf)
+        .map_err(|_| Error::AccessDenied)?;
+    Process::current().fd_table.lock().write(fd, &kbuf)
 }

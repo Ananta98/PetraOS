@@ -1,5 +1,5 @@
 use crate::proc::process::Process;
-use crate::syscall::{SyscallResult, to_continue_i32};
+use crate::syscall::{SyscallResult};
 use crate::vm::vma::VmaManager;
 use ostd::Error;
 use ostd::arch::cpu::context::UserContext;
@@ -31,10 +31,10 @@ pub fn syscall_poll(
     let nfds = arg1;
 
     if nfds == 0 {
-        return to_continue_i32(Ok(0));
+        return SyscallResult::from_result(Ok(0));
     }
     if fds_ptr == 0 {
-        return to_continue_i32(Err(Error::InvalidArgs));
+        return SyscallResult::from_err(Error::InvalidArgs);
     }
 
     let proc = Process::current();
@@ -47,10 +47,10 @@ pub fn syscall_poll(
         let mut events_bytes = [0u8; 2];
 
         if vm.copy_from_user(entry_ptr, &mut fd_bytes).is_err() {
-            return to_continue_i32(Err(Error::InvalidArgs));
+            return SyscallResult::from_err(Error::InvalidArgs);
         }
         if vm.copy_from_user(entry_ptr + 4, &mut events_bytes).is_err() {
-            return to_continue_i32(Err(Error::InvalidArgs));
+            return SyscallResult::from_err(Error::InvalidArgs);
         }
 
         let fd = i32::from_ne_bytes(fd_bytes);
@@ -74,11 +74,11 @@ pub fn syscall_poll(
             .copy_to_user(entry_ptr + 6, &revents.to_ne_bytes())
             .is_err()
         {
-            return to_continue_i32(Err(Error::InvalidArgs));
+            return SyscallResult::from_err(Error::InvalidArgs);
         }
     }
 
-    to_continue_i32(Ok(ready_count))
+    SyscallResult::from_result(Ok(ready_count))
 }
 
 /// `ppoll()` — SYS_ppoll = 271
@@ -107,7 +107,7 @@ pub fn syscall_select(
     _: &mut UserContext,
 ) -> SyscallResult {
     let nfds = arg0 as i32;
-    to_continue_i32(Ok(nfds.max(0)))
+    SyscallResult::from_result(Ok(nfds.max(0)))
 }
 
 /// `pselect6()` — SYS_pselect6 = 270

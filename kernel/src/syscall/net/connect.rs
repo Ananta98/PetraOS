@@ -1,7 +1,6 @@
 use crate::proc::process::Process;
 use crate::syscall::SyscallResult;
 use crate::syscall::net::{SocketFile, allocate_ephemeral_port, parse_sockaddr};
-use crate::syscall::to_continue_unit;
 use crate::vm::vma::VmaManager;
 use ostd::Error;
 use smoltcp::socket::tcp::State;
@@ -23,14 +22,14 @@ pub fn syscall_connect(
 
     let remote_endpoint = match parse_sockaddr(vm, addr_ptr, addrlen) {
         Ok(ep) => ep,
-        Err(err) => return to_continue_unit(Err(err)),
+        Err(err) => return SyscallResult::from_err(err),
     };
 
     let process = Process::current();
     let fd_table = process.fd_table.lock();
     let fd_entry = match fd_table.get_fd(sockfd) {
         Ok(entry) => entry,
-        Err(err) => return to_continue_unit(Err(err)),
+        Err(err) => return SyscallResult::from_err(err),
     };
 
     let open_file = fd_entry.open_file.lock();
@@ -40,14 +39,14 @@ pub fn syscall_connect(
         .and_then(|any| any.downcast_ref::<SocketFile>())
     {
         Some(sf) => sf,
-        None => return to_continue_unit(Err(Error::InvalidArgs)),
+        None => return SyscallResult::from_err(Error::InvalidArgs),
     };
 
     *socket_file.remote.lock() = Some(remote_endpoint);
 
     // If UDP, we are done
     if socket_file.socket_type == 2 {
-        return to_continue_unit(Ok(()));
+        return SyscallResult::from_result(Ok(()));
     }
 
     // TCP connect handshake
@@ -66,7 +65,7 @@ pub fn syscall_connect(
     let mut stack_guard = crate::net::NET_STACK.lock();
     let stack = match stack_guard.as_mut() {
         Some(s) => s,
-        None => return to_continue_unit(Err(Error::InvalidArgs)),
+        None => return SyscallResult::from_err(Error::InvalidArgs),
     };
     let interface = &mut stack.interface;
     let sockets = &mut stack.sockets;
@@ -75,7 +74,7 @@ pub fn syscall_connect(
 
     let context = interface.context();
     if let Err(_) = tcp_socket.connect(context, remote_endpoint, local_ep) {
-        return to_continue_unit(Err(Error::IoError));
+        return SyscallResult::from_err(Error::IoError);
     }
 
     // Drop locks before polling to avoid deadlocks
@@ -91,10 +90,10 @@ pub fn syscall_connect(
                 .sockets
                 .get_mut::<smoltcp::socket::tcp::Socket>(*socket_file.handle.lock());
             if tcp_socket.state() == State::Established {
-                return to_continue_unit(Ok(()));
+                return SyscallResult::from_result(Ok(()));
             }
         }
     }
 
-    to_continue_unit(Err(Error::IoError))
+    SyscallResult::from_err(Error::IoError)
 }

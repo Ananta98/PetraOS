@@ -2,7 +2,7 @@ use crate::fs::epoll::{EPOLL_CTL_DEL, EpollEvent, EpollFile};
 use crate::fs::fd_table::FileDescriptor;
 use crate::proc::process::Process;
 use crate::syscall::time::monotonic_ns;
-use crate::syscall::{SyscallResult, to_continue_i32};
+use crate::syscall::{SyscallResult};
 use crate::vm::vma::VmaManager;
 use alloc::boxed::Box;
 use ostd::Error;
@@ -31,7 +31,7 @@ pub fn syscall_epoll_create(
 ) -> SyscallResult {
     let size = arg0 as i32;
     if size <= 0 {
-        return to_continue_i32(Err(Error::InvalidArgs));
+        return SyscallResult::from_err(Error::InvalidArgs);
     }
     syscall_epoll_create1(0, 0, 0, 0, 0, 0, vm, context)
 }
@@ -57,9 +57,9 @@ pub fn syscall_epoll_create1(
     match fd_table.alloc_fd(0) {
         Ok(fd) => {
             fd_table.insert(fd, fd_entry);
-            to_continue_i32(Ok(fd))
+            SyscallResult::from_result(Ok(fd))
         }
-        Err(err) => to_continue_i32(Err(err)),
+        Err(err) => SyscallResult::from_err(err),
     }
 }
 
@@ -84,7 +84,7 @@ pub fn syscall_epoll_ctl(
 
     let ep_entry = match fd_table.get_fd(epfd) {
         Ok(e) => e,
-        Err(err) => return to_continue_i32(Err(err)),
+        Err(err) => return SyscallResult::from_err(err),
     };
 
     let open_file = ep_entry.open_file.lock();
@@ -94,7 +94,7 @@ pub fn syscall_epoll_ctl(
         .and_then(|any| any.downcast_ref::<EpollFile>())
     {
         Some(ef) => ef.clone(),
-        None => return to_continue_i32(Err(Error::InvalidArgs)),
+        None => return SyscallResult::from_err(Error::InvalidArgs),
     };
     drop(open_file);
     drop(fd_table);
@@ -102,7 +102,7 @@ pub fn syscall_epoll_ctl(
     let event = if op != EPOLL_CTL_DEL && event_ptr != 0 {
         let mut buf = [0u8; EPOLL_EVENT_SIZE];
         if vm.copy_from_user(event_ptr, &mut buf).is_err() {
-            return to_continue_i32(Err(Error::InvalidArgs));
+            return SyscallResult::from_err(Error::InvalidArgs);
         }
         Some(epoll_event_from_bytes(&buf))
     } else {
@@ -110,8 +110,8 @@ pub fn syscall_epoll_ctl(
     };
 
     match epoll_file.ctl(op, target_fd, event) {
-        Ok(()) => to_continue_i32(Ok(0)),
-        Err(err) => to_continue_i32(Err(err)),
+        Ok(()) => SyscallResult::from_result(Ok(0)),
+        Err(err) => SyscallResult::from_err(err),
     }
 }
 
@@ -132,7 +132,7 @@ pub fn syscall_epoll_wait(
     let timeout = arg3 as i32;
 
     if maxevents <= 0 || events_ptr == 0 {
-        return to_continue_i32(Err(Error::InvalidArgs));
+        return SyscallResult::from_err(Error::InvalidArgs);
     }
 
     let proc = Process::current();
@@ -140,7 +140,7 @@ pub fn syscall_epoll_wait(
         let fd_table = proc.fd_table.lock();
         let ep_entry = match fd_table.get_fd(epfd) {
             Ok(e) => e,
-            Err(err) => return to_continue_i32(Err(err)),
+            Err(err) => return SyscallResult::from_err(err),
         };
 
         let open_file = ep_entry.open_file.lock();
@@ -150,7 +150,7 @@ pub fn syscall_epoll_wait(
             .and_then(|any| any.downcast_ref::<EpollFile>())
         {
             Some(ef) => ef.clone(),
-            None => return to_continue_i32(Err(Error::InvalidArgs)),
+            None => return SyscallResult::from_err(Error::InvalidArgs),
         }
     };
 
@@ -173,19 +173,19 @@ pub fn syscall_epoll_wait(
             }
 
             if vm.copy_to_user(events_ptr, &bytes).is_ok() {
-                return to_continue_i32(Ok(count as i32));
+                return SyscallResult::from_result(Ok(count as i32));
             } else {
-                return to_continue_i32(Err(Error::InvalidArgs));
+                return SyscallResult::from_err(Error::InvalidArgs);
             }
         }
 
         if timeout == 0 {
-            return to_continue_i32(Ok(0));
+            return SyscallResult::from_result(Ok(0));
         }
 
         if timeout > 0 {
             if monotonic_ns() >= timeout_ns {
-                return to_continue_i32(Ok(0));
+                return SyscallResult::from_result(Ok(0));
             }
         }
 

@@ -1,6 +1,6 @@
 use crate::fs::vfs::FileType;
 use crate::proc::process::Process;
-use crate::syscall::{SyscallResult, to_continue_i32};
+use crate::syscall::{SyscallResult};
 use crate::vm::vma::VmaManager;
 use ostd::Error;
 use ostd::arch::cpu::context::UserContext;
@@ -29,20 +29,20 @@ pub fn syscall_getdents64(
     let count = arg2;
 
     if dir_ptr == 0 || count < 24 {
-        return to_continue_i32(Err(Error::InvalidArgs));
+        return SyscallResult::from_err(Error::InvalidArgs);
     }
 
     let proc = Process::current();
     let fd_table = proc.fd_table.lock();
     let fd_entry = match fd_table.get_fd(fd) {
         Ok(f) => f,
-        Err(e) => return to_continue_i32(Err(e)),
+        Err(e) => return SyscallResult::from_err(e),
     };
 
     let mut open_file = fd_entry.open_file.lock();
     let entries = match open_file.file_ops.readdir() {
         Ok(e) => e,
-        Err(e) => return to_continue_i32(Err(e)),
+        Err(e) => return SyscallResult::from_err(e),
     };
 
     let mut written_bytes = 0usize;
@@ -72,7 +72,7 @@ pub fn syscall_getdents64(
             .copy_to_user(current_offset, &entry.inode_num.to_ne_bytes())
             .is_err()
         {
-            return to_continue_i32(Err(Error::InvalidArgs));
+            return SyscallResult::from_err(Error::InvalidArgs);
         }
         // Write d_off (8 bytes)
         let next_off = (idx + 1) as i64;
@@ -80,7 +80,7 @@ pub fn syscall_getdents64(
             .copy_to_user(current_offset + 8, &next_off.to_ne_bytes())
             .is_err()
         {
-            return to_continue_i32(Err(Error::InvalidArgs));
+            return SyscallResult::from_err(Error::InvalidArgs);
         }
         // Write d_reclen (2 bytes)
         let rec_len_u16 = rec_len as u16;
@@ -88,26 +88,26 @@ pub fn syscall_getdents64(
             .copy_to_user(current_offset + 16, &rec_len_u16.to_ne_bytes())
             .is_err()
         {
-            return to_continue_i32(Err(Error::InvalidArgs));
+            return SyscallResult::from_err(Error::InvalidArgs);
         }
         // Write d_type (1 byte)
         if vm.copy_to_user(current_offset + 18, &[d_type]).is_err() {
-            return to_continue_i32(Err(Error::InvalidArgs));
+            return SyscallResult::from_err(Error::InvalidArgs);
         }
         // Write d_name (name_len + null terminator)
         if vm.copy_to_user(current_offset + 19, name_bytes).is_err() {
-            return to_continue_i32(Err(Error::InvalidArgs));
+            return SyscallResult::from_err(Error::InvalidArgs);
         }
         if vm
             .copy_to_user(current_offset + 19 + name_len, &[0u8])
             .is_err()
         {
-            return to_continue_i32(Err(Error::InvalidArgs));
+            return SyscallResult::from_err(Error::InvalidArgs);
         }
 
         current_offset += rec_len;
         written_bytes += rec_len;
     }
 
-    to_continue_i32(Ok(written_bytes as i32))
+    SyscallResult::from_result(Ok(written_bytes as i32))
 }

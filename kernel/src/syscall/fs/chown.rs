@@ -1,7 +1,7 @@
 use crate::proc::userspace::read_user_string;
 use crate::syscall::SyscallResult;
-use crate::syscall::to_continue_unit;
 use crate::vm::vma::VmaManager;
+use ostd::Error;
 
 /// System call entry: change owner and group of a file.
 pub fn syscall_chown(
@@ -14,13 +14,11 @@ pub fn syscall_chown(
     vm: &VmaManager,
     _: &mut ostd::arch::cpu::context::UserContext,
 ) -> SyscallResult {
-    let uid = arg1 as u32;
-    let gid = arg2 as u32;
-    match read_user_string(vm, arg0) {
-        Ok(path) => match crate::fs::vfs::resolve_path(&path) {
-            Ok(dentry) => to_continue_unit(dentry.inode.chown(uid, gid)),
-            Err(error) => to_continue_unit(Err(error)),
-        },
-        Err(error) => to_continue_unit(Err(error)),
-    }
+    SyscallResult::from_result(do_chown(arg0, arg1 as u32, arg2 as u32, vm))
+}
+
+fn do_chown(path_ptr: usize, uid: u32, gid: u32, vm: &VmaManager) -> Result<(), Error> {
+    let path = read_user_string(vm, path_ptr)?;
+    let dentry = crate::fs::vfs::resolve_path(&path)?;
+    dentry.inode.chown(uid, gid)
 }

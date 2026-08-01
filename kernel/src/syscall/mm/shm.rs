@@ -20,8 +20,8 @@ pub fn syscall_shmget(
     let flags = arg2 as u32;
 
     match shm_get(key, size, flags) {
-        Ok(shmid) => SyscallResult::Continue(shmid as usize),
-        Err(e) => SyscallResult::Continue(-(e as isize) as usize),
+        Ok(shmid) => SyscallResult::Return(shmid as usize),
+        Err(e) => SyscallResult::Return(-(e as isize) as usize),
     }
 }
 
@@ -40,8 +40,8 @@ pub fn syscall_shmat(
     let flags = arg2 as u32;
 
     match shm_at(shmid, shmaddr, flags) {
-        Ok(addr) => SyscallResult::Continue(addr),
-        Err(e) => SyscallResult::Continue(-(e as isize) as usize),
+        Ok(addr) => SyscallResult::Return(addr),
+        Err(e) => SyscallResult::Return(-(e as isize) as usize),
     }
 }
 
@@ -58,8 +58,8 @@ pub fn syscall_shmdt(
     let shmaddr = arg0;
 
     match shm_dt(shmaddr) {
-        Ok(()) => SyscallResult::Continue(0),
-        Err(e) => SyscallResult::Continue(-(e as isize) as usize),
+        Ok(()) => SyscallResult::Return(0),
+        Err(e) => SyscallResult::Return(-(e as isize) as usize),
     }
 }
 
@@ -77,8 +77,8 @@ pub fn syscall_shmctl(
     let cmd = arg1 as u32;
 
     match shm_ctl(shmid, cmd) {
-        Ok(()) => SyscallResult::Continue(0),
-        Err(e) => SyscallResult::Continue(-(e as isize) as usize),
+        Ok(()) => SyscallResult::Return(0),
+        Err(e) => SyscallResult::Return(-(e as isize) as usize),
     }
 }
 
@@ -118,7 +118,7 @@ mod tests {
                 let get_res =
                     syscall_shmget(key, size, flags, 0, 0, 0, &current_process.vm, &mut context);
                 let shmid = match get_res {
-                    SyscallResult::Continue(id) => {
+                    SyscallResult::Return(id) => {
                         assert!(id > 0);
                         id
                     }
@@ -128,7 +128,7 @@ mod tests {
                 // 2. SYS_shmat
                 let at_res = syscall_shmat(shmid, 0, 0, 0, 0, 0, &current_process.vm, &mut context);
                 let addr = match at_res {
-                    SyscallResult::Continue(addr) => {
+                    SyscallResult::Return(addr) => {
                         assert!(addr > 0);
                         addr
                     }
@@ -146,7 +146,7 @@ mod tests {
                 // 3. SYS_shmdt
                 let dt_res = syscall_shmdt(addr, 0, 0, 0, 0, 0, &current_process.vm, &mut context);
                 match dt_res {
-                    SyscallResult::Continue(0) => {}
+                    SyscallResult::Return(0) => {}
                     _ => panic!("Expected Continue(0)"),
                 }
 
@@ -154,7 +154,7 @@ mod tests {
                 let ctl_res =
                     syscall_shmctl(shmid, 0, 0, 0, 0, 0, &current_process.vm, &mut context);
                 match ctl_res {
-                    SyscallResult::Continue(0) => {}
+                    SyscallResult::Return(0) => {}
                     _ => panic!("Expected Continue(0)"),
                 }
             })

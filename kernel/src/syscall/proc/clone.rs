@@ -7,7 +7,7 @@
 use crate::arch::set_fs_base;
 use crate::proc::pid_table::PROCESS_TABLE;
 use crate::proc::process::Process;
-use crate::syscall::{SyscallResult, dispatch_syscall, to_continue_i32};
+use crate::syscall::{SyscallResult, dispatch_syscall};
 use crate::vm::vma::VmaManager;
 use ostd::arch::cpu::context::UserContext;
 use ostd::user::{ReturnReason, UserContextApi, UserMode};
@@ -46,7 +46,7 @@ pub fn syscall_clone(
     } else {
         match parent.vm.fork_vm_space() {
             Ok(v) => v,
-            Err(err) => return to_continue_i32(Err(err)),
+            Err(err) => return SyscallResult::from_err(err),
         }
     };
 
@@ -112,7 +112,7 @@ pub fn syscall_clone(
                         &child_clone.vm,
                         &mut ctx,
                     ) {
-                        SyscallResult::Continue(retval) => {
+                        SyscallResult::Return(retval) => {
                             let mut ctx = user_mode.context_mut();
                             ctx.set_rax(retval);
                             let rip = ctx.rip();
@@ -149,7 +149,7 @@ pub fn syscall_clone(
     });
 
     match spawn_res {
-        Ok(_) => to_continue_i32(Ok(child_pid.as_u32() as i32)),
-        Err(err) => to_continue_i32(Err(err)),
+        Ok(_) => SyscallResult::from_result(Ok(child_pid.as_u32() as i32)),
+        Err(err) => SyscallResult::from_err(err),
     }
 }

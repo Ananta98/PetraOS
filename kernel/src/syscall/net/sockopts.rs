@@ -1,5 +1,5 @@
 use crate::proc::process::Process;
-use crate::syscall::{SyscallResult, to_continue_i32};
+use crate::syscall::{SyscallResult};
 use crate::vm::vma::VmaManager;
 use ostd::Error;
 use ostd::arch::cpu::context::UserContext;
@@ -19,9 +19,9 @@ pub fn syscall_setsockopt(
     let proc = Process::current();
     let fd_table = proc.fd_table.lock();
     if fd_table.get_fd(fd).is_err() {
-        return to_continue_i32(Err(Error::InvalidArgs));
+        return SyscallResult::from_err(Error::InvalidArgs);
     }
-    to_continue_i32(Ok(0))
+    SyscallResult::from_result(Ok(0))
 }
 
 /// `getsockopt()` — SYS_getsockopt = 55
@@ -39,7 +39,7 @@ pub fn syscall_getsockopt(
     let proc = Process::current();
     let fd_table = proc.fd_table.lock();
     if fd_table.get_fd(fd).is_err() {
-        return to_continue_i32(Err(Error::InvalidArgs));
+        return SyscallResult::from_err(Error::InvalidArgs);
     }
 
     if optval != 0 && optlen != 0 {
@@ -48,7 +48,7 @@ pub fn syscall_getsockopt(
         let len: u32 = 4;
         let _ = vm.copy_to_user(optlen, &len.to_ne_bytes());
     }
-    to_continue_i32(Ok(0))
+    SyscallResult::from_result(Ok(0))
 }
 
 /// `getsockname()` — SYS_getsockname = 51
@@ -66,7 +66,7 @@ pub fn syscall_getsockname(
     let proc = Process::current();
     let fd_table = proc.fd_table.lock();
     if fd_table.get_fd(fd).is_err() {
-        return to_continue_i32(Err(Error::InvalidArgs));
+        return SyscallResult::from_err(Error::InvalidArgs);
     }
 
     if addr_ptr != 0 && len_ptr != 0 {
@@ -81,7 +81,7 @@ pub fn syscall_getsockname(
         let len: u32 = 16;
         let _ = vm.copy_to_user(len_ptr, &len.to_ne_bytes());
     }
-    to_continue_i32(Ok(0))
+    SyscallResult::from_result(Ok(0))
 }
 
 /// `getpeername()` — SYS_getpeername = 52
@@ -113,7 +113,7 @@ pub fn syscall_shutdown(
     let proc = Process::current();
     let fd_table = proc.fd_table.lock();
     if fd_table.get_fd(fd).is_err() {
-        return to_continue_i32(Err(Error::InvalidArgs));
+        return SyscallResult::from_err(Error::InvalidArgs);
     }
-    to_continue_i32(Ok(0))
+    SyscallResult::from_result(Ok(0))
 }

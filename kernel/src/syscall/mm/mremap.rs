@@ -21,7 +21,7 @@ pub fn syscall_mremap(
 
     let allow_move = (flags & MREMAP_MAYMOVE) != 0;
     match vm.mremap(old_address, old_size, new_size, allow_move) {
-        Ok(vaddr) => SyscallResult::Continue(vaddr),
-        Err(e) => SyscallResult::Continue(-(e as isize) as usize),
+        Ok(vaddr) => SyscallResult::Return(vaddr),
+        Err(e) => SyscallResult::Return(-(e as isize) as usize),
     }
 }

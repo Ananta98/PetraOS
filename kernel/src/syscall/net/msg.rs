@@ -1,5 +1,5 @@
 use crate::proc::process::Process;
-use crate::syscall::{SyscallResult, to_continue_i32};
+use crate::syscall::{SyscallResult};
 use crate::vm::vma::VmaManager;
 use ostd::Error;
 use ostd::arch::cpu::context::UserContext;
@@ -92,19 +92,19 @@ pub fn syscall_sendmsg(
     let fd = arg0 as i32;
     let msg_ptr = arg1;
     if msg_ptr == 0 {
-        return to_continue_i32(Err(Error::InvalidArgs));
+        return SyscallResult::from_err(Error::InvalidArgs);
     }
 
     let proc = Process::current();
     let fd_table = proc.fd_table.lock();
     let fd_entry = match fd_table.get_fd(fd) {
         Ok(f) => f,
-        Err(e) => return to_continue_i32(Err(e)),
+        Err(e) => return SyscallResult::from_err(e),
     };
 
     let msg = match Msghdr::read_from_user(vm, msg_ptr) {
         Ok(m) => m,
-        Err(e) => return to_continue_i32(Err(e)),
+        Err(e) => return SyscallResult::from_err(e),
     };
 
     let mut total_sent = 0usize;
@@ -116,23 +116,23 @@ pub fn syscall_sendmsg(
         let entry_ptr = iov_ptr + i * 16;
         let iov = match Iovec::read_from_user(vm, entry_ptr) {
             Ok(v) => v,
-            Err(e) => return to_continue_i32(Err(e)),
+            Err(e) => return SyscallResult::from_err(e),
         };
 
         if iov.iov_base != 0 && iov.iov_len > 0 {
             let mut buf = alloc::vec![0u8; iov.iov_len];
             if vm.copy_from_user(iov.iov_base, &mut buf).is_err() {
-                return to_continue_i32(Err(Error::InvalidArgs));
+                return SyscallResult::from_err(Error::InvalidArgs);
             }
             let mut offset = 0;
             match open_file.file_ops.write(&buf, &mut offset) {
                 Ok(written) => total_sent += written,
-                Err(e) => return to_continue_i32(Err(e)),
+                Err(e) => return SyscallResult::from_err(e),
             }
         }
     }
 
-    to_continue_i32(Ok(total_sent as i32))
+    SyscallResult::from_result(Ok(total_sent as i32))
 }
 
 /// `recvmsg()` — SYS_recvmsg = 47
@@ -149,19 +149,19 @@ pub fn syscall_recvmsg(
     let fd = arg0 as i32;
     let msg_ptr = arg1;
     if msg_ptr == 0 {
-        return to_continue_i32(Err(Error::InvalidArgs));
+        return SyscallResult::from_err(Error::InvalidArgs);
     }
 
     let proc = Process::current();
     let fd_table = proc.fd_table.lock();
     let fd_entry = match fd_table.get_fd(fd) {
         Ok(f) => f,
-        Err(e) => return to_continue_i32(Err(e)),
+        Err(e) => return SyscallResult::from_err(e),
     };
 
     let msg = match Msghdr::read_from_user(vm, msg_ptr) {
         Ok(m) => m,
-        Err(e) => return to_continue_i32(Err(e)),
+        Err(e) => return SyscallResult::from_err(e),
     };
 
     let mut total_recv = 0usize;
@@ -173,7 +173,7 @@ pub fn syscall_recvmsg(
         let entry_ptr = iov_ptr + i * 16;
         let iov = match Iovec::read_from_user(vm, entry_ptr) {
             Ok(v) => v,
-            Err(e) => return to_continue_i32(Err(e)),
+            Err(e) => return SyscallResult::from_err(e),
         };
 
         if iov.iov_base != 0 && iov.iov_len > 0 {
@@ -182,14 +182,14 @@ pub fn syscall_recvmsg(
             match open_file.file_ops.read(&mut buf, &mut offset) {
                 Ok(nread) => {
                     if vm.copy_to_user(iov.iov_base, &buf[..nread]).is_err() {
-                        return to_continue_i32(Err(Error::InvalidArgs));
+                        return SyscallResult::from_err(Error::InvalidArgs);
                     }
                     total_recv += nread;
                 }
-                Err(e) => return to_continue_i32(Err(e)),
+                Err(e) => return SyscallResult::from_err(e),
             }
         }
     }
 
-    to_continue_i32(Ok(total_recv as i32))
+    SyscallResult::from_result(Ok(total_recv as i32))
 }

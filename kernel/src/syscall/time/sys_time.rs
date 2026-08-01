@@ -1,4 +1,4 @@
-use crate::syscall::{SyscallResult, to_continue};
+use crate::syscall::{SyscallResult};
 use crate::vm::vma::VmaManager;
 use ostd::Error;
 use ostd::arch::cpu::context::UserContext;
@@ -30,9 +30,9 @@ pub fn syscall_time(
         // Write the 8-byte `time_t` value to user space.
         let bytes = seconds.to_ne_bytes();
         if vm.copy_to_user(arg0, &bytes).is_err() {
-            return SyscallResult::Continue(-(Error::InvalidArgs as isize) as usize);
+            return SyscallResult::Return(-(Error::InvalidArgs as isize) as usize);
         }
     }
 
-    to_continue(Ok(seconds as usize))
+    SyscallResult::from_result(Ok(seconds as usize))
 }

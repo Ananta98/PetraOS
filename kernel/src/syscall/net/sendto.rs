@@ -1,7 +1,6 @@
 use crate::proc::process::Process;
 use crate::syscall::SyscallResult;
 use crate::syscall::net::{SocketFile, parse_sockaddr};
-use crate::syscall::to_continue;
 use crate::vm::vma::VmaManager;
 use ostd::Error;
 
@@ -24,14 +23,14 @@ pub fn syscall_sendto(
 
     let mut kbuf = alloc::vec![0u8; len];
     if let Err(err) = vm.copy_from_user(buf_ptr, &mut kbuf) {
-        return to_continue(Err(err));
+        return SyscallResult::from_err(err);
     }
 
     let process = Process::current();
     let fd_table = process.fd_table.lock();
     let fd_entry = match fd_table.get_fd(sockfd) {
         Ok(entry) => entry,
-        Err(err) => return to_continue(Err(err)),
+        Err(err) => return SyscallResult::from_err(err),
     };
 
     let open_file = fd_entry.open_file.lock();
@@ -41,7 +40,7 @@ pub fn syscall_sendto(
         .and_then(|any| any.downcast_ref::<SocketFile>())
     {
         Some(sf) => sf,
-        None => return to_continue(Err(Error::InvalidArgs)),
+        None => return SyscallResult::from_err(Error::InvalidArgs),
     };
 
     let handle = *socket_file.handle.lock();
@@ -49,30 +48,30 @@ pub fn syscall_sendto(
     let mut stack_guard = crate::net::NET_STACK.lock();
     let stack = match stack_guard.as_mut() {
         Some(s) => s,
-        None => return to_continue(Err(Error::InvalidArgs)),
+        None => return SyscallResult::from_err(Error::InvalidArgs),
     };
     let sockets = &mut stack.sockets;
 
     if socket_file.socket_type == 1 {
         // TCP
         if dest_addr_ptr != 0 {
-            return to_continue(Err(Error::InvalidArgs));
+            return SyscallResult::from_err(Error::InvalidArgs);
         }
         let tcp = sockets.get_mut::<smoltcp::socket::tcp::Socket>(handle);
         if !tcp.is_active() && !tcp.may_send() {
-            return to_continue(Err(Error::IoError));
+            return SyscallResult::from_err(Error::IoError);
         }
         let written = match tcp.send_slice(&kbuf) {
             Ok(w) => w,
-            Err(_) => return to_continue(Err(Error::IoError)),
+            Err(_) => return SyscallResult::from_err(Error::IoError),
         };
-        to_continue(Ok(written))
+        SyscallResult::from_result(Ok(written))
     } else {
         // UDP
         let dest = if dest_addr_ptr != 0 {
             match parse_sockaddr(vm, dest_addr_ptr, addrlen) {
                 Ok(ep) => Some(ep),
-                Err(err) => return to_continue(Err(err)),
+                Err(err) => return SyscallResult::from_err(err),
             }
         } else {
             *socket_file.remote.lock()
@@ -80,14 +79,14 @@ pub fn syscall_sendto(
 
         let dest_ep = match dest {
             Some(ep) => ep,
-            None => return to_continue(Err(Error::InvalidArgs)),
+            None => return SyscallResult::from_err(Error::InvalidArgs),
         };
 
         let udp = sockets.get_mut::<smoltcp::socket::udp::Socket>(handle);
 
         if let Err(_) = udp.send_slice(&kbuf, dest_ep) {
-            return to_continue(Err(Error::IoError));
+            return SyscallResult::from_err(Error::IoError);
         }
-        to_continue(Ok(len))
+        SyscallResult::from_result(Ok(len))
     }
 }

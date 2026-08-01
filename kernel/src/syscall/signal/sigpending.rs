@@ -6,7 +6,7 @@
 ///
 /// Returns `0` on success, negated `errno` on failure.
 use crate::proc::process::Process;
-use crate::syscall::{SyscallResult, to_continue_unit};
+use crate::syscall::{SyscallResult};
 use crate::vm::vma::VmaManager;
 use ostd::Error;
 
@@ -25,10 +25,10 @@ pub fn syscall_rt_sigpending(
     let sigsetsize = arg1;
 
     if sigsetsize != 8 {
-        return to_continue_unit(Err(Error::InvalidArgs));
+        return SyscallResult::from_err(Error::InvalidArgs);
     }
     if set_ptr == 0 {
-        return to_continue_unit(Err(Error::InvalidArgs));
+        return SyscallResult::from_err(Error::InvalidArgs);
     }
 
     let process = Process::current();
@@ -40,5 +40,5 @@ pub fn syscall_rt_sigpending(
     let result = pending.intersection(blocked);
 
     let raw = result.as_u64().to_le_bytes();
-    to_continue_unit(vm.copy_to_user(set_ptr, &raw))
+    SyscallResult::from_result(vm.copy_to_user(set_ptr, &raw))
 }

@@ -1,7 +1,7 @@
 use crate::proc::pid_table::PROCESS_TABLE;
 use crate::proc::pid_table::Pid;
 use crate::proc::process::{Process, ProcessState};
-use crate::syscall::{SyscallResult, to_continue_i32};
+use crate::syscall::{SyscallResult};
 use crate::vm::vma::VmaManager;
 use ostd::Error;
 use ostd::arch::cpu::context::UserContext;
@@ -24,7 +24,7 @@ pub fn syscall_waitid(
 
     // Validate options: must specify at least one of WEXITED, WSTOPPED, WCONTINUED
     if (options & (4 | 2 | 8)) == 0 {
-        return to_continue_i32(Err(Error::InvalidArgs));
+        return SyscallResult::from_err(Error::InvalidArgs);
     }
 
     let current_process = Process::current();
@@ -37,7 +37,7 @@ pub fn syscall_waitid(
         };
 
         if !has_children {
-            return to_continue_i32(Err(Error::InvalidArgs)); // ECHILD
+            return SyscallResult::from_err(Error::InvalidArgs); // ECHILD
         }
 
         let mut matching_child_exists = false;
@@ -51,7 +51,7 @@ pub fn syscall_waitid(
                     0 => true,                        // P_ALL
                     1 => child_pid.as_u32() == id,    // P_PID
                     2 => child.pgid().as_u32() == id, // P_PGID
-                    _ => return to_continue_i32(Err(Error::InvalidArgs)),
+                    _ => return SyscallResult::from_err(Error::InvalidArgs),
                 };
 
                 if matches {
@@ -66,7 +66,7 @@ pub fn syscall_waitid(
         }
 
         if !matching_child_exists {
-            return to_continue_i32(Err(Error::InvalidArgs)); // ECHILD
+            return SyscallResult::from_err(Error::InvalidArgs); // ECHILD
         }
 
         if let Some(child) = zombie_child {
@@ -103,11 +103,11 @@ pub fn syscall_waitid(
                 siginfo_bytes[24..28].copy_from_slice(&exit_code.to_ne_bytes());
 
                 if let Err(err) = vm.copy_to_user(infop, &siginfo_bytes) {
-                    return to_continue_i32(Err(err));
+                    return SyscallResult::from_err(err);
                 }
             }
 
-            return to_continue_i32(Ok(0));
+            return SyscallResult::from_result(Ok(0));
         }
 
         // If WNOHANG is set, return 0 immediately with si_signo set to 0.
@@ -116,10 +116,10 @@ pub fn syscall_waitid(
             if infop != 0 {
                 let zero = 0i32;
                 if let Err(err) = vm.copy_to_user(infop, &zero.to_ne_bytes()) {
-                    return to_continue_i32(Err(err));
+                    return SyscallResult::from_err(err);
                 }
             }
-            return to_continue_i32(Ok(0));
+            return SyscallResult::from_result(Ok(0));
         }
 
         // Drop lock before yielding

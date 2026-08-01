@@ -1,7 +1,6 @@
 use crate::proc::process::Process;
 use crate::syscall::SyscallResult;
 use crate::syscall::net::{SocketFile, allocate_ephemeral_port};
-use crate::syscall::to_continue_unit;
 use crate::vm::vma::VmaManager;
 use ostd::Error;
 use smoltcp::wire::IpEndpoint;
@@ -22,7 +21,7 @@ pub fn syscall_listen(
     let fd_table = process.fd_table.lock();
     let fd_entry = match fd_table.get_fd(sockfd) {
         Ok(entry) => entry,
-        Err(err) => return to_continue_unit(Err(err)),
+        Err(err) => return SyscallResult::from_err(err),
     };
 
     let open_file = fd_entry.open_file.lock();
@@ -32,11 +31,11 @@ pub fn syscall_listen(
         .and_then(|any| any.downcast_ref::<SocketFile>())
     {
         Some(sf) => sf,
-        None => return to_continue_unit(Err(Error::InvalidArgs)),
+        None => return SyscallResult::from_err(Error::InvalidArgs),
     };
 
     if socket_file.socket_type != 1 {
-        return to_continue_unit(Err(Error::InvalidArgs));
+        return SyscallResult::from_err(Error::InvalidArgs);
     }
 
     let mut local_endpoint = *socket_file.local.lock();
@@ -54,15 +53,15 @@ pub fn syscall_listen(
     let mut stack_guard = crate::net::NET_STACK.lock();
     let stack = match stack_guard.as_mut() {
         Some(s) => s,
-        None => return to_continue_unit(Err(Error::InvalidArgs)),
+        None => return SyscallResult::from_err(Error::InvalidArgs),
     };
     let sockets = &mut stack.sockets;
 
     let tcp_socket = sockets.get_mut::<smoltcp::socket::tcp::Socket>(*socket_file.handle.lock());
 
     if let Err(_) = tcp_socket.listen(local_ep) {
-        return to_continue_unit(Err(Error::InvalidArgs));
+        return SyscallResult::from_err(Error::InvalidArgs);
     }
 
-    to_continue_unit(Ok(()))
+    SyscallResult::from_result(Ok(()))
 }

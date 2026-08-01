@@ -6,8 +6,8 @@
 /// Returns `0` on success, or a negated `errno` on failure.
 use crate::proc::pid_table::PROCESS_TABLE;
 use crate::proc::process::Process;
-use crate::proc::userspace::{read_user_string, setup_user_stack};
-use crate::syscall::{SyscallResult, to_continue_i32};
+use crate::proc::userspace::read_user_string;
+use crate::syscall::SyscallResult;
 use crate::vm::vma::VmaManager;
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -25,51 +25,33 @@ pub fn syscall_execve(
     vm: &VmaManager,
     context: &mut UserContext,
 ) -> SyscallResult {
-    let pathname_ptr = arg0;
-    let argv_ptr = arg1;
-    let envp_ptr = arg2;
+    SyscallResult::from_result(do_execve(arg0, arg1, arg2, vm, context))
+}
 
+fn do_execve(
+    pathname_ptr: usize,
+    argv_ptr: usize,
+    envp_ptr: usize,
+    vm: &VmaManager,
+    context: &mut UserContext,
+) -> Result<i32, Error> {
     if pathname_ptr == 0 {
-        return to_continue_i32(Err(Error::InvalidArgs));
+        return Err(Error::InvalidArgs);
     }
 
     // 1. Read pathname, argv, and envp from user space.
-    let path = match read_user_string(vm, pathname_ptr) {
-        Ok(s) => s,
-        Err(err) => return to_continue_i32(Err(err)),
-    };
-
-    let argv = match read_user_string_array(vm, argv_ptr) {
-        Ok(a) => a,
-        Err(err) => return to_continue_i32(Err(err)),
-    };
-
-    let envp = match read_user_string_array(vm, envp_ptr) {
-        Ok(e) => e,
-        Err(err) => return to_continue_i32(Err(err)),
-    };
+    let path = read_user_string(vm, pathname_ptr)?;
+    let argv = read_user_string_array(vm, argv_ptr)?;
+    let envp = read_user_string_array(vm, envp_ptr)?;
 
     // 2. Resolve the path and read the ELF executable image.
-    let dentry = match crate::fs::vfs::resolve_path(&path) {
-        Ok(d) => d,
-        Err(err) => return to_continue_i32(Err(err)),
-    };
-
-    let meta = match dentry.inode.metadata() {
-        Ok(m) => m,
-        Err(err) => return to_continue_i32(Err(err)),
-    };
-
-    let mut file_ops = match dentry.inode.open(0) {
-        Ok(f) => f,
-        Err(err) => return to_continue_i32(Err(err)),
-    };
+    let dentry = crate::fs::vfs::resolve_path(&path)?;
+    let meta = dentry.inode.metadata()?;
+    let mut file_ops = dentry.inode.open(0)?;
 
     let mut elf_image = alloc::vec![0u8; meta.size];
     let mut offset = 0;
-    if let Err(err) = file_ops.read(&mut elf_image, &mut offset) {
-        return to_continue_i32(Err(err));
-    }
+    file_ops.read(&mut elf_image, &mut offset)?;
 
     // 3. Perform exec on the current process to replace its address space.
     let current_process = Process::current();
@@ -93,7 +75,7 @@ pub fn syscall_execve(
     });
 
     if let Some(err) = exec_err {
-        return to_continue_i32(Err(err));
+        return Err(err);
     }
 
     // 5. Modify the UserContext to jump to the new entry point on syscall return.
@@ -107,7 +89,7 @@ pub fn syscall_execve(
     context.set_rcx(rip);
     context.set_r11(rflags);
 
-    to_continue_i32(Ok(0))
+    Ok(0)
 }
 
 // Helper to read string arrays from user space.

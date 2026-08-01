@@ -1,6 +1,5 @@
 use crate::proc::userspace::read_user_string;
 use crate::syscall::SyscallResult;
-use crate::syscall::to_continue_i32;
 use crate::vm::vma::VmaManager;
 use ostd::Error;
 
@@ -20,27 +19,32 @@ pub fn syscall_access(
     vm: &VmaManager,
     _: &mut ostd::arch::cpu::context::UserContext,
 ) -> SyscallResult {
-    let mode = arg1 as u32;
-    let path = match read_user_string(vm, arg0) {
-        Ok(p) => p,
-        Err(err) => return to_continue_i32(Err(err)),
-    };
+    SyscallResult::from_result(do_access(arg0, arg1 as u32, vm))
+}
 
-    let dentry = match crate::fs::vfs::resolve_path(&path) {
-        Ok(d) => d,
-        Err(err) => return to_continue_i32(Err(err)),
-    };
+/// System call entry: check user permissions relative to directory fd (`faccessat(2)`).
+pub fn syscall_faccessat(
+    _dirfd: usize,
+    pathname: usize,
+    mode: usize,
+    _flags: usize,
+    _: usize,
+    _: usize,
+    vm: &VmaManager,
+    _: &mut ostd::arch::cpu::context::UserContext,
+) -> SyscallResult {
+    SyscallResult::from_result(do_access(pathname, mode as u32, vm))
+}
+
+fn do_access(path_ptr: usize, mode: u32, vm: &VmaManager) -> Result<i32, Error> {
+    let path = read_user_string(vm, path_ptr)?;
+    let dentry = crate::fs::vfs::resolve_path(&path)?;
 
     if mode == F_OK {
-        return to_continue_i32(Ok(0));
+        return Ok(0);
     }
 
-    let meta = match dentry.inode.metadata() {
-        Ok(m) => m,
-        Err(err) => return to_continue_i32(Err(err)),
-    };
-
-    // Verify mode bits against inode mode permissions
+    let meta = dentry.inode.metadata()?;
     let user_perm = (meta.mode >> 6) & 0o7;
     let mut ok = true;
     if (mode & R_OK) != 0 && (user_perm & 0o4) == 0 {
@@ -54,22 +58,8 @@ pub fn syscall_access(
     }
 
     if ok {
-        to_continue_i32(Ok(0))
+        Ok(0)
     } else {
-        to_continue_i32(Err(Error::InvalidArgs))
+        Err(Error::InvalidArgs)
     }
-}
-
-/// System call entry: check user permissions for a file relative to dirfd (`faccessat(2)`).
-pub fn syscall_faccessat(
-    _dirfd: usize,
-    pathname: usize,
-    mode: usize,
-    _flags: usize,
-    _arg4: usize,
-    _arg5: usize,
-    vm: &VmaManager,
-    context: &mut ostd::arch::cpu::context::UserContext,
-) -> SyscallResult {
-    syscall_access(pathname, mode, 0, 0, 0, 0, vm, context)
 }

@@ -1,5 +1,4 @@
 use crate::syscall::SyscallResult;
-use crate::syscall::to_continue_unit;
 use crate::vm::vma::VmaManager;
 use ostd::arch::cpu::context::UserContext;
 
@@ -24,7 +23,7 @@ pub fn syscall_clock_getres(
     vm: &VmaManager,
     _ctx: &mut UserContext,
 ) -> SyscallResult {
-    to_continue_unit((|| {
+    SyscallResult::from_result((|| {
         // Validate the clock ID first.
         clock_ns(arg0)?;
 

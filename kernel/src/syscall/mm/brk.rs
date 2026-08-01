@@ -18,5 +18,5 @@ pub fn syscall_brk(
     vm: &VmaManager,
     _: &mut ostd::arch::cpu::context::UserContext,
 ) -> SyscallResult {
-    SyscallResult::Continue(vm.brk(arg0))
+    SyscallResult::Return(vm.brk(arg0))
 }

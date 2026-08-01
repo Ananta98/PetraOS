@@ -11,5 +11,5 @@ pub fn syscall_sched_yield(
     _vm: &VmaManager,
     _context: &mut ostd::arch::cpu::context::UserContext,
 ) -> SyscallResult {
-    SyscallResult::Continue(-38_isize as usize)
+    SyscallResult::Return(-38_isize as usize)
 }

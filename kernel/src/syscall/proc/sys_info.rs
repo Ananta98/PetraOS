@@ -1,4 +1,4 @@
-use crate::syscall::{SyscallResult, to_continue_i32};
+use crate::syscall::{SyscallResult};
 use crate::vm::vma::VmaManager;
 use ostd::Error;
 use ostd::arch::cpu::context::UserContext;
@@ -72,7 +72,7 @@ pub fn syscall_uname(
     _: &mut UserContext,
 ) -> SyscallResult {
     if arg0 == 0 {
-        return to_continue_i32(Err(Error::InvalidArgs));
+        return SyscallResult::from_err(Error::InvalidArgs);
     }
     let mut uts = Utsname::default();
     set_str(&mut uts.sysname, "Linux");
@@ -90,7 +90,7 @@ pub fn syscall_uname(
     buf[260..325].copy_from_slice(&uts.machine);
     buf[325..390].copy_from_slice(&uts.domainname);
 
-    to_continue_i32(vm.copy_to_user(arg0, &buf).map(|_| 0))
+    SyscallResult::from_result(vm.copy_to_user(arg0, &buf).map(|_| 0))
 }
 
 /// `sysinfo()` — SYS_sysinfo = 99
@@ -105,7 +105,7 @@ pub fn syscall_sysinfo(
     _: &mut UserContext,
 ) -> SyscallResult {
     if arg0 == 0 {
-        return to_continue_i32(Err(Error::InvalidArgs));
+        return SyscallResult::from_err(Error::InvalidArgs);
     }
     let info = Sysinfo {
         uptime: 3600,
@@ -141,7 +141,7 @@ pub fn syscall_sysinfo(
     buf[92..100].copy_from_slice(&info.freehigh.to_ne_bytes());
     buf[100..104].copy_from_slice(&info.mem_unit.to_ne_bytes());
 
-    to_continue_i32(vm.copy_to_user(arg0, &buf).map(|_| 0))
+    SyscallResult::from_result(vm.copy_to_user(arg0, &buf).map(|_| 0))
 }
 
 /// `getrlimit()` — SYS_getrlimit = 97
@@ -156,7 +156,7 @@ pub fn syscall_getrlimit(
     _: &mut UserContext,
 ) -> SyscallResult {
     if rlim_ptr == 0 {
-        return to_continue_i32(Err(Error::InvalidArgs));
+        return SyscallResult::from_err(Error::InvalidArgs);
     }
     let rlim = Rlimit64 {
         rlim_cur: 1024,
@@ -167,7 +167,7 @@ pub fn syscall_getrlimit(
     buf[0..8].copy_from_slice(&rlim.rlim_cur.to_ne_bytes());
     buf[8..16].copy_from_slice(&rlim.rlim_max.to_ne_bytes());
 
-    to_continue_i32(vm.copy_to_user(rlim_ptr, &buf).map(|_| 0))
+    SyscallResult::from_result(vm.copy_to_user(rlim_ptr, &buf).map(|_| 0))
 }
 
 /// `prlimit64()` — SYS_prlimit64 = 302
@@ -184,6 +184,6 @@ pub fn syscall_prlimit64(
     if old_rlim != 0 {
         syscall_getrlimit(resource, old_rlim, 0, 0, 0, 0, vm, ctx)
     } else {
-        to_continue_i32(Ok(0))
+        SyscallResult::from_result(Ok(0))
     }
 }

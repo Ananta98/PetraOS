@@ -1,7 +1,7 @@
 use crate::proc::pid_table::PROCESS_TABLE;
 use crate::proc::pid_table::Pid;
 use crate::proc::process::Process;
-use crate::syscall::{SyscallResult, to_continue_i32};
+use crate::syscall::SyscallResult;
 use crate::vm::vma::VmaManager;
 use ostd::Error;
 use ostd::arch::cpu::context::UserContext;
@@ -17,7 +17,7 @@ pub fn syscall_getpid(
     _: &VmaManager,
     _: &mut UserContext,
 ) -> SyscallResult {
-    to_continue_i32(Ok(Process::current().pid.as_u32() as i32))
+    SyscallResult::from_result(Ok(Process::current().pid.as_u32() as i32))
 }
 
 /// `getppid()` — returns the parent process ID of the calling process (SYS_getppid = 110).
@@ -35,7 +35,7 @@ pub fn syscall_getppid(
         .ppid
         .as_ref()
         .map_or(0, |p| p.pid.as_u32());
-    to_continue_i32(Ok(ppid as i32))
+    SyscallResult::from_result(Ok(ppid as i32))
 }
 
 /// `getpgid()` — returns the process group ID of the process (SYS_getpgid = 121).
@@ -59,9 +59,9 @@ pub fn syscall_getpgid(
     };
 
     if let Some(target) = PROCESS_TABLE.get_process(target_pid) {
-        to_continue_i32(Ok(target.pgid().as_u32() as i32))
+        SyscallResult::from_result(Ok(target.pgid().as_u32() as i32))
     } else {
-        to_continue_i32(Err(Error::InvalidArgs))
+        SyscallResult::from_result(Err::<i32, _>(Error::InvalidArgs))
     }
 }
 
@@ -94,7 +94,7 @@ pub fn syscall_setpgid(
     };
 
     if !target_is_valid {
-        return to_continue_i32(Err(Error::InvalidArgs));
+        return SyscallResult::from_result(Err::<i32, _>(Error::InvalidArgs));
     }
 
     let target_pgid = if pgid_raw == 0 {
@@ -103,7 +103,7 @@ pub fn syscall_setpgid(
         Pid::from_raw(pgid_raw)
     };
 
-    let mut result = Err(Error::InvalidArgs);
+    let mut result: Result<i32, Error> = Err(Error::InvalidArgs);
     if let Some(mut p) = PROCESS_TABLE.get_process(target_pid) {
         if p.session_id == current.session_id {
             if p.setpgid(target_pgid).is_ok() {
@@ -112,7 +112,7 @@ pub fn syscall_setpgid(
         }
     }
 
-    to_continue_i32(result)
+    SyscallResult::from_result(result)
 }
 
 /// `getsid()` — returns the session ID of the process (SYS_getsid = 124).
@@ -136,9 +136,9 @@ pub fn syscall_getsid(
     };
 
     if let Some(target) = PROCESS_TABLE.get_process(target_pid) {
-        to_continue_i32(Ok(target.session_id.as_u32() as i32))
+        SyscallResult::from_result(Ok(target.session_id.as_u32() as i32))
     } else {
-        to_continue_i32(Err(Error::InvalidArgs))
+        SyscallResult::from_result(Err::<i32, _>(Error::InvalidArgs))
     }
 }
 
@@ -155,7 +155,7 @@ pub fn syscall_setsid(
 ) -> SyscallResult {
     let current = Process::current();
 
-    let mut result = Err(Error::AccessDenied);
+    let mut result: Result<i32, Error> = Err(Error::AccessDenied);
 
     PROCESS_TABLE.update_process(current.pid, |p| {
         if p.pid != p.pgid() {
@@ -165,5 +165,5 @@ pub fn syscall_setsid(
         }
     });
 
-    to_continue_i32(result)
+    SyscallResult::from_result(result)
 }

@@ -63,7 +63,7 @@ pub fn syscall_mmap(
     let populate = (flags & MAP_POPULATE) != 0;
 
     if length == 0 {
-        return SyscallResult::Continue(-(Error::InvalidArgs as isize) as usize);
+        return SyscallResult::Return(-(Error::InvalidArgs as isize) as usize);
     }
 
     let addr_opt = if addr != 0 {
@@ -88,12 +88,12 @@ pub fn syscall_mmap(
         let fd_entry = match fd_table.get_fd(fd) {
             Ok(entry) => entry,
             Err(e) => {
-                return SyscallResult::Continue(-(e as isize) as usize);
+                return SyscallResult::Return(-(e as isize) as usize);
             }
         };
 
         if offset % PAGE_SIZE != 0 {
-            return SyscallResult::Continue(-(Error::InvalidArgs as isize) as usize);
+            return SyscallResult::Return(-(Error::InvalidArgs as isize) as usize);
         }
 
         let backing = fd_entry.open_file.clone();
@@ -102,7 +102,7 @@ pub fn syscall_mmap(
     };
 
     match result {
-        Ok(vaddr) => SyscallResult::Continue(vaddr),
-        Err(e) => SyscallResult::Continue(-(e as isize) as usize),
+        Ok(vaddr) => SyscallResult::Return(vaddr),
+        Err(e) => SyscallResult::Return(-(e as isize) as usize),
     }
 }

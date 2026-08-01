@@ -10,7 +10,7 @@
 /// Returns `0` on success, or a negated `errno` on failure.
 use crate::fs::fd_table::FileDescriptor;
 use crate::proc::process::Process;
-use crate::syscall::{SyscallResult, to_continue_unit};
+use crate::syscall::{SyscallResult};
 use crate::vm::vma::VmaManager;
 use ostd::Error;
 
@@ -30,13 +30,13 @@ pub fn syscall_pipe2(
 
     // Validate user pointer.
     if pipefd_ptr == 0 {
-        return to_continue_unit(Err(Error::InvalidArgs));
+        return SyscallResult::from_err(Error::InvalidArgs);
     }
 
     // Validate flags: only O_NONBLOCK (0x800) and O_CLOEXEC (0x80000) are allowed.
     const ALLOWED_FLAGS: u32 = 0x800 | 0x80000;
     if (flags & !ALLOWED_FLAGS) != 0 {
-        return to_continue_unit(Err(Error::InvalidArgs));
+        return SyscallResult::from_err(Error::InvalidArgs);
     }
 
     // Create the unidirectional pipe ends.
@@ -48,12 +48,12 @@ pub fn syscall_pipe2(
     // Allocate two file descriptors.
     let read_fd = match fd_table.alloc_fd(0) {
         Ok(fd) => fd,
-        Err(err) => return to_continue_unit(Err(err)),
+        Err(err) => return SyscallResult::from_err(err),
     };
 
     let write_fd = match fd_table.alloc_fd(read_fd + 1) {
         Ok(fd) => fd,
-        Err(err) => return to_continue_unit(Err(err)),
+        Err(err) => return SyscallResult::from_err(err),
     };
 
     // Wrap in FileDescriptors.
@@ -66,12 +66,12 @@ pub fn syscall_pipe2(
     bytes[4..8].copy_from_slice(&write_fd.to_ne_bytes());
 
     if let Err(err) = vm.copy_to_user(pipefd_ptr, &bytes) {
-        return to_continue_unit(Err(err));
+        return SyscallResult::from_err(err);
     }
 
     // Now insert them into the fd table.
     fd_table.insert(read_fd, read_descriptor);
     fd_table.insert(write_fd, write_descriptor);
 
-    to_continue_unit(Ok(()))
+    SyscallResult::from_result(Ok(()))
 }

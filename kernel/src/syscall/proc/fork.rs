@@ -7,7 +7,7 @@
 /// Returns the child's PID to the parent, and `0` to the child.
 use crate::proc::pid_table::PROCESS_TABLE;
 use crate::proc::process::Process;
-use crate::syscall::{SyscallResult, dispatch_syscall, to_continue_i32};
+use crate::syscall::{SyscallResult, dispatch_syscall};
 use crate::vm::vma::VmaManager;
 use ostd::Error;
 use ostd::arch::cpu::context::UserContext;
@@ -28,7 +28,7 @@ pub fn syscall_fork(
     // Fork the process state (Cow vm cloning + Process table registration)
     let child = match parent.fork() {
         Ok(c) => c,
-        Err(err) => return to_continue_i32(Err(err)),
+        Err(err) => return SyscallResult::from_err(err),
     };
 
     let child_pid = child.pid;
@@ -73,7 +73,7 @@ pub fn syscall_fork(
                         &child_clone.vm,
                         &mut ctx,
                     ) {
-                        SyscallResult::Continue(retval) => {
+                        SyscallResult::Return(retval) => {
                             let mut ctx = user_mode.context_mut();
                             ctx.set_rax(retval);
                             let rip = ctx.rip();
@@ -104,7 +104,7 @@ pub fn syscall_fork(
     });
 
     match spawn_res {
-        Ok(_) => to_continue_i32(Ok(child_pid.as_u32() as i32)),
-        Err(err) => to_continue_i32(Err(err)),
+        Ok(_) => SyscallResult::from_result(Ok(child_pid.as_u32() as i32)),
+        Err(err) => SyscallResult::from_err(err),
     }
 }

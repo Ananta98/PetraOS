@@ -1,6 +1,5 @@
 use crate::proc::process::Process;
 use crate::syscall::SyscallResult;
-use crate::syscall::to_continue;
 use crate::vm::vma::VmaManager;
 use ostd::Error;
 
@@ -15,16 +14,13 @@ pub fn syscall_read(
     vm: &VmaManager,
     _: &mut ostd::arch::cpu::context::UserContext,
 ) -> SyscallResult {
-    let fd = arg0 as i32;
-    let user_buf = arg1;
-    let len = arg2;
+    SyscallResult::from_result(do_read(arg0 as i32, arg1, arg2, vm))
+}
+
+fn do_read(fd: i32, user_buf: usize, len: usize, vm: &VmaManager) -> Result<usize, Error> {
     let mut kbuf = alloc::vec![0u8; len];
-    let bytes = match Process::current().fd_table.lock().read(fd, &mut kbuf) {
-        Ok(bytes) => bytes,
-        Err(error) => return to_continue(Err(error)),
-    };
-    if vm.copy_to_user(user_buf, &kbuf[..bytes]).is_err() {
-        return to_continue(Err(Error::AccessDenied));
-    }
-    to_continue(Ok(bytes))
+    let bytes = Process::current().fd_table.lock().read(fd, &mut kbuf)?;
+    vm.copy_to_user(user_buf, &kbuf[..bytes])
+        .map_err(|_| Error::AccessDenied)?;
+    Ok(bytes)
 }

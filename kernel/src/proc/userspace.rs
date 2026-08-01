@@ -207,7 +207,7 @@ pub fn run_process_user_mode(
                     &process.vm,
                     &mut ctx,
                 ) {
-                    SyscallResult::Continue(retval) => {
+                    SyscallResult::Return(retval) => {
                         let ctx = user_mode.context_mut();
                         ctx.set_rax(retval);
 

@@ -19,7 +19,7 @@ use crate::ipc::SigSet;
 /// time. A future patch will add a proper `WaitQueue` to `ProcessSignals`
 /// and park the calling task until `SigQueue::has_pending()` returns `true`.
 use crate::proc::process::Process;
-use crate::syscall::{SyscallResult, to_continue_unit};
+use crate::syscall::{SyscallResult};
 use crate::vm::vma::VmaManager;
 use ostd::Error;
 
@@ -38,16 +38,16 @@ pub fn syscall_rt_sigsuspend(
     let sigsetsize = arg1;
 
     if sigsetsize != 8 {
-        return to_continue_unit(Err(Error::InvalidArgs));
+        return SyscallResult::from_err(Error::InvalidArgs);
     }
     if mask_ptr == 0 {
-        return to_continue_unit(Err(Error::InvalidArgs));
+        return SyscallResult::from_err(Error::InvalidArgs);
     }
 
     // Read the temporary mask from user space.
     let mut raw = [0u8; 8];
     if let Err(err) = vm.copy_from_user(mask_ptr, &mut raw) {
-        return to_continue_unit(Err(err));
+        return SyscallResult::from_err(err);
     }
     let temp_mask = SigSet::from_u64(u64::from_le_bytes(raw));
 
@@ -76,5 +76,5 @@ pub fn syscall_rt_sigsuspend(
     // sigsuspend always returns -EINTR (interrupted by signal).
     // ostd::Error does not have an Interrupted variant; IoError maps to EINTR
     // for signal-interrupted system calls.
-    to_continue_unit(Err(Error::IoError))
+    SyscallResult::from_err(Error::IoError)
 }

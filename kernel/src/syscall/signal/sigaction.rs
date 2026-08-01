@@ -17,7 +17,7 @@
 /// Returns `0` on success, or a negated `errno` on failure.
 use crate::ipc::{SIGRTMAX, SigAction, SigHandler, SigHandlerKind, SigSet};
 use crate::proc::process::Process;
-use crate::syscall::{SyscallResult, to_continue_unit};
+use crate::syscall::{SyscallResult};
 use crate::vm::vma::VmaManager;
 use ostd::Error;
 
@@ -50,10 +50,10 @@ pub fn syscall_rt_sigaction(
     let sigsetsize = arg3;
 
     if signum == 0 || signum > SIGRTMAX {
-        return to_continue_unit(Err(Error::InvalidArgs));
+        return SyscallResult::from_err(Error::InvalidArgs);
     }
     if sigsetsize != 8 {
-        return to_continue_unit(Err(Error::InvalidArgs));
+        return SyscallResult::from_err(Error::InvalidArgs);
     }
 
     let process = Process::current();
@@ -62,7 +62,7 @@ pub fn syscall_rt_sigaction(
     // ── Export old action before replacing it ─────────────────────────────
     if old_act_ptr != 0 {
         if let Err(err) = write_sigaction_to_user(vm, old_act_ptr, &signals.table, signum) {
-            return to_continue_unit(Err(err));
+            return SyscallResult::from_err(err);
         }
     }
 
@@ -72,11 +72,11 @@ pub fn syscall_rt_sigaction(
             Ok(action) => {
                 signals.table.set_action(signum, action);
             }
-            Err(err) => return to_continue_unit(Err(err)),
+            Err(err) => return SyscallResult::from_err(err),
         }
     }
 
-    to_continue_unit(Ok(()))
+    SyscallResult::from_result(Ok(()))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

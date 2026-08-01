@@ -1,5 +1,5 @@
 use crate::proc::process::Process;
-use crate::syscall::{SyscallResult, to_continue_i32};
+use crate::syscall::{SyscallResult};
 use crate::vm::vma::VmaManager;
 use ostd::Error;
 use ostd::arch::cpu::context::UserContext;
@@ -16,7 +16,7 @@ pub fn syscall_socketpair(
     _: &mut UserContext,
 ) -> SyscallResult {
     if sv_ptr == 0 {
-        return to_continue_i32(Err(Error::InvalidArgs));
+        return SyscallResult::from_err(Error::InvalidArgs);
     }
 
     let (reader, writer) = crate::ipc::create_pipe();
@@ -25,12 +25,12 @@ pub fn syscall_socketpair(
 
     let fd0 = match fd_table.insert_pipe_reader(reader) {
         Ok(f) => f,
-        Err(e) => return to_continue_i32(Err(e)),
+        Err(e) => return SyscallResult::from_err(e),
     };
 
     let fd1 = match fd_table.insert_pipe_writer(writer) {
         Ok(f) => f,
-        Err(e) => return to_continue_i32(Err(e)),
+        Err(e) => return SyscallResult::from_err(e),
     };
 
     let fds: [i32; 2] = [fd0, fd1];
@@ -38,5 +38,5 @@ pub fn syscall_socketpair(
     buf[0..4].copy_from_slice(&fds[0].to_ne_bytes());
     buf[4..8].copy_from_slice(&fds[1].to_ne_bytes());
 
-    to_continue_i32(vm.copy_to_user(sv_ptr, &buf).map(|_| 0))
+    SyscallResult::from_result(vm.copy_to_user(sv_ptr, &buf).map(|_| 0))
 }

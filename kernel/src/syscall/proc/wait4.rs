@@ -7,7 +7,7 @@
 /// and no child has changed state, or a negated `errno` on failure.
 use crate::proc::pid_table::Pid;
 use crate::proc::process::Process;
-use crate::syscall::{SyscallResult, to_continue_i32};
+use crate::syscall::{SyscallResult};
 use crate::vm::vma::VmaManager;
 use ostd::Error;
 use ostd::arch::cpu::context::UserContext;
@@ -36,7 +36,7 @@ pub fn syscall_wait4(
         };
 
         if !has_children {
-            return to_continue_i32(Err(Error::InvalidArgs)); // ECHILD
+            return SyscallResult::from_err(Error::InvalidArgs); // ECHILD
         }
 
         // Try to reap a child.
@@ -52,15 +52,15 @@ pub fn syscall_wait4(
                 let status_val = (code & 0xff) << 8;
                 let status_bytes = status_val.to_ne_bytes();
                 if let Err(err) = vm.copy_to_user(wstatus_ptr, &status_bytes) {
-                    return to_continue_i32(Err(err));
+                    return SyscallResult::from_err(err);
                 }
             }
-            return to_continue_i32(Ok(reaped_pid.as_u32() as i32));
+            return SyscallResult::from_result(Ok(reaped_pid.as_u32() as i32));
         }
 
         // If WNOHANG is set, return 0 immediately.
         if (options & 1) != 0 {
-            return to_continue_i32(Ok(0));
+            return SyscallResult::from_result(Ok(0));
         }
 
         // Otherwise yield / spin_loop.

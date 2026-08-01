@@ -1,7 +1,7 @@
 use crate::fs::eventfd::{EventFdNode, EventFdOps};
 use crate::fs::vfs::FileOps;
 use crate::proc::process::Process;
-use crate::syscall::{SyscallResult, to_continue_i32};
+use crate::syscall::{SyscallResult};
 use crate::vm::vma::VmaManager;
 use alloc::boxed::Box;
 use alloc::sync::Arc;
@@ -26,7 +26,7 @@ pub fn syscall_eventfd2(
     });
     let ops: Box<dyn FileOps> = Box::new(EventFdOps { node: node.clone() });
     let proc = Process::current();
-    to_continue_i32(proc.fd_table.lock().insert_custom(node, ops, flags, 0))
+    SyscallResult::from_result(proc.fd_table.lock().insert_custom(node, ops, flags, 0))
 }
 
 /// `eventfd()` — SYS_eventfd = 284

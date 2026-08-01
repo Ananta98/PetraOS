@@ -1,5 +1,5 @@
 use crate::arch::{get_fs_base, get_gs_base, set_fs_base, set_gs_base};
-use crate::syscall::{SyscallResult, to_continue_unit};
+use crate::syscall::SyscallResult;
 use crate::vm::vma::VmaManager;
 use ostd::Error;
 use ostd::arch::cpu::context::UserContext;
@@ -26,7 +26,7 @@ pub fn syscall_arch_prctl(
         }
         ARCH_GET_FS => {
             let fs_base = get_fs_base();
-            let addr_buf = fs_base.to_le_bytes();
+            let addr_buf = fs_base.to_ne_bytes();
             vm.copy_to_user(addr, &addr_buf)
         }
         ARCH_SET_GS => {
@@ -35,10 +35,10 @@ pub fn syscall_arch_prctl(
         }
         ARCH_GET_GS => {
             let gs_base = get_gs_base();
-            let addr_buf = gs_base.to_le_bytes();
+            let addr_buf = gs_base.to_ne_bytes();
             vm.copy_to_user(addr, &addr_buf)
         }
         _ => Err(Error::InvalidArgs),
     };
-    to_continue_unit(result)
+    SyscallResult::from_result(result)
 }

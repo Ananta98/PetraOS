@@ -1,7 +1,7 @@
 use crate::fs::vfs::{FileType, Metadata, resolve_path};
 use crate::proc::process::Process;
 use crate::proc::userspace::read_user_string;
-use crate::syscall::{SyscallResult, to_continue_i32};
+use crate::syscall::{SyscallResult};
 use crate::vm::vma::VmaManager;
 use ostd::Error;
 use ostd::arch::cpu::context::UserContext;
@@ -99,18 +99,18 @@ pub fn syscall_stat(
 ) -> SyscallResult {
     let path = match read_user_string(vm, arg0) {
         Ok(p) => p,
-        Err(e) => return to_continue_i32(Err(e)),
+        Err(e) => return SyscallResult::from_err(e),
     };
 
     match resolve_path(&path) {
         Ok(dentry) => match dentry.inode.metadata() {
             Ok(meta) => {
                 let linux_stat = metadata_to_linux_stat(&meta);
-                to_continue_i32(write_linux_stat(vm, arg1, &linux_stat).map(|_| 0))
+                SyscallResult::from_result(write_linux_stat(vm, arg1, &linux_stat).map(|_| 0))
             }
-            Err(e) => to_continue_i32(Err(e)),
+            Err(e) => SyscallResult::from_err(e),
         },
-        Err(e) => to_continue_i32(Err(e)),
+        Err(e) => SyscallResult::from_err(e),
     }
 }
 
@@ -130,14 +130,14 @@ pub fn syscall_fstat(
     let fd_table = proc.fd_table.lock();
     let fd_entry = match fd_table.get_fd(fd) {
         Ok(f) => f,
-        Err(e) => return to_continue_i32(Err(e)),
+        Err(e) => return SyscallResult::from_err(e),
     };
 
     let open_file = fd_entry.open_file.lock();
     let meta = if let Some(ref inode) = open_file.inode {
         match inode.metadata() {
             Ok(m) => m,
-            Err(e) => return to_continue_i32(Err(e)),
+            Err(e) => return SyscallResult::from_err(e),
         }
     } else {
         Metadata {
@@ -152,7 +152,7 @@ pub fn syscall_fstat(
     };
 
     let linux_stat = metadata_to_linux_stat(&meta);
-    to_continue_i32(write_linux_stat(vm, arg1, &linux_stat).map(|_| 0))
+    SyscallResult::from_result(write_linux_stat(vm, arg1, &linux_stat).map(|_| 0))
 }
 
 /// `lstat()` — SYS_lstat = 6

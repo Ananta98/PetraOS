@@ -14,7 +14,7 @@
 use crate::ipc::dispatch::send_signal_to_pid;
 use crate::proc::pid_table::{PROCESS_TABLE, Pid};
 use crate::proc::process::Process;
-use crate::syscall::{SyscallResult, to_continue_unit};
+use crate::syscall::{SyscallResult};
 use crate::vm::vma::VmaManager;
 use ostd::Error;
 
@@ -34,19 +34,19 @@ pub fn syscall_tgkill(
     let signum = arg2 as u32;
 
     if signum > crate::ipc::SIGRTMAX && signum != 0 {
-        return to_continue_unit(Err(Error::InvalidArgs));
+        return SyscallResult::from_err(Error::InvalidArgs);
     }
 
     let target = Pid::from_raw(tgid);
     if PROCESS_TABLE.get_process(target).is_none() {
-        return to_continue_unit(Err(Error::InvalidArgs));
+        return SyscallResult::from_err(Error::InvalidArgs);
     }
 
     if signum == 0 {
         // Validity check only.
-        return to_continue_unit(Ok(()));
+        return SyscallResult::from_result(Ok(()));
     }
 
     let sender_pid = Process::current().pid.as_u32();
-    to_continue_unit(send_signal_to_pid(target, signum, sender_pid))
+    SyscallResult::from_result(send_signal_to_pid(target, signum, sender_pid))
 }

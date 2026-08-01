@@ -1,5 +1,5 @@
 use crate::proc::process::Process;
-use crate::syscall::{SyscallResult, to_continue_i32};
+use crate::syscall::SyscallResult;
 use crate::vm::vma::VmaManager;
 use ostd::arch::cpu::context::UserContext;
 
@@ -14,7 +14,7 @@ pub fn syscall_gettid(
     _: &VmaManager,
     _: &mut UserContext,
 ) -> SyscallResult {
-    to_continue_i32(Ok(Process::current().pid.as_u32() as i32))
+    SyscallResult::from_result(Ok(Process::current().pid.as_u32() as i32))
 }
 
 /// `set_tid_address()` — SYS_set_tid_address = 218
@@ -28,7 +28,7 @@ pub fn syscall_set_tid_address(
     _: &VmaManager,
     _: &mut UserContext,
 ) -> SyscallResult {
-    to_continue_i32(Ok(Process::current().pid.as_u32() as i32))
+    SyscallResult::from_result(Ok(Process::current().pid.as_u32() as i32))
 }
 
 /// `exit_group()` — SYS_exit_group = 231
@@ -56,5 +56,5 @@ pub fn syscall_set_robust_list(
     _: &VmaManager,
     _: &mut UserContext,
 ) -> SyscallResult {
-    to_continue_i32(Ok(0))
+    SyscallResult::from_result(Ok(0))
 }

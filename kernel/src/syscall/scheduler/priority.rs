@@ -1,4 +1,4 @@
-use crate::syscall::{SyscallResult, to_continue_i32};
+use crate::syscall::{SyscallResult};
 use crate::vm::vma::VmaManager;
 use ostd::Error;
 
@@ -23,11 +23,11 @@ pub fn syscall_sched_get_priority_max(
 ) -> SyscallResult {
     let policy = arg0 as i32;
     match policy {
-        SCHED_FIFO | SCHED_RR => to_continue_i32(Ok(99)),
+        SCHED_FIFO | SCHED_RR => SyscallResult::from_result(Ok(99)),
         SCHED_NORMAL | SCHED_BATCH | SCHED_ISO | SCHED_IDLE | SCHED_DEADLINE => {
-            to_continue_i32(Ok(0))
+            SyscallResult::from_result(Ok(0))
         }
-        _ => to_continue_i32(Err(Error::InvalidArgs)),
+        _ => SyscallResult::from_err(Error::InvalidArgs),
     }
 }
 
@@ -44,11 +44,11 @@ pub fn syscall_sched_get_priority_min(
 ) -> SyscallResult {
     let policy = arg0 as i32;
     match policy {
-        SCHED_FIFO | SCHED_RR => to_continue_i32(Ok(1)),
+        SCHED_FIFO | SCHED_RR => SyscallResult::from_result(Ok(1)),
         SCHED_NORMAL | SCHED_BATCH | SCHED_ISO | SCHED_IDLE | SCHED_DEADLINE => {
-            to_continue_i32(Ok(0))
+            SyscallResult::from_result(Ok(0))
         }
-        _ => to_continue_i32(Err(Error::InvalidArgs)),
+        _ => SyscallResult::from_err(Error::InvalidArgs),
     }
 }
 
@@ -66,25 +66,25 @@ mod tests {
         // Real-time policies should return 99
         let res =
             syscall_sched_get_priority_max(SCHED_FIFO as usize, 0, 0, 0, 0, 0, &vm, &mut context);
-        assert!(matches!(res, SyscallResult::Continue(99)));
+        assert!(matches!(res, SyscallResult::Return(99)));
 
         let res =
             syscall_sched_get_priority_max(SCHED_RR as usize, 0, 0, 0, 0, 0, &vm, &mut context);
-        assert!(matches!(res, SyscallResult::Continue(99)));
+        assert!(matches!(res, SyscallResult::Return(99)));
 
         // Non-real-time policies should return 0
         let res =
             syscall_sched_get_priority_max(SCHED_NORMAL as usize, 0, 0, 0, 0, 0, &vm, &mut context);
-        assert!(matches!(res, SyscallResult::Continue(0)));
+        assert!(matches!(res, SyscallResult::Return(0)));
 
         let res =
             syscall_sched_get_priority_max(SCHED_BATCH as usize, 0, 0, 0, 0, 0, &vm, &mut context);
-        assert!(matches!(res, SyscallResult::Continue(0)));
+        assert!(matches!(res, SyscallResult::Return(0)));
 
         // Invalid policy should return error (-EINVAL)
         let res = syscall_sched_get_priority_max(999, 0, 0, 0, 0, 0, &vm, &mut context);
         assert!(
-            matches!(res, SyscallResult::Continue(val) if val == (-(Error::InvalidArgs as isize) as usize))
+            matches!(res, SyscallResult::Return(val) if val == (-(Error::InvalidArgs as isize) as usize))
         );
     }
 
@@ -96,21 +96,21 @@ mod tests {
         // Real-time policies should return 1
         let res =
             syscall_sched_get_priority_min(SCHED_FIFO as usize, 0, 0, 0, 0, 0, &vm, &mut context);
-        assert!(matches!(res, SyscallResult::Continue(1)));
+        assert!(matches!(res, SyscallResult::Return(1)));
 
         let res =
             syscall_sched_get_priority_min(SCHED_RR as usize, 0, 0, 0, 0, 0, &vm, &mut context);
-        assert!(matches!(res, SyscallResult::Continue(1)));
+        assert!(matches!(res, SyscallResult::Return(1)));
 
         // Non-real-time policies should return 0
         let res =
             syscall_sched_get_priority_min(SCHED_NORMAL as usize, 0, 0, 0, 0, 0, &vm, &mut context);
-        assert!(matches!(res, SyscallResult::Continue(0)));
+        assert!(matches!(res, SyscallResult::Return(0)));
 
         // Invalid policy should return error (-EINVAL)
         let res = syscall_sched_get_priority_min(999, 0, 0, 0, 0, 0, &vm, &mut context);
         assert!(
-            matches!(res, SyscallResult::Continue(val) if val == (-(Error::InvalidArgs as isize) as usize))
+            matches!(res, SyscallResult::Return(val) if val == (-(Error::InvalidArgs as isize) as usize))
         );
     }
 }

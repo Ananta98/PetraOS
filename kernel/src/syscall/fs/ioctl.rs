@@ -1,5 +1,5 @@
 use crate::proc::process::Process;
-use crate::syscall::{SyscallResult, to_continue_i32};
+use crate::syscall::{SyscallResult};
 use crate::vm::vma::VmaManager;
 use ostd::Error;
 use ostd::arch::cpu::context::UserContext;
@@ -36,13 +36,13 @@ pub fn syscall_ioctl(
     let fd_table = proc.fd_table.lock();
 
     if fd_table.get_fd(fd).is_err() {
-        return to_continue_i32(Err(Error::InvalidArgs));
+        return SyscallResult::from_err(Error::InvalidArgs);
     }
 
     match cmd {
         TIOCGWINSZ => {
             if arg2 == 0 {
-                return to_continue_i32(Err(Error::InvalidArgs));
+                return SyscallResult::from_err(Error::InvalidArgs);
             }
             let ws = Winsize {
                 ws_row: 24,
@@ -55,19 +55,19 @@ pub fn syscall_ioctl(
             buf[2..4].copy_from_slice(&ws.ws_col.to_ne_bytes());
             buf[4..6].copy_from_slice(&ws.ws_xpixel.to_ne_bytes());
             buf[6..8].copy_from_slice(&ws.ws_ypixel.to_ne_bytes());
-            to_continue_i32(vm.copy_to_user(arg2, &buf).map(|_| 0))
+            SyscallResult::from_result(vm.copy_to_user(arg2, &buf).map(|_| 0))
         }
         FIONBIO => {
             if arg2 == 0 {
-                return to_continue_i32(Err(Error::InvalidArgs));
+                return SyscallResult::from_err(Error::InvalidArgs);
             }
             let mut val_bytes = [0u8; 4];
             if vm.copy_from_user(arg2, &mut val_bytes).is_err() {
-                return to_continue_i32(Err(Error::InvalidArgs));
+                return SyscallResult::from_err(Error::InvalidArgs);
             }
-            to_continue_i32(Ok(0))
+            SyscallResult::from_result(Ok(0))
         }
-        TCGETS | TCSETS => to_continue_i32(Ok(0)),
-        _ => to_continue_i32(Ok(0)),
+        TCGETS | TCSETS => SyscallResult::from_result(Ok(0)),
+        _ => SyscallResult::from_result(Ok(0)),
     }
 }

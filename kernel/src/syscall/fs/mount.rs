@@ -1,7 +1,6 @@
 use crate::fs::vfs::mount;
 use crate::proc::userspace::{read_user_slice, read_user_string};
 use crate::syscall::SyscallResult;
-use crate::syscall::to_continue_unit;
 use crate::vm::vma::VmaManager;
 use ostd::Error;
 
@@ -27,9 +26,9 @@ pub fn syscall_mount(
 
     match (fs_type_res, target_path_res, data_res) {
         (Ok(fs_type), Ok(target_path), Ok(data)) => {
-            to_continue_unit(mount(&fs_type, &target_path, flags, &data))
+            SyscallResult::from_result(mount(&fs_type, &target_path, flags, &data))
         }
-        _ => to_continue_unit(Err(Error::AccessDenied)),
+        _ => SyscallResult::from_err(Error::AccessDenied),
     }
 }
 

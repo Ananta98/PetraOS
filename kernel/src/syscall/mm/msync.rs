@@ -16,7 +16,7 @@ pub fn syscall_msync(
     let length = arg1;
 
     match vm.msync(start, length) {
-        Ok(()) => SyscallResult::Continue(0),
-        Err(e) => SyscallResult::Continue(-(e as isize) as usize),
+        Ok(()) => SyscallResult::Return(0),
+        Err(e) => SyscallResult::Return(-(e as isize) as usize),
     }
 }

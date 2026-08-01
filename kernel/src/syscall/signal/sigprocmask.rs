@@ -12,7 +12,7 @@
 /// Returns `0` on success, negated `errno` on failure.
 use crate::ipc::SigSet;
 use crate::proc::process::Process;
-use crate::syscall::{SyscallResult, to_continue_unit};
+use crate::syscall::{SyscallResult};
 use crate::vm::vma::VmaManager;
 use ostd::Error;
 
@@ -40,7 +40,7 @@ pub fn syscall_rt_sigprocmask(
     let sigsetsize = arg3;
 
     if sigsetsize != 8 {
-        return to_continue_unit(Err(Error::InvalidArgs));
+        return SyscallResult::from_err(Error::InvalidArgs);
     }
 
     let process = Process::current();
@@ -51,7 +51,7 @@ pub fn syscall_rt_sigprocmask(
         let current_mask = signals.queue.get_mask();
         let raw = current_mask.as_u64().to_le_bytes();
         if let Err(err) = vm.copy_to_user(oldset_ptr, &raw) {
-            return to_continue_unit(Err(err));
+            return SyscallResult::from_err(err);
         }
     }
 
@@ -59,7 +59,7 @@ pub fn syscall_rt_sigprocmask(
     if set_ptr != 0 {
         let mut raw = [0u8; 8];
         if let Err(err) = vm.copy_from_user(set_ptr, &mut raw) {
-            return to_continue_unit(Err(err));
+            return SyscallResult::from_err(err);
         }
         let new_set = SigSet::from_u64(u64::from_le_bytes(raw));
 
@@ -67,9 +67,9 @@ pub fn syscall_rt_sigprocmask(
             SIG_BLOCK => signals.queue.block(new_set),
             SIG_UNBLOCK => signals.queue.unblock(new_set),
             SIG_SETMASK => signals.queue.set_mask(new_set),
-            _ => return to_continue_unit(Err(Error::InvalidArgs)),
+            _ => return SyscallResult::from_err(Error::InvalidArgs),
         }
     }
 
-    to_continue_unit(Ok(()))
+    SyscallResult::from_result(Ok(()))
 }

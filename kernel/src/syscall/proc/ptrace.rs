@@ -7,7 +7,7 @@ use crate::arch::ptrace::{UserRegsStruct, peek_user_reg, poke_user_reg};
 use crate::ipc::{SIGKILL, SIGSTOP, send_signal_to_pid};
 use crate::proc::pid_table::{PROCESS_TABLE, Pid};
 use crate::proc::process::Process;
-use crate::syscall::{SyscallResult, to_continue, to_continue_unit};
+use crate::syscall::{SyscallResult};
 use crate::vm::vma::VmaManager;
 use ostd::Error;
 use ostd::arch::cpu::context::UserContext;
@@ -44,7 +44,7 @@ pub fn syscall_ptrace(
     match request {
         PTRACE_TRACEME => {
             if current_proc.is_traced() {
-                return to_continue_unit(Err(Error::AccessDenied));
+                return SyscallResult::from_err(Error::AccessDenied);
             }
             let tracer = current_proc
                 .ppid
@@ -52,7 +52,7 @@ pub fn syscall_ptrace(
                 .map(|parent| parent.pid)
                 .unwrap_or_else(|| Pid::from_raw(1));
             current_proc.set_tracer_pid(Some(tracer));
-            to_continue_unit(Ok(()))
+            SyscallResult::from_result(Ok(()))
         }
 
         PTRACE_PEEKTEXT | PTRACE_PEEKDATA => {
@@ -61,22 +61,22 @@ pub fn syscall_ptrace(
             } else {
                 match PROCESS_TABLE.get_process(Pid::from_raw(pid as u32)) {
                     Some(p) => p,
-                    None => return to_continue(Err(Error::InvalidArgs)),
+                    None => return SyscallResult::from_err(Error::InvalidArgs),
                 }
             };
 
             let mut word_bytes = [0u8; 8];
             if let Err(err) = target_proc.vm.copy_from_user(addr, &mut word_bytes) {
-                return to_continue(Err(err));
+                return SyscallResult::from_err(err);
             }
 
             let word_val = usize::from_ne_bytes(word_bytes);
             if data != 0 {
                 if let Err(err) = vm.copy_to_user(data, &word_bytes) {
-                    return to_continue(Err(err));
+                    return SyscallResult::from_err(err);
                 }
             }
-            to_continue(Ok(word_val))
+            SyscallResult::from_result(Ok(word_val))
         }
 
         PTRACE_POKETEXT | PTRACE_POKEDATA => {
@@ -85,15 +85,15 @@ pub fn syscall_ptrace(
             } else {
                 match PROCESS_TABLE.get_process(Pid::from_raw(pid as u32)) {
                     Some(p) => p,
-                    None => return to_continue_unit(Err(Error::InvalidArgs)),
+                    None => return SyscallResult::from_err(Error::InvalidArgs),
                 }
             };
 
             let word_bytes = data.to_ne_bytes();
             if let Err(err) = target_proc.vm.copy_to_user(addr, &word_bytes) {
-                return to_continue_unit(Err(err));
+                return SyscallResult::from_err(err);
             }
-            to_continue_unit(Ok(()))
+            SyscallResult::from_result(Ok(()))
         }
 
         PTRACE_PEEKUSER => {
@@ -103,61 +103,61 @@ pub fn syscall_ptrace(
                     let word_bytes = (val as usize).to_ne_bytes();
                     if data != 0 {
                         if let Err(err) = vm.copy_to_user(data, &word_bytes) {
-                            return to_continue(Err(err));
+                            return SyscallResult::from_err(err);
                         }
                     }
-                    to_continue(Ok(val as usize))
+                    SyscallResult::from_result(Ok(val as usize))
                 }
-                None => to_continue(Err(Error::InvalidArgs)),
+                None => SyscallResult::from_err(Error::InvalidArgs),
             }
         }
 
         PTRACE_POKEUSER => {
             let reg_idx = if addr >= 8 { addr / 8 } else { addr };
             if poke_user_reg(context, reg_idx, data as u64) {
-                to_continue_unit(Ok(()))
+                SyscallResult::from_result(Ok(()))
             } else {
-                to_continue_unit(Err(Error::InvalidArgs))
+                SyscallResult::from_err(Error::InvalidArgs)
             }
         }
 
         PTRACE_GETREGS => {
             if data == 0 {
-                return to_continue_unit(Err(Error::InvalidArgs));
+                return SyscallResult::from_err(Error::InvalidArgs);
             }
             let regs = UserRegsStruct::from_user_context(context);
             if let Err(err) = vm.copy_to_user(data, &regs.to_bytes()) {
-                return to_continue_unit(Err(err));
+                return SyscallResult::from_err(err);
             }
-            to_continue_unit(Ok(()))
+            SyscallResult::from_result(Ok(()))
         }
 
         PTRACE_SETREGS => {
             if data == 0 {
-                return to_continue_unit(Err(Error::InvalidArgs));
+                return SyscallResult::from_err(Error::InvalidArgs);
             }
             let mut regs_bytes = [0u8; UserRegsStruct::SIZE];
             if let Err(err) = vm.copy_from_user(data, &mut regs_bytes) {
-                return to_continue_unit(Err(err));
+                return SyscallResult::from_err(err);
             }
             let regs = UserRegsStruct::from_bytes(&regs_bytes);
             regs.apply_to_user_context(context);
-            to_continue_unit(Ok(()))
+            SyscallResult::from_result(Ok(()))
         }
 
         PTRACE_ATTACH => {
             if pid == 0 {
-                return to_continue_unit(Err(Error::InvalidArgs));
+                return SyscallResult::from_err(Error::InvalidArgs);
             }
             let target_pid = Pid::from_raw(pid as u32);
             let target_proc = match PROCESS_TABLE.get_process(target_pid) {
                 Some(p) => p,
-                None => return to_continue_unit(Err(Error::InvalidArgs)),
+                None => return SyscallResult::from_err(Error::InvalidArgs),
             };
 
             target_proc.set_tracer_pid(Some(current_proc.pid));
             let _ = send_signal_to_pid(target_pid, SIGSTOP, current_proc.pid.as_u32());
-            to_continue_unit(Ok(()))
+            SyscallResult::from_result(Ok(()))
         }
 
         PTRACE_DETACH => {
@@ -169,14 +169,14 @@ pub fn syscall_ptrace(
 
             let target_proc = match PROCESS_TABLE.get_process(target_pid) {
                 Some(p) => p,
-                None => return to_continue_unit(Err(Error::InvalidArgs)),
+                None => return SyscallResult::from_err(Error::InvalidArgs),
             };
 
             target_proc.set_tracer_pid(None);
             if data != 0 {
                 let _ = send_signal_to_pid(target_pid, data as u32, current_proc.pid.as_u32());
             }
-            to_continue_unit(Ok(()))
+            SyscallResult::from_result(Ok(()))
         }
 
         PTRACE_CONT => {
@@ -189,14 +189,14 @@ pub fn syscall_ptrace(
             if data != 0 {
                 let _ = send_signal_to_pid(target_pid, data as u32, current_proc.pid.as_u32());
             }
-            to_continue_unit(Ok(()))
+            SyscallResult::from_result(Ok(()))
         }
 
         PTRACE_SINGLESTEP => {
             // Enable Trap Flag (TF, bit 8) in UserContext RFLAGS register
             let rflags = context.rflags();
             context.set_rflags(rflags | 0x100);
-            to_continue_unit(Ok(()))
+            SyscallResult::from_result(Ok(()))
         }
 
         PTRACE_KILL => {
@@ -207,7 +207,7 @@ pub fn syscall_ptrace(
             };
 
             let _ = send_signal_to_pid(target_pid, SIGKILL, current_proc.pid.as_u32());
-            to_continue_unit(Ok(()))
+            SyscallResult::from_result(Ok(()))
         }
 
         PTRACE_SETOPTIONS => {
@@ -216,14 +216,14 @@ pub fn syscall_ptrace(
             } else {
                 match PROCESS_TABLE.get_process(Pid::from_raw(pid as u32)) {
                     Some(p) => p,
-                    None => return to_continue_unit(Err(Error::InvalidArgs)),
+                    None => return SyscallResult::from_err(Error::InvalidArgs),
                 }
             };
 
             target_proc.set_ptrace_options(data as u32);
-            to_continue_unit(Ok(()))
+            SyscallResult::from_result(Ok(()))
         }
 
-        _ => to_continue(Err(Error::InvalidArgs)),
+        _ => SyscallResult::from_err(Error::InvalidArgs),
     }
 }
