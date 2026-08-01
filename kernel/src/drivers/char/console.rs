@@ -174,16 +174,24 @@ impl CharDevice for ConsoleDriver {
     /// In **raw** mode buffered bytes are drained directly.
     fn read(&self, buf: &mut [u8]) -> Result<usize, ostd::Error> {
         if self.canonical.load(Ordering::Relaxed) {
-            let mut lines = self.completed_lines.lock();
-            if let Some(line) = lines.pop_front() {
-                let n = core::cmp::min(buf.len(), line.len());
-                buf[..n].copy_from_slice(&line[..n]);
-                Ok(n)
-            } else {
-                Ok(0)
+            loop {
+                let mut lines = self.completed_lines.lock();
+                if let Some(line) = lines.pop_front() {
+                    let n = core::cmp::min(buf.len(), line.len());
+                    buf[..n].copy_from_slice(&line[..n]);
+                    return Ok(n);
+                }
+                drop(lines);
+                ostd::task::Task::yield_now();
             }
         } else {
-            self.raw_input.read_into(buf)
+            loop {
+                let n = self.raw_input.read_into(buf)?;
+                if n > 0 || buf.is_empty() {
+                    return Ok(n);
+                }
+                ostd::task::Task::yield_now();
+            }
         }
     }
 

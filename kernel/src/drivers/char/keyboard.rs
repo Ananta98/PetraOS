@@ -49,6 +49,9 @@ impl Keyboard {
                         let mut tmp = [0u8; 4];
                         let s = ch.encode_utf8(&mut tmp);
                         self.buf.push(s.as_bytes());
+                        if let Some(console) = super::console::console() {
+                            console.push_input(s.as_bytes());
+                        }
                     }
                     DecodedKey::RawKey(_raw) => {}
                 }

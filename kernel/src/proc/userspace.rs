@@ -12,6 +12,17 @@ use ostd::arch::cpu::context::UserContext;
 use ostd::mm::PageFlags;
 use ostd::user::{ReturnReason, UserContextApi, UserMode};
 
+// System V AMD64 ELF Auxiliary Vector (auxv) Constants
+pub const AT_NULL: usize = 0;
+pub const AT_PAGESZ: usize = 6;
+pub const AT_ENTRY: usize = 9;
+pub const AT_UID: usize = 11;
+pub const AT_EUID: usize = 12;
+pub const AT_GID: usize = 13;
+pub const AT_EGID: usize = 14;
+pub const AT_SECURE: usize = 23;
+pub const AT_RANDOM: usize = 25;
+
 /// Layout and setup the user space stack for a process.
 ///
 /// Builds stack according to the System V AMD64 ABI layout:
@@ -62,14 +73,29 @@ pub fn setup_user_stack(
     }
     arg_addrs.reverse();
 
+    // Push 16 random bytes for AT_RANDOM (used by musl/glibc stack canary initialization)
+    str_pos -= 16;
+    let random_bytes = [
+        0x42u8, 0x13, 0x37, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x11, 0x22, 0x33, 0x44, 0x55,
+        0x66,
+    ];
+    stack_buf[str_pos..str_pos + 16].copy_from_slice(&random_bytes);
+    let at_random_addr = USER_STACK_BOTTOM + str_pos;
+
     // Align string position down to 8 bytes for following pointers
     str_pos &= !7;
 
-    // Define simplified Auxiliary Vector: AT_ENTRY, AT_PAGESZ, AT_NULL
+    // Define Auxiliary Vector expected by musl libc System V AMD64 ABI
     let auxv = [
-        (9, entry), // AT_ENTRY = 9
-        (6, 4096),  // AT_PAGESZ = 6
-        (0, 0),     // AT_NULL = 0
+        (AT_PAGESZ, 4096),
+        (AT_ENTRY, entry),
+        (AT_UID, 0),
+        (AT_EUID, 0),
+        (AT_GID, 0),
+        (AT_EGID, 0),
+        (AT_SECURE, 0),
+        (AT_RANDOM, at_random_addr),
+        (AT_NULL, 0),
     ];
 
     // Calculate total number of usize values to write

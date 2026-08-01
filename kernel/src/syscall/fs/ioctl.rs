@@ -67,7 +67,32 @@ pub fn syscall_ioctl(
             }
             SyscallResult::from_result(Ok(0))
         }
-        TCGETS | TCSETS => SyscallResult::from_result(Ok(0)),
+        TCGETS => {
+            if arg2 != 0 {
+                // Fill default Linux termios (36 bytes)
+                // c_iflag=0x500 (ICRNL|IXON), c_oflag=0x5 (OPOST|ONLCR), c_cflag=0xbf (CS8|CREAD), c_lflag=0x8a3b (ISIG|ICANON|ECHO|ECHOE|ECHOK)
+                let mut termios_bytes = [0u8; 36];
+                let c_iflag: u32 = 0x500;
+                let c_oflag: u32 = 0x5;
+                let c_cflag: u32 = 0xbf;
+                let c_lflag: u32 = 0x8a3b;
+                termios_bytes[0..4].copy_from_slice(&c_iflag.to_ne_bytes());
+                termios_bytes[4..8].copy_from_slice(&c_oflag.to_ne_bytes());
+                termios_bytes[8..12].copy_from_slice(&c_cflag.to_ne_bytes());
+                termios_bytes[12..16].copy_from_slice(&c_lflag.to_ne_bytes());
+                termios_bytes[16] = 0; // c_line
+                // Default control chars (c_cc)
+                termios_bytes[17] = 0x03; // VINTR = Ctrl-C
+                termios_bytes[18] = 0x1c; // VQUIT
+                termios_bytes[19] = 0x7f; // ERASE
+                termios_bytes[20] = 0x15; // VKILL
+                termios_bytes[21] = 0x04; // EOF = Ctrl-D
+                SyscallResult::from_result(vm.copy_to_user(arg2, &termios_bytes).map(|_| 0))
+            } else {
+                SyscallResult::from_result(Ok(0))
+            }
+        }
+        TCSETS => SyscallResult::from_result(Ok(0)),
         _ => SyscallResult::from_result(Ok(0)),
     }
 }
