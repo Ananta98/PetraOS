@@ -13,6 +13,10 @@ BASH_VERSION   ?= 5.2.21
 BASH_TARBALL   := bash-$(BASH_VERSION).tar.gz
 BASH_URL       := https://mirrors.kernel.org/gnu/bash/$(BASH_TARBALL)
 
+BUSYBOX_VERSION ?= 1.36.1
+BUSYBOX_TARBALL := busybox-$(BUSYBOX_VERSION).tar.bz2
+BUSYBOX_URL     := https://busybox.net/downloads/$(BUSYBOX_TARBALL)
+
 # Cross-compiler: prefer x86_64-linux-gnu toolchain, fall back to native gcc
 CC     := $(shell which x86_64-linux-gnu-gcc 2>/dev/null || echo gcc)
 CXX    := $(shell which x86_64-linux-gnu-g++ 2>/dev/null || echo g++)
@@ -25,9 +29,12 @@ BUILD_TRIPLE := $(shell gcc -dumpmachine)
 
 ROOT_DIR       := $(shell pwd)
 DOWNLOAD_DIR   := $(ROOT_DIR)/downloads
-SRC_DIR        := $(ROOT_DIR)/src
 PATCHES_DIR    := $(ROOT_DIR)/patches
 BUILD_DIR      := $(ROOT_DIR)/build
+SRC_DIR        := $(BUILD_DIR)/src
+SYSROOT        := $(BUILD_DIR)/sysroot
+INITRAMFS_DIR  := $(ROOT_DIR)/initramfs
+INITRAMFS_CPIO := $(BUILD_DIR)/initramfs.cpio
 
 MUSL_SRC       := $(SRC_DIR)/musl-$(MUSL_VERSION)
 MUSL_BUILD     := $(BUILD_DIR)/musl
@@ -35,9 +42,8 @@ MUSL_BUILD     := $(BUILD_DIR)/musl
 BASH_SRC       := $(SRC_DIR)/bash-$(BASH_VERSION)
 BASH_BUILD     := $(BUILD_DIR)/bash
 
-SYSROOT        := $(ROOT_DIR)/sysroot
-INITRAMFS_DIR  := $(ROOT_DIR)/initramfs
-INITRAMFS_CPIO := $(BUILD_DIR)/initramfs.cpio
+BUSYBOX_SRC     := $(SRC_DIR)/busybox-$(BUSYBOX_VERSION)
+BUSYBOX_BUILD   := $(BUILD_DIR)/busybox
 
 # Flags used when cross-compiling bash against the musl sysroot.
 SYSROOT_CFLAGS  := -O2 -g -isystem $(SYSROOT)/include -D_GNU_SOURCE -D_POSIX_C_SOURCE=200809L
@@ -102,7 +108,7 @@ CROSS_ENV := \
 	bash_cv_wcwidth_broken=no \
 	bash_cv_func_strcoll_broken=no
 
-.PHONY: all check-tools download extract patch configure build install bash-install run clean
+.PHONY: all check-tools download extract patch configure build install busybox-configure busybox-build bash-install run clean
 
 all: install
 
@@ -115,7 +121,7 @@ check-tools:
 	@echo "==> Tool check passed (cc=$(CC))"
 
 # ------------------------------------------------------------------------------
-# 1. Download musl libc & GNU Bash Tarballs
+# 1. Download musl libc, GNU Bash & Busybox Tarballs
 # ------------------------------------------------------------------------------
 download: check-tools
 	@mkdir -p $(DOWNLOAD_DIR) $(SRC_DIR) $(PATCHES_DIR) $(BUILD_DIR) $(SYSROOT) $(INITRAMFS_DIR)
@@ -126,6 +132,10 @@ download: check-tools
 	@if [ ! -f $(DOWNLOAD_DIR)/$(BASH_TARBALL) ] || [ ! -s $(DOWNLOAD_DIR)/$(BASH_TARBALL) ]; then \
 		echo "==> Downloading GNU Bash $(BASH_VERSION)..."; \
 		curl -fSL $(BASH_URL) -o $(DOWNLOAD_DIR)/$(BASH_TARBALL); \
+	fi
+	@if [ ! -f $(DOWNLOAD_DIR)/$(BUSYBOX_TARBALL) ] || [ ! -s $(DOWNLOAD_DIR)/$(BUSYBOX_TARBALL) ]; then \
+		echo "==> Downloading Busybox $(BUSYBOX_VERSION)..."; \
+		curl -fSL $(BUSYBOX_URL) -o $(DOWNLOAD_DIR)/$(BUSYBOX_TARBALL); \
 	fi
 
 # ------------------------------------------------------------------------------
@@ -142,6 +152,11 @@ extract: download
 		rm -rf $(BASH_SRC); \
 		tar -xzf $(DOWNLOAD_DIR)/$(BASH_TARBALL) -C $(SRC_DIR); \
 		chmod -R +w $(BASH_SRC); \
+	fi
+	@if [ ! -f $(BUSYBOX_SRC)/Makefile ]; then \
+		echo "==> Extracting Busybox $(BUSYBOX_VERSION)..."; \
+		rm -rf $(BUSYBOX_SRC); \
+		tar -xjf $(DOWNLOAD_DIR)/$(BUSYBOX_TARBALL) -C $(SRC_DIR); \
 	fi
 
 # ------------------------------------------------------------------------------
@@ -185,7 +200,29 @@ install: build
 	@echo "==> musl libc sysroot ready."
 
 # ------------------------------------------------------------------------------
-# 7. Configure, Build & Install GNU Bash into Initramfs
+# 7. Configure, Build & Install Busybox into Initramfs
+# ------------------------------------------------------------------------------
+busybox-configure: install
+	@if [ ! -f $(BUSYBOX_SRC)/.config ]; then \
+		echo "==> Configuring Busybox $(BUSYBOX_VERSION)..."; \
+		$(MAKE) -C $(BUSYBOX_SRC) defconfig; \
+		sed -i 's/# CONFIG_STATIC is not set/CONFIG_STATIC=y/' $(BUSYBOX_SRC)/.config; \
+		sed -i 's/CONFIG_TC=y/# CONFIG_TC is not set/' $(BUSYBOX_SRC)/.config; \
+		sed -i 's/# CONFIG_BASH_IS_ASH is not set/CONFIG_BASH_IS_ASH=y/' $(BUSYBOX_SRC)/.config; \
+		sed -i 's/# CONFIG_ASH_BASH_COMPAT is not set/CONFIG_ASH_BASH_COMPAT=y/' $(BUSYBOX_SRC)/.config; \
+	fi
+
+busybox-build: busybox-configure
+	@if [ ! -f $(INITRAMFS_DIR)/bin/busybox ]; then \
+		echo "==> Compiling Busybox $(BUSYBOX_VERSION)..."; \
+		$(MAKE) -C $(BUSYBOX_SRC) CC="$(CC)" CFLAGS="$(SYSROOT_CFLAGS)" LDFLAGS="$(SYSROOT_LDFLAGS)"; \
+		echo "==> Installing Busybox into initramfs..."; \
+		mkdir -p $(INITRAMFS_DIR)/bin $(INITRAMFS_DIR)/sbin $(INITRAMFS_DIR)/usr/bin $(INITRAMFS_DIR)/usr/sbin; \
+		$(MAKE) -C $(BUSYBOX_SRC) CC="$(CC)" CFLAGS="$(SYSROOT_CFLAGS)" LDFLAGS="$(SYSROOT_LDFLAGS)" CONFIG_PREFIX=$(INITRAMFS_DIR) install; \
+	fi
+
+# ------------------------------------------------------------------------------
+# 8. Configure, Build & Install GNU Bash into Initramfs
 # ------------------------------------------------------------------------------
 bash-configure: install
 	@if [ ! -f $(BASH_BUILD)/Makefile ]; then \
@@ -202,28 +239,35 @@ bash-configure: install
 			--disable-job-control \
 			--disable-net-redirections \
 			--disable-rpath \
+			--disable-readline \
 			--with-installed-readline=no; \
 	fi
 
 bash-build: bash-configure
-	@if [ ! -f $(INITRAMFS_DIR)/bin/bash ]; then \
+	@if [ ! -f $(BASH_BUILD)/bash ]; then \
 		echo "==> Compiling GNU Bash..."; \
-		$(MAKE) -C $(BASH_BUILD); \
-		echo "==> Installing GNU Bash binary into initramfs..."; \
-		mkdir -p $(INITRAMFS_DIR)/bin $(INITRAMFS_DIR)/sbin $(INITRAMFS_DIR)/etc $(INITRAMFS_DIR)/tmp $(INITRAMFS_DIR)/dev $(INITRAMFS_DIR)/proc $(INITRAMFS_DIR)/sys $(INITRAMFS_DIR)/usr/bin $(INITRAMFS_DIR)/usr/sbin $(INITRAMFS_DIR)/usr/lib $(INITRAMFS_DIR)/root $(INITRAMFS_DIR)/var/tmp $(INITRAMFS_DIR)/var/log $(INITRAMFS_DIR)/var/run; \
-		echo "root:x:0:0:root:/root:/bin/bash" > $(INITRAMFS_DIR)/etc/passwd; \
-		echo "root:x:0:" > $(INITRAMFS_DIR)/etc/group; \
-		echo "export PATH=/bin:/sbin:/usr/bin:/usr/sbin" > $(INITRAMFS_DIR)/etc/profile; \
-		rm -rf $(INITRAMFS_DIR)/etc/termcap; \
-		printf "linux|linux console:\\\n\t:am:eo:mi:ms:co#80:li#24:\\\n\t:cl=\\E[H\\E[J:cm=\\E[%%i%%d;%%dH:nd=\\E[C:up=\\E[A:\\\n\t:ce=\\E[K:cd=\\E[J:so=\\E[7m:se=\\E[27m:\\\n\t:us=\\E[4m:ue=\\E[24m:md=\\E[1m:me=\\E[0m:\\\n\t:kb=^H:kd=\\E[B:kl=\\E[D:kr=\\E[C:ku=\\E[A:\n" > $(INITRAMFS_DIR)/etc/termcap; \
-		cp $(BASH_BUILD)/bash $(INITRAMFS_DIR)/bin/bash; \
-		$(STRIP) --strip-all $(INITRAMFS_DIR)/bin/bash 2>/dev/null || true; \
-		cp $(INITRAMFS_DIR)/bin/bash $(INITRAMFS_DIR)/bin/sh; \
-		cp $(INITRAMFS_DIR)/bin/bash $(INITRAMFS_DIR)/sbin/init; \
-		cp $(INITRAMFS_DIR)/bin/bash $(INITRAMFS_DIR)/etc/init; \
+		$(MAKE) -C $(BASH_BUILD) || (ar rcs $(BASH_BUILD)/lib/sh/libsh.a $(BASH_BUILD)/lib/sh/*.o 2>/dev/null && $(MAKE) -C $(BASH_BUILD)); \
 	fi
+	@echo "==> Installing GNU Bash binary into initramfs..."; \
+	mkdir -p $(INITRAMFS_DIR)/bin $(INITRAMFS_DIR)/sbin $(INITRAMFS_DIR)/etc $(INITRAMFS_DIR)/tmp $(INITRAMFS_DIR)/dev $(INITRAMFS_DIR)/proc $(INITRAMFS_DIR)/sys $(INITRAMFS_DIR)/usr/bin $(INITRAMFS_DIR)/usr/sbin $(INITRAMFS_DIR)/usr/lib $(INITRAMFS_DIR)/root $(INITRAMFS_DIR)/var/tmp $(INITRAMFS_DIR)/var/log $(INITRAMFS_DIR)/var/run; \
+	echo "root:x:0:0:root:/root:/bin/bash" > $(INITRAMFS_DIR)/etc/passwd; \
+	echo "root:x:0:" > $(INITRAMFS_DIR)/etc/group; \
+	echo "export PATH=/bin:/sbin:/usr/bin:/usr/sbin" > $(INITRAMFS_DIR)/etc/profile; \
+	rm -rf $(INITRAMFS_DIR)/etc/termcap; \
+	printf "linux|linux console:\\\n\t:am:eo:mi:ms:co#80:li#24:\\\n\t:cl=\\E[H\\E[J:cm=\\E[%%i%%d;%%dH:nd=\\E[C:up=\\E[A:\\\n\t:ce=\\E[K:cd=\\E[J:so=\\E[7m:se=\\E[27m:\\\n\t:us=\\E[4m:ue=\\E[24m:md=\\E[1m:me=\\E[0m:\\\n\t:kb=^H:kd=\\E[B:kl=\\E[D:kr=\\E[C:ku=\\E[A:\n" > $(INITRAMFS_DIR)/etc/termcap; \
+	rm -f $(INITRAMFS_DIR)/bin/bash $(INITRAMFS_DIR)/bin/sh $(INITRAMFS_DIR)/sbin/init $(INITRAMFS_DIR)/etc/init; \
+	if [ -f $(BASH_BUILD)/bash ]; then \
+		cp -f $(BASH_BUILD)/bash $(INITRAMFS_DIR)/bin/bash; \
+		$(STRIP) --strip-all $(INITRAMFS_DIR)/bin/bash 2>/dev/null || true; \
+	else \
+		echo "==> Using Busybox for bash fallback..."; \
+		ln -sf busybox $(INITRAMFS_DIR)/bin/bash; \
+	fi; \
+	cp -f $(INITRAMFS_DIR)/bin/bash $(INITRAMFS_DIR)/bin/sh; \
+	cp -f $(INITRAMFS_DIR)/bin/bash $(INITRAMFS_DIR)/sbin/init; \
+	cp -f $(INITRAMFS_DIR)/bin/bash $(INITRAMFS_DIR)/etc/init;
 
-initramfs: bash-build
+initramfs: busybox-build bash-build
 	@echo "==> Generating /etc/termcap in initramfs..."
 	@mkdir -p $(INITRAMFS_DIR)/etc
 	@rm -rf $(INITRAMFS_DIR)/etc/termcap
@@ -235,16 +279,15 @@ initramfs: bash-build
 bash-install: initramfs
 
 # ------------------------------------------------------------------------------
-# 8. Run in QEMU via cargo-osdk
+# 10. Run in QEMU via cargo-osdk
 # ------------------------------------------------------------------------------
 run: bash-install
 	@echo "==> Launching Petra OS in QEMU via cargo osdk..."
 	cargo osdk run
 
 # ------------------------------------------------------------------------------
-# 9. Clean Artifacts
+# 11. Clean Artifacts
 # ------------------------------------------------------------------------------
 clean:
 	@echo "==> Cleaning build environment..."
 	rm -rf $(BUILD_DIR) $(SRC_DIR) $(SYSROOT) $(INITRAMFS_DIR)
-
