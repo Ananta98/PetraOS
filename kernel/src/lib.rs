@@ -24,7 +24,7 @@ use proc::thread::KernelThread;
 
 fn ap_entry() {
     enable_preemption_on_cpu();
-    if KernelThread::spawn_idle(|| {}).is_err() {
+    if crate::proc::thread::spawn_kernel_thread("main", proc::spawn_init_process).is_err() {
         loop {
             ostd::task::halt_cpu();
         }
@@ -33,15 +33,19 @@ fn ap_entry() {
 
 #[ostd::main]
 fn kernel_main() {
-    logger::init();
     arch::init();
     vm::init();
     irq::init();
-    modules::init().expect("failed to initialize kernel modules");
+    logger::init();
     fs::init().expect("failed to initialize filesystem");
+    modules::init().expect("failed to initialize kernel modules");
     net::init();
     scheduler::init();
     ostd::boot::smp::register_ap_entry(ap_entry);
     crate::proc::thread::spawn_kernel_thread("main", proc::spawn_init_process)
         .expect("failed to spawn init thread");
+
+    loop {
+        ostd::task::halt_cpu();
+    }
 }

@@ -19,6 +19,15 @@ pub struct LoadedElf {
     pub load_end: Vaddr,
     /// Thread-Local Storage template (`PT_TLS`), empty if none.
     pub tls: TlsTemplate,
+    /// Virtual address of the ELF program headers in the loaded image.
+    ///
+    /// musl libc reads `AT_PHDR` during `__init_tls()` to locate the
+    /// `PT_TLS` segment.  Computed as `load_bias + e_phoff`.
+    pub phdr_vaddr: Vaddr,
+    /// Size of each program header entry (`e_phentsize`).
+    pub phent: usize,
+    /// Number of program header entries (`e_phnum`).
+    pub phnum: usize,
 }
 
 /// Load an ELF executable into `vm` and return its entry metadata.
@@ -145,9 +154,23 @@ pub fn load_elf_image(vm: &Arc<VmaManager>, elf_image: &[u8]) -> Result<LoadedEl
     }
 
     let entry = checked_usize(elf.header.pt2.entry_point())?;
+
+    // Extract program header metadata needed for the auxiliary vector.
+    // musl libc reads AT_PHDR/AT_PHENT/AT_PHNUM during __init_tls() to
+    // locate the PT_TLS segment; without them it dereferences NULL.
+    let phoff = checked_usize(elf.header.pt2.ph_offset())?;
+    let phent = checked_usize(elf.header.pt2.ph_entry_size() as u64)?;
+    let phnum = checked_usize(elf.header.pt2.ph_count() as u64)?;
+
+    // For statically-linked executables (ET_EXEC) the ELF is loaded at
+    // its fixed virtual addresses, so the program header table lives at
+    // `load_start + phoff`.  (For ET_DYN / PIE executables we would need
+    // to add the load bias instead — left for future work.)
+    let phdr_vaddr = load_start + phoff;
+
     ostd::early_println!(
-        "[load_elf_image] Successfully Loaded ELF: entry={:#x}, load_start={:#x}, load_end={:#x}",
-        entry, load_start, load_end
+        "[load_elf_image] Successfully Loaded ELF: entry={:#x}, load_start={:#x}, load_end={:#x}, phdr={:#x}, phent={}, phnum={}",
+        entry, load_start, load_end, phdr_vaddr, phent, phnum
     );
 
     Ok(LoadedElf {
@@ -155,6 +178,9 @@ pub fn load_elf_image(vm: &Arc<VmaManager>, elf_image: &[u8]) -> Result<LoadedEl
         load_start,
         load_end,
         tls: tls_template,
+        phdr_vaddr,
+        phent,
+        phnum,
     })
 }
 

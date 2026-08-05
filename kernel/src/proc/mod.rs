@@ -56,17 +56,18 @@ pub fn spawn_init_process() {
                 let entry = loaded.entry;
                 ostd::early_println!("[init] Successfully loaded {} at {:#x}", path, entry);
 
-                // Open stdin, stdout, and stderr to /dev/console
+                // Open stdin, stdout, and stderr — prefer /dev/console, fall back to /dev/null.
                 let mut fds = process.fd_table.lock();
-                let _stdin = fds
-                    .open("/dev/console", 0, 0)
-                    .expect("failed to open stdin");
-                let _stdout = fds
-                    .open("/dev/console", 1, 0)
-                    .expect("failed to open stdout");
-                let _stderr = fds
-                    .open("/dev/console", 1, 0)
-                    .expect("failed to open stderr");
+                let console_path = if fds.open("/dev/console", 0, 0).is_ok() {
+                    // stdin (fd 0) successfully opened to console
+                    "/dev/console"
+                } else {
+                    ostd::early_println!("[init] WARNING: /dev/console not found, falling back to /dev/null");
+                    let _ = fds.open("/dev/null", 0, 0);
+                    "/dev/null"
+                };
+                let _ = fds.open(console_path, 1, 0); // stdout (fd 1)
+                let _ = fds.open(console_path, 1, 0); // stderr (fd 2)
 
                 ostd::early_println!(
                     "[init] Stack pointer ready: {:#x}. Running user mode...",
@@ -132,8 +133,9 @@ fn load_init_exec(
         "TERM=linux",
         "HOME=/root",
         "PWD=/",
+        "SHELL=/bin/bash",
     ];
-    let argv = &[path, "-i"];
+    let argv = &[path, "--login", "-i"];
     let (loaded, stack_ptr) = match process.exec(path, &elf_image, argv, envp) {
         Ok(res) => res,
         Err(e) => {

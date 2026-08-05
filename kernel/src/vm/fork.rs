@@ -71,7 +71,7 @@ impl VmaManager {
                         region.flags,
                     )?;
                 } else {
-                    self.setup_cow_page(&child_manager, &guard, page_vaddr, &vaddr_range)?;
+                    self.setup_cow_page(&child_manager, &guard, page_vaddr, &vaddr_range, region.flags)?;
                 }
             }
         }
@@ -132,29 +132,15 @@ impl VmaManager {
     /// Converts a single mapped page into a CoW-shared page between parent and child.
     ///
     /// If the page at `page_vaddr` is backed by a RAM frame:
-    /// - The parent's mapping is replaced with a **read-only** copy of the same frame.
-    /// - The child receives an identical **read-only** mapping to that same frame.
-    ///
-    /// If the page is not yet mapped, this function is a no-op for that page.
-    ///
-    /// # Parameters
-    ///
-    /// - `child`: The child [`VmaManager`] being constructed.
-    /// - `guard`: The preemption-disable guard required by `cursor_mut`.
-    /// - `page_vaddr`: The virtual address of the page to CoW-share.
-    /// - `vaddr_range`: A `page_vaddr..page_vaddr + PAGE_SIZE` range used for
-    ///   cursor creation — passed in to avoid redundant computation.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`Error::NoMemory`] if a page-table cursor cannot be created, or
-    /// [`Error::InvalidArgs`] if cursor navigation or querying fails.
+    /// - The parent's mapping is replaced with a write-protected copy of the same frame.
+    /// - The child receives an identical write-protected mapping to that same frame.
     fn setup_cow_page(
         &self,
         child: &VmaManager,
         guard: &ostd::task::DisabledPreemptGuard,
         page_vaddr: usize,
         vaddr_range: &core::ops::Range<usize>,
+        region_flags: PageFlags,
     ) -> Result<(), Error> {
         let mut parent_cursor = self
             .vm_space
@@ -174,9 +160,12 @@ impl VmaManager {
         };
 
         let shared_frame = (*frame).clone();
-        let read_only_property = PageProperty::new_user(PageFlags::R, CachePolicy::Writeback);
 
-        // Remap the parent's page as read-only so that any subsequent write
+        // Remove write permission (PageFlags::W) for CoW, but preserve R and X (executable) flags
+        let cow_flags = region_flags & !PageFlags::W;
+        let read_only_property = PageProperty::new_user(cow_flags, CachePolicy::Writeback);
+
+        // Remap the parent's page as write-protected so that any subsequent write
         // in the parent also triggers a CoW fault.
         parent_cursor.unmap(PAGE_SIZE);
         parent_cursor
@@ -184,7 +173,7 @@ impl VmaManager {
             .map_err(|_| Error::InvalidArgs)?;
         parent_cursor.map(shared_frame.clone(), read_only_property);
 
-        // Map the same physical frame into the child's address space, also read-only.
+        // Map the same physical frame into the child's address space, also write-protected.
         let mut child_cursor = child
             .vm_space
             .cursor_mut(guard, vaddr_range)

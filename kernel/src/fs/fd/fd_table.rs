@@ -211,10 +211,14 @@ impl FdTable {
     pub fn read(&self, fd: i32, buf: &mut [u8]) -> Result<usize, Error> {
         let fd_entry = self.fds.get(&fd).cloned().ok_or(Error::InvalidArgs)?;
         let mut open_file = fd_entry.open_file.lock();
+        let initial_offset = open_file.offset;
         let OpenFile {
             file_ops, offset, ..
         } = &mut *open_file;
         let bytes_read = file_ops.read(buf, offset)?;
+        if *offset == initial_offset && bytes_read > 0 {
+            *offset += bytes_read;
+        }
         Ok(bytes_read)
     }
 
@@ -222,10 +226,14 @@ impl FdTable {
     pub fn write(&self, fd: i32, buf: &[u8]) -> Result<usize, Error> {
         let fd_entry = self.fds.get(&fd).cloned().ok_or(Error::InvalidArgs)?;
         let mut open_file = fd_entry.open_file.lock();
+        let initial_offset = open_file.offset;
         let OpenFile {
             file_ops, offset, ..
         } = &mut *open_file;
         let bytes_written = file_ops.write(buf, offset)?;
+        if *offset == initial_offset && bytes_written > 0 {
+            *offset += bytes_written;
+        }
         Ok(bytes_written)
     }
 

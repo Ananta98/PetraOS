@@ -88,6 +88,18 @@ pub fn syscall_fork(
                     }
                 }
                 ReturnReason::UserException => {
+                    let ctx = user_mode.context_mut();
+                    if let Some(ostd::arch::cpu::context::CpuException::PageFault(info)) =
+                        ctx.take_exception()
+                    {
+                        if child_clone
+                            .vm
+                            .alloc_frame_for_fault(info.addr, info.error_code)
+                            .is_ok()
+                        {
+                            continue;
+                        }
+                    }
                     exit_status = -1;
                     break;
                 }

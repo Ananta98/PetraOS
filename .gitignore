@@ -3,5 +3,4 @@ kernel/target/
 graphify-out/
 downloads/
 build/
-src/
 sysroot/

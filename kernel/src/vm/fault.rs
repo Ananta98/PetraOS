@@ -87,8 +87,8 @@ impl VmaManager {
             return Ok(());
         }
 
-        // If page is present and write fault, handle Copy-on-Write
-        if is_present && is_write {
+        // If page is present, handle CoW write fault or permission restoration
+        if is_present {
             let (_range, item) = cursor.query().map_err(|_| InvalidArgs)?;
             let item = item.ok_or(InvalidArgs)?;
 
@@ -98,7 +98,7 @@ impl VmaManager {
             } = item
             {
                 let old_frame = (*old_frame_ref).clone();
-                let frame_to_map = if old_frame.reference_count() > 1 {
+                let frame_to_map = if is_write && old_frame.reference_count() > 1 {
                     let new_frame: UFrame = FrameAllocOptions::new()
                         .alloc_frame()
                         .map_err(|_| Error::NoMemory)?

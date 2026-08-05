@@ -214,6 +214,8 @@ bash-build: bash-configure
 		echo "root:x:0:0:root:/root:/bin/bash" > $(INITRAMFS_DIR)/etc/passwd; \
 		echo "root:x:0:" > $(INITRAMFS_DIR)/etc/group; \
 		echo "export PATH=/bin:/sbin:/usr/bin:/usr/sbin" > $(INITRAMFS_DIR)/etc/profile; \
+		rm -rf $(INITRAMFS_DIR)/etc/termcap; \
+		printf "linux|linux console:\\\n\t:am:eo:mi:ms:co#80:li#24:\\\n\t:cl=\\E[H\\E[J:cm=\\E[%%i%%d;%%dH:nd=\\E[C:up=\\E[A:\\\n\t:ce=\\E[K:cd=\\E[J:so=\\E[7m:se=\\E[27m:\\\n\t:us=\\E[4m:ue=\\E[24m:md=\\E[1m:me=\\E[0m:\\\n\t:kb=^H:kd=\\E[B:kl=\\E[D:kr=\\E[C:ku=\\E[A:\n" > $(INITRAMFS_DIR)/etc/termcap; \
 		cp $(BASH_BUILD)/bash $(INITRAMFS_DIR)/bin/bash; \
 		$(STRIP) --strip-all $(INITRAMFS_DIR)/bin/bash 2>/dev/null || true; \
 		cp $(INITRAMFS_DIR)/bin/bash $(INITRAMFS_DIR)/bin/sh; \
@@ -222,6 +224,10 @@ bash-build: bash-configure
 	fi
 
 initramfs: bash-build
+	@echo "==> Generating /etc/termcap in initramfs..."
+	@mkdir -p $(INITRAMFS_DIR)/etc
+	@rm -rf $(INITRAMFS_DIR)/etc/termcap
+	@printf "linux|linux console:\\\n\t:am:eo:mi:ms:co#80:li#24:\\\n\t:cl=\\E[H\\E[J:cm=\\E[%%i%%d;%%dH:nd=\\E[C:up=\\E[A:\\\n\t:ce=\\E[K:cd=\\E[J:so=\\E[7m:se=\\E[27m:\\\n\t:us=\\E[4m:ue=\\E[24m:md=\\E[1m:me=\\E[0m:\\\n\t:kb=^H:kd=\\E[B:kl=\\E[D:kr=\\E[C:ku=\\E[A:\n" > $(INITRAMFS_DIR)/etc/termcap
 	@echo "==> Packing initramfs.cpio archive..."
 	@cd $(INITRAMFS_DIR) && find . -print0 | cpio --null -ov --format=newc > $(INITRAMFS_CPIO)
 	@echo "==> Build complete!"

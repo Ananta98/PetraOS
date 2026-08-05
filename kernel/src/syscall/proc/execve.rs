@@ -109,7 +109,7 @@ fn read_user_string_array(vm: &VmaManager, user_array_ptr: usize) -> Result<Vec<
         let s = read_user_string(vm, str_ptr)?;
         array.push(s);
         offset += 8;
-        if offset > 4096 {
+        if array.len() > 1024 {
             return Err(Error::InvalidArgs);
         }
     }

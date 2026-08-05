@@ -7,7 +7,7 @@ use alloc::boxed::Box;
 use alloc::sync::Arc;
 use ostd::arch::cpu::context::UserContext;
 
-/// `signalfd4()` — SYS_signalfd4 = 282
+/// `signalfd4()` — SYS_signalfd4 = 289
 pub fn syscall_signalfd4(
     _fd: usize,
     _mask_ptr: usize,

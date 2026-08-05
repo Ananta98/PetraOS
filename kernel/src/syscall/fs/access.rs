@@ -8,6 +8,8 @@ const X_OK: u32 = 1;
 const W_OK: u32 = 2;
 const R_OK: u32 = 4;
 
+pub const ENOENT: isize = 2;
+
 /// System call entry: check user permissions for a file (`access(2)`).
 pub fn syscall_access(
     arg0: usize,
@@ -19,7 +21,11 @@ pub fn syscall_access(
     vm: &VmaManager,
     _: &mut ostd::arch::cpu::context::UserContext,
 ) -> SyscallResult {
-    SyscallResult::from_result(do_access(arg0, arg1 as u32, vm))
+    match do_access(arg0, arg1 as u32, vm) {
+        Ok(res) => SyscallResult::Return(res as usize),
+        Err(Error::InvalidArgs) => SyscallResult::Return((-ENOENT) as usize),
+        Err(e) => SyscallResult::from_err(e),
+    }
 }
 
 /// System call entry: check user permissions relative to directory fd (`faccessat(2)`).
@@ -33,7 +39,11 @@ pub fn syscall_faccessat(
     vm: &VmaManager,
     _: &mut ostd::arch::cpu::context::UserContext,
 ) -> SyscallResult {
-    SyscallResult::from_result(do_access(pathname, mode as u32, vm))
+    match do_access(pathname, mode as u32, vm) {
+        Ok(res) => SyscallResult::Return(res as usize),
+        Err(Error::InvalidArgs) => SyscallResult::Return((-ENOENT) as usize),
+        Err(e) => SyscallResult::from_err(e),
+    }
 }
 
 fn do_access(path_ptr: usize, mode: u32, vm: &VmaManager) -> Result<i32, Error> {

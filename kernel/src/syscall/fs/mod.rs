@@ -51,7 +51,7 @@ pub use pipe::syscall_pipe2;
 pub use poll::{syscall_poll, syscall_ppoll, syscall_pselect6, syscall_select};
 pub use read::syscall_read;
 pub use stat::{syscall_fstat, syscall_lstat, syscall_newfstatat, syscall_stat};
-pub use write::syscall_write;
+pub use write::{syscall_write, syscall_writev};
 
 use crate::syscall::SyscallResult;
 use crate::vm::vma::VmaManager;

@@ -18,14 +18,19 @@ pub fn syscall_read(
 }
 
 fn do_read(fd: i32, user_buf: usize, len: usize, vm: &VmaManager) -> Result<usize, Error> {
-    let mut kbuf = alloc::vec![0u8; len];
-    loop {
-        let bytes = Process::current().fd_table.lock().read(fd, &mut kbuf)?;
-        if bytes > 0 || fd != 0 {
-            vm.copy_to_user(user_buf, &kbuf[..bytes])
-                .map_err(|_| Error::AccessDenied)?;
-            return Ok(bytes);
-        }
-        ostd::task::Task::yield_now();
+    if len == 0 {
+        // According to Linux man 2 read: if count is zero, read() may detect errors
+        // (e.g., bad fd). If no error is detected, read() returns 0.
+        let mut dummy = [];
+        let _ = Process::current().fd_table.lock().read(fd, &mut dummy)?;
+        return Ok(0);
     }
+
+    const MAX_READ_SIZE: usize = 1024 * 1024;
+    let capped_len = len.min(MAX_READ_SIZE);
+    let mut kbuf = alloc::vec![0u8; capped_len];
+    let bytes = Process::current().fd_table.lock().read(fd, &mut kbuf)?;
+    vm.copy_to_user(user_buf, &kbuf[..bytes])
+        .map_err(|_| Error::AccessDenied)?;
+    Ok(bytes)
 }

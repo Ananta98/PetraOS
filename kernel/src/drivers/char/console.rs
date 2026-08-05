@@ -3,7 +3,9 @@ use alloc::collections::VecDeque;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::sync::atomic::{AtomicBool, Ordering};
-use ostd::sync::SpinLock;
+use ostd::arch::device::io_port::ReadWriteAccess;
+use ostd::io::IoPort;
+use ostd::sync::{SpinLock, WaitQueue};
 use spin::Once;
 
 /// A character device implementing `/dev/console`.
@@ -38,6 +40,7 @@ pub struct ConsoleDriver {
     /// Canonical-mode state.
     partial_line: SpinLock<Vec<u8>>,
     completed_lines: SpinLock<VecDeque<Vec<u8>>>,
+    read_wait: WaitQueue,
 }
 
 impl ConsoleDriver {
@@ -48,6 +51,7 @@ impl ConsoleDriver {
             canonical: AtomicBool::new(true),
             partial_line: SpinLock::new(Vec::new()),
             completed_lines: SpinLock::new(VecDeque::new()),
+            read_wait: WaitQueue::new(),
         }
     }
 
@@ -86,6 +90,7 @@ impl ConsoleDriver {
             }
         } else {
             self.raw_input.push(data);
+            self.read_wait.wake_all();
         }
     }
 
@@ -110,8 +115,10 @@ impl ConsoleDriver {
         if self.echo.load(Ordering::Relaxed) {
             self.echo_str("\r\n");
         }
-        let line = core::mem::take(&mut *partial);
+        let mut line = core::mem::take(&mut *partial);
+        line.push(b'\n');
         self.completed_lines.lock().push_back(line);
+        self.read_wait.wake_all();
     }
 
     fn handle_backspace(&self) {
@@ -139,9 +146,8 @@ impl ConsoleDriver {
 
     /// Write bytes to the serial port and framebuffer display.
     fn serial_write(&self, buf: &[u8]) {
-        if let Ok(s) = core::str::from_utf8(buf) {
-            ostd::console::early_print(format_args!("{}", s));
-        }
+        let s = alloc::string::String::from_utf8_lossy(buf);
+        ostd::console::early_print(format_args!("{}", s));
         if let Some(fb) = crate::drivers::gpu::framebuffer::framebuffer() {
             fb.write_bytes(buf);
         }
@@ -164,6 +170,28 @@ impl ConsoleDriver {
     fn flush_output(&self, buf: &[u8]) {
         self.serial_write(buf);
     }
+
+    /// Poll COM1 serial port (0x3F8) for incoming bytes and push them into console input.
+    fn poll_serial_input(&self) {
+        // Ensure LCR (0x3FB) has DLAB=0 (0x03 = 8N1, DLAB=0) so 0x3F8/0x3F9 access data/IER
+        if let Ok(lcr_port) = IoPort::<u8, ReadWriteAccess>::acquire_overlapping(0x3FB) {
+            lcr_port.write(0x03);
+        }
+        // Disable UART interrupts to prevent hardware IRQ storms on COM1
+        if let Ok(ier_port) = IoPort::<u8, ReadWriteAccess>::acquire_overlapping(0x3F9) {
+            ier_port.write(0x00);
+        }
+        if let Ok(lsr_port) = IoPort::<u8, ReadWriteAccess>::acquire_overlapping(0x3FD) {
+            while (lsr_port.read() & 0x01) != 0 {
+                if let Ok(data_port) = IoPort::<u8, ReadWriteAccess>::acquire_overlapping(0x3F8) {
+                    let byte = data_port.read();
+                    self.push_input(&[byte]);
+                } else {
+                    break;
+                }
+            }
+        }
+    }
 }
 
 // -----------------------------------------------------------------------
@@ -173,14 +201,18 @@ impl ConsoleDriver {
 impl CharDevice for ConsoleDriver {
     /// Read from the console.
     ///
-    /// In **canonical** mode this returns one completed line at a time (the
-    /// line terminator is stripped).  When no line is ready the call returns
-    /// `Ok(0)` (non-blocking).
+    /// In **canonical** mode this returns one completed line at a time.
+    /// When no line is ready, it sleeps on `read_wait`.
     ///
     /// In **raw** mode buffered bytes are drained directly.
     fn read(&self, buf: &mut [u8]) -> Result<usize, ostd::Error> {
+        if buf.is_empty() {
+            return Ok(0);
+        }
+
         if self.canonical.load(Ordering::Relaxed) {
             loop {
+                self.poll_serial_input();
                 let mut lines = self.completed_lines.lock();
                 if let Some(line) = lines.pop_front() {
                     let n = core::cmp::min(buf.len(), line.len());
@@ -188,15 +220,24 @@ impl CharDevice for ConsoleDriver {
                     return Ok(n);
                 }
                 drop(lines);
-                ostd::task::Task::yield_now();
+
+                self.read_wait.wait_until(|| {
+                    self.poll_serial_input();
+                    let lines = self.completed_lines.lock();
+                    (!lines.is_empty()).then_some(())
+                });
             }
         } else {
             loop {
+                self.poll_serial_input();
                 let n = self.raw_input.read_into(buf)?;
-                if n > 0 || buf.is_empty() {
+                if n > 0 {
                     return Ok(n);
                 }
-                ostd::task::Task::yield_now();
+                self.read_wait.wait_until(|| {
+                    self.poll_serial_input();
+                    (self.raw_input.available() > 0).then_some(())
+                });
             }
         }
     }

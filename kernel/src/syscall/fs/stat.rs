@@ -110,6 +110,7 @@ pub fn syscall_stat(
             }
             Err(e) => SyscallResult::from_err(e),
         },
+        Err(Error::InvalidArgs) => SyscallResult::Return(-2isize as usize),
         Err(e) => SyscallResult::from_err(e),
     }
 }

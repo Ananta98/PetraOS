@@ -25,9 +25,77 @@ impl Framebuffer {
         }
     }
 
+    /// Scroll the framebuffer vertically by `num_pixels` rows.
+    pub fn scroll_up(&self, num_pixels: u32, bg_color: Color) {
+        if num_pixels >= self.mode.height {
+            self.clear(bg_color);
+            return;
+        }
+        let pitch = self.mode.pitch as usize;
+        let bpp_bytes = (self.mode.bpp / 8) as usize;
+        let copy_bytes = (self.mode.height - num_pixels) as usize * pitch;
+        let src_offset = num_pixels as usize * pitch;
+
+        let mut pixels = self.pixels.lock();
+        if src_offset < pixels.len() {
+            pixels.copy_within(src_offset..(src_offset + copy_bytes), 0);
+        }
+
+        let clear_start = copy_bytes;
+        let clear_end = pixels.len();
+        if clear_start < clear_end {
+            let clear_slice = &mut pixels[clear_start..clear_end];
+            if bpp_bytes == 4 {
+                for pixel in clear_slice.chunks_exact_mut(4) {
+                    match self.mode.format {
+                        PixelFormat::Rgba8888 => {
+                            pixel[0] = bg_color.r;
+                            pixel[1] = bg_color.g;
+                            pixel[2] = bg_color.b;
+                            pixel[3] = bg_color.a;
+                        }
+                        PixelFormat::Bgra8888 => {
+                            pixel[0] = bg_color.b;
+                            pixel[1] = bg_color.g;
+                            pixel[2] = bg_color.r;
+                            pixel[3] = bg_color.a;
+                        }
+                        _ => {
+                            pixel[0] = bg_color.r;
+                            pixel[1] = bg_color.g;
+                            pixel[2] = bg_color.b;
+                            pixel[3] = bg_color.a;
+                        }
+                    }
+                }
+            } else if bpp_bytes == 3 {
+                for pixel in clear_slice.chunks_exact_mut(3) {
+                    match self.mode.format {
+                        PixelFormat::Rgb888 => {
+                            pixel[0] = bg_color.r;
+                            pixel[1] = bg_color.g;
+                            pixel[2] = bg_color.b;
+                        }
+                        PixelFormat::Bgr888 => {
+                            pixel[0] = bg_color.b;
+                            pixel[1] = bg_color.g;
+                            pixel[2] = bg_color.r;
+                        }
+                        _ => {
+                            pixel[0] = bg_color.r;
+                            pixel[1] = bg_color.g;
+                            pixel[2] = bg_color.b;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     /// Write character bytes to the screen with line wrapping and scrolling.
     pub fn write_bytes(&self, buf: &[u8]) {
         let text_color = Color::WHITE;
+        let bg_color = Color::BLACK;
         let mut cx = self.cursor_x.load(Ordering::Relaxed);
         let mut cy = self.cursor_y.load(Ordering::Relaxed);
         let font_w = font::FONT_WIDTH as u32;
@@ -45,7 +113,7 @@ impl Framebuffer {
                 0x08 | 0x7f => {
                     if cx >= font_w {
                         cx -= font_w;
-                        self.draw_rect(cx, cy, font_w, font_h, Color::BLACK);
+                        self.draw_rect(cx, cy, font_w, font_h, bg_color);
                     }
                 }
                 ch if ch >= 0x20 => {
@@ -54,20 +122,18 @@ impl Framebuffer {
                         cy += font_h;
                     }
                     if cy + font_h > self.mode.height {
-                        self.clear(Color::BLACK);
-                        cx = 0;
-                        cy = 0;
+                        self.scroll_up(font_h, bg_color);
+                        cy = self.mode.height - font_h;
                     }
-                    self.draw_char(cx, cy, ch as char, text_color);
+                    self.draw_char_bg(cx, cy, ch as char, text_color, bg_color);
                     cx += font_w;
                 }
                 _ => {}
             }
 
             if cy + font_h > self.mode.height {
-                self.clear(Color::BLACK);
-                cx = 0;
-                cy = 0;
+                self.scroll_up(font_h, bg_color);
+                cy = self.mode.height - font_h;
             }
         }
 
@@ -276,6 +342,20 @@ impl Framebuffer {
                 if (row_byte & (1 << col)) != 0 {
                     self.draw_pixel(x + col as u32, y + row as u32, color);
                 }
+            }
+        }
+    }
+
+    /// Draw a character with both foreground and background colors.
+    pub fn draw_char_bg(&self, x: u32, y: u32, ch: char, fg: Color, bg: Color) {
+        let Some(bitmap) = font::get_char_bitmap(ch) else {
+            return;
+        };
+        for row in 0..font::FONT_HEIGHT {
+            let row_byte = bitmap[row];
+            for col in 0..font::FONT_WIDTH {
+                let color = if (row_byte & (1 << col)) != 0 { fg } else { bg };
+                self.draw_pixel(x + col as u32, y + row as u32, color);
             }
         }
     }

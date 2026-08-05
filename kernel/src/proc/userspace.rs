@@ -14,21 +14,30 @@ use ostd::user::{ReturnReason, UserContextApi, UserMode};
 
 // System V AMD64 ELF Auxiliary Vector (auxv) Constants
 pub const AT_NULL: usize = 0;
+pub const AT_PHDR: usize = 3;
+pub const AT_PHENT: usize = 4;
+pub const AT_PHNUM: usize = 5;
 pub const AT_PAGESZ: usize = 6;
+pub const AT_BASE: usize = 7;
+pub const AT_FLAGS: usize = 8;
 pub const AT_ENTRY: usize = 9;
 pub const AT_UID: usize = 11;
 pub const AT_EUID: usize = 12;
 pub const AT_GID: usize = 13;
 pub const AT_EGID: usize = 14;
+pub const AT_PLATFORM: usize = 15;
+pub const AT_HWCAP: usize = 16;
+pub const AT_CLKTCK: usize = 17;
 pub const AT_SECURE: usize = 23;
 pub const AT_RANDOM: usize = 25;
+pub const AT_EXECFN: usize = 31;
 
 /// Layout and setup the user space stack for a process.
 ///
 /// Builds stack according to the System V AMD64 ABI layout:
 /// 1. Information block (null-terminated strings for argv and envp)
 /// 2. Alignment padding (for 16-byte stack alignment)
-/// 3. Auxiliary Vector (simplified: AT_ENTRY, AT_PAGESZ, AT_NULL)
+/// 3. Auxiliary Vector (complete set required by musl libc)
 /// 4. Environment pointers (ending in NULL)
 /// 5. Argument pointers (ending in NULL)
 /// 6. argc (count of arguments)
@@ -36,7 +45,8 @@ pub fn setup_user_stack(
     vm: &VmaManager,
     argv: &[&str],
     envp: &[&str],
-    entry: usize,
+    loaded: &crate::proc::elf::LoadedElf,
+    exec_path: &str,
 ) -> Result<usize, Error> {
     const USER_STACK_SIZE: usize = 65536; // 64KB stack
     const USER_STACK_TOP: usize = 0x7FFF_FFFF_0000;
@@ -73,6 +83,12 @@ pub fn setup_user_stack(
     }
     arg_addrs.reverse();
 
+    // Push executable filename string for AT_EXECFN
+    let at_execfn_addr = push_str(exec_path);
+
+    // Push platform string for AT_PLATFORM (musl reads this)
+    let at_platform_addr = push_str("x86_64");
+
     // Push 16 random bytes for AT_RANDOM (used by musl/glibc stack canary initialization)
     str_pos -= 16;
     let random_bytes = [
@@ -85,16 +101,28 @@ pub fn setup_user_stack(
     // Align string position down to 8 bytes for following pointers
     str_pos &= !7;
 
-    // Define Auxiliary Vector expected by musl libc System V AMD64 ABI
+    // Define Auxiliary Vector with all entries required by musl libc.
+    //
+    // musl's __init_tls() unconditionally walks AT_PHDR to find PT_TLS.
+    // Without AT_PHDR/AT_PHENT/AT_PHNUM, musl dereferences NULL → triple fault.
     let auxv = [
+        (AT_PHDR, loaded.phdr_vaddr),
+        (AT_PHENT, loaded.phent),
+        (AT_PHNUM, loaded.phnum),
         (AT_PAGESZ, 4096),
-        (AT_ENTRY, entry),
+        (AT_BASE, 0), // 0 for statically-linked executables
+        (AT_FLAGS, 0),
+        (AT_ENTRY, loaded.entry),
         (AT_UID, 0),
         (AT_EUID, 0),
         (AT_GID, 0),
         (AT_EGID, 0),
         (AT_SECURE, 0),
         (AT_RANDOM, at_random_addr),
+        (AT_HWCAP, 0),
+        (AT_CLKTCK, 100),
+        (AT_PLATFORM, at_platform_addr),
+        (AT_EXECFN, at_execfn_addr),
         (AT_NULL, 0),
     ];
 
@@ -210,6 +238,7 @@ pub fn run_process_user_mode(
             let tp = get_fs_base();
             thread.tls_fs_base.store(tp, Ordering::Release);
         }
+
         match reason {
             ReturnReason::UserSyscall => {
                 let mut ctx = user_mode.context_mut();
@@ -220,6 +249,15 @@ pub fn run_process_user_mode(
                 let arg3 = ctx.r10();
                 let arg4 = ctx.r8();
                 let arg5 = ctx.r9();
+
+                ostd::early_println!(
+                    "[syscall] sys_{} (arg0={:#x}, arg1={:#x}, arg2={:#x}, rip={:#x})",
+                    num,
+                    arg0,
+                    arg1,
+                    arg2,
+                    ctx.rip()
+                );
 
                 // Dispatch system call
                 match dispatch_syscall(
@@ -244,7 +282,6 @@ pub fn run_process_user_mode(
                         ctx.set_r11(rflags);
                     }
                     SyscallResult::Exit(status) => {
-                        ostd::early_println!("[userspace] Syscall {} requested exit with status {}", num, status);
                         exit_status = status;
                         break;
                     }
@@ -265,23 +302,10 @@ pub fn run_process_user_mode(
                         continue;
                     }
                 }
-                ostd::early_println!(
-                    "[userspace] Unhandled User Exception for process '{}' (PID {}): trap_num={}, error_code={}, rip={:#x}, rsp={:#x}",
-                    process.name,
-                    process.pid.as_u32(),
-                    trap,
-                    err,
-                    ctx.rip(),
-                    ctx.rsp()
-                );
-                log::error!(
-                    "Unhandled User Exception: trap_num={}, error_code={}",
-                    trap,
-                    err
-                );
                 break;
             }
             ReturnReason::KernelEvent => {
+                ostd::early_println!("ENTER KERNEL EVENT YIELD NOW ONLY");
                 ostd::task::Task::yield_now();
             }
         }

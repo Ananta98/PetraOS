@@ -1,5 +1,5 @@
 /// `rt_sigpending(set, sigsetsize)` — query the set of pending signals
-/// that are blocked for the calling process (SYS_rt_sigpending = 34).
+/// that are blocked for the calling process (SYS_rt_sigpending = 127).
 ///
 /// Writes the set of signals that are currently blocked AND pending for the
 /// calling process into the user-space `sigset_t` pointed to by `set`.

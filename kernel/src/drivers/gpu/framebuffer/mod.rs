@@ -1,8 +1,10 @@
 pub mod color;
+pub mod console;
 pub mod draw;
 pub mod font;
 
 pub use color::{Color, PixelFormat, VideoMode};
+pub use console::{FbConsole, FbConsoleDriver, fb_console};
 pub use draw::Framebuffer;
 
 use crate::drivers::gpu::{GPU_MANAGER, GpuDriver};

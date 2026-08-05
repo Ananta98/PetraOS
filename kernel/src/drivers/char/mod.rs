@@ -92,9 +92,21 @@ impl Device for CharDeviceWrapper {
 pub fn register_char_device(name: &str, device: Arc<dyn CharDevice>) -> Result<(), ostd::Error> {
     let wrapper = Arc::new(CharDeviceWrapper {
         name: String::from(name),
-        device,
+        device: device.clone(),
     });
-    register_device(wrapper)
+    register_device(wrapper)?;
+
+    // Also register in devfs so the device is visible at `/dev/<name>`.
+    // This is a no-op if devfs hasn't been mounted yet (early boot).
+    let inode = Arc::new(CharDeviceInode::new(device));
+    let _ = crate::fs::devfs::register_device(
+        name,
+        crate::fs::vfs::FileType::CharDevice,
+        0o660,
+        inode,
+    );
+
+    Ok(())
 }
 
 // =============================================================================
@@ -170,8 +182,8 @@ impl FileOps for CharDeviceFile {
     fn write(&mut self, buf: &[u8], _offset: &mut usize) -> Result<usize, ostd::Error> {
         self.device.write(buf)
     }
-    fn seek(&mut self, _pos: SeekFrom, offset: &mut usize) -> Result<usize, ostd::Error> {
-        Ok(*offset)
+    fn seek(&mut self, _pos: SeekFrom, _offset: &mut usize) -> Result<usize, ostd::Error> {
+        Err(ostd::Error::InvalidArgs)
     }
     fn readdir(&mut self) -> Result<Vec<DirEntry>, ostd::Error> {
         Err(ostd::Error::InvalidArgs)

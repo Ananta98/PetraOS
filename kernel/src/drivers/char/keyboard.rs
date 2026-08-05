@@ -52,8 +52,32 @@ impl Keyboard {
                         if let Some(console) = super::console::console() {
                             console.push_input(s.as_bytes());
                         }
+                        if let Some(fbcon) = crate::drivers::gpu::framebuffer::fb_console() {
+                            fbcon.push_input(s.as_bytes());
+                        }
                     }
-                    DecodedKey::RawKey(_raw) => {}
+                    DecodedKey::RawKey(raw) => {
+                        // Translate necessary raw keys to ANSI escape sequences for bash
+                        let escape_sequence: Option<&[u8]> = match raw {
+                            pc_keyboard::KeyCode::ArrowUp => Some(b"\x1b[A"),
+                            pc_keyboard::KeyCode::ArrowDown => Some(b"\x1b[B"),
+                            pc_keyboard::KeyCode::ArrowRight => Some(b"\x1b[C"),
+                            pc_keyboard::KeyCode::ArrowLeft => Some(b"\x1b[D"),
+                            // Handle potential terminal signals if not caught by line discipline
+                            // e.g., Ctrl+C (ETX = 0x03), Ctrl+D (EOT = 0x04)
+                            _ => None,
+                        };
+
+                        if let Some(seq) = escape_sequence {
+                            self.buf.push(seq);
+                            if let Some(console) = super::console::console() {
+                                console.push_input(seq);
+                            }
+                            if let Some(fbcon) = crate::drivers::gpu::framebuffer::fb_console() {
+                                fbcon.push_input(seq);
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -81,7 +105,18 @@ impl Default for Keyboard {
 
 impl CharDevice for Keyboard {
     fn read(&self, buf: &mut [u8]) -> Result<usize, ostd::Error> {
-        self.buf.read_into(buf)
+        if buf.is_empty() {
+            return Ok(0);
+        }
+
+        loop {
+            let count = self.buf.read_into(buf)?;
+            if count > 0 {
+                return Ok(count);
+            }
+
+            ostd::task::Task::yield_now();
+        }
     }
 
     fn write(&self, _buf: &[u8]) -> Result<usize, ostd::Error> {
