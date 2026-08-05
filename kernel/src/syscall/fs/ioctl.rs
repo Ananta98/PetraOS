@@ -35,8 +35,16 @@ pub fn syscall_ioctl(
     let proc = Process::current();
 
     // Verify the file descriptor is valid
-    if proc.fd_table.lock().get_fd(fd).is_err() {
-        return SyscallResult::from_err(Error::InvalidArgs);
+    let fd_entry = match proc.fd_table.lock().get_fd(fd) {
+        Ok(entry) => entry,
+        Err(_) => return SyscallResult::from_err(Error::InvalidArgs),
+    };
+
+    {
+        let mut open_file = fd_entry.open_file.lock();
+        if let Ok(res) = open_file.file_ops.ioctl(cmd, arg2, vm) {
+            return SyscallResult::from_result(Ok(res));
+        }
     }
 
     match cmd {

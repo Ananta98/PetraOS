@@ -1,11 +1,13 @@
 pub mod color;
 pub mod console;
 pub mod draw;
+pub mod fbdev;
 pub mod font;
 
 pub use color::{Color, PixelFormat, VideoMode};
 pub use console::{FbConsole, FbConsoleDriver, fb_console};
 pub use draw::Framebuffer;
+pub use fbdev::FbDev;
 
 use crate::drivers::gpu::{GPU_MANAGER, GpuDriver};
 use alloc::sync::Arc;
@@ -60,16 +62,75 @@ impl crate::device::Driver for FramebufferDriver {
     }
 
     fn probe(&self) -> Result<(), ostd::Error> {
-        let mode = VideoMode {
-            width: 1024,
-            height: 768,
-            pitch: 1024 * 4,
-            bpp: 32,
-            format: PixelFormat::Rgba8888,
+        let boot_fb = ostd::boot::boot_info().framebuffer_arg;
+        let (mode, io_mem_opt) = if let Some(fb_arg) = boot_fb {
+            let paddr = fb_arg.address;
+            let bpp_bytes = ((fb_arg.bpp as usize) + 7) / 8;
+            let pitch = (fb_arg.width as usize) * bpp_bytes;
+            let size = (fb_arg.height as usize) * pitch;
+
+            ostd::early_println!(
+                "[framebuffer] GOP Boot Info: physical_address={:#x}, width={}, height={}, bpp={}, pitch={}",
+                paddr,
+                fb_arg.width,
+                fb_arg.height,
+                fb_arg.bpp,
+                pitch
+            );
+
+            let io_mem = match ostd::io::IoMem::acquire(paddr..paddr + size) {
+                Ok(mem) => {
+                    ostd::early_println!(
+                        "[framebuffer] Successfully mapped MMIO physical {:#x}..{:#x} with IoMem",
+                        paddr,
+                        paddr + size
+                    );
+                    Some(mem)
+                }
+                Err(err) => {
+                    ostd::early_println!(
+                        "[framebuffer] WARNING: Failed to acquire IoMem for physical {:#x}: {:?}",
+                        paddr,
+                        err
+                    );
+                    None
+                }
+            };
+
+            let mode = VideoMode {
+                width: fb_arg.width as u32,
+                height: fb_arg.height as u32,
+                pitch: pitch as u32,
+                bpp: fb_arg.bpp as u32,
+                format: PixelFormat::Rgba8888,
+            };
+
+            (mode, io_mem)
+        } else {
+            ostd::early_println!(
+                "[framebuffer] WARNING: GOP Framebuffer boot_info is None! Initializing fallback 1024x768 framebuffer."
+            );
+            let mode = VideoMode {
+                width: 1024,
+                height: 768,
+                pitch: 1024 * 4,
+                bpp: 32,
+                format: PixelFormat::Rgba8888,
+            };
+            (mode, None)
         };
-        let fb = Arc::new(Framebuffer::new(mode));
+
+        let fb = if let Some(io_mem) = io_mem_opt {
+            Arc::new(Framebuffer::new_mmio(mode, io_mem))
+        } else {
+            Arc::new(Framebuffer::new(mode))
+        };
+
         FRAMEBUFFER.call_once(|| fb.clone());
-        let _ = GPU_MANAGER.register_driver(fb);
+        let _ = GPU_MANAGER.register_driver(fb.clone());
+
+        let fbdev = Arc::new(fbdev::FbDev::new(fb));
+        let _ = crate::drivers::char::register_char_device("fb0", fbdev);
         Ok(())
     }
 }

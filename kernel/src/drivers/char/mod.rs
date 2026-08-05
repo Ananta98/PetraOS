@@ -17,6 +17,27 @@ use ostd::sync::SpinLock;
 pub trait CharDevice: Send + Sync {
     fn read(&self, buf: &mut [u8]) -> Result<usize, ostd::Error>;
     fn write(&self, buf: &[u8]) -> Result<usize, ostd::Error>;
+
+    fn read_at(&self, buf: &mut [u8], _offset: &mut usize) -> Result<usize, ostd::Error> {
+        self.read(buf)
+    }
+
+    fn write_at(&self, buf: &[u8], _offset: &mut usize) -> Result<usize, ostd::Error> {
+        self.write(buf)
+    }
+
+    fn seek(&self, _pos: SeekFrom, _offset: &mut usize) -> Result<usize, ostd::Error> {
+        Err(ostd::Error::InvalidArgs)
+    }
+
+    fn ioctl(
+        &self,
+        _cmd: usize,
+        _arg: usize,
+        _vm: &crate::vm::vma::VmaManager,
+    ) -> Result<usize, ostd::Error> {
+        Err(ostd::Error::InvalidArgs)
+    }
 }
 
 // =============================================================================
@@ -176,17 +197,25 @@ pub struct CharDeviceFile {
 }
 
 impl FileOps for CharDeviceFile {
-    fn read(&mut self, buf: &mut [u8], _offset: &mut usize) -> Result<usize, ostd::Error> {
-        self.device.read(buf)
+    fn read(&mut self, buf: &mut [u8], offset: &mut usize) -> Result<usize, ostd::Error> {
+        self.device.read_at(buf, offset)
     }
-    fn write(&mut self, buf: &[u8], _offset: &mut usize) -> Result<usize, ostd::Error> {
-        self.device.write(buf)
+    fn write(&mut self, buf: &[u8], offset: &mut usize) -> Result<usize, ostd::Error> {
+        self.device.write_at(buf, offset)
     }
-    fn seek(&mut self, _pos: SeekFrom, _offset: &mut usize) -> Result<usize, ostd::Error> {
-        Err(ostd::Error::InvalidArgs)
+    fn seek(&mut self, pos: SeekFrom, offset: &mut usize) -> Result<usize, ostd::Error> {
+        self.device.seek(pos, offset)
     }
     fn readdir(&mut self) -> Result<Vec<DirEntry>, ostd::Error> {
         Err(ostd::Error::InvalidArgs)
+    }
+    fn ioctl(
+        &mut self,
+        cmd: usize,
+        arg: usize,
+        vm: &crate::vm::vma::VmaManager,
+    ) -> Result<usize, ostd::Error> {
+        self.device.ioctl(cmd, arg, vm)
     }
 }
 

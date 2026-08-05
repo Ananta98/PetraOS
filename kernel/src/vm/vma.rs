@@ -61,6 +61,11 @@ impl VmaManager {
         if start % PAGE_SIZE != 0 || size % PAGE_SIZE != 0 {
             return Err(Error::InvalidArgs);
         }
+        if size == 0 {
+            return Ok(());
+        }
+        let _ = self.munmap(start, size);
+
         let guard = disable_preempt();
         let vaddr_range = start..start + size;
         let mut cursor = self
@@ -84,6 +89,37 @@ impl VmaManager {
 
         let mut regions = self.regions.lock();
         regions.insert(start, VmaRegion::new(start, size, flags));
+
+        Ok(())
+    }
+
+    /// Allocates and maps a user-space stack with a guard band at the bottom.
+    ///
+    /// The bottom-most page is left unmapped to catch stack overflow exceptions.
+    ///
+    /// # Errors
+    /// * `Error::InvalidArgs` if `stack_start` or `stack_size` are not page-aligned.
+    /// * `Error::NoMemory` if frame allocation fails.
+    pub fn map_user_stack(
+        &self,
+        stack_start: Vaddr,
+        stack_size: usize,
+        guard_size: usize,
+    ) -> Result<(), Error> {
+        if stack_start % PAGE_SIZE != 0
+            || stack_size % PAGE_SIZE != 0
+            || guard_size % PAGE_SIZE != 0
+        {
+            return Err(Error::InvalidArgs);
+        }
+
+        self.map_region(stack_start + guard_size, stack_size, PageFlags::RW)?;
+
+        let mut regions = self.regions.lock();
+        regions.insert(
+            stack_start,
+            VmaRegion::new(stack_start, stack_size, PageFlags::RW),
+        );
 
         Ok(())
     }
@@ -156,34 +192,13 @@ impl VmaManager {
         Ok(())
     }
 
-    /// Unmaps virtual pages and removes the VMA metadata for the given address range.
+    /// Unmaps a contiguous virtual memory area from both hardware page tables and the region map.
     ///
     /// # Errors
     /// * `Error::InvalidArgs` if `start` or `size` are not page-aligned.
     /// * `Error::NoMemory` if page cursor setup fails.
     pub fn unmap_region(&self, start: Vaddr, size: usize) -> Result<(), Error> {
-        if start % PAGE_SIZE != 0 || size % PAGE_SIZE != 0 {
-            return Err(Error::InvalidArgs);
-        }
-
-        let guard = disable_preempt();
-        let vaddr_range = start..start + size;
-        let mut cursor = self
-            .vm_space
-            .cursor_mut(&guard, &vaddr_range)
-            .map_err(|_| Error::NoMemory)?;
-
-        cursor.unmap(size);
-
-        let mut regions = self.regions.lock();
-        if let Some(region) = regions.remove(&start) {
-            if region.is_shared {
-                let current_pid = crate::proc::process::Process::current().pid;
-                crate::ipc::shm::shm_dt_if_attached(current_pid, region.start);
-            }
-        }
-
-        Ok(())
+        self.munmap(start, size)
     }
 
     /// Registers a VMA region for lazy demand paging.
@@ -202,6 +217,10 @@ impl VmaManager {
         if start % PAGE_SIZE != 0 || size % PAGE_SIZE != 0 {
             return Err(Error::InvalidArgs);
         }
+        if size == 0 {
+            return Ok(());
+        }
+        let _ = self.munmap(start, size);
 
         let mut regions = self.regions.lock();
         regions.insert(start, VmaRegion::new(start, size, flags));

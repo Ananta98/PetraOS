@@ -81,6 +81,9 @@ impl VmaManager {
         drop(parent_regions);
         drop(guard);
 
+        // Reload parent's CR3 to flush TLB so parent's CoW read-only mappings take effect immediately.
+        self.vm_space.activate();
+
         Ok(child_manager)
     }
 

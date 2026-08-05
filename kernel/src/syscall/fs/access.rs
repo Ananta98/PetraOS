@@ -46,6 +46,20 @@ pub fn syscall_faccessat(
     }
 }
 
+/// System call entry: stub for `faccessat2(439)` returning `-ENOSYS` (-38).
+pub fn syscall_faccessat2(
+    _dirfd: usize,
+    _pathname: usize,
+    _mode: usize,
+    _flags: usize,
+    _: usize,
+    _: usize,
+    _vm: &VmaManager,
+    _: &mut ostd::arch::cpu::context::UserContext,
+) -> SyscallResult {
+    SyscallResult::Return((-38isize) as usize)
+}
+
 fn do_access(path_ptr: usize, mode: u32, vm: &VmaManager) -> Result<i32, Error> {
     let path = read_user_string(vm, path_ptr)?;
     let dentry = crate::fs::vfs::resolve_path(&path)?;

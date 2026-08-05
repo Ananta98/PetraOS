@@ -22,7 +22,7 @@ pub mod read;
 pub mod stat;
 pub mod write;
 
-pub use access::{syscall_access, syscall_faccessat};
+pub use access::{syscall_access, syscall_faccessat, syscall_faccessat2};
 pub use chdir::syscall_chdir;
 pub use chmod::syscall_chmod;
 pub use chown::syscall_chown;

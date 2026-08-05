@@ -122,6 +122,6 @@ pub fn dispatch_syscall(
 ) -> SyscallResult {
     match SYSCALL_TABLE.binary_search_by_key(&num, |(number, _)| *number) {
         Ok(index) => SYSCALL_TABLE[index].1(arg0, arg1, arg2, arg3, arg4, arg5, vm, context),
-        Err(_) => SyscallResult::Return(-(Error::InvalidArgs as isize) as usize),
+        Err(_) => SyscallResult::Return((-38isize) as usize),
     }
 }

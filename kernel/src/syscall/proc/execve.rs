@@ -15,6 +15,13 @@ use ostd::Error;
 use ostd::arch::cpu::context::UserContext;
 use ostd::user::UserContextApi;
 
+pub const EPERM: isize = 1;
+pub const ENOENT: isize = 2;
+pub const EIO: isize = 5;
+pub const ENOEXEC: isize = 8;
+pub const EACCES: isize = 13;
+pub const EFAULT: isize = 14;
+
 pub fn syscall_execve(
     arg0: usize, // const char *pathname
     arg1: usize, // char *const argv[]
@@ -25,39 +32,58 @@ pub fn syscall_execve(
     vm: &VmaManager,
     context: &mut UserContext,
 ) -> SyscallResult {
-    SyscallResult::from_result(do_execve(arg0, arg1, arg2, vm, context))
-}
+    let pathname_ptr = arg0;
+    let argv_ptr = arg1;
+    let envp_ptr = arg2;
 
-fn do_execve(
-    pathname_ptr: usize,
-    argv_ptr: usize,
-    envp_ptr: usize,
-    vm: &VmaManager,
-    context: &mut UserContext,
-) -> Result<i32, Error> {
     if pathname_ptr == 0 {
-        return Err(Error::InvalidArgs);
+        return SyscallResult::Return((-EFAULT) as usize);
     }
 
     // 1. Read pathname, argv, and envp from user space.
-    let path = read_user_string(vm, pathname_ptr)?;
-    let argv = read_user_string_array(vm, argv_ptr)?;
-    let envp = read_user_string_array(vm, envp_ptr)?;
+    let path = match read_user_string(vm, pathname_ptr) {
+        Ok(p) => p,
+        Err(_) => return SyscallResult::Return((-EFAULT) as usize),
+    };
+    let argv = match read_user_string_array(vm, argv_ptr) {
+        Ok(a) => a,
+        Err(_) => return SyscallResult::Return((-EFAULT) as usize),
+    };
+    let envp = match read_user_string_array(vm, envp_ptr) {
+        Ok(e) => e,
+        Err(_) => return SyscallResult::Return((-EFAULT) as usize),
+    };
 
     // 2. Resolve the path and read the ELF executable image.
-    let dentry = crate::fs::vfs::resolve_path(&path)?;
-    let meta = dentry.inode.metadata()?;
-    let mut file_ops = dentry.inode.open(0)?;
+    let dentry = match crate::fs::vfs::resolve_path(&path) {
+        Ok(d) => d,
+        Err(_) => return SyscallResult::Return((-ENOENT) as usize),
+    };
+    let meta = match dentry.inode.metadata() {
+        Ok(m) => m,
+        Err(_) => return SyscallResult::Return((-EIO) as usize),
+    };
+    let mut file_ops = match dentry.inode.open(0) {
+        Ok(f) => f,
+        Err(_) => return SyscallResult::Return((-EACCES) as usize),
+    };
 
     let mut elf_image = alloc::vec![0u8; meta.size];
     let mut offset = 0;
-    file_ops.read(&mut elf_image, &mut offset)?;
+    if file_ops.read(&mut elf_image, &mut offset).is_err() {
+        return SyscallResult::Return((-EIO) as usize);
+    }
+
+    // Check ELF magic header
+    if elf_image.len() < 4 || &elf_image[0..4] != b"\x7fELF" {
+        return SyscallResult::Return((-ENOEXEC) as usize);
+    }
 
     // 3. Perform exec on the current process to replace its address space.
     let current_process = Process::current();
     let mut entry = 0;
     let mut stack_ptr = 0;
-    let mut exec_err = None;
+    let mut exec_err = false;
 
     let argv_refs: Vec<&str> = argv.iter().map(|s| s.as_str()).collect();
     let envp_refs: Vec<&str> = envp.iter().map(|s| s.as_str()).collect();
@@ -68,14 +94,14 @@ fn do_execve(
                 entry = loaded.entry;
                 stack_ptr = sp;
             }
-            Err(err) => {
-                exec_err = Some(err);
+            Err(_) => {
+                exec_err = true;
             }
         }
     });
 
-    if let Some(err) = exec_err {
-        return Err(err);
+    if exec_err {
+        return SyscallResult::Return((-ENOEXEC) as usize);
     }
 
     // 5. Modify the UserContext to jump to the new entry point on syscall return.
@@ -89,7 +115,7 @@ fn do_execve(
     context.set_rcx(rip);
     context.set_r11(rflags);
 
-    Ok(0)
+    SyscallResult::Return(0)
 }
 
 // Helper to read string arrays from user space.

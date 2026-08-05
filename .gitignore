@@ -4,3 +4,4 @@ graphify-out/
 downloads/
 build/
 sysroot/
+initramfs/

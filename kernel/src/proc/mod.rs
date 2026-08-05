@@ -77,6 +77,8 @@ pub fn spawn_init_process() {
                 // Spawn the main thread. Its body activates the process VM
                 // and enters user mode, executing the init program.
                 let mut process_for_thread = process.clone();
+                let pid = process.pid;
+                let name = process.name.clone();
                 process
                     .spawn_thread("main", move || {
                         let res = crate::proc::userspace::run_process_user_mode(
@@ -84,7 +86,14 @@ pub fn spawn_init_process() {
                             entry,
                             stack_ptr,
                         );
-                        ostd::early_println!("[init] Process user mode returned: {:?}", res);
+                        if let Err(e) = res {
+                            ostd::early_println!(
+                                "[{} - PID {}] Process user mode returned: Err({:?})",
+                                name,
+                                pid.as_u32(),
+                                e
+                            );
+                        }
                     })
                     .expect("failed to spawn init thread");
                 return;

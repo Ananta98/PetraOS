@@ -289,18 +289,46 @@ pub fn run_process_user_mode(
             }
             ReturnReason::UserException => {
                 let ctx = user_mode.context_mut();
+                let rip = ctx.rip();
                 let trap = ctx.trap_number();
                 let err = ctx.trap_error_code();
-                if let Some(ostd::arch::cpu::context::CpuException::PageFault(info)) =
-                    ctx.take_exception()
-                {
-                    if process
-                        .vm
-                        .alloc_frame_for_fault(info.addr, info.error_code)
-                        .is_ok()
-                    {
-                        continue;
+                if let Some(exception) = ctx.take_exception() {
+                    match exception {
+                        ostd::arch::cpu::context::CpuException::PageFault(info) => {
+                            if process
+                                .vm
+                                .alloc_frame_for_fault(info.addr, info.error_code)
+                                .is_ok()
+                            {
+                                continue;
+                            }
+                            ostd::early_println!(
+                                "[CPU EXCEPTION] PID {} Unhandled PageFault at addr {:#x}, error_code {:#x}, rip {:#x}",
+                                process.pid.as_u32(),
+                                info.addr,
+                                info.error_code,
+                                rip
+                            );
+                        }
+                        other => {
+                            ostd::early_println!(
+                                "[CPU EXCEPTION] PID {} Exception {:?}, trap {}, err {:#x}, rip {:#x}",
+                                process.pid.as_u32(),
+                                other,
+                                trap,
+                                err,
+                                rip
+                            );
+                        }
                     }
+                } else {
+                    ostd::early_println!(
+                        "[CPU EXCEPTION] PID {} UserException trap {}, err {:#x}, rip {:#x}",
+                        process.pid.as_u32(),
+                        trap,
+                        err,
+                        rip
+                    );
                 }
                 break;
             }
@@ -313,6 +341,12 @@ pub fn run_process_user_mode(
 
     // Set process status to Zombie and record exit code
     process.exit(exit_status);
+    ostd::early_println!(
+        "[{} - PID {}] Process user mode returned: Ok({})",
+        process.name,
+        process.pid.as_u32(),
+        exit_status
+    );
     Ok(exit_status)
 }
 

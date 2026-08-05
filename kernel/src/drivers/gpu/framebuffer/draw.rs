@@ -4,11 +4,15 @@ use alloc::vec::Vec;
 use core::sync::atomic::{AtomicU32, Ordering};
 use ostd::sync::SpinLock;
 
+use ostd::io::IoMem;
+use ostd::mm::VmIo;
+
 /// A generic software-managed Framebuffer containing video mode metrics
 /// and a lock-protected raw pixel buffer.
 pub struct Framebuffer {
     pub(crate) mode: VideoMode,
     pub pixels: SpinLock<Vec<u8>>,
+    pub mmio: Option<SpinLock<IoMem>>,
     pub cursor_x: AtomicU32,
     pub cursor_y: AtomicU32,
 }
@@ -20,6 +24,19 @@ impl Framebuffer {
         Self {
             mode,
             pixels: SpinLock::new(alloc::vec![0u8; size]),
+            mmio: None,
+            cursor_x: AtomicU32::new(0),
+            cursor_y: AtomicU32::new(0),
+        }
+    }
+
+    /// Create a new framebuffer backed by hardware MMIO memory.
+    pub fn new_mmio(mode: VideoMode, io_mem: IoMem) -> Self {
+        let size = (mode.pitch as usize) * (mode.height as usize);
+        Self {
+            mode,
+            pixels: SpinLock::new(alloc::vec![0u8; size]),
+            mmio: Some(SpinLock::new(io_mem)),
             cursor_x: AtomicU32::new(0),
             cursor_y: AtomicU32::new(0),
         }
@@ -89,6 +106,10 @@ impl Framebuffer {
                     }
                 }
             }
+        }
+        if let Some(ref mmio_lock) = self.mmio {
+            let mut mmio = mmio_lock.lock();
+            let _ = mmio.write_bytes(0, &pixels);
         }
     }
 
@@ -194,6 +215,10 @@ impl Framebuffer {
                 }
             }
         }
+        if let Some(ref mmio_lock) = self.mmio {
+            let mut mmio = mmio_lock.lock();
+            let _ = mmio.write_bytes(0, &p);
+        }
     }
 
     /// Draw a single pixel at (x, y) with a color.
@@ -244,6 +269,10 @@ impl Framebuffer {
                         p[offset + 2] = color.b;
                     }
                 }
+            }
+            if let Some(ref mmio_lock) = self.mmio {
+                let mut mmio = mmio_lock.lock();
+                let _ = mmio.write_bytes(offset, &p[offset..offset + bpp_bytes]);
             }
         }
     }

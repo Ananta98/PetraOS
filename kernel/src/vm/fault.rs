@@ -55,6 +55,8 @@ impl VmaManager {
             .cursor_mut(&guard, &vaddr_range)
             .map_err(|_| Error::NoMemory)?;
 
+        cursor.jump(page_vaddr).map_err(|_| Error::InvalidArgs)?;
+
         let is_present = error_code.contains(PageFaultErrorCode::PRESENT);
         let is_write = error_code.contains(PageFaultErrorCode::WRITE);
 
@@ -83,6 +85,7 @@ impl VmaManager {
 
             let property = PageProperty::new_user(region_clone.flags, CachePolicy::Writeback);
             cursor.map(frame, property);
+            self.vm_space.activate();
 
             return Ok(());
         }
@@ -113,6 +116,7 @@ impl VmaManager {
                 cursor.unmap(PAGE_SIZE);
                 cursor.jump(page_vaddr).map_err(|_| Error::InvalidArgs)?;
                 cursor.map(frame_to_map, property);
+                self.vm_space.activate();
 
                 return Ok(());
             }

@@ -1,8 +1,8 @@
 [boot]
-method = "grub-rescue-iso"
+method = "qemu-direct"
 
 [grub]
-boot_protocol = "multiboot2"
+boot_protocol = "linux"
 
 [run.boot]
 kcmd_args = [

@@ -108,6 +108,16 @@ pub trait FileOps: Send + Sync {
     fn as_any(&self) -> Option<&dyn core::any::Any> {
         None
     }
+
+    /// Perform device-specific ioctl operation.
+    fn ioctl(
+        &mut self,
+        _cmd: usize,
+        _arg: usize,
+        _vm: &crate::vm::vma::VmaManager,
+    ) -> Result<usize> {
+        Err(Error::InvalidArgs)
+    }
 }
 
 /// Directory entry in the VFS cache, forming the filesystem hierarchy.

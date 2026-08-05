@@ -90,8 +90,10 @@ impl FbConsole {
                         fb.cursor_x.store(cx, core::sync::atomic::Ordering::Relaxed);
                         if cy + font_h > fb.mode().height {
                             fb.scroll_up(font_h, inner.bg_color);
-                            fb.cursor_y
-                                .store(fb.mode().height - font_h, core::sync::atomic::Ordering::Relaxed);
+                            fb.cursor_y.store(
+                                fb.mode().height - font_h,
+                                core::sync::atomic::Ordering::Relaxed,
+                            );
                         } else {
                             fb.cursor_y.store(cy, core::sync::atomic::Ordering::Relaxed);
                         }
@@ -104,7 +106,8 @@ impl FbConsole {
                         cx = (cx + 8 * font_w) & !(7 * font_w);
                         if cx >= fb.mode().width {
                             cx = 0;
-                            let cy = fb.cursor_y.load(core::sync::atomic::Ordering::Relaxed) + font_h;
+                            let cy =
+                                fb.cursor_y.load(core::sync::atomic::Ordering::Relaxed) + font_h;
                             fb.cursor_y.store(cy, core::sync::atomic::Ordering::Relaxed);
                         }
                         fb.cursor_x.store(cx, core::sync::atomic::Ordering::Relaxed);
@@ -234,6 +237,12 @@ impl CharDevice for FbConsole {
 /// Driver wrapper for registering the Framebuffer Console with the kernel device manager.
 pub struct FbConsoleDriver;
 
+impl FbConsoleDriver {
+    pub const fn new() -> Self {
+        Self
+    }
+}
+
 impl crate::device::Driver for FbConsoleDriver {
     fn name(&self) -> &str {
         "fbcon"
@@ -251,15 +260,9 @@ impl crate::device::Driver for FbConsoleDriver {
         let console = Arc::new(FbConsole::new());
         FBCON.call_once(|| console.clone());
         let _ = register_char_device("fbcon", console.clone());
-        let _ = register_char_device("tty0", console.clone());
-        let _ = register_char_device("tty", console);
+        let _ = register_char_device("tty0", console);
         Ok(())
     }
 }
 
-crate::module_driver!(
-    FBCON_INITCALL,
-    fbcon_driver_init,
-    "fbcon",
-    FbConsoleDriver
-);
+crate::module_driver!(FBCON_INITCALL, fbcon_driver_init, "fbcon", FbConsoleDriver);

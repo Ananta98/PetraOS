@@ -21,16 +21,6 @@ fn do_write(fd: i32, user_buf: usize, len: usize, vm: &VmaManager) -> Result<usi
     let mut kbuf = alloc::vec![0u8; len];
     vm.copy_from_user(user_buf, &mut kbuf)
         .map_err(|_| Error::AccessDenied)?;
-
-    // Debug trap: Intercept and log writes to stdout (1) and stderr (2)
-    if fd == 1 || fd == 2 {
-        if let Ok(s) = core::str::from_utf8(&kbuf) {
-            ostd::early_println!("[SYS_WRITE TRAP fd={}] {}", fd, s);
-        } else {
-            ostd::early_println!("[SYS_WRITE TRAP fd={}] {:?}", fd, kbuf);
-        }
-    }
-
     Process::current().fd_table.lock().write(fd, &kbuf)
 }
 

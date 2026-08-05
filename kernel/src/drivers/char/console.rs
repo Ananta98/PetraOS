@@ -148,7 +148,9 @@ impl ConsoleDriver {
     fn serial_write(&self, buf: &[u8]) {
         let s = alloc::string::String::from_utf8_lossy(buf);
         ostd::console::early_print(format_args!("{}", s));
-        if let Some(fb) = crate::drivers::gpu::framebuffer::framebuffer() {
+        if let Some(fbcon) = crate::drivers::gpu::framebuffer::fb_console() {
+            fbcon.write_bytes(buf);
+        } else if let Some(fb) = crate::drivers::gpu::framebuffer::framebuffer() {
             fb.write_bytes(buf);
         }
     }
@@ -156,7 +158,9 @@ impl ConsoleDriver {
     /// Echo a &str to serial port and framebuffer display.
     fn echo_str(&self, s: &str) {
         ostd::console::early_print(format_args!("{}", s));
-        if let Some(fb) = crate::drivers::gpu::framebuffer::framebuffer() {
+        if let Some(fbcon) = crate::drivers::gpu::framebuffer::fb_console() {
+            fbcon.write_bytes(s.as_bytes());
+        } else if let Some(fb) = crate::drivers::gpu::framebuffer::framebuffer() {
             fb.write_bytes(s.as_bytes());
         }
     }

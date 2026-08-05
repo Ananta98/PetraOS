@@ -78,10 +78,20 @@ pub fn syscall_clone(
     child_context.set_rcx(rip);
     child_context.set_r11(rflags);
 
+    let parent_fs_base = crate::arch::get_fs_base();
+    let initial_tls = if is_settls && tls != 0 {
+        tls
+    } else {
+        parent_fs_base
+    };
+
     let child_clone = child.clone();
     let spawn_res = child.spawn_thread("clone_task", move || {
-        if is_settls && tls != 0 {
-            set_fs_base(tls);
+        if let Some(thread) = crate::proc::thread::KernelThread::current() {
+            thread.tls_fs_base.store(initial_tls, core::sync::atomic::Ordering::Release);
+            if initial_tls != 0 {
+                set_fs_base(initial_tls);
+            }
         }
 
         let mut user_mode = UserMode::new(child_context);
@@ -89,7 +99,20 @@ pub fn syscall_clone(
 
         let mut exit_status = 0;
         loop {
+            if let Some(thread) = crate::proc::thread::KernelThread::current() {
+                let tp = thread.tls_fs_base.load(core::sync::atomic::Ordering::Acquire);
+                if tp != 0 {
+                    set_fs_base(tp);
+                }
+            }
+
             let reason = user_mode.execute(|| false);
+
+            if let Some(thread) = crate::proc::thread::KernelThread::current() {
+                let tp = crate::arch::get_fs_base();
+                thread.tls_fs_base.store(tp, core::sync::atomic::Ordering::Release);
+            }
+
             match reason {
                 ReturnReason::UserSyscall => {
                     let mut ctx = user_mode.context_mut();
@@ -127,6 +150,48 @@ pub fn syscall_clone(
                     }
                 }
                 ReturnReason::UserException => {
+                    let ctx = user_mode.context_mut();
+                    let rip = ctx.rip();
+                    let trap = ctx.trap_number();
+                    let err = ctx.trap_error_code();
+                    if let Some(exception) = ctx.take_exception() {
+                        match exception {
+                            ostd::arch::cpu::context::CpuException::PageFault(info) => {
+                                if child_clone
+                                    .vm
+                                    .alloc_frame_for_fault(info.addr, info.error_code)
+                                    .is_ok()
+                                {
+                                    continue;
+                                }
+                                ostd::early_println!(
+                                    "[CPU EXCEPTION] Clone PID {} Unhandled PageFault at addr {:#x}, error_code {:#x}, rip {:#x}",
+                                    child_pid.as_u32(),
+                                    info.addr,
+                                    info.error_code,
+                                    rip
+                                );
+                            }
+                            other => {
+                                ostd::early_println!(
+                                    "[CPU EXCEPTION] Clone PID {} Exception {:?}, trap {}, err {:#x}, rip {:#x}",
+                                    child_pid.as_u32(),
+                                    other,
+                                    trap,
+                                    err,
+                                    rip
+                                );
+                            }
+                        }
+                    } else {
+                        ostd::early_println!(
+                            "[CPU EXCEPTION] Clone PID {} UserException trap {}, err {:#x}, rip {:#x}",
+                            child_pid.as_u32(),
+                            trap,
+                            err,
+                            rip
+                        );
+                    }
                     exit_status = -1;
                     break;
                 }
@@ -135,6 +200,13 @@ pub fn syscall_clone(
                 }
             }
         }
+
+        ostd::early_println!(
+            "[{} - PID {}] Process user mode returned: Ok({})",
+            child_clone.name,
+            child_pid.as_u32(),
+            exit_status
+        );
 
         // Clear child TID on exit if CLONE_CHILD_CLEARTID is set
         if (flags & CLONE_CHILD_CLEARTID) != 0 && child_tidptr != 0 {

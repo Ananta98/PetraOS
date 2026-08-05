@@ -31,6 +31,8 @@ pub fn syscall_fork(
         Err(err) => return SyscallResult::from_err(err),
     };
 
+    let parent_fs_base = crate::arch::get_fs_base();
+
     let child_pid = child.pid;
     let mut child_context = context.clone();
 
@@ -45,12 +47,32 @@ pub fn syscall_fork(
 
     let child_clone = child.clone();
     let spawn_res = child.spawn_thread("main", move || {
+        if let Some(thread) = crate::proc::thread::KernelThread::current() {
+            thread.tls_fs_base.store(parent_fs_base, core::sync::atomic::Ordering::Release);
+            if parent_fs_base != 0 {
+                crate::arch::set_fs_base(parent_fs_base);
+            }
+        }
+
         let mut user_mode = UserMode::new(child_context);
         child_clone.vm.activate();
 
         let mut exit_status = 0;
         loop {
+            if let Some(thread) = crate::proc::thread::KernelThread::current() {
+                let tp = thread.tls_fs_base.load(core::sync::atomic::Ordering::Acquire);
+                if tp != 0 {
+                    crate::arch::set_fs_base(tp);
+                }
+            }
+
             let reason = user_mode.execute(|| false);
+
+            if let Some(thread) = crate::proc::thread::KernelThread::current() {
+                let tp = crate::arch::get_fs_base();
+                thread.tls_fs_base.store(tp, core::sync::atomic::Ordering::Release);
+            }
+
             match reason {
                 ReturnReason::UserSyscall => {
                     let mut ctx = user_mode.context_mut();
@@ -89,16 +111,46 @@ pub fn syscall_fork(
                 }
                 ReturnReason::UserException => {
                     let ctx = user_mode.context_mut();
-                    if let Some(ostd::arch::cpu::context::CpuException::PageFault(info)) =
-                        ctx.take_exception()
-                    {
-                        if child_clone
-                            .vm
-                            .alloc_frame_for_fault(info.addr, info.error_code)
-                            .is_ok()
-                        {
-                            continue;
+                    let rip = ctx.rip();
+                    let trap = ctx.trap_number();
+                    let err = ctx.trap_error_code();
+                    if let Some(exception) = ctx.take_exception() {
+                        match exception {
+                            ostd::arch::cpu::context::CpuException::PageFault(info) => {
+                                if child_clone
+                                    .vm
+                                    .alloc_frame_for_fault(info.addr, info.error_code)
+                                    .is_ok()
+                                {
+                                    continue;
+                                }
+                                ostd::early_println!(
+                                    "[CPU EXCEPTION] Child PID {} Unhandled PageFault at addr {:#x}, error_code {:#x}, rip {:#x}",
+                                    child_pid.as_u32(),
+                                    info.addr,
+                                    info.error_code,
+                                    rip
+                                );
+                            }
+                            other => {
+                                ostd::early_println!(
+                                    "[CPU EXCEPTION] Child PID {} Exception {:?}, trap {}, err {:#x}, rip {:#x}",
+                                    child_pid.as_u32(),
+                                    other,
+                                    trap,
+                                    err,
+                                    rip
+                                );
+                            }
                         }
+                    } else {
+                        ostd::early_println!(
+                            "[CPU EXCEPTION] Child PID {} UserException trap {}, err {:#x}, rip {:#x}",
+                            child_pid.as_u32(),
+                            trap,
+                            err,
+                            rip
+                        );
                     }
                     exit_status = -1;
                     break;
@@ -109,6 +161,13 @@ pub fn syscall_fork(
             }
         }
 
+        ostd::early_println!(
+            "[{} - PID {}] Process user mode returned: Ok({})",
+            child_clone.name,
+            child_pid.as_u32(),
+            exit_status
+        );
+
         // Cleanly exit the child process
         PROCESS_TABLE.update_process(child_clone.pid, |p| {
             p.exit(exit_status);
@@ -116,7 +175,7 @@ pub fn syscall_fork(
     });
 
     match spawn_res {
-        Ok(_) => SyscallResult::from_result(Ok(child_pid.as_u32() as i32)),
+        Ok(_) => SyscallResult::Return(child_pid.as_u32() as usize),
         Err(err) => SyscallResult::from_err(err),
     }
 }

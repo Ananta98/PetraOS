@@ -150,4 +150,5 @@ syscall_table! {
     315 => scheduler::syscall_sched_getattr,      // SYS_sched_getattr
     318 => proc::syscall_getrandom,                // SYS_getrandom
     319 => mm::syscall_memfd_create,               // SYS_memfd_create
+    439 => fs::syscall_faccessat2,                 // SYS_faccessat2
 }

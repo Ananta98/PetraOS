@@ -63,7 +63,7 @@ pub fn syscall_wait4(
             return SyscallResult::from_result(Ok(0));
         }
 
-        // Otherwise yield / spin_loop.
-        core::hint::spin_loop();
+        // Otherwise yield to allow child processes to execute and terminate.
+        ostd::task::Task::yield_now();
     }
 }

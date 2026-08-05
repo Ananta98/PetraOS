@@ -63,6 +63,15 @@ impl FileOps for OpenFile {
     fn as_any(&self) -> Option<&dyn core::any::Any> {
         self.file_ops.as_any()
     }
+
+    fn ioctl(
+        &mut self,
+        cmd: usize,
+        arg: usize,
+        vm: &crate::vm::vma::VmaManager,
+    ) -> Result<usize, Error> {
+        self.file_ops.ioctl(cmd, arg, vm)
+    }
 }
 
 /// A file descriptor entry in the process file descriptor table.
