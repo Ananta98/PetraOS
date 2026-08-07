@@ -1,8 +1,8 @@
-use crate::drivers::serial::{PortIoBackend, SerialPort};
 use crate::device::{CharDevice, Device};
+use crate::drivers::serial::{PortIoBackend, SerialPort};
 use crate::sync::spinlock::Spinlock;
-use log::{Log, Metadata, Record, Level};
 use core::fmt::Write;
+use log::{Level, Log, Metadata, Record};
 
 struct Logger {
     serial: Spinlock<Option<SerialPort<PortIoBackend>>>,
@@ -38,8 +38,8 @@ impl Log for Logger {
                 let mut writer = SerialWriter(serial);
                 let level_str = match record.level() {
                     Level::Error => "\x1B[31m[ERROR]\x1B[0m",
-                    Level::Warn  => "\x1B[33m[WARN]\x1B[0m",
-                    Level::Info  => "\x1B[32m[INFO]\x1B[0m",
+                    Level::Warn => "\x1B[33m[WARN]\x1B[0m",
+                    Level::Info => "\x1B[32m[INFO]\x1B[0m",
                     Level::Debug => "\x1B[36m[DEBUG]\x1B[0m",
                     Level::Trace => "\x1B[35m[TRACE]\x1B[0m",
                 };
@@ -60,11 +60,10 @@ impl Log for Logger {
 pub fn init() {
     let mut serial = SerialPort::new(PortIoBackend::new(0x3F8)); // COM1 port
     if serial.init().is_ok() {
-        {
-            let mut guard = LOGGER.serial.lock();
-            *guard = Some(serial);
-        }
-        
+        let mut guard = LOGGER.serial.lock();
+        *guard = Some(serial);
+        drop(guard);
+
         // Register the logger with the log crate
         // SAFETY: set_logger is safe or unsafe depending on version; we handle both using an unsafe block.
         #[allow(unused_unsafe)]
