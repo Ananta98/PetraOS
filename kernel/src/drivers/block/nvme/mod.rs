@@ -1,7 +1,8 @@
 pub mod queue;
 pub mod regs;
 
-use crate::drivers::pci::config::PciConfig;
+use crate::arch::paging;
+use crate::drivers::pci::config;
 use crate::drivers::pci::device::PciDevice;
 use crate::drivers::{BlockDevice, Device, DeviceType, DriverError};
 use crate::sync::spinlock::Spinlock;
@@ -108,7 +109,7 @@ impl Device for NvmeDriver {
 
     fn init(&mut self) -> Result<(), DriverError> {
         // Read BAR0 (offset 0x10) from PCI config space
-        let bar0 = PciConfig::read_u32(
+        let bar0 = config::read_u32(
             self.pci_device.bus,
             self.pci_device.device,
             self.pci_device.function,
@@ -122,7 +123,7 @@ impl Device for NvmeDriver {
         // Mask off type bits to get physical address
         let phys_addr = bar0 & 0xFFFFFFF0;
 
-        crate::arch::x86_64::paging::map_mmio(phys_addr as u64, 16384);
+        paging::map_mmio(phys_addr as u64, 16384);
 
         let hhdm = crate::mm::hhdm_offset();
         self.regs = (phys_addr as u64 + hhdm) as *mut NvmeRegs;

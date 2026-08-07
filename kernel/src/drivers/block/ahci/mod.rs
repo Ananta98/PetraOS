@@ -2,7 +2,8 @@ pub mod fis;
 pub mod hba;
 pub mod port;
 
-use crate::drivers::pci::config::PciConfig;
+use crate::arch::paging;
+use crate::drivers::pci::config;
 use crate::drivers::pci::device::PciDevice;
 use crate::drivers::{BlockDevice, Device, DeviceType, DriverError};
 use crate::sync::spinlock::Spinlock;
@@ -106,7 +107,7 @@ impl Device for AhciDriver {
 
     fn init(&mut self) -> Result<(), DriverError> {
         // Read BAR5 from PCI config space
-        let bar5 = PciConfig::read_u32(
+        let bar5 = config::read_u32(
             self.pci_device.bus,
             self.pci_device.device,
             self.pci_device.function,
@@ -120,7 +121,7 @@ impl Device for AhciDriver {
         // Mask off lower bits (BAR type bits) to get physical address
         let phys_addr = bar5 & 0xFFFFFFF0;
 
-        crate::arch::x86_64::paging::map_mmio(phys_addr as u64, core::mem::size_of::<HbaMem>());
+        paging::map_mmio(phys_addr as u64, core::mem::size_of::<HbaMem>());
 
         let hhdm = crate::mm::hhdm_offset();
         self.hba_base = (phys_addr as u64 + hhdm) as *mut HbaMem;
