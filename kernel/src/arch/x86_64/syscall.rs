@@ -13,7 +13,7 @@ pub struct SyscallFrame {
     pub rdi: u64,
     pub rbp: u64,
     pub rax: u64,
-    // Pushed by CPU
+    // Pushed by CPU on interrupt (e.g. int 0x80)
     pub rip: u64,
     pub cs: u64,
     pub rflags: u64,
@@ -39,7 +39,19 @@ impl SyscallFrame {
     }
 
     pub fn arg4(&self) -> u64 {
-        self.rcx
+        if self.r10 != 0 {
+            self.r10
+        } else {
+            self.rcx
+        }
+    }
+
+    pub fn arg5(&self) -> u64 {
+        self.r8
+    }
+
+    pub fn arg6(&self) -> u64 {
+        self.r9
     }
 
     pub fn set_return_value(&mut self, val: u64) {
@@ -49,8 +61,8 @@ impl SyscallFrame {
     pub fn setup_user_entry(&mut self, entry_point: u64, stack_pointer: u64) {
         self.rip = entry_point;
         self.rsp = stack_pointer;
-        self.cs = 0x1B;      // User code selector with RPL=3
-        self.ss = 0x23;      // User data selector with RPL=3
+        self.cs = 0x1B; // User code selector with RPL=3
+        self.ss = 0x23; // User data selector with RPL=3
         self.rflags = 0x202; // Enable interrupts (IF flag)
     }
 }

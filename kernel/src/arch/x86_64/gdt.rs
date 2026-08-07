@@ -137,6 +137,7 @@ pub fn init() {
         // Get TSS base and limit
         let tss_ptr = core::ptr::addr_of!(super::tss::TSS);
         let base = tss_ptr as u64;
+        super::tss::CPU_TSS_POINTERS[0] = base;
         let limit = (core::mem::size_of::<super::tss::TaskStateSegment>() - 1) as u32;
         
         // Build and write TSS descriptors
@@ -173,7 +174,7 @@ pub fn init() {
 /// Allocates heap-backed GDT and TSS so each AP has an independent copy.
 /// The allocated memory is intentionally leaked — each CPU lives for the
 /// duration of the kernel, so the memory is never freed.
-pub fn init_per_cpu() {
+pub fn init_per_cpu() -> u64 {
     unsafe {
         // Allocate a separate double-fault stack for this AP.
         const STACK_SIZE: usize = 4096 * 5;
@@ -215,5 +216,7 @@ pub fn init_per_cpu() {
             out("rax") _,
             options(preserves_flags)
         );
+
+        base
     }
 }

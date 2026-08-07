@@ -1,10 +1,10 @@
-use crate::arch::{CpuArch, ArchImpl};
-use crate::sched::sched_thread::{SchedThread, ThreadId};
-use crate::sched::MAX_CPUS;
-use crate::sync::spinlock::Spinlock;
+use crate::arch::{ArchImpl, CpuArch};
 use crate::proc::process::ProcessId;
 use crate::proc::process_manager::PROCESS_MANAGER;
 use crate::proc::thread::{Thread, ThreadState};
+use crate::sched::MAX_CPUS;
+use crate::sched::sched_thread::{SchedThread, ThreadId};
+use crate::sync::spinlock::Spinlock;
 use alloc::collections::BTreeMap;
 
 // ── Thread Manager ───────────────────────────────────────────────────────────
@@ -57,7 +57,13 @@ impl ThreadManager {
     }
 
     /// Spawn a new thread inside the registry and associate it with a process.
-    pub fn spawn_thread(&mut self, id: ThreadId, pid: ProcessId, entry: extern "C" fn(*mut u8), arg: *mut u8) {
+    pub fn spawn_thread(
+        &mut self,
+        id: ThreadId,
+        pid: ProcessId,
+        entry: extern "C" fn(*mut u8),
+        arg: *mut u8,
+    ) {
         let thread = Thread::new(id, pid, entry, arg);
         self.threads.insert(id, thread);
 
@@ -112,9 +118,40 @@ impl ThreadManager {
             core::ptr::null_mut()
         };
 
-        let next_thread = self.threads.get_mut(&next_id).expect("Next thread not found in registry");
+        let next_thread = self
+            .threads
+            .get_mut(&next_id)
+            .expect("Next thread not found in registry");
         next_thread.state = ThreadState::Running;
         let next_val = next_thread.rsp;
+
+        // Activate page table if the target process has an address space
+        let next_pid = next_thread.process_id;
+        {
+            let pm = PROCESS_MANAGER.lock();
+            if let Some(proc) = pm.get_process(next_pid) {
+                if let Some(space) = proc.addr_space() {
+                    unsafe {
+                        space.activate();
+                    }
+                }
+            }
+        }
+
+        // Update privilege stack table (RSP0) in TSS for the CPU
+        #[cfg(target_arch = "x86_64")]
+        unsafe {
+            let tss_ptr = crate::arch::x86_64::tss::CPU_TSS_POINTERS[cpu_id as usize];
+            if tss_ptr != 0 {
+                let tss = &mut *(tss_ptr as *mut crate::arch::x86_64::tss::TaskStateSegment);
+                if let Some(ref stack) = next_thread.stack {
+                    let stack_top = stack.as_ptr() as u64 + stack.len() as u64;
+                    tss.rsp[0] = stack_top;
+                } else {
+                    tss.rsp[0] = 0;
+                }
+            }
+        }
 
         // Update current thread tracking
         self.current_threads[cpu_id as usize] = Some(next_id);
@@ -156,7 +193,9 @@ pub fn exit_current_thread(exit_code: i32) -> ! {
 
     // Prepare termination state
     {
-        THREAD_MANAGER.lock().exit_current_thread_prepare(cpu_id, exit_code);
+        THREAD_MANAGER
+            .lock()
+            .exit_current_thread_prepare(cpu_id, exit_code);
     }
 
     // Deassociate the running task in the scheduler to prevent it from being re-enqueued
@@ -210,9 +249,7 @@ pub fn yield_now() {
 
 /// Perform context switch to target thread `next_id` on CPU `cpu_id`.
 pub fn switch_to(cpu_id: u32, next_id: ThreadId) {
-    let prep = {
-        THREAD_MANAGER.lock().switch_to_prepare(cpu_id, next_id)
-    };
+    let prep = { THREAD_MANAGER.lock().switch_to_prepare(cpu_id, next_id) };
 
     if let Some((prev_rsp_ptr, next_rsp)) = prep {
         unsafe {

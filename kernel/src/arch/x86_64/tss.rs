@@ -34,6 +34,8 @@ impl TaskStateSegment {
 
 pub static mut TSS: TaskStateSegment = TaskStateSegment::new();
 
+pub static mut CPU_TSS_POINTERS: [u64; 8] = [0; 8];
+
 pub fn init() {
     unsafe {
         let stack_start = core::ptr::addr_of!(DOUBLE_FAULT_STACK) as u64;

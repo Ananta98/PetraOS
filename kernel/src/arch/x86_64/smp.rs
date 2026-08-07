@@ -23,7 +23,10 @@ unsafe extern "C" fn ap_entry(cpu: &limine::mp::Cpu) -> ! {
 
     // Initialise this AP's own GDT and TSS.
     // SAFETY: called once per AP before any other hardware access.
-    gdt::init_per_cpu();
+    let tss_addr = gdt::init_per_cpu();
+    unsafe {
+        crate::arch::x86_64::tss::CPU_TSS_POINTERS[cpu.lapic_id as usize] = tss_addr;
+    }
 
     // Load the shared IDT so exception/interrupt handlers are available.
     // SAFETY: IDT is fully initialised before any AP is released.

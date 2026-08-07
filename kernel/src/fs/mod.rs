@@ -8,6 +8,8 @@ pub mod ramfs;
 pub mod devfs;
 pub mod tmpfs;
 pub mod procfs;
+pub mod ext2;
+
 
 use alloc::sync::Arc;
 use crate::arch::CpuArch;

@@ -1,13 +1,14 @@
-pub mod inode;
 pub mod entries;
+pub mod inode;
 
-use alloc::sync::Arc;
-use core::sync::atomic::AtomicU64;
+use self::entries::create_proc_entries;
+use self::inode::ProcDirInode;
 use crate::fs::errno::VfsError;
 use crate::fs::vfs::filesystem::{FileSystem, SuperBlock};
 use crate::fs::vfs::inode::{Inode, InodeType};
-use self::inode::ProcDirInode;
-use self::entries::create_proc_entries;
+use crate::fs::vfs::mount::MOUNT_TABLE;
+use alloc::sync::Arc;
+use core::sync::atomic::AtomicU64;
 
 /// Process information filesystem, mounted at `/proc`.
 ///
@@ -42,4 +43,11 @@ impl FileSystem for ProcFs {
             read_only: true,
         })
     }
+}
+
+/// Mount the process status filesystem at `/proc`.
+pub fn mount_procfs() {
+    let mut mt = MOUNT_TABLE.lock();
+    mt.mount("/proc", &ProcFs)
+        .expect("Failed to mount procfs at /proc");
 }

@@ -1,9 +1,10 @@
-use alloc::sync::Arc;
-use core::sync::atomic::AtomicU64;
 use crate::fs::errno::VfsError;
+use crate::fs::ramfs::inode::RamDirInode;
 use crate::fs::vfs::filesystem::{FileSystem, SuperBlock};
 use crate::fs::vfs::inode::{Inode, InodeType};
-use crate::fs::ramfs::inode::RamDirInode;
+use crate::fs::vfs::mount::MOUNT_TABLE;
+use alloc::sync::Arc;
+use core::sync::atomic::AtomicU64;
 
 /// Temporary filesystem, mounted at `/tmp`.
 ///
@@ -33,4 +34,11 @@ impl FileSystem for TmpFs {
             read_only: false,
         })
     }
+}
+
+/// Mount the temporary filesystem at `/tmp`.
+pub fn mount_tmpfs() {
+    let mut mt = MOUNT_TABLE.lock();
+    mt.mount("/tmp", &TmpFs)
+        .expect("Failed to mount tmpfs at /tmp");
 }
