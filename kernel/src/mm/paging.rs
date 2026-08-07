@@ -11,6 +11,25 @@ bitflags::bitflags! {
     }
 }
 
+bitflags::bitflags! {
+    /// Architecture-agnostic representation of memory access type during a page fault.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct PageFaultAccess: u32 {
+        const PRESENT = 1 << 0;  // Fault caused by protection violation (page is present)
+        const WRITE   = 1 << 1;  // Fault caused by a write access
+        const USER    = 1 << 2;  // Fault caused by user-mode instruction/access
+        const EXECUTE = 1 << 3;  // Fault caused by instruction fetch
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PageFaultError {
+    UnmappedAccess,        // Virtual address is not within any registered VMA
+    ProtectionViolation,   // VMA flags disallow the requested access mode
+    FrameAllocationFailed, // Physical memory allocator ran out of pages
+    PagingError(MapError), // Failure while updating page tables
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MapError {
     FrameAllocationFailed,

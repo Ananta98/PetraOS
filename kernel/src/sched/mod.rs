@@ -5,10 +5,10 @@
 
 pub mod cfs;
 pub mod policy;
-pub mod rt;
-pub mod scheduler;
+pub mod realtime;
 pub mod sched_thread;
+pub mod scheduler;
 
 pub use policy::PerCpuScheduler;
-pub use scheduler::{GlobalScheduler, MAX_CPUS};
 pub use sched_thread::{SchedPolicy, SchedThread, ThreadId};
+pub use scheduler::{GlobalScheduler, MAX_CPUS};

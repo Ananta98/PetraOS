@@ -4,11 +4,11 @@ pub mod inode;
 pub mod superblock;
 
 use self::inode::{Ext2InodeOps, Ext2Volume};
+use crate::drivers::{BlockDevice, Device, DeviceType, DriverError};
 use crate::fs::errno::VfsError;
 use crate::fs::vfs::MOUNT_TABLE;
 use crate::fs::vfs::filesystem::{FileSystem, SuperBlock};
 use crate::fs::vfs::inode::{Inode, InodeType};
-use crate::drivers::{Device, BlockDevice, DeviceType, DriverError};
 use alloc::sync::Arc;
 
 /// Ext2 Filesystem driver wrapper mapping to the VFS.
@@ -94,26 +94,5 @@ impl BlockDevice for MockDisk {
 
     fn block_size(&self) -> usize {
         1024
-    }
-}
-
-/// Mount the Ext2 filesystem under `/mnt` using a memory-backed mock device.
-pub fn mount_ext2() {
-    static MOCK_DISK_REGISTERED: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
-    if !MOCK_DISK_REGISTERED.swap(true, core::sync::atomic::Ordering::SeqCst) {
-        let mock_disk = MockDisk {
-            data: include_bytes!("ext2_disk.img"),
-        };
-        let device_ref = Arc::new(crate::sync::spinlock::Spinlock::new(
-            alloc::boxed::Box::new(mock_disk) as alloc::boxed::Box<dyn Device>
-        ));
-        crate::drivers::DEVICE_MANAGER.lock().register(device_ref);
-    }
-
-    let ext2_fs = crate::fs::ext2::Ext2Fs::new("ext2_disk");
-    {
-        let mut mt = MOUNT_TABLE.lock();
-        mt.mount("/mnt", &ext2_fs)
-            .expect("Failed to mount ext2 at /mnt");
     }
 }

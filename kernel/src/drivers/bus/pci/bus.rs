@@ -1,6 +1,6 @@
-use crate::drivers::{DriverError, Device};
-use super::device::{PciDevice, PCI_VENDOR_NONE};
-use super::config::PciConfig;
+use super::config;
+use super::device::{PCI_VENDOR_NONE, PciDevice};
+use crate::drivers::{Device, DriverError};
 
 #[derive(Clone, Copy, Debug)]
 pub struct PciDiscovery {
@@ -21,7 +21,7 @@ pub struct PciBus;
 
 impl PciBus {
     pub fn is_device_present(bus: u8, device: u8, function: u8) -> bool {
-        PciConfig::read_u16(bus, device, function, 0x00) != PCI_VENDOR_NONE
+        config::read_u16(bus, device, function, 0x00) != PCI_VENDOR_NONE
     }
 
     pub fn probe_device(bus: u8, device: u8, function: u8) -> Option<PciDevice> {
@@ -29,14 +29,16 @@ impl PciBus {
             return None;
         }
 
-        let vendor_id = PciConfig::read_u16(bus, device, function, 0x00);
-        let device_id = PciConfig::read_u16(bus, device, function, 0x02);
-        let class_code = PciConfig::read_u8(bus, device, function, 0x0B);
-        let subclass = PciConfig::read_u8(bus, device, function, 0x0A);
-        let prog_if = PciConfig::read_u8(bus, device, function, 0x09);
-        let revision = PciConfig::read_u8(bus, device, function, 0x08);
+        let vendor_id = config::read_u16(bus, device, function, 0x00);
+        let device_id = config::read_u16(bus, device, function, 0x02);
+        let class_code = config::read_u8(bus, device, function, 0x0B);
+        let subclass = config::read_u8(bus, device, function, 0x0A);
+        let prog_if = config::read_u8(bus, device, function, 0x09);
+        let revision = config::read_u8(bus, device, function, 0x08);
 
-        Some(PciDevice::new(bus, device, function, vendor_id, device_id, class_code, subclass, prog_if, revision))
+        Some(PciDevice::new(
+            bus, device, function, vendor_id, device_id, class_code, subclass, prog_if, revision,
+        ))
     }
 
     pub fn enumerate() -> PciDiscovery {
@@ -87,8 +89,10 @@ impl PciBus {
                 let mut ahci = crate::drivers::block::ahci::AhciDriver::new(*entry);
                 if ahci.init().is_ok() {
                     *crate::drivers::block::ahci::AHCI_DEVICE.lock() = Some(ahci);
-                    let device_ref: alloc::sync::Arc<crate::sync::spinlock::Spinlock<alloc::boxed::Box<dyn Device>>> = alloc::sync::Arc::new(crate::sync::spinlock::Spinlock::new(
-                        alloc::boxed::Box::new(crate::drivers::block::ahci::AhciDeviceRef)
+                    let device_ref: alloc::sync::Arc<
+                        crate::sync::spinlock::Spinlock<alloc::boxed::Box<dyn Device>>,
+                    > = alloc::sync::Arc::new(crate::sync::spinlock::Spinlock::new(
+                        alloc::boxed::Box::new(crate::drivers::block::ahci::AhciDeviceRef),
                     ));
                     crate::drivers::DEVICE_MANAGER.lock().register(device_ref);
                     log::info!("PCI: AHCI device initialized and registered to DEVICE_MANAGER");
@@ -97,8 +101,10 @@ impl PciBus {
                 let mut nvme = crate::drivers::block::nvme::NvmeDriver::new(*entry);
                 if nvme.init().is_ok() {
                     *crate::drivers::block::nvme::NVME_DEVICE.lock() = Some(nvme);
-                    let device_ref: alloc::sync::Arc<crate::sync::spinlock::Spinlock<alloc::boxed::Box<dyn Device>>> = alloc::sync::Arc::new(crate::sync::spinlock::Spinlock::new(
-                        alloc::boxed::Box::new(crate::drivers::block::nvme::NvmeDeviceRef)
+                    let device_ref: alloc::sync::Arc<
+                        crate::sync::spinlock::Spinlock<alloc::boxed::Box<dyn Device>>,
+                    > = alloc::sync::Arc::new(crate::sync::spinlock::Spinlock::new(
+                        alloc::boxed::Box::new(crate::drivers::block::nvme::NvmeDeviceRef),
                     ));
                     crate::drivers::DEVICE_MANAGER.lock().register(device_ref);
                     log::info!("PCI: NVMe device initialized and registered to DEVICE_MANAGER");

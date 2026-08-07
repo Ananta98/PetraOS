@@ -11,7 +11,7 @@
 
 use crate::sched::{
     cfs::CfsRunQueue,
-    rt::RtRunQueue,
+    realtime::RtRunQueue,
     sched_thread::{SchedThread, ThreadId},
 };
 
@@ -126,9 +126,9 @@ impl PerCpuScheduler {
         } else {
             // CFS threads: vruntime += delta_ns * NICE_0_WEIGHT / thread_weight
             let weight = thread.priority.max(1) as u64;
-            thread.vruntime = thread
-                .vruntime
-                .saturating_add(delta_ns.saturating_mul(crate::sched::sched_thread::NICE_0_WEIGHT) / weight);
+            thread.vruntime = thread.vruntime.saturating_add(
+                delta_ns.saturating_mul(crate::sched::sched_thread::NICE_0_WEIGHT) / weight,
+            );
         }
     }
 

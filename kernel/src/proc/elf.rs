@@ -1,5 +1,5 @@
 use crate::mm::{AddrSpace, MapFlags, VmAreaKind, VirtAddr};
-use crate::arch::x86_64::paging::X86_64PageTable;
+use crate::arch::paging::ArchPageTable;
 use crate::mm::paging::PageTable;
 
 #[repr(C)]
@@ -62,7 +62,7 @@ const SHT_STRTAB: u32 = 3;
 pub struct LoadedElf {
     pub entry_point: VirtAddr,
     pub stack_pointer: VirtAddr,
-    pub addr_space: AddrSpace<X86_64PageTable>,
+    pub addr_space: AddrSpace<ArchPageTable>,
 }
 
 /// Object-Oriented ELF Parser and Loader.
@@ -203,7 +203,7 @@ impl<'a> Elf<'a> {
     /// and returns the loaded image information.
     pub fn load(&self) -> Result<LoadedElf, &'static str> {
         // Create the page table and address space
-        let page_table = X86_64PageTable::new().map_err(|_| "Failed to create PML4 page table")?;
+        let page_table = ArchPageTable::new().map_err(|_| "Failed to create PML4 page table")?;
         let mut addr_space = AddrSpace::new(page_table);
 
         // Load segments
@@ -244,7 +244,7 @@ impl<'a> Elf<'a> {
     }
 
     /// Load and map all PT_LOAD segments.
-    fn load_segments(&self, addr_space: &mut AddrSpace<X86_64PageTable>) -> Result<(), &'static str> {
+    fn load_segments(&self, addr_space: &mut AddrSpace<ArchPageTable>) -> Result<(), &'static str> {
         let ph_slice = self.program_headers()?;
         for phdr in ph_slice {
             if phdr.p_type == PT_LOAD {
@@ -255,7 +255,7 @@ impl<'a> Elf<'a> {
     }
 
     /// Map a single program segment and copy file data to allocated physical frames.
-    fn load_segment(&self, addr_space: &mut AddrSpace<X86_64PageTable>, phdr: &Elf64Phdr) -> Result<(), &'static str> {
+    fn load_segment(&self, addr_space: &mut AddrSpace<ArchPageTable>, phdr: &Elf64Phdr) -> Result<(), &'static str> {
         let start_vaddr = VirtAddr(phdr.p_vaddr);
         let end_vaddr = start_vaddr + phdr.p_memsz as usize;
 

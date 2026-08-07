@@ -1,5 +1,5 @@
-use crate::arch::x86_64::ports::Ports;
 use super::SerialBackend;
+use crate::arch::ports::Ports;
 
 pub struct PortIoBackend {
     base_port: u16,

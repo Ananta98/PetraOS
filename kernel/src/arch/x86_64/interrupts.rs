@@ -1,5 +1,6 @@
-use crate::arch::x86_64::idt::{InterruptDescriptorTable, InterruptStackFrame};
-use crate::arch::x86_64::lapic_timer;
+use crate::arch::halt;
+use crate::arch::idt::{InterruptDescriptorTable, InterruptStackFrame};
+use crate::arch::lapic_timer;
 use core::arch::asm;
 
 static mut IDT: InterruptDescriptorTable = InterruptDescriptorTable::new();
@@ -60,9 +61,7 @@ extern "x86-interrupt" fn double_fault_handler(
     _error_code: u64,
 ) {
     log::error!("EXCEPTION: DOUBLE FAULT\n{:#?}", stack_frame);
-    loop {
-        unsafe { asm!("hlt") }
-    }
+    halt()
 }
 
 extern "x86-interrupt" fn general_protection_fault_handler(
@@ -74,28 +73,25 @@ extern "x86-interrupt" fn general_protection_fault_handler(
         error_code,
         stack_frame
     );
-    loop {
-        unsafe { asm!("hlt") }
-    }
+    super::halt();
 }
 
 extern "x86-interrupt" fn page_fault_handler(
     stack_frame: &mut InterruptStackFrame,
     error_code: u64,
 ) {
-    let cr2: u64;
-    unsafe {
-        asm!("mov {}, cr2", out(reg) cr2, options(nomem, nostack, preserves_flags));
-    }
+    let fault_virt = unsafe { super::paging::read_cr2() };
+    let fault_code = super::paging::ArchPageFaultErrorCode::from_raw(error_code);
+    let _access_flags = fault_code.to_generic_access();
+
     log::error!(
-        "EXCEPTION: PAGE FAULT (Accessed Address: {:#x}, Error Code: {:?})\n{:#?}",
-        cr2,
+        "EXCEPTION: PAGE FAULT (Fault Address: {:#x}, Error Code: {:#x} [{:?}])\n{:#?}",
+        fault_virt.as_u64(),
         error_code,
+        fault_code,
         stack_frame
     );
-    loop {
-        unsafe { asm!("hlt") }
-    }
+    super::halt();
 }
 
 extern "x86-interrupt" fn timer_handler(_stack_frame: &mut InterruptStackFrame) {
@@ -122,13 +118,16 @@ extern "x86-interrupt" fn timer_handler(_stack_frame: &mut InterruptStackFrame) 
     // then ask the scheduler which task should run next.
     let _next = crate::sched::scheduler::tick_and_schedule(cpu_id);
 
-    // Perform the context switch
-    if let Some(next_id) = _next {
-        crate::proc::switch_to(cpu_id, next_id);
-    } else {
-        // Switch to the CPU's idle thread if no other tasks are runnable
-        crate::proc::switch_to(cpu_id, crate::sched::sched_thread::ThreadId((cpu_id + 100) as u64));
-    }
+    // // Perform the context switch
+    // if let Some(next_id) = _next {
+    //     crate::proc::switch_to(cpu_id, next_id);
+    // } else {
+    //     // Switch to the CPU's idle thread if no other tasks are runnable
+    //     crate::proc::switch_to(
+    //         cpu_id,
+    //         crate::sched::sched_thread::ThreadId((cpu_id + 100) as u64),
+    //     );
+    // }
 }
 
 extern "x86-interrupt" fn spurious_interrupt_handler(_stack_frame: &mut InterruptStackFrame) {

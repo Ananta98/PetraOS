@@ -3,7 +3,7 @@ use crate::proc::process_manager::PROCESS_MANAGER;
 use crate::proc::thread_manager::{THREAD_MANAGER, exit_current_thread};
 
 pub fn sys_exit(exit_code: i32) -> ! {
-    let cpu_id = ArchImpl::cpu_id();
+    let cpu_id = crate::arch::cpu_id();
     let current_tid = THREAD_MANAGER.lock().current_thread_id(cpu_id).expect("No current thread");
     let current_pid = {
         let tm = THREAD_MANAGER.lock();

@@ -17,7 +17,7 @@ pub fn sys_exec(frame: &mut SyscallFrame, elf_ptr: u64, elf_size: u64) -> Result
     let loaded = elf.load()?;
     let (addr_space, entry_point, stack_pointer) = (loaded.addr_space, loaded.entry_point, loaded.stack_pointer);
 
-    let cpu_id = ArchImpl::cpu_id();
+    let cpu_id = crate::arch::cpu_id();
     let current_tid = THREAD_MANAGER.lock().current_thread_id(cpu_id)
         .ok_or("No current thread")?;
     let current_pid = {

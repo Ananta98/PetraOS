@@ -4,10 +4,11 @@
 //! (APs). Each AP initialises its own GDT/TSS, loads the shared IDT, enables
 //! its Local APIC, and then spins in `hlt`.
 
+use crate::arch::acpi;
+use crate::arch::paging;
+use crate::arch::tss::*;
+use crate::arch::{gdt, interrupts, lapic, lapic_timer};
 use core::sync::atomic::{AtomicU32, Ordering};
-
-use crate::arch::CpuArch;
-use crate::arch::x86_64::{gdt, interrupts, lapic, lapic_timer};
 
 /// Count of APs that have fully completed initialisation.
 static APS_ONLINE: AtomicU32 = AtomicU32::new(0);
@@ -25,19 +26,21 @@ unsafe extern "C" fn ap_entry(cpu: &limine::mp::Cpu) -> ! {
     // SAFETY: called once per AP before any other hardware access.
     let tss_addr = gdt::init_per_cpu();
     unsafe {
-        crate::arch::x86_64::tss::CPU_TSS_POINTERS[cpu.lapic_id as usize] = tss_addr;
+        CPU_TSS_POINTERS[cpu.lapic_id as usize] = tss_addr;
     }
 
     // Load the shared IDT so exception/interrupt handlers are available.
     // SAFETY: IDT is fully initialised before any AP is released.
-    unsafe { interrupts::load_idt(); }
+    unsafe {
+        interrupts::load_idt();
+    }
 
     // Enable this AP's Local APIC.
-    let lapic_phys = crate::arch::x86_64::acpi::parse_madt()
+    let lapic_phys = crate::arch::acpi::parse_madt()
         .map(|m| m.local_apic_address)
         .unwrap_or(0xFEE0_0000);
 
-    crate::arch::x86_64::paging::map_mmio(lapic_phys, 4096);
+    paging::map_mmio(lapic_phys, 4096);
     let local_apic = lapic::LocalApic::new(lapic_phys);
     local_apic.enable();
 
@@ -45,11 +48,8 @@ unsafe extern "C" fn ap_entry(cpu: &limine::mp::Cpu) -> ! {
     let timer = lapic_timer::LapicTimer::calibrate(&local_apic);
     timer.start_periodic(&local_apic, 100);
 
-    // Initialize the thread subsystem for this AP.
-    crate::proc::init_threads(cpu.lapic_id);
-
     // Enable interrupts on this AP.
-    crate::arch::x86_64::X86_64::enable_interrupts();
+    crate::arch::enable_interrupts();
 
     log::info!(
         "SMP: AP online (processor_id={}, lapic_id={}).",
@@ -61,9 +61,7 @@ unsafe extern "C" fn ap_entry(cpu: &limine::mp::Cpu) -> ! {
     APS_ONLINE.fetch_add(1, Ordering::Release);
 
     // Park this AP in a low-power halt loop.
-    loop {
-        unsafe { core::arch::asm!("hlt", options(nomem, nostack)); }
-    }
+    super::halt()
 }
 
 /// Start all Application Processors discovered by Limine.
@@ -114,8 +112,11 @@ pub fn start_aps() {
         core::hint::spin_loop();
         spins += 1;
         if spins == 100_000_000 {
-            log::warn!("SMP: timeout waiting for APs — only {} / {} online.",
-                APS_ONLINE.load(Ordering::Relaxed), ap_count);
+            log::warn!(
+                "SMP: timeout waiting for APs — only {} / {} online.",
+                APS_ONLINE.load(Ordering::Relaxed),
+                ap_count
+            );
             break;
         }
     }

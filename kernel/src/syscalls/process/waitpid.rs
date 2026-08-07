@@ -4,7 +4,7 @@ use crate::proc::process_manager::PROCESS_MANAGER;
 use crate::proc::thread_manager::THREAD_MANAGER;
 
 pub fn sys_waitpid(pid: i64) -> u64 {
-    let cpu_id = ArchImpl::cpu_id();
+    let cpu_id = crate::arch::cpu_id();
     let current_tid = THREAD_MANAGER.lock().current_thread_id(cpu_id).expect("No current thread");
     let current_pid = {
         let tm = THREAD_MANAGER.lock();

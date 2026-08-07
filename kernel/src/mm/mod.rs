@@ -7,7 +7,7 @@ pub mod slab;
 pub mod vma;
 
 pub use address::{PhysAddr, VirtAddr};
-pub use paging::{MapError, MapFlags, PageTable, UnmapError};
+pub use paging::{MapError, MapFlags, PageFaultAccess, PageFaultError, PageTable, UnmapError};
 pub use pmm::PMM;
 pub use vma::{AddrSpace, AddrSpaceError, VmArea, VmAreaKind};
 

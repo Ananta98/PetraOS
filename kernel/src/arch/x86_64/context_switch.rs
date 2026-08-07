@@ -37,8 +37,8 @@ pub fn init_stack(stack: &mut [u8], entry: extern "C" fn(*mut u8), arg: *mut u8)
         frame_ptr.write(StackFrame {
             r15: 0,
             r14: 0,
-            r13: arg as u64,          // Argument for entry (stored in callee-saved r13)
-            r12: entry as u64,        // Entry point function (stored in callee-saved r12)
+            r13: arg as u64,   // Argument for entry (stored in callee-saved r13)
+            r12: entry as u64, // Entry point function (stored in callee-saved r12)
             rbx: 0,
             rbp: 0,
             rip: thread_bootstrapper as *const () as u64,
@@ -46,10 +46,4 @@ pub fn init_stack(stack: &mut [u8], entry: extern "C" fn(*mut u8), arg: *mut u8)
     }
 
     rsp
-}
-
-/// Handles clean thread termination if the entry point function returns.
-#[unsafe(no_mangle)]
-pub extern "C" fn thread_exit() -> ! {
-    crate::proc::exit_current_thread(0);
 }

@@ -1,4 +1,4 @@
-core::arch::global_asm!(include_str!("syscall_entry.S"));
+core::arch::global_asm!(include_str!("Syscall.S"));
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
@@ -39,11 +39,7 @@ impl SyscallFrame {
     }
 
     pub fn arg4(&self) -> u64 {
-        if self.r10 != 0 {
-            self.r10
-        } else {
-            self.rcx
-        }
+        if self.r10 != 0 { self.r10 } else { self.rcx }
     }
 
     pub fn arg5(&self) -> u64 {
@@ -65,9 +61,4 @@ impl SyscallFrame {
         self.ss = 0x23; // User data selector with RPL=3
         self.rflags = 0x202; // Enable interrupts (IF flag)
     }
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn syscall_rust_handler(frame: &mut SyscallFrame) {
-    crate::syscalls::handle_syscall(frame);
 }
