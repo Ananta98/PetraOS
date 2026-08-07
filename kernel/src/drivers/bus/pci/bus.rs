@@ -1,6 +1,6 @@
 use super::config;
 use super::device::{PCI_VENDOR_NONE, PciDevice};
-use crate::drivers::{Device, DriverError};
+use crate::device::{Device, DriverError};
 
 #[derive(Clone, Copy, Debug)]
 pub struct PciDiscovery {
@@ -94,7 +94,7 @@ impl PciBus {
                     > = alloc::sync::Arc::new(crate::sync::spinlock::Spinlock::new(
                         alloc::boxed::Box::new(crate::drivers::block::ahci::AhciDeviceRef),
                     ));
-                    crate::drivers::DEVICE_MANAGER.lock().register(device_ref);
+                    crate::device::DEVICE_MANAGER.lock().register(device_ref);
                     log::info!("PCI: AHCI device initialized and registered to DEVICE_MANAGER");
                 }
             } else if entry.class_code == 0x01 && entry.subclass == 0x08 {
@@ -106,7 +106,7 @@ impl PciBus {
                     > = alloc::sync::Arc::new(crate::sync::spinlock::Spinlock::new(
                         alloc::boxed::Box::new(crate::drivers::block::nvme::NvmeDeviceRef),
                     ));
-                    crate::drivers::DEVICE_MANAGER.lock().register(device_ref);
+                    crate::device::DEVICE_MANAGER.lock().register(device_ref);
                     log::info!("PCI: NVMe device initialized and registered to DEVICE_MANAGER");
                 }
             }

@@ -59,10 +59,10 @@ pub fn mount_devfs() {
     Dentry::add_child(&dev_mount.root_dentry, "console".into(), console_inode);
 
     // Scan DEVICE_MANAGER and dynamically register discovered block devices
-    let dm = crate::drivers::DEVICE_MANAGER.lock();
+    let dm = crate::device::DEVICE_MANAGER.lock();
     for dev_arc in dm.get_devices() {
         let dev_lock = dev_arc.lock();
-        if dev_lock.dev_type() == crate::drivers::DeviceType::Block {
+        if dev_lock.dev_type() == crate::device::DeviceType::Block {
             let dev_name = dev_lock.name();
             let vfs_name = if dev_name.contains("AHCI") {
                 "sda"

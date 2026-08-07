@@ -7,6 +7,7 @@ extern crate alloc;
 #[cfg_attr(target_arch = "x86_64", path = "arch/x86_64/mod.rs")]
 mod arch;
 
+pub mod device;
 pub mod drivers;
 pub mod fs;
 pub mod limine;

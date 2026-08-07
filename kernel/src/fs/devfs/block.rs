@@ -2,7 +2,7 @@ use alloc::sync::Arc;
 use crate::fs::errno::VfsError;
 use crate::fs::vfs::inode::InodeOps;
 use crate::fs::vfs::file::FileOps;
-use crate::drivers::DEVICE_MANAGER;
+use crate::device::DEVICE_MANAGER;
 
 /// Inode for block devices registered in devfs.
 pub struct BlockDeviceInode {

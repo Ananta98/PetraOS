@@ -1,4 +1,4 @@
-use crate::drivers::{Device, DeviceType, DriverError};
+use crate::device::{Device, DeviceType, DriverError};
 
 pub const PCI_VENDOR_NONE: u16 = 0xFFFF;
 

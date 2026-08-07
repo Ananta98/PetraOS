@@ -4,7 +4,7 @@ use alloc::string::String;
 use crate::fs::errno::VfsError;
 use crate::fs::vfs::inode::{Inode, InodeOps, InodeType};
 use crate::fs::vfs::file::FileOps;
-use crate::drivers::DEVICE_MANAGER;
+use crate::device::DEVICE_MANAGER;
 use super::superblock::{Ext2Superblock, Ext2BlockGroupDescriptor};
 use super::file::Ext2FileOps;
 

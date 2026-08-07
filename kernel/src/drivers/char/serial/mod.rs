@@ -1,4 +1,4 @@
-use super::{Device, DeviceType, CharDevice, DriverError};
+use crate::device::{CharDevice, Device, DeviceType, DriverError};
 
 pub mod mmio;
 pub mod portio;
