@@ -1,4 +1,4 @@
-use crate::fs::errno::VfsError;
+use crate::fs::vfs::types::VfsError;
 use alloc::vec::Vec;
 use alloc::string::String;
 use alloc::sync::Arc;

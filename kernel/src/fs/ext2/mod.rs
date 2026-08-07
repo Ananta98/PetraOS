@@ -5,10 +5,8 @@ pub mod superblock;
 
 use self::inode::{Ext2InodeOps, Ext2Volume};
 use crate::device::{BlockDevice, Device, DeviceType, DriverError};
-use crate::fs::errno::VfsError;
-use crate::fs::vfs::MOUNT_TABLE;
-use crate::fs::vfs::filesystem::{FileSystem, SuperBlock};
-use crate::fs::vfs::inode::{Inode, InodeType};
+use crate::fs::vfs::mount::MOUNT_TABLE;
+use crate::fs::vfs::types::{FileSystem, Inode, InodeType, SuperBlock, VfsError};
 use alloc::sync::Arc;
 
 /// Ext2 Filesystem driver wrapper mapping to the VFS.

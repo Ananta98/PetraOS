@@ -1,8 +1,7 @@
 use alloc::sync::Arc;
-use crate::fs::errno::VfsError;
-use crate::fs::vfs::inode::InodeType;
-use crate::fs::vfs::dentry::Dentry;
-use crate::fs::vfs::mount::MOUNT_TABLE;
+use super::types::{InodeType, VfsError};
+use super::dcache::Dentry;
+use super::mount::MOUNT_TABLE;
 
 /// Resolve an absolute path to a dentry, traversing mount boundaries.
 ///

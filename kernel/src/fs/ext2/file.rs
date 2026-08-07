@@ -1,5 +1,4 @@
-use crate::fs::errno::VfsError;
-use crate::fs::vfs::file::FileOps;
+use crate::fs::vfs::types::{FileOps, VfsError};
 use alloc::sync::Arc;
 use super::inode::Ext2Volume;
 

@@ -1,9 +1,7 @@
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use alloc::string::String;
-use crate::fs::errno::VfsError;
-use crate::fs::vfs::inode::{Inode, InodeOps, InodeType};
-use crate::fs::vfs::file::FileOps;
+use crate::fs::vfs::types::{FileOps, Inode, InodeOps, InodeType, VfsError};
 use crate::device::DEVICE_MANAGER;
 use super::superblock::{Ext2Superblock, Ext2BlockGroupDescriptor};
 use super::file::Ext2FileOps;

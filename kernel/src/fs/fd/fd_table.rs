@@ -2,8 +2,7 @@ use alloc::sync::Arc;
 use alloc::collections::BTreeMap;
 use core::sync::atomic::{AtomicI32, Ordering};
 use crate::sync::spinlock::Spinlock;
-use crate::fs::errno::VfsError;
-use crate::fs::vfs::file::File;
+use crate::fs::vfs::types::{File, VfsError};
 
 /// Per-process file descriptor table.
 ///

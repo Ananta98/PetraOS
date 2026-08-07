@@ -2,7 +2,7 @@ use alloc::sync::{Arc, Weak};
 use alloc::string::String;
 use alloc::collections::BTreeMap;
 use crate::sync::spinlock::Spinlock;
-use super::inode::Inode;
+use super::types::Inode;
 
 pub struct Dentry {
     pub name: String,
