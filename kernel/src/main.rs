@@ -10,18 +10,19 @@ mod arch;
 pub mod device;
 pub mod drivers;
 pub mod fs;
+pub mod ipc;
 pub mod limine;
 pub mod logger;
 pub mod mm;
 pub mod proc;
 pub mod sched;
 pub mod sync;
-pub mod ipc;
 
 #[unsafe(no_mangle)]
 unsafe extern "C" fn kmain() -> ! {
     logger::init();
     mm::init();
+    arch::init();
     hcf();
 }
 

@@ -7,7 +7,7 @@
 //! This module remaps the PIC vectors out of the CPU exception range
 //! (0-31) and then masks all 16 IRQ lines.
 
-use super::ports::Ports;
+use crate::arch::ports::Ports;
 
 /// I/O port addresses for the dual 8259 PIC chips.
 const MASTER_COMMAND: u16 = 0x20;

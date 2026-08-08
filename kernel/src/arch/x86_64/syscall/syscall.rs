@@ -62,3 +62,38 @@ impl SyscallFrame {
         self.rflags = 0x202; // Enable interrupts (IF flag)
     }
 }
+
+/// System call entry handler invoked from `Syscall.S`.
+///
+/// # Safety
+/// Called from assembly entry with `rdi` pointing to a valid `SyscallFrame` saved on the stack.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn do_syscall(frame: &mut SyscallFrame) {
+    let num = frame.syscall_num();
+    let a1 = frame.arg1();
+    let a2 = frame.arg2();
+    let a3 = frame.arg3();
+    let a4 = frame.arg4();
+    let a5 = frame.arg5();
+    let a6 = frame.arg6();
+
+    log::trace!(
+        "Syscall nr={} args=({:#x}, {:#x}, {:#x}, {:#x}, {:#x}, {:#x})",
+        num,
+        a1,
+        a2,
+        a3,
+        a4,
+        a5,
+        a6
+    );
+
+    let ret = match num {
+        _ => {
+            log::warn!("Unhandled system call: {}", num);
+            u64::MAX
+        }
+    };
+
+    frame.set_return_value(ret);
+}

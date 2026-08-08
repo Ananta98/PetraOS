@@ -7,8 +7,8 @@
 //! Calibration is performed using the PIT (Programmable Interval Timer)
 //! channel 2 as a reference clock to determine the LAPIC timer frequency.
 
-use super::lapic::LocalApic;
-use super::ports::Ports;
+use crate::arch::lapic::LocalApic;
+use crate::arch::ports::Ports;
 
 /// The IDT vector number used for LAPIC timer interrupts.
 pub const TIMER_VECTOR: u8 = 48;

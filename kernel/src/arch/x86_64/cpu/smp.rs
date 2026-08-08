@@ -4,7 +4,7 @@
 //! (APs). Each AP initialises its own GDT/TSS, loads the shared IDT, enables
 //! its Local APIC, and then spins in `hlt`.
 
-use crate::arch::acpi;
+use crate::arch::halt;
 use crate::arch::paging;
 use crate::arch::tss::*;
 use crate::arch::{gdt, interrupts, lapic, lapic_timer};
@@ -61,7 +61,7 @@ unsafe extern "C" fn ap_entry(cpu: &limine::mp::Cpu) -> ! {
     APS_ONLINE.fetch_add(1, Ordering::Release);
 
     // Park this AP in a low-power halt loop.
-    super::halt()
+    halt()
 }
 
 /// Start all Application Processors discovered by Limine.

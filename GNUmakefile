@@ -29,6 +29,7 @@ run-hdd: run-hdd-$(KARCH)
 run-x86_64: edk2-ovmf $(IMAGE_NAME).iso
 	qemu-system-$(KARCH) \
 		-M q35 \
+		-smp 4\
 		-drive if=pflash,unit=0,format=raw,file=edk2-ovmf/ovmf-code-$(KARCH).fd,readonly=on \
 		-cdrom $(IMAGE_NAME).iso \
 		$(QEMUFLAGS)
@@ -37,6 +38,7 @@ run-x86_64: edk2-ovmf $(IMAGE_NAME).iso
 run-hdd-x86_64: edk2-ovmf $(IMAGE_NAME).hdd
 	qemu-system-$(KARCH) \
 		-M q35 \
+		-smp 4\
 		-drive if=pflash,unit=0,format=raw,file=edk2-ovmf/ovmf-code-$(KARCH).fd,readonly=on \
 		-hda $(IMAGE_NAME).hdd \
 		$(QEMUFLAGS)

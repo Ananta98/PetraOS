@@ -1,18 +1,24 @@
 pub mod acpi;
-pub mod context_switch;
-pub mod gdt;
-pub mod hpet;
-pub mod idt;
-pub mod interrupts;
-pub mod ioapic;
-pub mod lapic;
-pub mod lapic_timer;
+pub mod cpu;
+pub mod interrupt;
 pub mod paging;
-pub mod pic;
-pub mod ports;
-pub mod smp;
 pub mod syscall;
-pub mod tss;
+pub mod timer;
+
+pub use cpu::context_switch;
+pub use cpu::gdt;
+pub use cpu::idt;
+pub use cpu::ports;
+pub use cpu::smp;
+pub use cpu::tss;
+
+pub use interrupt::interrupts;
+pub use interrupt::ioapic;
+pub use interrupt::lapic;
+pub use interrupt::pic;
+
+pub use timer::hpet;
+pub use timer::lapic_timer;
 
 /// Enable interrupts on the calling CPU.
 pub fn enable_interrupts() {
@@ -47,33 +53,31 @@ pub fn disable_interrupts() -> bool {
 
 /// Get the Local APIC ID of the calling CPU core.
 pub fn cpu_id() -> u32 {
-    unsafe { lapic::get_lapic().id() }
+    unsafe { interrupt::lapic::get_lapic().id() }
 }
 
 /// Initialize execution stack for a new thread context.
 pub fn init_stack(stack: &mut [u8], entry: extern "C" fn(*mut u8), arg: *mut u8) -> u64 {
-    context_switch::init_stack(stack, entry, arg)
+    cpu::context_switch::init_stack(stack, entry, arg)
 }
 
 /// Switch CPU stack and execution context between two threads.
 pub unsafe fn switch_context(prev_rsp_ptr: *mut u64, next_rsp: u64) {
     unsafe {
-        context_switch::switch_context(prev_rsp_ptr, next_rsp);
+        cpu::context_switch::switch_context(prev_rsp_ptr, next_rsp);
     }
 }
 
 /// Switch CPU stack context to a target thread without saving previous context.
 pub unsafe fn switch_context_to(next_rsp: u64) -> ! {
     unsafe {
-        context_switch::switch_context_to(next_rsp);
+        cpu::context_switch::switch_context_to(next_rsp);
     }
 }
 
 /// Main architecture hardware initialization entry point.
 pub fn init() {
-    gdt::init();
-    interrupts::init();
-    pic::LegacyPic::disable();
+    cpu::init();
 
     let madt_info =
         acpi::parse_madt().expect("Failed to parse ACPI MADT — APIC initialization requires MADT");
@@ -85,31 +89,12 @@ pub fn init() {
         madt_info.iso_count
     );
 
-    paging::map_mmio(madt_info.local_apic_address, 4096);
-    let local_apic = lapic::LocalApic::new(madt_info.local_apic_address);
-    local_apic.enable();
-    let lapic_id = local_apic.id();
-
-    for i in 0..madt_info.io_apic_count {
-        if let Some(entry) = &madt_info.io_apics[i] {
-            paging::map_mmio(entry.address as u64, 4096);
-            let io_apic = ioapic::IoApic::new(entry.address, entry.gsi_base);
-            io_apic.configure_isa_irqs(lapic_id, &madt_info.isos, madt_info.iso_count);
-        }
-    }
-
-    let timer = lapic_timer::LapicTimer::calibrate(&local_apic);
-    timer.start_periodic(&local_apic, 100);
-
-    unsafe {
-        lapic::LAPIC = Some(local_apic);
-    }
-
-    // Initialize High Precision Event Timer (HPET)
-    hpet::init();
+    interrupt::init(&madt_info);
+    timer::init();
+    syscall::init();
 
     // Start Application Processors now that the BSP is fully online.
-    smp::start_aps();
+    cpu::smp::start_aps();
 
     // ── Register all CPUs with the global scheduler ───────────────────
     if let Some(mp) = crate::limine::MP_REQUEST.get_response() {

@@ -1,7 +1,6 @@
 use crate::arch::halt;
 use crate::arch::idt::{InterruptDescriptorTable, InterruptStackFrame};
 use crate::arch::lapic_timer;
-use core::arch::asm;
 
 static mut IDT: InterruptDescriptorTable = InterruptDescriptorTable::new();
 
@@ -47,9 +46,7 @@ pub fn init() {
 
 extern "x86-interrupt" fn divide_by_zero_handler(stack_frame: &mut InterruptStackFrame) {
     log::error!("EXCEPTION: DIVIDE BY ZERO\n{:#?}", stack_frame);
-    loop {
-        unsafe { asm!("hlt") }
-    }
+    halt()
 }
 
 extern "x86-interrupt" fn breakpoint_handler(stack_frame: &mut InterruptStackFrame) {
@@ -73,7 +70,7 @@ extern "x86-interrupt" fn general_protection_fault_handler(
         error_code,
         stack_frame
     );
-    super::halt();
+    halt();
 }
 
 extern "x86-interrupt" fn page_fault_handler(
@@ -91,7 +88,7 @@ extern "x86-interrupt" fn page_fault_handler(
         fault_code,
         stack_frame
     );
-    super::halt();
+    halt();
 }
 
 extern "x86-interrupt" fn timer_handler(_stack_frame: &mut InterruptStackFrame) {

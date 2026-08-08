@@ -1,5 +1,5 @@
 .global syscall_asm_entry
-.extern syscall_rust_handler
+.extern do_syscall
 
 syscall_asm_entry:
   # Save the syscall register state into the SyscallFrame layout.
@@ -16,7 +16,7 @@ syscall_asm_entry:
 
   # Pass the frame pointer as the first Rust argument.
   mov rdi, rsp
-  call syscall_rust_handler
+  call do_syscall
 
   # Restore the register state before returning to user mode.
   pop r11

@@ -2,7 +2,7 @@
 //!
 //! Accesses PCI configuration space via I/O ports 0xCF8 (Address) and 0xCFC (Data).
 
-use core::arch::asm;
+use crate::arch::ports::Ports;
 
 pub const PCI_CONFIG_ADDRESS_PORT: u16 = 0xCF8;
 pub const PCI_CONFIG_DATA_PORT: u16 = 0xCFC;
@@ -31,28 +31,14 @@ pub fn make_address(bus: u8, device: u8, func: u8, offset: u8) -> u32 {
 pub fn write_address(bus: u8, device: u8, func: u8, offset: u8) {
     let address = make_address(bus, device, func, offset);
     unsafe {
-        asm!(
-            "out dx, eax",
-            in("dx") PCI_CONFIG_ADDRESS_PORT,
-            in("eax") address,
-            options(nomem, nostack, preserves_flags)
-        );
+        Ports::outl(PCI_CONFIG_ADDRESS_PORT, address);
     }
 }
 
 /// Read a 32-bit dword from PCI configuration space.
 pub fn read_u32(bus: u8, device: u8, func: u8, offset: u8) -> u32 {
     write_address(bus, device, func, offset);
-    let value: u32;
-    unsafe {
-        asm!(
-            "in eax, dx",
-            in("dx") PCI_CONFIG_DATA_PORT,
-            out("eax") value,
-            options(nomem, nostack, preserves_flags)
-        );
-    }
-    value
+    unsafe { Ports::inl(PCI_CONFIG_DATA_PORT) }
 }
 
 /// Read a 16-bit word from PCI configuration space.
@@ -69,12 +55,7 @@ pub fn read_u8(bus: u8, device: u8, func: u8, offset: u8) -> u8 {
 pub fn write_u32(bus: u8, device: u8, func: u8, offset: u8, value: u32) {
     write_address(bus, device, func, offset);
     unsafe {
-        asm!(
-            "out dx, eax",
-            in("dx") PCI_CONFIG_DATA_PORT,
-            in("eax") value,
-            options(nomem, nostack, preserves_flags)
-        );
+        Ports::outl(PCI_CONFIG_DATA_PORT, value);
     }
 }
 
