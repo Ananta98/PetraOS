@@ -4,7 +4,8 @@
 //! (APs). Each AP initialises its own GDT/TSS, loads the shared IDT, enables
 //! its Local APIC, and then spins in `hlt`.
 
-use crate::arch::halt;
+use crate::arch::enable_interrupts;
+use crate::arch::idle;
 use crate::arch::paging;
 use crate::arch::tss::*;
 use crate::arch::{gdt, interrupts, lapic, lapic_timer};
@@ -48,9 +49,6 @@ unsafe extern "C" fn ap_entry(cpu: &limine::mp::Cpu) -> ! {
     let timer = lapic_timer::LapicTimer::calibrate(&local_apic);
     timer.start_periodic(&local_apic, 100);
 
-    // Enable interrupts on this AP.
-    crate::arch::enable_interrupts();
-
     log::info!(
         "SMP: AP online (processor_id={}, lapic_id={}).",
         cpu.id,
@@ -60,8 +58,11 @@ unsafe extern "C" fn ap_entry(cpu: &limine::mp::Cpu) -> ! {
     // Signal to the BSP that this AP is ready.
     APS_ONLINE.fetch_add(1, Ordering::Release);
 
+    // Enable interrupts on this AP.
+    crate::arch::enable_interrupts();
+
     // Park this AP in a low-power halt loop.
-    halt()
+    idle()
 }
 
 /// Start all Application Processors discovered by Limine.
@@ -116,6 +117,8 @@ pub fn start_aps() {
             }
         }
     }
+
+    enable_interrupts();
 
     log::info!(
         "SMP: {} / {} AP(s) online and ready.",

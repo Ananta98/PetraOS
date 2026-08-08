@@ -28,11 +28,15 @@ pub fn enable_interrupts() {
 }
 
 /// Halt CPU until the next interrupt.
-pub fn halt() -> ! {
+pub fn halt() {
+    unsafe {
+        core::arch::asm!("hlt", options(nomem, nostack));
+    }
+}
+
+pub fn idle() -> ! {
     loop {
-        unsafe {
-            core::arch::asm!("hlt", options(nomem, nostack));
-        }
+        halt();
     }
 }
 
@@ -58,7 +62,7 @@ pub fn cpu_id() -> u32 {
 
 /// Initialize execution stack for a new thread context.
 pub fn init_stack(stack: &mut [u8], entry: extern "C" fn(*mut u8), arg: *mut u8) -> u64 {
-    cpu::context::init_stack(stack, entry, arg)
+    cpu::stack::init_stack(stack, entry, arg)
 }
 
 /// Switch CPU stack and execution context between two threads.
@@ -93,11 +97,8 @@ pub fn init() {
     timer::init();
     syscall::init();
 
+    enable_interrupts();
+
     // Start Application Processors now that the BSP is fully online.
     cpu::smp::start_aps();
-
-    // ── Global scheduler is implicitly ready ───────────────────────────
-    log::info!("Scheduler: CFS ready");
-
-    enable_interrupts();
 }

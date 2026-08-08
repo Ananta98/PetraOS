@@ -33,5 +33,5 @@ fn rust_panic(info: &core::panic::PanicInfo) -> ! {
 }
 
 fn hcf() -> ! {
-    arch::halt()
+    arch::idle()
 }

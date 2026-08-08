@@ -1,11 +1,12 @@
 pub mod fair;
 pub mod stats;
 
-use alloc::sync::Arc;
 use crate::arch::cpu::context::{switch_context, switch_context_to};
+use crate::arch::{halt, idle};
 use crate::sync::spinlock::Spinlock;
+use alloc::sync::Arc;
 
-pub use fair::{Scheduler, MAX_CPUS, NICE_0_WEIGHT};
+pub use fair::{MAX_CPUS, NICE_0_WEIGHT, Scheduler};
 pub use stats::SchedulerStats;
 
 /// Global CFS Scheduler instance
@@ -15,6 +16,9 @@ pub static SCHEDULER: Spinlock<Scheduler> = Spinlock::new(Scheduler::new());
 /// If `yielding` is true, the current thread is placed back in the run queue.
 /// If `yielding` is false, the current thread is blocked (or exiting) and is not put back.
 pub fn schedule(yielding: bool) {
+    // Disable interrupts on the local CPU while holding SCHEDULER lock to prevent deadlock
+    let saved_flags = crate::arch::disable_interrupts();
+
     let cpu_id = crate::arch::cpu_id();
     let mut sched = SCHEDULER.lock();
     let prev_thread = sched.current_threads[cpu_id as usize].clone();
@@ -30,6 +34,10 @@ pub fn schedule(yielding: bool) {
     match (prev_thread, next_thread) {
         (Some(prev), Some(next)) => {
             if Arc::ptr_eq(&prev, &next) {
+                drop(sched);
+                if saved_flags {
+                    crate::arch::enable_interrupts();
+                }
                 return; // Nothing to do
             }
             sched.stats.inc_context_switches();
@@ -56,11 +64,15 @@ pub fn schedule(yielding: bool) {
             unsafe { switch_context_to(next_rsp) };
         }
         (Some(_), None) => {
-            // No runnable threads. We should halt/idle.
-            panic!("No runnable threads!");
+            // No runnable threads. We should halt.
+            halt();
         }
         (None, None) => {
             // Do nothing, idle or still booting.
+            drop(sched);
+            if saved_flags {
+                crate::arch::enable_interrupts();
+            }
             return;
         }
     }

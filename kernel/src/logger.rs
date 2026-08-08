@@ -33,7 +33,6 @@ impl Log for Logger {
 
     fn log(&self, record: &Record) {
         if self.enabled(record.metadata()) {
-            let saved_flags = crate::arch::disable_interrupts();
             let mut guard = self.serial.lock();
             if let Some(ref mut serial) = *guard {
                 let mut writer = SerialWriter(serial);
@@ -51,10 +50,6 @@ impl Log for Logger {
                     record.target(),
                     record.args()
                 );
-            }
-            drop(guard);
-            if saved_flags {
-                crate::arch::enable_interrupts();
             }
         }
     }
