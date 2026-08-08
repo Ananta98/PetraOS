@@ -1,4 +1,5 @@
 use alloc::sync::{Arc, Weak};
+use alloc::string::String;
 use crate::sync::spinlock::Spinlock;
 use crate::sched::{ThreadId, SchedThread};
 use crate::ipc::signal::{SigSet, PendingSignals};
@@ -7,6 +8,8 @@ use super::process::Process;
 /// Represents the execution state of a thread.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ThreadState {
+    Creating,
+    Ready,
     Running,
     Sleeping,
     Stopped,
@@ -26,6 +29,9 @@ pub struct Thread {
     /// Unique Thread ID (TID)
     pub tid: ThreadId,
     
+    /// Thread name
+    pub name: String,
+    
     /// The process this thread belongs to (Weak reference to avoid cyclic Arc dependencies)
     pub process: Weak<Spinlock<Process>>,
     
@@ -34,6 +40,12 @@ pub struct Thread {
     
     /// Scheduler metadata
     pub sched_info: SchedThread,
+    
+    /// Current priority
+    pub priority: u8,
+    
+    /// Base priority (before any priority donations)
+    pub base_priority: u8,
     
     /// Signal mask (blocked signals for this specific thread)
     pub sig_mask: SigSet,
@@ -49,16 +61,45 @@ pub struct Thread {
 }
 
 impl Thread {
-    pub fn new(tid: ThreadId, process: Weak<Spinlock<Process>>, sched_info: SchedThread) -> Self {
+    pub fn new(tid: ThreadId, name: String, priority: u8, process: Weak<Spinlock<Process>>, sched_info: SchedThread) -> Self {
         Self {
             tid,
+            name,
             process,
             context: ThreadContext::default(),
             sched_info,
+            priority,
+            base_priority: priority,
             sig_mask: 0,
             pending_signals: PendingSignals::new(),
-            state: ThreadState::Running,
+            state: ThreadState::Creating,
             exit_code: None,
         }
+    }
+    
+    /// Yield the CPU to another thread.
+    pub fn yield_cpu() {
+        // TODO: Implement thread yield (set state to Ready and call scheduler)
+    }
+    
+    /// Block the current thread.
+    pub fn block(&mut self) {
+        self.state = ThreadState::Sleeping;
+        // TODO: Call scheduler
+    }
+    
+    /// Unblock the thread (transition from Sleeping to Ready).
+    pub fn unblock(&mut self) {
+        if self.state == ThreadState::Sleeping {
+            self.state = ThreadState::Ready;
+            // TODO: Add back to ready queue
+        }
+    }
+    
+    /// Terminate the thread.
+    pub fn exit(&mut self, status: u32) {
+        self.state = ThreadState::Zombie;
+        self.exit_code = Some(status);
+        // TODO: Clean up resources and call scheduler
     }
 }

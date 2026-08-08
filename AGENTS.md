@@ -73,28 +73,9 @@ PetraOS is a pure `#![no_std]` and `#![no_main]` environment. The following rule
 
 ## 4. Rust Abstractions & Generics for Extensibility
 
-To support clean extensibility across different CPU architectures and diverse device drivers, agents must utilize Rust traits and generics.
+To support clean extensibility across different diverse device drivers, agents must utilize Rust traits and generics.
 
-### 4.1 Architecture Abstraction Layer (AAL)
-Avoid hardcoding architecture-specific instructions (like `outb` or assembly context switches) in the core kernel logic. Instead, define clean traits in common modules:
-
-```rust
-pub trait CpuArch {
-    /// Disable interrupts on the current core and return the previous state.
-    fn disable_interrupts() -> bool;
-    
-    /// Enable interrupts on the current core.
-    fn enable_interrupts();
-    
-    /// Halt the CPU until the next interrupt.
-    fn halt();
-    
-    /// Initialize architecture-specific tables (GDT, IDT/IVT, Page Tables).
-    fn init_hardware();
-}
-```
-
-### 4.2 Generic Driver Interface
+### 4.1 Generic Driver Interface
 Device drivers must implement common traits to allow modular attachment and generic handling by the kernel:
 
 ```rust
