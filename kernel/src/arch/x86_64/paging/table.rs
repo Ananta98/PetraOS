@@ -1,8 +1,8 @@
 use super::flags::*;
 use super::index::*;
 use super::utils::*;
-use crate::mm::{PhysAddr, VirtAddr};
 use crate::mm::{MapError, MapFlags, PageTable, UnmapError};
+use crate::mm::{PhysAddr, VirtAddr};
 
 pub struct ArchPageTable {
     pml4_phys: PhysAddr,

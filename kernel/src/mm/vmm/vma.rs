@@ -1,5 +1,7 @@
 use crate::mm::types::{PhysAddr, VirtAddr};
-use crate::mm::vmm::paging::{MapError, MapFlags, PageFaultAccess, PageFaultError, PageTable, UnmapError};
+use crate::mm::vmm::paging::{
+    MapError, MapFlags, PageFaultAccess, PageFaultError, PageTable, UnmapError,
+};
 use alloc::collections::BTreeMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

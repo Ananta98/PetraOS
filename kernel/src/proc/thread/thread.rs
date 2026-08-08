@@ -1,9 +1,10 @@
-use alloc::sync::{Arc, Weak};
-use alloc::string::String;
+use super::tid::ThreadId;
+use crate::arch::cpu::context::ThreadContext;
+use crate::ipc::signal::{PendingSignals, SigSet};
+use crate::proc::process::Process;
 use crate::sync::spinlock::Spinlock;
-use crate::sched::{ThreadId, SchedThread};
-use crate::ipc::signal::{SigSet, PendingSignals};
-use super::process::Process;
+use alloc::string::String;
+use alloc::sync::{Arc, Weak};
 
 /// Represents the execution state of a thread.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -16,90 +17,81 @@ pub enum ThreadState {
     Zombie,
 }
 
-/// The architecture-specific execution context (registers).
-#[derive(Debug, Default, Clone)]
-pub struct ThreadContext {
-    pub rsp: usize,
-    pub rip: usize,
-    // Add additional registers (e.g. rax, rbx) as needed for the architecture
-}
-
 /// Represents an execution context (thread) in the OS.
 pub struct Thread {
     /// Unique Thread ID (TID)
     pub tid: ThreadId,
-    
+
     /// Thread name
     pub name: String,
-    
+
     /// The process this thread belongs to (Weak reference to avoid cyclic Arc dependencies)
     pub process: Weak<Spinlock<Process>>,
-    
+
     /// CPU Context (Registers, RSP, RIP)
     pub context: ThreadContext,
-    
-    /// Scheduler metadata
-    pub sched_info: SchedThread,
-    
-    /// Current priority
-    pub priority: u8,
-    
-    /// Base priority (before any priority donations)
-    pub base_priority: u8,
-    
+
+    /// Accumulated virtual runtime in nanoseconds (CFS)
+    pub vruntime: u64,
+
+    /// Thread weight for CFS (higher weight = more CPU time)
+    pub weight: u32,
+
     /// Signal mask (blocked signals for this specific thread)
     pub sig_mask: SigSet,
-    
+
     /// Pending signals directed to this specific thread
     pub pending_signals: PendingSignals,
-    
+
     /// State of the thread
     pub state: ThreadState,
-    
+
     /// Exit code, if the thread has exited
     pub exit_code: Option<u32>,
 }
 
 impl Thread {
-    pub fn new(tid: ThreadId, name: String, priority: u8, process: Weak<Spinlock<Process>>, sched_info: SchedThread) -> Self {
+    pub fn new(tid: ThreadId, name: String, weight: u32, process: Weak<Spinlock<Process>>) -> Self {
         Self {
             tid,
             name,
             process,
             context: ThreadContext::default(),
-            sched_info,
-            priority,
-            base_priority: priority,
+            vruntime: 0,
+            weight,
             sig_mask: 0,
             pending_signals: PendingSignals::new(),
             state: ThreadState::Creating,
             exit_code: None,
         }
     }
-    
+
     /// Yield the CPU to another thread.
     pub fn yield_cpu() {
-        // TODO: Implement thread yield (set state to Ready and call scheduler)
+        crate::sched::schedule(true);
     }
-    
+
     /// Block the current thread.
     pub fn block(&mut self) {
         self.state = ThreadState::Sleeping;
-        // TODO: Call scheduler
+        crate::sched::schedule(false);
     }
-    
+
     /// Unblock the thread (transition from Sleeping to Ready).
-    pub fn unblock(&mut self) {
-        if self.state == ThreadState::Sleeping {
-            self.state = ThreadState::Ready;
-            // TODO: Add back to ready queue
+    pub fn unblock(thread: Arc<Spinlock<Thread>>) {
+        let mut t = thread.lock();
+        if t.state == ThreadState::Sleeping {
+            t.state = ThreadState::Ready;
+            drop(t);
+            crate::sched::SCHEDULER.lock().add_thread(thread);
         }
     }
-    
+
     /// Terminate the thread.
     pub fn exit(&mut self, status: u32) {
         self.state = ThreadState::Zombie;
         self.exit_code = Some(status);
-        // TODO: Clean up resources and call scheduler
+        // Remove from CPU and never return
+        crate::sched::schedule(false);
     }
 }

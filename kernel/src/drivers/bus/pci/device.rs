@@ -16,7 +16,17 @@ pub struct PciDevice {
 }
 
 impl PciDevice {
-    pub const fn new(bus: u8, device: u8, function: u8, vendor_id: u16, device_id: u16, class_code: u8, subclass: u8, prog_if: u8, revision: u8) -> Self {
+    pub const fn new(
+        bus: u8,
+        device: u8,
+        function: u8,
+        vendor_id: u16,
+        device_id: u16,
+        class_code: u8,
+        subclass: u8,
+        prog_if: u8,
+        revision: u8,
+    ) -> Self {
         Self {
             bus,
             device,

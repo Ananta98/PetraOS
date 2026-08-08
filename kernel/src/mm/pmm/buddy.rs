@@ -1,5 +1,5 @@
-use crate::mm::types::PhysAddr;
 use crate::mm::alloc::freelist::{IntrusiveList, IntrusiveNode};
+use crate::mm::types::PhysAddr;
 
 pub const MAX_ORDER: usize = 16;
 
@@ -237,7 +237,12 @@ impl BuddyAllocator {
             if count > 0 {
                 let size_kb = (1 << order) * 4;
                 if size_kb >= 1024 {
-                    log::info!("  Order {:2}: {:4} blocks ({} MB)", order, count, size_kb / 1024);
+                    log::info!(
+                        "  Order {:2}: {:4} blocks ({} MB)",
+                        order,
+                        count,
+                        size_kb / 1024
+                    );
                 } else {
                     log::info!("  Order {:2}: {:4} blocks ({} KB)", order, count, size_kb);
                 }

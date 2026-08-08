@@ -1,9 +1,9 @@
-use alloc::sync::Arc;
-use alloc::string::String;
-use alloc::collections::BTreeMap;
-use crate::sync::spinlock::Spinlock;
 use super::dcache::Dentry;
 use super::types::{FileSystem, SuperBlock, VfsError};
+use crate::sync::spinlock::Spinlock;
+use alloc::collections::BTreeMap;
+use alloc::string::String;
+use alloc::sync::Arc;
 
 /// A single mount point binding a filesystem instance to a path in the VFS tree.
 pub struct Mount {

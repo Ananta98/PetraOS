@@ -7,8 +7,8 @@
 //! redirection table entries, including masking/unmasking individual IRQs
 //! and applying Interrupt Source Override (ISO) entries from the ACPI MADT.
 
-use core::ptr;
 use super::acpi::InterruptSourceOverride;
+use core::ptr;
 
 /// IOAPIC register indices accessed via the indirect register select mechanism.
 mod register {

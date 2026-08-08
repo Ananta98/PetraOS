@@ -1,7 +1,7 @@
-use alloc::sync::Arc;
-use super::types::{InodeType, VfsError};
 use super::dcache::Dentry;
 use super::mount::MOUNT_TABLE;
+use super::types::{InodeType, VfsError};
+use alloc::sync::Arc;
 
 /// Resolve an absolute path to a dentry, traversing mount boundaries.
 ///
@@ -28,7 +28,9 @@ pub fn resolve_path(path: &str) -> Result<Arc<Dentry>, VfsError> {
             // Check if this child is itself a mount point
             let child_path = build_path(&child);
             if let Some((child_mount, _)) = mt.lookup(&child_path) {
-                if child_mount.mount_point == child_path && child_mount.mount_point != mount.mount_point {
+                if child_mount.mount_point == child_path
+                    && child_mount.mount_point != mount.mount_point
+                {
                     current = child_mount.root_dentry.clone();
                     continue;
                 }
@@ -44,7 +46,9 @@ pub fn resolve_path(path: &str) -> Result<Arc<Dentry>, VfsError> {
             // Check if new child is a mount point
             let child_path = build_path(&child_dentry);
             if let Some((child_mount, _)) = mt.lookup(&child_path) {
-                if child_mount.mount_point == child_path && child_mount.mount_point != mount.mount_point {
+                if child_mount.mount_point == child_path
+                    && child_mount.mount_point != mount.mount_point
+                {
                     current = child_mount.root_dentry.clone();
                     continue;
                 }

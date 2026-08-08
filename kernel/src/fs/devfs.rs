@@ -5,7 +5,9 @@ use crate::device::DEVICE_MANAGER;
 use crate::fs::ramfs::RamDirInode;
 use crate::fs::vfs::dcache::Dentry;
 use crate::fs::vfs::mount::MOUNT_TABLE;
-use crate::fs::vfs::types::{FileOps, FileSystem, Inode, InodeOps, InodeType, SuperBlock, VfsError};
+use crate::fs::vfs::types::{
+    FileOps, FileSystem, Inode, InodeOps, InodeType, SuperBlock, VfsError,
+};
 
 /// Device filesystem, mounted at `/dev`.
 pub struct DevFs;
@@ -133,9 +135,8 @@ impl FileOps for BlockDeviceFileOps {
                             block_dev
                                 .read_block(current_block, &mut temp_buf)
                                 .map_err(|_| VfsError::NotSupported)?;
-                            temp_buf[..chunk].copy_from_slice(
-                                &buf[written_bytes..written_bytes + chunk],
-                            );
+                            temp_buf[..chunk]
+                                .copy_from_slice(&buf[written_bytes..written_bytes + chunk]);
                             block_dev
                                 .write_block(current_block, &temp_buf)
                                 .map_err(|_| VfsError::NotSupported)?;

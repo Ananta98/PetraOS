@@ -1,6 +1,6 @@
-use crate::mm::types::PhysAddr;
-use crate::mm::alloc::freelist::{IntrusiveList, IntrusiveNode};
 use crate::mm::PMM;
+use crate::mm::alloc::freelist::{IntrusiveList, IntrusiveNode};
+use crate::mm::types::PhysAddr;
 use crate::sync::spinlock::Spinlock;
 use core::alloc::{GlobalAlloc, Layout};
 

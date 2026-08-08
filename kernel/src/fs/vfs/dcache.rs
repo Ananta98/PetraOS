@@ -1,8 +1,8 @@
-use alloc::sync::{Arc, Weak};
-use alloc::string::String;
-use alloc::collections::BTreeMap;
-use crate::sync::spinlock::Spinlock;
 use super::types::Inode;
+use crate::sync::spinlock::Spinlock;
+use alloc::collections::BTreeMap;
+use alloc::string::String;
+use alloc::sync::{Arc, Weak};
 
 pub struct Dentry {
     pub name: String,

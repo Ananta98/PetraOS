@@ -1,8 +1,8 @@
-use alloc::sync::Arc;
-use alloc::collections::BTreeMap;
-use core::sync::atomic::{AtomicI32, Ordering};
-use crate::sync::spinlock::Spinlock;
 use crate::fs::vfs::types::{File, VfsError};
+use crate::sync::spinlock::Spinlock;
+use alloc::collections::BTreeMap;
+use alloc::sync::Arc;
+use core::sync::atomic::{AtomicI32, Ordering};
 
 /// Per-process file descriptor table.
 ///

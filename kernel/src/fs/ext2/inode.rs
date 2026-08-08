@@ -1,10 +1,10 @@
+use super::file::Ext2FileOps;
+use super::superblock::{Ext2BlockGroupDescriptor, Ext2Superblock};
+use crate::device::DEVICE_MANAGER;
+use crate::fs::vfs::types::{FileOps, Inode, InodeOps, InodeType, VfsError};
+use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-use alloc::string::String;
-use crate::fs::vfs::types::{FileOps, Inode, InodeOps, InodeType, VfsError};
-use crate::device::DEVICE_MANAGER;
-use super::superblock::{Ext2Superblock, Ext2BlockGroupDescriptor};
-use super::file::Ext2FileOps;
 
 /// Helper to read/write arbitrary bytes from/to a named block device.
 #[derive(Clone, Debug)]
@@ -32,16 +32,18 @@ impl BlockDeviceReader {
                     while buf_offset < buf.len() {
                         let sector_id = read_offset / sector_size;
                         let sector_offset = (read_offset % sector_size) as usize;
-                        
-                        block_dev.read_block(sector_id, &mut sector_buf)
+
+                        block_dev
+                            .read_block(sector_id, &mut sector_buf)
                             .map_err(|_| VfsError::NotSupported)?;
 
                         let chunk_size = core::cmp::min(
                             buf.len() - buf_offset,
-                            (sector_size - sector_offset as u64) as usize
+                            (sector_size - sector_offset as u64) as usize,
                         );
-                        buf[buf_offset..buf_offset + chunk_size]
-                            .copy_from_slice(&sector_buf[sector_offset..sector_offset + chunk_size]);
+                        buf[buf_offset..buf_offset + chunk_size].copy_from_slice(
+                            &sector_buf[sector_offset..sector_offset + chunk_size],
+                        );
 
                         buf_offset += chunk_size;
                         read_offset += chunk_size as u64;
@@ -80,7 +82,12 @@ impl Ext2Inode {
         let mut block = [0u32; 15];
         for i in 0..15 {
             let offset = 40 + i * 4;
-            block[i] = u32::from_le_bytes([data[offset], data[offset+1], data[offset+2], data[offset+3]]);
+            block[i] = u32::from_le_bytes([
+                data[offset],
+                data[offset + 1],
+                data[offset + 2],
+                data[offset + 3],
+            ]);
         }
         Some(Self {
             mode: u16::from_le_bytes([data[0], data[1]]),
@@ -116,7 +123,7 @@ pub struct Ext2Volume {
 impl Ext2Volume {
     pub fn new(device_name: &'static str) -> Result<Self, VfsError> {
         let reader = BlockDeviceReader::new(device_name);
-        
+
         let mut sb_buf = alloc::vec![0u8; 1024];
         reader.read_bytes(1024, &mut sb_buf)?;
 
@@ -135,14 +142,16 @@ impl Ext2Volume {
         let index = (ino - 1) % self.sb.inodes_per_group;
 
         let bg_desc_table_block = if self.sb.block_size == 1024 { 2 } else { 1 };
-        let bg_desc_offset = (bg_desc_table_block * self.sb.block_size) as u64 + (group as u64 * 32);
+        let bg_desc_offset =
+            (bg_desc_table_block * self.sb.block_size) as u64 + (group as u64 * 32);
 
         let mut bg_buf = alloc::vec![0u8; 32];
         self.reader.read_bytes(bg_desc_offset, &mut bg_buf)?;
 
         let bg = Ext2BlockGroupDescriptor::parse(&bg_buf).ok_or(VfsError::InvalidInput)?;
 
-        let inode_offset = (bg.inode_table as u64 * self.sb.block_size as u64) + (index as u64 * self.sb.inode_size as u64);
+        let inode_offset = (bg.inode_table as u64 * self.sb.block_size as u64)
+            + (index as u64 * self.sb.inode_size as u64);
 
         let mut inode_buf = alloc::vec![0u8; self.sb.inode_size as usize];
         self.reader.read_bytes(inode_offset, &mut inode_buf)?;
@@ -166,7 +175,8 @@ impl Ext2Volume {
             if singly_indirect_block == 0 {
                 return Ok(0);
             }
-            let offset = singly_indirect_block as u64 * block_size as u64 + indirect_offset as u64 * 4;
+            let offset =
+                singly_indirect_block as u64 * block_size as u64 + indirect_offset as u64 * 4;
             let mut ptr_buf = [0u8; 4];
             self.reader.read_bytes(offset, &mut ptr_buf)?;
             return Ok(u32::from_le_bytes(ptr_buf));
@@ -179,11 +189,12 @@ impl Ext2Volume {
             if doubly_indirect_block == 0 {
                 return Ok(0);
             }
-            
+
             let singly_index = indirect_offset / ptrs_per_block;
             let direct_index = indirect_offset % ptrs_per_block;
 
-            let singly_offset = doubly_indirect_block as u64 * block_size as u64 + singly_index as u64 * 4;
+            let singly_offset =
+                doubly_indirect_block as u64 * block_size as u64 + singly_index as u64 * 4;
             let mut singly_ptr_buf = [0u8; 4];
             self.reader.read_bytes(singly_offset, &mut singly_ptr_buf)?;
             let singly_indirect_block = u32::from_le_bytes(singly_ptr_buf);
@@ -192,7 +203,8 @@ impl Ext2Volume {
                 return Ok(0);
             }
 
-            let direct_offset = singly_indirect_block as u64 * block_size as u64 + direct_index as u64 * 4;
+            let direct_offset =
+                singly_indirect_block as u64 * block_size as u64 + direct_index as u64 * 4;
             let mut direct_ptr_buf = [0u8; 4];
             self.reader.read_bytes(direct_offset, &mut direct_ptr_buf)?;
             return Ok(u32::from_le_bytes(direct_ptr_buf));
@@ -202,7 +214,12 @@ impl Ext2Volume {
     }
 
     /// Read data from an inode at specified offset into the buffer.
-    pub fn read_inode_data(&self, inode: &Ext2Inode, offset: usize, buf: &mut [u8]) -> Result<usize, VfsError> {
+    pub fn read_inode_data(
+        &self,
+        inode: &Ext2Inode,
+        offset: usize,
+        buf: &mut [u8],
+    ) -> Result<usize, VfsError> {
         let size = inode.size as usize;
         if offset >= size {
             return Ok(0);
@@ -219,7 +236,7 @@ impl Ext2Volume {
             let block_internal_offset = current_offset % block_size;
 
             let physical_block = self.get_inode_block(inode, block_offset)?;
-            
+
             let chunk = core::cmp::min(read_len - bytes_read, block_size - block_internal_offset);
 
             if physical_block == 0 {
@@ -228,8 +245,10 @@ impl Ext2Volume {
                     buf[bytes_read + i] = 0;
                 }
             } else {
-                let phys_offset = physical_block as u64 * self.sb.block_size as u64 + block_internal_offset as u64;
-                self.reader.read_bytes(phys_offset, &mut buf[bytes_read..bytes_read + chunk])?;
+                let phys_offset = physical_block as u64 * self.sb.block_size as u64
+                    + block_internal_offset as u64;
+                self.reader
+                    .read_bytes(phys_offset, &mut buf[bytes_read..bytes_read + chunk])?;
             }
 
             bytes_read += chunk;

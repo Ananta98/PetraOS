@@ -1,5 +1,5 @@
-use core::arch::asm;
 use alloc::boxed::Box;
+use core::arch::asm;
 
 /// A GDT Segment Descriptor.
 #[derive(Debug, Clone, Copy)]
@@ -20,7 +20,7 @@ impl SegmentDescriptor {
         let high = (1 << 11) // Executable
             | (1 << 12)      // Descriptor Type (code/data)
             | (1 << 15)      // Present
-            | (1 << 21);     // 64-bit (L) flag
+            | (1 << 21); // 64-bit (L) flag
         SegmentDescriptor { low: 0, high }
     }
 
@@ -28,7 +28,7 @@ impl SegmentDescriptor {
     pub const fn kernel_data() -> Self {
         let high = (1 << 9)  // Writable
             | (1 << 12)      // Descriptor Type (code/data)
-            | (1 << 15);     // Present
+            | (1 << 15); // Present
         SegmentDescriptor { low: 0, high }
     }
 
@@ -38,7 +38,7 @@ impl SegmentDescriptor {
             | (1 << 12)      // Descriptor Type (code/data)
             | (3 << 13)      // DPL = 3
             | (1 << 15)      // Present
-            | (1 << 21);     // 64-bit (L) flag
+            | (1 << 21); // 64-bit (L) flag
         SegmentDescriptor { low: 0, high }
     }
 
@@ -47,7 +47,7 @@ impl SegmentDescriptor {
         let high = (1 << 9)  // Writable
             | (1 << 12)      // Descriptor Type (code/data)
             | (3 << 13)      // DPL = 3
-            | (1 << 15);     // Present
+            | (1 << 15); // Present
         SegmentDescriptor { low: 0, high }
     }
 
@@ -56,29 +56,25 @@ impl SegmentDescriptor {
     pub fn tss(base: u64, limit: u32) -> (Self, Self) {
         let limit_low = limit & 0xFFFF;
         let limit_high = (limit >> 16) & 0xF;
-        
+
         let base_low = (base & 0xFFFF) as u32;
         let base_mid = ((base >> 16) & 0xFF) as u32;
         let base_high = ((base >> 24) & 0xFF) as u32;
-        
+
         let low = (base_low << 16) | limit_low;
-        
+
         let type_field = 0x9; // 64-bit TSS (Available)
         let present = 1 << 15;
-        let high = base_high << 24
-            | (limit_high << 16)
-            | present
-            | (type_field << 8)
-            | base_mid;
-            
+        let high = base_high << 24 | (limit_high << 16) | present | (type_field << 8) | base_mid;
+
         let desc_low = SegmentDescriptor { low, high };
-        
+
         let base_upper = (base >> 32) as u32;
         let desc_high = SegmentDescriptor {
             low: base_upper,
             high: 0,
         };
-        
+
         (desc_low, desc_high)
     }
 }
@@ -133,21 +129,21 @@ pub fn init() {
     unsafe {
         // Initialize TSS structure
         super::tss::init();
-        
+
         // Get TSS base and limit
         let tss_ptr = core::ptr::addr_of!(super::tss::TSS);
         let base = tss_ptr as u64;
         super::tss::CPU_TSS_POINTERS[0] = base;
         let limit = (core::mem::size_of::<super::tss::TaskStateSegment>() - 1) as u32;
-        
+
         // Build and write TSS descriptors
         let (tss_low, tss_high) = SegmentDescriptor::tss(base, limit);
         let gdt_mut = &mut *core::ptr::addr_of_mut!(GDT);
         gdt_mut.entries[5] = tss_low;
         gdt_mut.entries[6] = tss_high;
-        
+
         gdt_mut.load();
-        
+
         // Reload segment registers and load the TSS selector (0x28).
         asm!(
             "push 0x08",

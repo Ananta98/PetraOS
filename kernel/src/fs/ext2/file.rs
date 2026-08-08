@@ -1,6 +1,6 @@
+use super::inode::Ext2Volume;
 use crate::fs::vfs::types::{FileOps, VfsError};
 use alloc::sync::Arc;
-use super::inode::Ext2Volume;
 
 /// File operations (I/O) dispatch table for Ext2.
 pub struct Ext2FileOps {

@@ -5,12 +5,12 @@ pub mod paging;
 pub mod syscall;
 pub mod timer;
 
-pub use cpu::context;
+pub use cpu::context::{self, ThreadContext};
 pub use cpu::gdt;
-pub use interrupt::idt;
 pub use cpu::ports;
 pub use cpu::smp;
 pub use cpu::tss;
+pub use interrupt::idt;
 
 pub use interrupt::interrupts;
 pub use interrupt::ioapic;
@@ -96,16 +96,8 @@ pub fn init() {
     // Start Application Processors now that the BSP is fully online.
     cpu::smp::start_aps();
 
-    // ── Register all CPUs with the global scheduler ───────────────────
-    if let Some(mp) = crate::limine::MP_REQUEST.get_response() {
-        let mut guard = crate::sched::scheduler::GLOBAL_SCHEDULER.lock();
-        for cpu in mp.cpus() {
-            let id = cpu.lapic_id;
-            if guard.register_cpu(id) {
-                log::info!("Scheduler: registered CPU (LAPIC ID {})", id);
-            }
-        }
-    }
+    // ── Global scheduler is implicitly ready ───────────────────────────
+    log::info!("Scheduler: CFS ready");
 
     enable_interrupts();
 }

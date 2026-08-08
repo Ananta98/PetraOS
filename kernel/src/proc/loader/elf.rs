@@ -1,62 +1,7 @@
-use crate::mm::{AddrSpace, MapFlags, VmAreaKind, VirtAddr};
+use super::header::*;
 use crate::arch::paging::ArchPageTable;
 use crate::mm::PageTable;
-
-#[repr(C)]
-#[derive(Debug, Clone, Copy)]
-pub struct Elf64Header {
-    pub e_ident: [u8; 16],
-    pub e_type: u16,
-    pub e_machine: u16,
-    pub e_version: u32,
-    pub e_entry: u64,
-    pub e_phoff: u64,
-    pub e_shoff: u64,
-    pub e_flags: u32,
-    pub e_ehsize: u16,
-    pub e_phentsize: u16,
-    pub e_phnum: u16,
-    pub e_shentsize: u16,
-    pub e_shnum: u16,
-    pub e_shstrndx: u16,
-}
-
-#[repr(C)]
-#[derive(Debug, Clone, Copy)]
-pub struct Elf64Phdr {
-    pub p_type: u32,
-    pub p_flags: u32,
-    pub p_offset: u64,
-    pub p_vaddr: u64,
-    pub p_paddr: u64,
-    pub p_filesz: u64,
-    pub p_memsz: u64,
-    pub p_align: u64,
-}
-
-#[repr(C)]
-#[derive(Debug, Clone, Copy)]
-pub struct Elf64Shdr {
-    pub sh_name: u32,
-    pub sh_type: u32,
-    pub sh_flags: u64,
-    pub sh_addr: u64,
-    pub sh_offset: u64,
-    pub sh_size: u64,
-    pub sh_link: u32,
-    pub sh_info: u32,
-    pub sh_addralign: u64,
-    pub sh_entsize: u64,
-}
-
-const ELF_MAGIC: [u8; 4] = [0x7f, b'E', b'L', b'F'];
-const ELF_CLASS_64: u8 = 2;
-const ELF_DATA_2LSB: u8 = 1;
-const ET_EXEC: u16 = 2;
-const ET_DYN: u16 = 3;
-const EM_X86_64: u16 = 0x3E;
-const PT_LOAD: u32 = 1;
-const SHT_STRTAB: u32 = 3;
+use crate::mm::{AddrSpace, MapFlags, VirtAddr, VmAreaKind};
 
 /// A loaded ELF executable's resources.
 pub struct LoadedElf {
@@ -159,7 +104,11 @@ impl<'a> Elf<'a> {
     }
 
     /// Extract a null-terminated UTF-8 string from a string table section.
-    pub fn get_string(&self, table_shdr: &Elf64Shdr, offset: usize) -> Result<&'a str, &'static str> {
+    pub fn get_string(
+        &self,
+        table_shdr: &Elf64Shdr,
+        offset: usize,
+    ) -> Result<&'a str, &'static str> {
         if table_shdr.sh_type != SHT_STRTAB {
             return Err("Section is not a string table");
         }
@@ -202,18 +151,21 @@ impl<'a> Elf<'a> {
     /// Maps the loadable segments, creates the user address space, allocates a user stack,
     /// and returns the loaded image information.
     pub fn load(&self) -> Result<LoadedElf, &'static str> {
-        // Create the page table and address space
         let page_table = ArchPageTable::new().map_err(|_| "Failed to create PML4 page table")?;
         let mut addr_space = AddrSpace::new(page_table);
 
-        // Load segments
         self.load_segments(&mut addr_space)?;
 
-        // Set up user space stack
         let stack_size = 256 * 1024; // 256 KiB stack
         let stack_top = VirtAddr(0x7FFF_FFFF_0000);
         let stack_start = stack_top - stack_size;
-        addr_space.map_area(stack_start, stack_size, MapFlags::USER | MapFlags::READ | MapFlags::WRITE, VmAreaKind::Anonymous)
+        addr_space
+            .map_area(
+                stack_start,
+                stack_size,
+                MapFlags::USER | MapFlags::READ | MapFlags::WRITE,
+                VmAreaKind::Anonymous,
+            )
             .map_err(|_| "Failed to map user stack VMA")?;
 
         Ok(LoadedElf {
@@ -255,7 +207,11 @@ impl<'a> Elf<'a> {
     }
 
     /// Map a single program segment and copy file data to allocated physical frames.
-    fn load_segment(&self, addr_space: &mut AddrSpace<ArchPageTable>, phdr: &Elf64Phdr) -> Result<(), &'static str> {
+    fn load_segment(
+        &self,
+        addr_space: &mut AddrSpace<ArchPageTable>,
+        phdr: &Elf64Phdr,
+    ) -> Result<(), &'static str> {
         let start_vaddr = VirtAddr(phdr.p_vaddr);
         let end_vaddr = start_vaddr + phdr.p_memsz as usize;
 
@@ -267,7 +223,6 @@ impl<'a> Elf<'a> {
             return Ok(());
         }
 
-        // Map segment flags
         let mut flags = MapFlags::USER;
         if (phdr.p_flags & 4) != 0 {
             flags |= MapFlags::READ;
@@ -279,11 +234,10 @@ impl<'a> Elf<'a> {
             flags |= MapFlags::EXECUTE;
         }
 
-        // Map the area as anonymous
-        addr_space.map_area(aligned_start, aligned_size, flags, VmAreaKind::Anonymous)
+        addr_space
+            .map_area(aligned_start, aligned_size, flags, VmAreaKind::Anonymous)
             .map_err(|_| "Failed to map ELF segment VMA")?;
 
-        // Copy file content to mapped pages
         let file_offset = phdr.p_offset as usize;
         let file_size = phdr.p_filesz as usize;
 
@@ -295,7 +249,9 @@ impl<'a> Elf<'a> {
             let hhdm = crate::mm::hhdm_offset();
             for page_virt_u64 in (aligned_start.as_u64()..aligned_end.as_u64()).step_by(4096) {
                 let page_virt = VirtAddr(page_virt_u64);
-                let phys_addr = addr_space.page_table().translate(page_virt)
+                let phys_addr = addr_space
+                    .page_table()
+                    .translate(page_virt)
                     .ok_or("Failed to translate user virtual page to physical page")?;
 
                 let page_start = page_virt_u64;
@@ -311,12 +267,16 @@ impl<'a> Elf<'a> {
                     let file_src_offset = file_offset + (intersect_start - data_start_v) as usize;
                     let dest_offset = (intersect_start - page_start) as usize;
 
-                    let src_slice = &self.data[file_src_offset .. file_src_offset + copy_len];
+                    let src_slice = &self.data[file_src_offset..file_src_offset + copy_len];
                     let dest_ptr = phys_addr.as_ptr::<u8>(hhdm);
 
                     // SAFETY: Copying within bounds of checked src_slice and validated dest_ptr.
                     unsafe {
-                        core::ptr::copy_nonoverlapping(src_slice.as_ptr(), dest_ptr.add(dest_offset), copy_len);
+                        core::ptr::copy_nonoverlapping(
+                            src_slice.as_ptr(),
+                            dest_ptr.add(dest_offset),
+                            copy_len,
+                        );
                     }
                 }
             }

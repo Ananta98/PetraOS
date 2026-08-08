@@ -9,6 +9,10 @@
 
 use crate::arch::lapic::LocalApic;
 use crate::arch::ports::Ports;
+use crate::sync::spinlock::Spinlock;
+
+/// Global PIT hardware lock to serialize calibration across AP cores.
+static PIT_LOCK: Spinlock<()> = Spinlock::new(());
 
 /// The IDT vector number used for LAPIC timer interrupts.
 pub const TIMER_VECTOR: u8 = 48;
@@ -49,6 +53,9 @@ impl LapicTimer {
     /// 2. Running the LAPIC timer in one-shot mode simultaneously
     /// 3. Measuring elapsed LAPIC ticks to compute ticks-per-millisecond
     pub fn calibrate(lapic: &LocalApic) -> Self {
+        let saved_flags = crate::arch::disable_interrupts();
+        let _pit_guard = PIT_LOCK.lock();
+
         // Set divide configuration to divide-by-16
         lapic.write_timer_divide_config(TIMER_DIVIDE_BY_16);
 
@@ -103,6 +110,11 @@ impl LapicTimer {
             elapsed,
             CALIBRATION_MS
         );
+
+        drop(_pit_guard);
+        if saved_flags {
+            crate::arch::enable_interrupts();
+        }
 
         Self { ticks_per_ms }
     }

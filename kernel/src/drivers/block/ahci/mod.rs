@@ -3,9 +3,9 @@ pub mod hba;
 pub mod port;
 
 use crate::arch::paging;
+use crate::device::{BlockDevice, Device, DeviceType, DriverError};
 use crate::drivers::pci::config;
 use crate::drivers::pci::device::PciDevice;
-use crate::device::{BlockDevice, Device, DeviceType, DriverError};
 use crate::sync::spinlock::Spinlock;
 use hba::HbaMem;
 

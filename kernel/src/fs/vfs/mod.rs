@@ -4,9 +4,9 @@ pub mod path;
 pub mod types;
 
 pub use dcache::Dentry;
-pub use mount::{Mount, MountTable, MOUNT_TABLE};
+pub use mount::{MOUNT_TABLE, Mount, MountTable};
 pub use path::{create_file, resolve_path};
 pub use types::{
-    can_read, can_write, File, FileOps, FileSystem, Inode, InodeOps, InodeType, SuperBlock,
-    VfsError, O_CREAT, O_RDONLY, O_RDWR, O_WRONLY,
+    File, FileOps, FileSystem, Inode, InodeOps, InodeType, O_CREAT, O_RDONLY, O_RDWR, O_WRONLY,
+    SuperBlock, VfsError, can_read, can_write,
 };

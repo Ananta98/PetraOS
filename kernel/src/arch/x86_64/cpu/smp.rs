@@ -94,30 +94,26 @@ pub fn start_aps() {
 
     let ap_count = (total - 1) as u32;
 
-    // Release each AP (skip the BSP itself).
+    // Release each AP sequentially to prevent initialization race conditions.
     for cpu in cpus {
         if cpu.lapic_id == bsp_lapic_id {
             continue;
         }
+        let online_before = APS_ONLINE.load(Ordering::Acquire);
+
         // SAFETY: ap_entry satisfies the `extern "C" fn(*const Cpu) -> !`
         // signature required by Limine's goto_address protocol.
         cpu.goto_address.write(ap_entry);
-    }
 
-    // Busy-wait until every AP has incremented APS_ONLINE.
-    // This is safe to do on the BSP because interrupts are already enabled
-    // and the LAPIC timer keeps firing.
-    let mut spins: u64 = 0;
-    while APS_ONLINE.load(Ordering::Acquire) < ap_count {
-        core::hint::spin_loop();
-        spins += 1;
-        if spins == 100_000_000 {
-            log::warn!(
-                "SMP: timeout waiting for APs — only {} / {} online.",
-                APS_ONLINE.load(Ordering::Relaxed),
-                ap_count
-            );
-            break;
+        // Wait for this specific AP to come online
+        let mut spins: u64 = 0;
+        while APS_ONLINE.load(Ordering::Acquire) <= online_before {
+            core::hint::spin_loop();
+            spins += 1;
+            if spins == 100_000_000 {
+                log::warn!("SMP: timeout waiting for AP (lapic_id={})", cpu.lapic_id);
+                break;
+            }
         }
     }
 

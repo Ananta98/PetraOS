@@ -109,22 +109,13 @@ extern "x86-interrupt" fn timer_handler(_stack_frame: &mut InterruptStackFrame) 
         super::lapic::get_lapic().end_of_interrupt();
     }
 
-    // ── Drive the scheduler ────────────────────────────────────────────────
-    //
-    // Advance vruntime / RR time-slice accounting for `cpu_id` by one tick,
-    // then ask the scheduler which task should run next.
-    let _next = crate::sched::scheduler::tick_and_schedule(cpu_id);
+    // Log LAPIC timer tick status
+    log::trace!("LAPIC timer tick on CPU {}: running scheduler", cpu_id);
 
-    // // Perform the context switch
-    // if let Some(next_id) = _next {
-    //     crate::proc::switch_to(cpu_id, next_id);
-    // } else {
-    //     // Switch to the CPU's idle thread if no other tasks are runnable
-    //     crate::proc::switch_to(
-    //         cpu_id,
-    //         crate::sched::sched_thread::ThreadId((cpu_id + 100) as u64),
-    //     );
-    // }
+    // Advance vruntime for `cpu_id` by one tick (10ms = 10,000,000 ns),
+    // then ask the scheduler which task should run next.
+    crate::sched::SCHEDULER.lock().tick(cpu_id, 10_000_000);
+    crate::sched::schedule(true);
 }
 
 extern "x86-interrupt" fn spurious_interrupt_handler(_stack_frame: &mut InterruptStackFrame) {

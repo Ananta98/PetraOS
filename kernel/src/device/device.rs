@@ -59,10 +59,18 @@ pub trait CharDevice: Device {
 
 pub trait BlockDevice: Device {
     /// Read a block of data.
-    fn read_block(&mut self, block_id: u64, buf: &mut [u8]) -> Result<usize, super::driver::DriverError>;
+    fn read_block(
+        &mut self,
+        block_id: u64,
+        buf: &mut [u8],
+    ) -> Result<usize, super::driver::DriverError>;
 
     /// Write a block of data.
-    fn write_block(&mut self, block_id: u64, buf: &[u8]) -> Result<usize, super::driver::DriverError>;
+    fn write_block(
+        &mut self,
+        block_id: u64,
+        buf: &[u8],
+    ) -> Result<usize, super::driver::DriverError>;
 
     /// Block size in bytes.
     fn block_size(&self) -> usize;
