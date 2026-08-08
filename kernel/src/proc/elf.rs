@@ -1,6 +1,6 @@
 use crate::mm::{AddrSpace, MapFlags, VmAreaKind, VirtAddr};
 use crate::arch::paging::ArchPageTable;
-use crate::mm::paging::PageTable;
+use crate::mm::PageTable;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]

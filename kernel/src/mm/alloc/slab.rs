@@ -1,6 +1,6 @@
-use super::address::PhysAddr;
-use super::freelist::{IntrusiveList, IntrusiveNode};
-use super::pmm::PMM;
+use crate::mm::types::PhysAddr;
+use crate::mm::alloc::freelist::{IntrusiveList, IntrusiveNode};
+use crate::mm::PMM;
 use crate::sync::spinlock::Spinlock;
 use core::alloc::{GlobalAlloc, Layout};
 
@@ -208,7 +208,7 @@ unsafe impl GlobalAlloc for SlabAllocator {
         let size = layout.size();
         let align = layout.align();
 
-        let hhdm_offset = super::hhdm_offset();
+        let hhdm_offset = crate::mm::hhdm_offset();
 
         if size > 2048 {
             // Allocate pages directly from PMM
@@ -244,7 +244,7 @@ unsafe impl GlobalAlloc for SlabAllocator {
         let size = layout.size();
         let align = layout.align();
 
-        let hhdm_offset = super::hhdm_offset();
+        let hhdm_offset = crate::mm::hhdm_offset();
 
         if size > 2048 {
             // Large allocation, free pages back to PMM

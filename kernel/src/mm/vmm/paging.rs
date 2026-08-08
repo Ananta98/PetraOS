@@ -1,4 +1,4 @@
-use super::address::{PhysAddr, VirtAddr};
+use crate::mm::types::{PhysAddr, VirtAddr};
 
 bitflags::bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -34,6 +34,7 @@ pub enum PageFaultError {
 pub enum MapError {
     FrameAllocationFailed,
     AlreadyMapped,
+    NotMapped,
     InvalidAddress,
 }
 
@@ -63,8 +64,27 @@ pub trait PageTable: Send + Sync {
     /// Map a virtual page to a physical frame.
     fn map(&mut self, page: VirtAddr, frame: PhysAddr, flags: MapFlags) -> Result<(), MapError>;
 
+    /// Map a contiguous range of virtual pages to physical frames.
+    fn map_range(
+        &mut self,
+        page: VirtAddr,
+        frame: PhysAddr,
+        size: usize,
+        flags: MapFlags,
+    ) -> Result<(), MapError>;
+
     /// Unmap a virtual page.
     fn unmap(&mut self, page: VirtAddr) -> Result<PhysAddr, UnmapError>;
+
+    /// Unmap a contiguous range of virtual pages.
+    fn unmap_range(&mut self, page: VirtAddr, size: usize) -> Result<(), UnmapError>;
+
+    /// Remap a virtual page with new flags.
+    fn remap(&mut self, page: VirtAddr, flags: MapFlags) -> Result<(), MapError>;
+
+    /// Remap a contiguous range of virtual pages with new flags.
+    fn remap_range(&mut self, page: VirtAddr, size: usize, flags: MapFlags)
+    -> Result<(), MapError>;
 
     /// Translate a virtual address to its corresponding physical address.
     fn translate(&self, virt: VirtAddr) -> Option<PhysAddr>;

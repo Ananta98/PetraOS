@@ -1,5 +1,5 @@
-use crate::mm::address::{PhysAddr, VirtAddr};
-use crate::mm::paging::{MapFlags, PageTable};
+use crate::mm::{PhysAddr, VirtAddr};
+use crate::mm::{MapFlags, PageTable};
 use core::sync::atomic::{AtomicU64, Ordering};
 
 /// Returns the Higher Half Direct Map (HHDM) physical-to-virtual offset provided by Limine bootloader.

@@ -1,5 +1,5 @@
-use super::address::{PhysAddr, VirtAddr};
-use super::paging::{MapError, MapFlags, PageFaultAccess, PageFaultError, PageTable, UnmapError};
+use crate::mm::types::{PhysAddr, VirtAddr};
+use crate::mm::vmm::paging::{MapError, MapFlags, PageFaultAccess, PageFaultError, PageTable, UnmapError};
 use alloc::collections::BTreeMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -161,51 +161,28 @@ impl<P: PageTable> AddrSpace<P> {
             return Err(AddrSpaceError::OverlappingArea);
         }
 
-        // Eagerly map pages into page table
-        let num_pages = size / 4096;
-        let mut mapped_pages: usize = 0;
+        // Eagerly map pages only for Device memory.
+        // Anonymous memory is lazily mapped on demand by the page fault handler.
+        if matches!(kind, VmAreaKind::Device { .. }) {
+            let num_pages = size / 4096;
+            let mut mapped_pages: usize = 0;
 
-        for i in 0..num_pages {
-            let page_virt = start + (i * 4096);
-            let frame_phys = match kind {
-                VmAreaKind::Anonymous => match crate::mm::PMM.alloc_page() {
-                    Some(frame) => {
-                        let hhdm = super::hhdm_offset();
-                        let ptr = frame.as_ptr::<u8>(hhdm);
-                        unsafe {
-                            core::ptr::write_bytes(ptr, 0, 4096);
-                        }
-                        frame
-                    }
-                    None => {
+            for i in 0..num_pages {
+                let page_virt = start + (i * 4096);
+                let frame_phys = match kind {
+                    VmAreaKind::Device { phys_start } => phys_start + (i * 4096),
+                    _ => unreachable!(),
+                };
+
+                match self.page_table.map(page_virt, frame_phys, flags) {
+                    Ok(_) => mapped_pages += 1,
+                    Err(err) => {
                         for j in 0..mapped_pages {
                             let rollback_virt = start + (j * 4096);
-                            if let Ok(rollback_frame) = self.page_table.unmap(rollback_virt) {
-                                crate::mm::PMM.free_page(rollback_frame);
-                            }
+                            let _ = self.page_table.unmap(rollback_virt);
                         }
-                        return Err(AddrSpaceError::PagingError(
-                            MapError::FrameAllocationFailed,
-                        ));
+                        return Err(AddrSpaceError::PagingError(err));
                     }
-                },
-                VmAreaKind::Device { phys_start } => phys_start + (i * 4096),
-            };
-
-            match self.page_table.map(page_virt, frame_phys, flags) {
-                Ok(_) => {
-                    mapped_pages += 1;
-                }
-                Err(err) => {
-                    for j in 0..mapped_pages {
-                        let rollback_virt = start + (j * 4096);
-                        if let Ok(rollback_frame) = self.page_table.unmap(rollback_virt) {
-                            if matches!(kind, VmAreaKind::Anonymous) {
-                                crate::mm::PMM.free_page(rollback_frame);
-                            }
-                        }
-                    }
-                    return Err(AddrSpaceError::PagingError(err));
                 }
             }
         }
@@ -240,6 +217,9 @@ impl<P: PageTable> AddrSpace<P> {
                     if matches!(area.kind, VmAreaKind::Anonymous) {
                         crate::mm::PMM.free_page(frame);
                     }
+                }
+                Err(UnmapError::NotMapped) => {
+                    // Ignore, it was lazily mapped and never allocated.
                 }
                 Err(err) => {
                     // Restore VMA structure on failure
@@ -294,7 +274,7 @@ impl<P: PageTable> AddrSpace<P> {
                 let frame = crate::mm::PMM
                     .alloc_page()
                     .ok_or(PageFaultError::FrameAllocationFailed)?;
-                let hhdm = super::hhdm_offset();
+                let hhdm = crate::mm::hhdm_offset();
                 let ptr = frame.as_ptr::<u8>(hhdm);
                 unsafe {
                     core::ptr::write_bytes(ptr, 0, 4096);

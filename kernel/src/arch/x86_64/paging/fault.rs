@@ -1,4 +1,4 @@
-use crate::mm::paging::PageFaultAccess;
+use crate::mm::PageFaultAccess;
 
 /// Architecture-specific x86_64 Page Fault Error Code representation.
 ///

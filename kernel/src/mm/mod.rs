@@ -1,18 +1,22 @@
-pub mod address;
-pub mod buddy;
-pub mod freelist;
-pub mod paging;
+pub mod alloc;
 pub mod pmm;
-pub mod slab;
-pub mod vma;
+pub mod types;
+pub mod vmm;
 
-pub use address::{PhysAddr, VirtAddr};
-pub use paging::{MapError, MapFlags, PageFaultAccess, PageFaultError, PageTable, UnmapError};
 pub use pmm::PMM;
-pub use vma::{AddrSpace, AddrSpaceError, VmArea, VmAreaKind};
+pub use types::{PhysAddr, VirtAddr};
+pub use vmm::{
+    AddrSpace, AddrSpaceError, MapError, MapFlags, PageFaultAccess, PageFaultError, PageTable,
+    UnmapError, VmArea, VmAreaKind,
+};
 
 pub fn init() {
     PMM.init();
+
+    // Verify heap allocator mapping works
+    extern crate alloc;
+    let heap_test = alloc::boxed::Box::new(42);
+    assert_eq!(*heap_test, 42);
 }
 
 pub fn hhdm_offset() -> u64 {

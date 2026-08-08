@@ -1,5 +1,5 @@
-use super::address::PhysAddr;
-use super::freelist::{IntrusiveList, IntrusiveNode};
+use crate::mm::types::PhysAddr;
+use crate::mm::alloc::freelist::{IntrusiveList, IntrusiveNode};
 
 pub const MAX_ORDER: usize = 16;
 

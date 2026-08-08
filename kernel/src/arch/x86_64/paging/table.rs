@@ -1,8 +1,8 @@
 use super::flags::*;
 use super::index::*;
 use super::utils::*;
-use crate::mm::address::{PhysAddr, VirtAddr};
-use crate::mm::paging::{MapError, MapFlags, PageTable, UnmapError};
+use crate::mm::{PhysAddr, VirtAddr};
+use crate::mm::{MapError, MapFlags, PageTable, UnmapError};
 
 pub struct ArchPageTable {
     pml4_phys: PhysAddr,
@@ -177,6 +177,24 @@ impl PageTable for ArchPageTable {
         Ok(())
     }
 
+    fn map_range(
+        &mut self,
+        page: VirtAddr,
+        frame: PhysAddr,
+        size: usize,
+        flags: MapFlags,
+    ) -> Result<(), MapError> {
+        let count = (size + 4095) / 4096;
+        for i in 0..count {
+            self.map(
+                VirtAddr(page.as_u64() + i as u64 * 4096),
+                PhysAddr(frame.as_u64() + i as u64 * 4096),
+                flags,
+            )?;
+        }
+        Ok(())
+    }
+
     fn unmap(&mut self, page: VirtAddr) -> Result<PhysAddr, UnmapError> {
         if !page.is_aligned(4096) {
             return Err(UnmapError::InvalidAddress);
@@ -224,6 +242,75 @@ impl PageTable for ArchPageTable {
         }
 
         Ok(frame_phys)
+    }
+
+    fn unmap_range(&mut self, page: VirtAddr, size: usize) -> Result<(), UnmapError> {
+        let count = (size + 4095) / 4096;
+        for i in 0..count {
+            self.unmap(VirtAddr(page.as_u64() + i as u64 * 4096))?;
+        }
+        Ok(())
+    }
+
+    fn remap(&mut self, page: VirtAddr, flags: MapFlags) -> Result<(), MapError> {
+        if !page.is_aligned(4096) {
+            return Err(MapError::InvalidAddress);
+        }
+
+        let hhdm = hhdm_offset();
+        let l4_idx = pml4_index(page);
+        let l3_idx = pdpt_index(page);
+        let l2_idx = pd_index(page);
+        let l1_idx = pt_index(page);
+
+        let pml4 = self.pml4_phys.as_ptr::<u64>(hhdm);
+        let pml4_entry = unsafe { *pml4.add(l4_idx) };
+        if (pml4_entry & PAGE_PRESENT) == 0 {
+            return Err(MapError::NotMapped);
+        }
+
+        let pdpt_phys = PhysAddr(pml4_entry & 0x000F_FFFF_FFFF_F000);
+        let pdpt = pdpt_phys.as_ptr::<u64>(hhdm);
+        let pdpt_entry = unsafe { *pdpt.add(l3_idx) };
+        if (pdpt_entry & PAGE_PRESENT) == 0 {
+            return Err(MapError::NotMapped);
+        }
+
+        let pd_phys = PhysAddr(pdpt_entry & 0x000F_FFFF_FFFF_F000);
+        let pd = pd_phys.as_ptr::<u64>(hhdm);
+        let pd_entry = unsafe { *pd.add(l2_idx) };
+        if (pd_entry & PAGE_PRESENT) == 0 {
+            return Err(MapError::NotMapped);
+        }
+
+        let pt_phys = PhysAddr(pd_entry & 0x000F_FFFF_FFFF_F000);
+        let pt = pt_phys.as_ptr::<u64>(hhdm);
+        let pt_entry = unsafe { *pt.add(l1_idx) };
+        if (pt_entry & PAGE_PRESENT) == 0 {
+            return Err(MapError::NotMapped);
+        }
+
+        let entry_flags = translate_flags(flags);
+        let pt_entry_val = (pt_entry & 0x000F_FFFF_FFFF_F000) | entry_flags;
+        unsafe {
+            *pt.add(l1_idx) = pt_entry_val;
+            core::arch::asm!("invlpg [{}]", in(reg) page.as_u64(), options(nostack, preserves_flags));
+        }
+
+        Ok(())
+    }
+
+    fn remap_range(
+        &mut self,
+        page: VirtAddr,
+        size: usize,
+        flags: MapFlags,
+    ) -> Result<(), MapError> {
+        let count = (size + 4095) / 4096;
+        for i in 0..count {
+            self.remap(VirtAddr(page.as_u64() + i as u64 * 4096), flags)?;
+        }
+        Ok(())
     }
 
     fn translate(&self, virt: VirtAddr) -> Option<PhysAddr> {

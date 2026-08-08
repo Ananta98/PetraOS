@@ -1,5 +1,5 @@
-use super::address::PhysAddr;
-use super::buddy::{BuddyAllocator, Page, PageFlags};
+use crate::mm::types::PhysAddr;
+use crate::mm::pmm::buddy::{BuddyAllocator, Page, PageFlags};
 use crate::sync::spinlock::Spinlock;
 
 pub struct PhysicalMemoryManagement {

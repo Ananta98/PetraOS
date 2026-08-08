@@ -1,4 +1,4 @@
-use crate::mm::address::VirtAddr;
+use crate::mm::VirtAddr;
 
 /// Get PML4 (level 4 page table) index for a virtual address.
 #[inline]

@@ -1,4 +1,4 @@
-use crate::mm::paging::MapFlags;
+use crate::mm::MapFlags;
 
 pub const PAGE_PRESENT: u64 = 1 << 0;
 pub const PAGE_WRITABLE: u64 = 1 << 1;
