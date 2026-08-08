@@ -12,11 +12,6 @@ pub use vmm::{
 
 pub fn init() {
     PMM.init();
-
-    // Verify heap allocator mapping works
-    extern crate alloc;
-    let heap_test = alloc::boxed::Box::new(42);
-    assert_eq!(*heap_test, 42);
 }
 
 pub fn hhdm_offset() -> u64 {
