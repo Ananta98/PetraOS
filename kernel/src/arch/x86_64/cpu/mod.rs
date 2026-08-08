@@ -1,6 +1,5 @@
 pub mod context;
 pub mod gdt;
-pub mod idt;
 pub mod ports;
 pub mod smp;
 pub mod tss;

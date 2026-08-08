@@ -7,7 +7,7 @@ pub mod timer;
 
 pub use cpu::context;
 pub use cpu::gdt;
-pub use cpu::idt;
+pub use interrupt::idt;
 pub use cpu::ports;
 pub use cpu::smp;
 pub use cpu::tss;
