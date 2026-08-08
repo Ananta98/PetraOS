@@ -5,7 +5,7 @@ pub mod paging;
 pub mod syscall;
 pub mod timer;
 
-pub use cpu::context_switch;
+pub use cpu::context;
 pub use cpu::gdt;
 pub use cpu::idt;
 pub use cpu::ports;
@@ -58,20 +58,20 @@ pub fn cpu_id() -> u32 {
 
 /// Initialize execution stack for a new thread context.
 pub fn init_stack(stack: &mut [u8], entry: extern "C" fn(*mut u8), arg: *mut u8) -> u64 {
-    cpu::context_switch::init_stack(stack, entry, arg)
+    cpu::context::init_stack(stack, entry, arg)
 }
 
 /// Switch CPU stack and execution context between two threads.
 pub unsafe fn switch_context(prev_rsp_ptr: *mut u64, next_rsp: u64) {
     unsafe {
-        cpu::context_switch::switch_context(prev_rsp_ptr, next_rsp);
+        cpu::context::switch_context(prev_rsp_ptr, next_rsp);
     }
 }
 
 /// Switch CPU stack context to a target thread without saving previous context.
 pub unsafe fn switch_context_to(next_rsp: u64) -> ! {
     unsafe {
-        cpu::context_switch::switch_context_to(next_rsp);
+        cpu::context::switch_context_to(next_rsp);
     }
 }
 
