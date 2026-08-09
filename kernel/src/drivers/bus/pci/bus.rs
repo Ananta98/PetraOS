@@ -1,4 +1,4 @@
-use super::config;
+use super::arch as config;
 use super::device::{PCI_VENDOR_NONE, PciDevice};
 use crate::device::{Device, DriverError};
 
