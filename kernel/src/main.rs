@@ -25,6 +25,8 @@ unsafe extern "C" fn kmain() -> ! {
     mm::init();
     arch::init();
     proc::init();
+    drivers::init();
+    fs::run_vfs_ext2_tests();
     hcf();
 }
 

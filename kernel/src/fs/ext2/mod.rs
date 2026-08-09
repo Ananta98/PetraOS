@@ -1,3 +1,4 @@
+pub mod bitmap;
 pub mod dir;
 pub mod file;
 pub mod inode;
@@ -5,8 +6,8 @@ pub mod superblock;
 
 use self::inode::{Ext2InodeOps, Ext2Volume};
 use crate::device::{BlockDevice, Device, DeviceType, DriverError};
-use crate::fs::vfs::mount::MOUNT_TABLE;
 use crate::fs::vfs::types::{FileSystem, Inode, InodeType, SuperBlock, VfsError};
+use crate::sync::spinlock::Spinlock;
 use alloc::sync::Arc;
 
 /// Ext2 Filesystem driver wrapper mapping to the VFS.
@@ -43,14 +44,24 @@ impl FileSystem for Ext2Fs {
             fs_name: "ext2",
             root_inode,
             next_ino: core::sync::atomic::AtomicU64::new(volume.sb.inodes_count as u64 + 1),
-            read_only: true,
+            read_only: false,
         })
     }
 }
 
-/// A memory-backed mock block device containing the ext2 image.
+/// A memory-backed mock block device containing an ext2 disk image buffer.
 pub struct MockDisk {
-    data: &'static [u8],
+    pub data: Spinlock<::alloc::vec::Vec<u8>>,
+    pub name: &'static str,
+}
+
+impl MockDisk {
+    pub fn new(initial_data: &[u8], name: &'static str) -> Self {
+        Self {
+            data: Spinlock::new(initial_data.to_vec()),
+            name,
+        }
+    }
 }
 
 impl Device for MockDisk {
@@ -59,7 +70,7 @@ impl Device for MockDisk {
     }
 
     fn name(&self) -> &'static str {
-        "ext2_disk"
+        self.name
     }
 
     fn init(&mut self) -> Result<(), DriverError> {
@@ -79,15 +90,24 @@ impl BlockDevice for MockDisk {
     fn read_block(&mut self, block_id: u64, buf: &mut [u8]) -> Result<usize, DriverError> {
         let block_size = self.block_size();
         let offset = block_id as usize * block_size;
-        if offset + buf.len() > self.data.len() {
+        let data = self.data.lock();
+        if offset + buf.len() > data.len() {
             return Err(DriverError::Unsupported);
         }
-        buf.copy_from_slice(&self.data[offset..offset + buf.len()]);
+        buf.copy_from_slice(&data[offset..offset + buf.len()]);
         Ok(buf.len())
     }
 
-    fn write_block(&mut self, _block_id: u64, _buf: &[u8]) -> Result<usize, DriverError> {
-        Err(DriverError::Unsupported)
+    fn write_block(&mut self, block_id: u64, buf: &[u8]) -> Result<usize, DriverError> {
+        let block_size = self.block_size();
+        let offset = block_id as usize * block_size;
+        let mut data = self.data.lock();
+        let end = offset + buf.len();
+        if end > data.len() {
+            data.resize(end, 0);
+        }
+        data[offset..end].copy_from_slice(buf);
+        Ok(buf.len())
     }
 
     fn block_size(&self) -> usize {

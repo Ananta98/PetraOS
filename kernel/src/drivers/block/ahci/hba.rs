@@ -1,3 +1,15 @@
+pub const HBA_PX_CMD_ST: u32 = 0x0001;
+pub const HBA_PX_CMD_FRE: u32 = 0x0010;
+pub const HBA_PX_CMD_FR: u32 = 0x4000;
+pub const HBA_PX_CMD_CR: u32 = 0x8000;
+
+pub const ATA_DEV_BUSY: u32 = 0x80;
+pub const ATA_DEV_DRQ: u32 = 0x08;
+
+pub const ATA_CMD_READ_DMA_EXT: u8 = 0x25;
+pub const ATA_CMD_WRITE_DMA_EXT: u8 = 0x35;
+pub const ATA_DEV_LBA: u8 = 0x40;
+
 #[repr(C)]
 pub struct HbaPort {
     pub clb: u32,  // Command list base address, 1K-byte aligned
@@ -37,4 +49,30 @@ pub struct HbaMem {
     pub rsv: [u8; 0x74],
     pub vendor: [u8; 0x60],
     pub ports: [HbaPort; 32], // 1 to 32
+}
+
+#[repr(C, packed)]
+pub struct HbaCmdHeader {
+    pub cfl_w_a_p_r_b_r_p: u16, // CFL: bits 0-4, W: bit 6, etc.
+    pub prdtl: u16,            // Physical region descriptor table length
+    pub prdbc: u32,            // PRD byte count transferred
+    pub ctba: u32,             // Command table base address
+    pub ctbau: u32,            // Command table base address upper
+    pub rsv0: [u32; 4],        // Reserved
+}
+
+#[repr(C, packed)]
+pub struct HbaPrdtEntry {
+    pub dba: u32,   // Data base address
+    pub dbau: u32,  // Data base address upper
+    pub rsv0: u32,  // Reserved
+    pub dbc_i: u32, // Byte count - 1 (bits 0-21), bit 31 = Interrupt on completion
+}
+
+#[repr(C, packed)]
+pub struct HbaCmdTable {
+    pub cfis: [u8; 64],
+    pub acmd: [u8; 16],
+    pub rsv: [u8; 48],
+    pub prdt_entry: [HbaPrdtEntry; 1],
 }

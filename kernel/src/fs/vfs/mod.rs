@@ -1,9 +1,9 @@
-pub mod dcache;
+pub mod dentry;
 pub mod mount;
 pub mod path;
 pub mod types;
 
-pub use dcache::Dentry;
+pub use dentry::Dentry;
 pub use mount::{MOUNT_TABLE, Mount, MountTable};
 pub use path::{create_file, resolve_path};
 pub use types::{

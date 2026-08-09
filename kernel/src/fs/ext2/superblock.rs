@@ -84,4 +84,17 @@ impl Ext2BlockGroupDescriptor {
             used_dirs_count: u16::from_le_bytes([data[16], data[17]]),
         })
     }
+
+    /// Serialize into a 32-byte array.
+    pub fn serialize(&self) -> [u8; 32] {
+        let mut buf = [0u8; 32];
+        buf[0..4].copy_from_slice(&self.block_bitmap.to_le_bytes());
+        buf[4..8].copy_from_slice(&self.inode_bitmap.to_le_bytes());
+        buf[8..12].copy_from_slice(&self.inode_table.to_le_bytes());
+        buf[12..14].copy_from_slice(&self.free_blocks_count.to_le_bytes());
+        buf[14..16].copy_from_slice(&self.free_inodes_count.to_le_bytes());
+        buf[16..18].copy_from_slice(&self.used_dirs_count.to_le_bytes());
+        buf
+    }
 }
+

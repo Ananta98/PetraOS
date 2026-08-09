@@ -1,4 +1,4 @@
-use super::dcache::Dentry;
+use super::dentry::Dentry;
 use super::types::{FileSystem, SuperBlock, VfsError};
 use crate::sync::spinlock::Spinlock;
 use alloc::collections::BTreeMap;

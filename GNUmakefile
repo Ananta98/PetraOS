@@ -22,6 +22,12 @@ all-hdd: $(IMAGE_NAME).hdd
 .PHONY: run
 run: run-$(KARCH)
 
+.PHONY: ext2-img
+ext2-img:
+	chmod +x tools/create_ext2_img.sh
+	./tools/create_ext2_img.sh ext2.img 4
+
+
 .PHONY: run-hdd
 run-hdd: run-hdd-$(KARCH)
 

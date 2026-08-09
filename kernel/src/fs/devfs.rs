@@ -3,7 +3,7 @@ use core::sync::atomic::AtomicU64;
 
 use crate::device::DEVICE_MANAGER;
 use crate::fs::ramfs::RamDirInode;
-use crate::fs::vfs::dcache::Dentry;
+use crate::fs::vfs::dentry::Dentry;
 use crate::fs::vfs::mount::MOUNT_TABLE;
 use crate::fs::vfs::types::{
     FileOps, FileSystem, Inode, InodeOps, InodeType, SuperBlock, VfsError,

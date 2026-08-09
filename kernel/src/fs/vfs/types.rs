@@ -1,3 +1,4 @@
+use super::dentry::Dentry;
 use crate::sync::spinlock::Spinlock;
 use alloc::string::String;
 use alloc::sync::Arc;
@@ -25,6 +26,10 @@ pub enum VfsError {
     NotSupported,
     /// Bad file descriptor (not open or already closed).
     BadFd,
+    /// Directory not empty.
+    NotEmpty,
+    /// Is a directory.
+    IsDirectory,
 }
 
 /// Open file for reading only.
@@ -51,6 +56,30 @@ pub fn can_write(flags: u32) -> bool {
     mode == O_WRONLY || mode == O_RDWR
 }
 
+/// POSIX file metadata structure.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Stat {
+    pub ino: u64,
+    pub mode: u32,
+    pub nlink: u32,
+    pub uid: u32,
+    pub gid: u32,
+    pub size: u64,
+    pub atime: u64,
+    pub mtime: u64,
+    pub ctime: u64,
+    pub blksize: u64,
+    pub blocks: u64,
+}
+
+/// Seek directive for lseek.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SeekWhence {
+    Set,
+    Cur,
+    End,
+}
+
 /// The kind of object an inode represents.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InodeType {
@@ -62,7 +91,7 @@ pub enum InodeType {
     CharDevice,
     /// Block device (e.g., /dev/sda).
     BlockDevice,
-    /// Symbolic link (reserved for future use).
+    /// Symbolic link.
     Symlink,
 }
 
@@ -83,9 +112,54 @@ pub trait InodeOps: Send + Sync {
         Err(VfsError::NotSupported)
     }
 
+    /// Remove a file entry from a directory inode.
+    fn unlink(&self, _name: &str) -> Result<(), VfsError> {
+        Err(VfsError::NotSupported)
+    }
+
+    /// Remove an empty subdirectory entry from a directory inode.
+    fn rmdir(&self, _name: &str) -> Result<(), VfsError> {
+        Err(VfsError::NotSupported)
+    }
+
+    /// Create a symbolic link entry in a directory inode.
+    fn symlink(&self, _name: &str, _target: &str) -> Result<Arc<Inode>, VfsError> {
+        Err(VfsError::NotSupported)
+    }
+
+    /// Read target path from a symbolic link inode.
+    fn readlink(&self) -> Result<String, VfsError> {
+        Err(VfsError::NotSupported)
+    }
+
+    /// Create a hard link to `target_inode`.
+    fn link(&self, _name: &str, _target_inode: &Arc<Inode>) -> Result<(), VfsError> {
+        Err(VfsError::NotSupported)
+    }
+
+    /// Rename an entry from `old_name` to `new_name` in `new_dir`.
+    fn rename(
+        &self,
+        _old_name: &str,
+        _new_dir: &Arc<Inode>,
+        _new_name: &str,
+    ) -> Result<(), VfsError> {
+        Err(VfsError::NotSupported)
+    }
+
     /// List child entry names within a directory inode.
     fn readdir(&self) -> Result<Vec<String>, VfsError> {
         Err(VfsError::NotDirectory)
+    }
+
+    /// Fetch metadata stat structure.
+    fn stat(&self) -> Result<Stat, VfsError> {
+        Err(VfsError::NotSupported)
+    }
+
+    /// Truncate file to specified size.
+    fn truncate(&self, _size: usize) -> Result<(), VfsError> {
+        Err(VfsError::NotSupported)
     }
 
     /// Produce per-open-file I/O operations for this inode.
@@ -115,9 +189,27 @@ pub trait FileOps: Send + Sync {
     fn write(&self, _offset: usize, _buf: &[u8]) -> Result<usize, VfsError> {
         Err(VfsError::NotSupported)
     }
-}
 
-use super::dcache::Dentry;
+    /// Seek to specified offset based on `whence`.
+    fn lseek(&self, _offset: i64, _whence: SeekWhence) -> Result<usize, VfsError> {
+        Err(VfsError::NotSupported)
+    }
+
+    /// Truncate file to `size`.
+    fn truncate(&self, _size: usize) -> Result<(), VfsError> {
+        Err(VfsError::NotSupported)
+    }
+
+    /// Fetch file stat metadata.
+    fn stat(&self) -> Result<Stat, VfsError> {
+        Err(VfsError::NotSupported)
+    }
+
+    /// Synchronize in-memory file changes to storage.
+    fn sync(&self) -> Result<(), VfsError> {
+        Ok(())
+    }
+}
 
 /// An open file description, tying a dentry to per-open state (offset, flags)
 /// and the I/O operations obtained from the inode.
@@ -169,6 +261,35 @@ impl File {
     pub fn seek(&self, new_offset: usize) {
         let mut offset = self.offset.lock();
         *offset = new_offset;
+    }
+
+    /// POSIX lseek implementation.
+    pub fn lseek(&self, offset: i64, whence: SeekWhence) -> Result<usize, VfsError> {
+        if let Ok(new_pos) = self.ops.lseek(offset, whence) {
+            let mut off = self.offset.lock();
+            *off = new_pos;
+            return Ok(new_pos);
+        }
+
+        let current_pos = *self.offset.lock();
+        let base = match whence {
+            SeekWhence::Set => 0i64,
+            SeekWhence::Cur => current_pos as i64,
+            SeekWhence::End => {
+                let stat = self.ops.stat().or_else(|_| self.dentry.inode.ops.stat())?;
+                stat.size as i64
+            }
+        };
+
+        let target = base + offset;
+        if target < 0 {
+            return Err(VfsError::InvalidInput);
+        }
+
+        let new_offset = target as usize;
+        let mut off = self.offset.lock();
+        *off = new_offset;
+        Ok(new_offset)
     }
 }
 

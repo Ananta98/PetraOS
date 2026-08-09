@@ -31,4 +31,9 @@ impl Dentry {
         parent.children.lock().insert(name, child.clone());
         child
     }
+
+    pub fn remove_child(parent: &Arc<Self>, name: &str) {
+        parent.children.lock().remove(name);
+    }
 }
+

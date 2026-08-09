@@ -32,6 +32,22 @@ impl FileOps for RamFileOps {
         content[offset..end].copy_from_slice(buf);
         Ok(buf.len())
     }
+
+    fn truncate(&self, size: usize) -> Result<(), VfsError> {
+        let mut content = self.content.lock();
+        content.resize(size, 0);
+        Ok(())
+    }
+
+    fn stat(&self) -> Result<crate::fs::vfs::types::Stat, VfsError> {
+        let content = self.content.lock();
+        Ok(crate::fs::vfs::types::Stat {
+            size: content.len() as u64,
+            mode: 0o100644,
+            nlink: 1,
+            ..Default::default()
+        })
+    }
 }
 
 /// In-memory regular file inode.
@@ -52,6 +68,22 @@ impl InodeOps for RamFileInode {
         Ok(Arc::new(RamFileOps {
             content: self.content.clone(),
         }))
+    }
+
+    fn stat(&self) -> Result<crate::fs::vfs::types::Stat, VfsError> {
+        let content = self.content.lock();
+        Ok(crate::fs::vfs::types::Stat {
+            size: content.len() as u64,
+            mode: 0o100644,
+            nlink: 1,
+            ..Default::default()
+        })
+    }
+
+    fn truncate(&self, size: usize) -> Result<(), VfsError> {
+        let mut content = self.content.lock();
+        content.resize(size, 0);
+        Ok(())
     }
 }
 
@@ -130,6 +162,36 @@ impl InodeOps for RamDirInode {
         });
         entries.insert(name.into(), inode.clone());
         Ok(inode)
+    }
+
+    fn unlink(&self, name: &str) -> Result<(), VfsError> {
+        let mut entries = self.entries.lock();
+        let target = entries.get(name).ok_or(VfsError::NotFound)?;
+        if target.inode_type == InodeType::Directory {
+            return Err(VfsError::IsDirectory);
+        }
+        entries.remove(name);
+        Ok(())
+    }
+
+    fn rmdir(&self, name: &str) -> Result<(), VfsError> {
+        let mut entries = self.entries.lock();
+        let target = entries.get(name).ok_or(VfsError::NotFound)?;
+        if target.inode_type != InodeType::Directory {
+            return Err(VfsError::NotDirectory);
+        }
+        entries.remove(name);
+        Ok(())
+    }
+
+    fn stat(&self) -> Result<crate::fs::vfs::types::Stat, VfsError> {
+        let entries = self.entries.lock();
+        Ok(crate::fs::vfs::types::Stat {
+            size: entries.len() as u64,
+            mode: 0o040755,
+            nlink: 2,
+            ..Default::default()
+        })
     }
 
     fn open(&self) -> Result<Arc<dyn FileOps>, VfsError> {
