@@ -109,9 +109,6 @@ extern "x86-interrupt" fn timer_handler(_stack_frame: &mut InterruptStackFrame) 
         super::lapic::get_lapic().end_of_interrupt();
     }
 
-    // Log LAPIC timer tick status
-    log::trace!("LAPIC timer tick on CPU {}: running scheduler", cpu_id);
-
     // Advance vruntime for `cpu_id` by one tick (10ms = 10,000,000 ns),
     // then ask the scheduler which task should run next.
     crate::sched::SCHEDULER.lock().tick(cpu_id, 10_000_000);

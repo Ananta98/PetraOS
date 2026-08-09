@@ -17,12 +17,14 @@ pub mod mm;
 pub mod proc;
 pub mod sched;
 pub mod sync;
+pub mod syscalls;
 
 #[unsafe(no_mangle)]
 unsafe extern "C" fn kmain() -> ! {
     logger::init();
     mm::init();
     arch::init();
+    proc::init();
     hcf();
 }
 

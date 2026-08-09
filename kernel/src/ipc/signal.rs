@@ -35,6 +35,10 @@ pub const SIGSYS: u8 = 31;
 
 pub const MAX_SIGNALS: usize = 64;
 
+pub const SIG_BLOCK: i32 = 0;
+pub const SIG_UNBLOCK: i32 = 1;
+pub const SIG_SETMASK: i32 = 2;
+
 /// Default signal action (e.g., terminate process, core dump, etc.)
 pub const SIG_DFL: usize = 0;
 /// Ignore signal
@@ -65,6 +69,33 @@ impl Default for SigAction {
             restorer: 0,
         }
     }
+}
+
+/// Default signal action categories per POSIX.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SignalDefaultAction {
+    Terminate,
+    CoreDump,
+    Ignore,
+    Stop,
+    Continue,
+}
+
+/// Returns the POSIX default action for a given signal number.
+pub fn default_action(sig: u8) -> SignalDefaultAction {
+    match sig {
+        SIGCHLD | SIGURG | SIGWINCH => SignalDefaultAction::Ignore,
+        SIGSTOP | SIGTSTP | SIGTTIN | SIGTTOU => SignalDefaultAction::Stop,
+        SIGCONT => SignalDefaultAction::Continue,
+        SIGQUIT | SIGILL | SIGTRAP | SIGABRT | SIGBUS | SIGFPE | SIGSEGV | SIGXCPU | SIGXFSZ
+        | SIGSYS => SignalDefaultAction::CoreDump,
+        _ => SignalDefaultAction::Terminate,
+    }
+}
+
+/// Returns true if the signal cannot be caught, ignored, or blocked (SIGKILL & SIGSTOP).
+pub fn is_uncatchable(sig: u8) -> bool {
+    sig == SIGKILL || sig == SIGSTOP
 }
 
 /// Tracks pending signals for a thread or process.
@@ -100,5 +131,18 @@ impl PendingSignals {
         if sig > 0 && sig <= 64 {
             self.mask &= !(1 << (sig - 1));
         }
+    }
+
+    /// Dequeue the lowest unblocked pending signal.
+    /// Uncatchable signals (SIGKILL, SIGSTOP) are delivered even if in blocked_mask.
+    pub fn dequeue(&mut self, blocked_mask: SigSet) -> Option<u8> {
+        let unblocked = self.mask & (!blocked_mask | (1 << (SIGKILL - 1)) | (1 << (SIGSTOP - 1)));
+        if unblocked == 0 {
+            return None;
+        }
+        let sig_index = unblocked.trailing_zeros() as u8;
+        let sig = sig_index + 1;
+        self.clear(sig);
+        Some(sig)
     }
 }

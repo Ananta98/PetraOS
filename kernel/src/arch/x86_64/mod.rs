@@ -2,8 +2,10 @@ pub mod acpi;
 pub mod cpu;
 pub mod interrupt;
 pub mod paging;
+pub mod signal;
 pub mod syscall;
 pub mod timer;
+
 
 pub use cpu::context::{self, ThreadContext};
 pub use cpu::gdt;

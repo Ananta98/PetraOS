@@ -7,6 +7,7 @@ use crate::mm::vmm::AddrSpace;
 use crate::proc::thread::{Thread, ThreadId, ThreadState};
 use crate::sync::spinlock::Spinlock;
 use alloc::collections::BTreeMap;
+use alloc::string::String;
 use alloc::sync::Arc;
 
 /// State of a process.
@@ -191,4 +192,144 @@ impl Process {
         }
         self.threads.clear();
     }
+
+    /// Update signal action for a given signal number (sigaction semantics).
+    pub fn sigaction(&mut self, sig: u8, act: Option<SigAction>) -> Result<SigAction, &'static str> {
+        if sig == 0 || sig > 64 {
+            return Err("Invalid signal number");
+        }
+        if crate::ipc::signal::is_uncatchable(sig) && act.is_some() {
+            return Err("Cannot catch or ignore SIGKILL or SIGSTOP");
+        }
+
+        let sig_idx = (sig - 1) as usize;
+        let old_action = self.sig_actions[sig_idx];
+        if let Some(new_action) = act {
+            self.sig_actions[sig_idx] = new_action;
+        }
+
+        Ok(old_action)
+    }
+
+    /// Send a POSIX signal to this process.
+    pub fn send_signal(&mut self, sig: u8) -> Result<(), &'static str> {
+        if sig == 0 || sig > 64 {
+            return Err("Invalid signal number");
+        }
+
+        // Special immediate signals
+        if sig == crate::ipc::signal::SIGKILL {
+            log::info!("Process PID {} terminated by SIGKILL", self.pid);
+            self.exit(128 + sig as i32);
+            return Ok(());
+        }
+
+        if sig == crate::ipc::signal::SIGSTOP {
+            self.state = ProcessState::Stopped;
+            for (_, thread_arc) in self.threads.iter() {
+                let mut t = thread_arc.lock();
+                t.state = ThreadState::Stopped;
+            }
+            return Ok(());
+        }
+
+        if sig == crate::ipc::signal::SIGCONT {
+            if self.state == ProcessState::Stopped {
+                self.state = ProcessState::Running;
+            }
+            for (_, thread_arc) in self.threads.iter() {
+                let mut t = thread_arc.lock();
+                if t.state == ThreadState::Stopped {
+                    t.state = ThreadState::Ready;
+                }
+            }
+            return Ok(());
+        }
+
+        // Standard signal delivery: add to process pending queue
+        self.pending_signals.add(sig);
+
+        // Wake up sleeping threads so they can process the signal (UNIX EINTR behavior)
+        for (_, thread_arc) in self.threads.iter() {
+            Thread::unblock(thread_arc.clone());
+        }
+
+        Ok(())
+    }
+
+    /// Evaluate and handle pending signals for a process thread prior to user return.
+    pub fn handle_pending_signals(
+        &mut self,
+        thread: &mut Thread,
+        frame: &mut crate::arch::syscall::syscall::SyscallFrame,
+    ) {
+        let sig_opt = self
+            .pending_signals
+            .dequeue(thread.sig_mask)
+            .or_else(|| thread.pending_signals.dequeue(thread.sig_mask));
+
+        let sig = match sig_opt {
+            Some(s) => s,
+            None => return,
+        };
+
+        let action = self.sig_actions[(sig - 1) as usize];
+
+        if action.handler == crate::ipc::signal::SIG_IGN {
+            return;
+        }
+
+        if action.handler == crate::ipc::signal::SIG_DFL {
+            match crate::ipc::signal::default_action(sig) {
+                crate::ipc::signal::SignalDefaultAction::Terminate
+                | crate::ipc::signal::SignalDefaultAction::CoreDump => {
+                    log::info!("Process PID {} killed by signal {}", self.pid, sig);
+                    self.exit(128 + sig as i32);
+                }
+                crate::ipc::signal::SignalDefaultAction::Stop => {
+                    self.state = ProcessState::Stopped;
+                    thread.state = ThreadState::Stopped;
+                }
+                crate::ipc::signal::SignalDefaultAction::Continue => {
+                    self.state = ProcessState::Running;
+                    thread.state = ThreadState::Running;
+                }
+                crate::ipc::signal::SignalDefaultAction::Ignore => {}
+            }
+            return;
+        }
+
+        // Custom signal handler execution frame setup
+        let old_mask = thread.sig_mask;
+        thread.sig_mask |= action.mask | (1 << (sig - 1));
+
+        unsafe {
+            let _ = crate::arch::signal::setup_signal_frame(frame, sig, &action, old_mask);
+        }
+    }
 }
+
+/// Automated Kernel Integration Test for POSIX Signals
+pub fn test_signals() {
+    log::info!("── Running POSIX Signal Integration Test ──");
+    let mut pending = PendingSignals::new();
+    pending.add(crate::ipc::signal::SIGUSR1);
+    pending.add(crate::ipc::signal::SIGINT);
+
+    assert!(pending.has(crate::ipc::signal::SIGUSR1));
+    assert!(pending.has(crate::ipc::signal::SIGINT));
+    assert!(!pending.has(crate::ipc::signal::SIGKILL));
+
+    // Test dequeuing with signal mask
+    let blocked_mask = 1 << (crate::ipc::signal::SIGUSR1 - 1);
+    let dequeued = pending.dequeue(blocked_mask);
+    assert_eq!(dequeued, Some(crate::ipc::signal::SIGINT));
+
+    // Verify uncatchable check
+    assert!(crate::ipc::signal::is_uncatchable(crate::ipc::signal::SIGKILL));
+    assert!(crate::ipc::signal::is_uncatchable(crate::ipc::signal::SIGSTOP));
+    assert!(!crate::ipc::signal::is_uncatchable(crate::ipc::signal::SIGUSR1));
+
+    log::info!("✔ TEST PASSED: POSIX Signal logic verified successfully!");
+}
+

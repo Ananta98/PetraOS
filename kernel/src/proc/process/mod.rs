@@ -3,5 +3,5 @@ pub mod pid;
 pub mod process;
 
 pub use cmdline::CommandLine;
-pub use pid::{next_pid, ProcessId};
-pub use process::{Process, ProcessState};
+pub use pid::{ProcessId, next_pid};
+pub use process::{Process, ProcessState, test_signals};

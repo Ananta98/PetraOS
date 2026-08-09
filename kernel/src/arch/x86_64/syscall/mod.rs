@@ -1,5 +1,5 @@
 pub mod syscall;
 
 pub fn init() {
-    // syscall::init() if exists
+    log::info!("Initializing x86_64 Syscall architecture interface...");
 }
