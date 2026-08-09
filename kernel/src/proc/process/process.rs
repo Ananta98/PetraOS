@@ -1,7 +1,8 @@
 use super::cmdline::CommandLine;
-use super::pid::{next_pid, ProcessId};
+use super::pid::{ProcessId, next_pid};
 use crate::arch::paging::ArchPageTable;
-use crate::ipc::signal::{PendingSignals, SigAction, MAX_SIGNALS};
+use crate::ipc::signal::{MAX_SIGNALS, PendingSignals, SigAction};
+use crate::mm::PageTable;
 use crate::mm::vmm::AddrSpace;
 use crate::proc::thread::{Thread, ThreadId, ThreadState};
 use crate::sync::spinlock::Spinlock;
@@ -91,19 +92,60 @@ impl Process {
         Ok(())
     }
 
-    /// Clone the current process.
+    /// Clone the current process (POSIX fork semantics).
     pub fn fork(parent: Arc<Spinlock<Process>>) -> Result<Arc<Spinlock<Process>>, &'static str> {
         let p_lock = parent.lock();
         let child_pid = next_pid();
 
-        let mut child_proc = Process::new(
-            child_pid,
-            p_lock.pid,
-            p_lock.address_space.clone(),
-        );
+        // 1. Deep-copy virtual address space (PML4 page table and allocated physical pages)
+        let parent_addr_space = p_lock.address_space.lock();
+        let child_addr_space = parent_addr_space
+            .clone()
+            .map_err(|_| "Failed to clone address space for child process")?;
+        drop(parent_addr_space);
+
+        let child_addr_space_arc = Arc::new(Spinlock::new(child_addr_space));
+        let child_cr3 = child_addr_space_arc.lock().page_table().root().as_u64() as usize;
+
+        // 2. Initialize child process structure
+        let mut child_proc = Process::new(child_pid, p_lock.pid, child_addr_space_arc);
         child_proc.cmdline = p_lock.cmdline.clone();
+        child_proc.sig_actions = p_lock.sig_actions;
+        child_proc.state = p_lock.state;
 
         let child = Arc::new(Spinlock::new(child_proc));
+
+        // 3. Clone process threads and register in scheduler
+        let mut child_threads = BTreeMap::new();
+        for (&_tid, thread_arc) in p_lock.threads.iter() {
+            let t_lock = thread_arc.lock();
+            let child_tid = crate::proc::thread::next_tid();
+
+            let mut child_thread = Thread::new(
+                child_tid,
+                t_lock.name.clone(),
+                t_lock.weight,
+                Arc::downgrade(&child),
+            );
+
+            child_thread.context = t_lock.context;
+            child_thread.context.cr3 = child_cr3;
+            child_thread.sig_mask = t_lock.sig_mask;
+            child_thread.state = t_lock.state;
+
+            let c_thread_arc = Arc::new(Spinlock::new(child_thread));
+            child_threads.insert(child_tid, c_thread_arc.clone());
+
+            if t_lock.state == ThreadState::Ready || t_lock.state == ThreadState::Running {
+                let saved_flags = crate::arch::disable_interrupts();
+                crate::sched::SCHEDULER.lock().add_thread(c_thread_arc);
+                if saved_flags {
+                    crate::arch::enable_interrupts();
+                }
+            }
+        }
+
+        child.lock().threads = child_threads;
 
         drop(p_lock);
         parent.lock().children.insert(child_pid, child.clone());

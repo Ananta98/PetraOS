@@ -61,6 +61,68 @@ impl<P: PageTable> AddrSpace<P> {
         &self.page_table
     }
 
+    /// Duplicate (deep copy) the virtual address space and allocated physical pages.
+    pub fn clone(&self) -> Result<Self, AddrSpaceError> {
+        let mut new_page_table = P::new().map_err(AddrSpaceError::PagingError)?;
+        let hhdm = crate::mm::hhdm_offset();
+        let mut allocated_frames = alloc::vec::Vec::new();
+
+        for (&_vaddr, area) in &self.vm_areas {
+            let size = (area.end - area.start) as usize;
+            let num_pages = size / 4096;
+
+            for i in 0..num_pages {
+                let page_virt = area.start + (i * 4096);
+                if let Some(parent_phys) = self.page_table.translate(page_virt) {
+                    match area.kind {
+                        VmAreaKind::Anonymous => {
+                            let child_frame = match crate::mm::PMM.alloc_page() {
+                                Some(frame) => frame,
+                                None => {
+                                    for frame in allocated_frames {
+                                        crate::mm::PMM.free_page(frame);
+                                    }
+                                    return Err(AddrSpaceError::PagingError(
+                                        MapError::FrameAllocationFailed,
+                                    ));
+                                }
+                            };
+                            allocated_frames.push(child_frame);
+
+                            unsafe {
+                                let src = parent_phys.as_ptr::<u8>(hhdm);
+                                let dest = child_frame.as_ptr::<u8>(hhdm);
+                                core::ptr::copy_nonoverlapping(src, dest, 4096);
+                            }
+
+                            if let Err(err) = new_page_table.map(page_virt, child_frame, area.flags)
+                            {
+                                for frame in allocated_frames {
+                                    crate::mm::PMM.free_page(frame);
+                                }
+                                return Err(AddrSpaceError::PagingError(err));
+                            }
+                        }
+                        VmAreaKind::Device { .. } => {
+                            if let Err(err) = new_page_table.map(page_virt, parent_phys, area.flags)
+                            {
+                                for frame in allocated_frames {
+                                    crate::mm::PMM.free_page(frame);
+                                }
+                                return Err(AddrSpaceError::PagingError(err));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(Self {
+            page_table: new_page_table,
+            vm_areas: self.vm_areas.clone(),
+        })
+    }
+
     pub fn page_table_mut(&mut self) -> &mut P {
         &mut self.page_table
     }

@@ -33,6 +33,10 @@ const PIT_FREQUENCY: u32 = 1_193_182;
 /// Calibration duration in milliseconds.
 const CALIBRATION_MS: u32 = 10;
 
+/// Global cached LAPIC timer calibration frequency.
+static CALIBRATED_TICKS_PER_MS: core::sync::atomic::AtomicU32 =
+    core::sync::atomic::AtomicU32::new(0);
+
 /// Represents the LAPIC timer associated with a Local APIC.
 ///
 /// The timer must be calibrated before use to determine the correct
@@ -43,6 +47,16 @@ pub struct LapicTimer {
 }
 
 impl LapicTimer {
+    /// Returns a `LapicTimer` using the cached calibration if available, or performs calibration.
+    pub fn calibrate_or_get(lapic: &LocalApic) -> Self {
+        let cached = CALIBRATED_TICKS_PER_MS.load(core::sync::atomic::Ordering::Relaxed);
+        if cached != 0 {
+            Self { ticks_per_ms: cached }
+        } else {
+            Self::calibrate(lapic)
+        }
+    }
+
     /// Calibrate the LAPIC timer using the PIT as a reference clock.
     ///
     /// This performs a busy-wait calibration by:
@@ -97,6 +111,7 @@ impl LapicTimer {
         lapic.write_timer_initial_count(0);
 
         let ticks_per_ms = elapsed / CALIBRATION_MS;
+        CALIBRATED_TICKS_PER_MS.store(ticks_per_ms, core::sync::atomic::Ordering::Relaxed);
 
         log::info!(
             "LAPIC timer calibrated: {} ticks/ms (elapsed {} ticks in {}ms).",

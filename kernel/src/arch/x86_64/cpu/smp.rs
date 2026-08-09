@@ -46,7 +46,7 @@ unsafe extern "C" fn ap_entry(cpu: &limine::mp::Cpu) -> ! {
     local_apic.enable();
 
     // Calibrate and start the LAPIC timer for this AP.
-    let timer = lapic_timer::LapicTimer::calibrate(&local_apic);
+    let timer = lapic_timer::LapicTimer::calibrate_or_get(&local_apic);
     timer.start_periodic(&local_apic, 100);
 
     log::info!(
