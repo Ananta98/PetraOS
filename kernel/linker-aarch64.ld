@@ -31,6 +31,25 @@ SECTIONS
 
     .rodata : {
         *(.rodata .rodata.*)
+
+        . = ALIGN(8);
+        __initcall_start = .;
+        KEEP(*(.initcall.0.early))
+        KEEP(*(.initcall.1.core))
+        KEEP(*(.initcall.2.arch))
+        KEEP(*(.initcall.3.fs))
+        KEEP(*(.initcall.4.device))
+        KEEP(*(.initcall.5.late))
+        KEEP(*(.initcall.6.module))
+        __initcall_end = .;
+
+        . = ALIGN(8);
+        KEEP(*(.linkme*))
+
+        . = ALIGN(8);
+        __modinfo_start = .;
+        KEEP(*(.modinfo))
+        __modinfo_end = .;
     } :rodata
 
     /* Move to the next memory page for .data */
