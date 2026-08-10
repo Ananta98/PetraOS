@@ -2,7 +2,7 @@ pub mod fair;
 pub mod stats;
 
 use crate::arch::cpu::context::{switch_context, switch_context_to};
-use crate::arch::{halt, idle};
+use crate::arch::halt;
 use crate::sync::spinlock::Spinlock;
 use alloc::sync::Arc;
 

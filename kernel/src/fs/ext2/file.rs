@@ -1,5 +1,5 @@
 use super::inode::Ext2Volume;
-use crate::fs::vfs::types::{FileOps, SeekWhence, Stat, VfsError};
+use crate::fs::vfs::types::{FileOps, Stat, VfsError};
 use alloc::sync::Arc;
 
 /// File operations (I/O) dispatch table for Ext2.
@@ -18,7 +18,8 @@ impl FileOps for Ext2FileOps {
     /// Write file content starting from absolute offset.
     fn write(&self, offset: usize, buf: &[u8]) -> Result<usize, VfsError> {
         let mut inode = self.volume.read_inode(self.ino)?;
-        self.volume.write_inode_data(&mut inode, self.ino, offset, buf)
+        self.volume
+            .write_inode_data(&mut inode, self.ino, offset, buf)
     }
 
     /// Truncate file to target size.

@@ -1,6 +1,5 @@
 use super::arch as config;
 use super::device::{PCI_VENDOR_NONE, PciDevice};
-use crate::device::{Device, DriverError};
 
 #[derive(Clone, Copy, Debug)]
 pub struct PciDiscovery {
@@ -62,30 +61,5 @@ impl PciBus {
         }
 
         discovery
-    }
-
-    pub fn init() -> Result<(), DriverError> {
-        let discovery = Self::enumerate();
-
-        if discovery.count == 0 {
-            log::info!("PCI: no devices discovered");
-            return Ok(());
-        }
-
-        for entry in &discovery.devices[..discovery.count] {
-            log::info!(
-                "PCI: bus={} dev={} func={} vendor={:04x} device={:04x} class={:02x} subclass={:02x} ({})",
-                entry.bus,
-                entry.device,
-                entry.function,
-                entry.vendor_id,
-                entry.device_id,
-                entry.class_code,
-                entry.subclass,
-                entry.class_name()
-            );
-        }
-
-        Ok(())
     }
 }

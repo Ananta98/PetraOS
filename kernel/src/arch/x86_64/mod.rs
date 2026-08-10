@@ -6,20 +6,12 @@ pub mod signal;
 pub mod syscall;
 pub mod timer;
 
-
-pub use cpu::context::{self, ThreadContext};
 pub use cpu::gdt;
 pub use cpu::ports;
-pub use cpu::smp;
 pub use cpu::tss;
 pub use interrupt::idt;
-
 pub use interrupt::interrupts;
-pub use interrupt::ioapic;
 pub use interrupt::lapic;
-pub use interrupt::pic;
-
-pub use timer::hpet;
 pub use timer::lapic_timer;
 
 /// Enable interrupts on the calling CPU.

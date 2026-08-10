@@ -7,7 +7,6 @@ use crate::mm::vmm::AddrSpace;
 use crate::proc::thread::{Thread, ThreadId, ThreadState};
 use crate::sync::spinlock::Spinlock;
 use alloc::collections::BTreeMap;
-use alloc::string::String;
 use alloc::sync::Arc;
 
 /// State of a process.

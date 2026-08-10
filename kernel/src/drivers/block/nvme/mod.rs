@@ -15,8 +15,8 @@ pub use command::{NvmeCmdBuilder, NvmeIdentifyNamespace};
 pub use device::{NvmeDeviceRef, NvmeModuleDriver};
 pub use queue::{NvmeCmd, NvmeCqe, NvmeQueue};
 pub use regs::{
-    NvmeRegs, NVME_CC_CSS_NVM, NVME_CC_EN, NVME_CC_IOCQES_16, NVME_CC_IOSQES_64, NVME_CC_MPS_4K,
-    NVME_CSTS_RDY,
+    NVME_CC_CSS_NVM, NVME_CC_EN, NVME_CC_IOCQES_16, NVME_CC_IOSQES_64, NVME_CC_MPS_4K,
+    NVME_CSTS_RDY, NvmeRegs,
 };
 
 pub static NVME_DRIVER: Spinlock<Option<NvmeDriver>> = Spinlock::new(None);
@@ -225,7 +225,11 @@ impl Device for NvmeDriver {
 
         // 7. Enable Controller
         unsafe {
-            let cc = NVME_CC_EN | NVME_CC_CSS_NVM | NVME_CC_MPS_4K | NVME_CC_IOSQES_64 | NVME_CC_IOCQES_16;
+            let cc = NVME_CC_EN
+                | NVME_CC_CSS_NVM
+                | NVME_CC_MPS_4K
+                | NVME_CC_IOSQES_64
+                | NVME_CC_IOCQES_16;
             core::ptr::write_volatile(&mut regs.cc, cc);
         }
 
@@ -261,7 +265,8 @@ impl Device for NvmeDriver {
             admin_q.submit_and_wait(create_cq_cmd)?;
         }
 
-        let create_sq_cmd = NvmeCmdBuilder::create_sq(self.next_cid(), 1, 1, 64, iosq_phys.as_u64());
+        let create_sq_cmd =
+            NvmeCmdBuilder::create_sq(self.next_cid(), 1, 1, 64, iosq_phys.as_u64());
         if let Some(ref mut admin_q) = self.admin_queue {
             admin_q.submit_and_wait(create_sq_cmd)?;
         }
@@ -326,7 +331,8 @@ impl BlockDevice for NvmeDriver {
         let (dma_phys, dma_virt) = alloc_dma_page().map_err(|_| DriverError::ReadFailed)?;
 
         let cid = self.next_cid();
-        let read_cmd = NvmeCmdBuilder::read(cid, 1, block_id, block_count as u16, dma_phys.as_u64());
+        let read_cmd =
+            NvmeCmdBuilder::read(cid, 1, block_id, block_count as u16, dma_phys.as_u64());
 
         let result = if let Some(ref mut io_q) = self.io_queue {
             io_q.submit_and_wait(read_cmd)
@@ -364,7 +370,8 @@ impl BlockDevice for NvmeDriver {
         }
 
         let cid = self.next_cid();
-        let write_cmd = NvmeCmdBuilder::write(cid, 1, block_id, block_count as u16, dma_phys.as_u64());
+        let write_cmd =
+            NvmeCmdBuilder::write(cid, 1, block_id, block_count as u16, dma_phys.as_u64());
 
         let result = if let Some(ref mut io_q) = self.io_queue {
             io_q.submit_and_wait(write_cmd)

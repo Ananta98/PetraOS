@@ -66,7 +66,6 @@ impl Device for PciDevice {
     }
 
     fn init(&mut self) -> Result<(), DriverError> {
-        let _ = super::bus::PciBus::init();
         Ok(())
     }
 }

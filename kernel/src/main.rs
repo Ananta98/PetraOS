@@ -26,7 +26,6 @@ unsafe extern "C" fn kmain() -> ! {
     mm::init();
     arch::init();
     proc::init();
-    drivers::init();
     modules::init();
     log::info!("PetraOS Kernel booted successfully.");
     hcf();

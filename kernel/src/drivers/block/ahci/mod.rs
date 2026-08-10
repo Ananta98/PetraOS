@@ -4,6 +4,7 @@ pub mod port;
 
 use crate::arch::paging;
 use crate::device::{BlockDevice, Device, DeviceType, DriverError};
+use crate::drivers::bus::pci::PciBus;
 use crate::drivers::pci::config;
 use crate::drivers::pci::device::PciDevice;
 use crate::sync::spinlock::Spinlock;
@@ -108,7 +109,7 @@ impl AhciDriver {
     }
 
     pub fn find_and_init() -> Option<Self> {
-        let discovery = crate::drivers::pci::bus::PciBus::enumerate();
+        let discovery = PciBus::enumerate();
         for dev in &discovery.devices[..discovery.count] {
             if dev.class_code == 0x01 && dev.subclass == 0x06 {
                 // Mass Storage / AHCI SATA
