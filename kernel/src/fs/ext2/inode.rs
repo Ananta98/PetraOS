@@ -1,5 +1,5 @@
-use super::dir::{ext2_add_entry, ext2_is_dir_empty, ext2_lookup, ext2_readdir, ext2_remove_entry};
 use super::bitmap::Ext2Bitmap;
+use super::dir::{ext2_add_entry, ext2_is_dir_empty, ext2_lookup, ext2_readdir, ext2_remove_entry};
 use super::file::Ext2FileOps;
 use super::superblock::{Ext2BlockGroupDescriptor, Ext2Superblock};
 use crate::device::DEVICE_MANAGER;
@@ -201,9 +201,9 @@ impl Ext2Volume {
             sb.log_block_size,
             sb.block_size
         );
-        assert_eq!(sb.magic, 0xEF53, "Ext2 magic number mismatch");
-        assert_eq!(sb.rev_level, 0, "Ext2 revision level mismatch");
-        assert_eq!(sb.log_block_size, 0, "Ext2 log_block_size mismatch");
+        if sb.magic != 0xEF53 || sb.rev_level != 0 || sb.log_block_size != 0 {
+            return Err(VfsError::InvalidInput);
+        }
 
         Ok(Self { reader, sb })
     }
