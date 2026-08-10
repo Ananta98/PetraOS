@@ -9,7 +9,6 @@
 
 use crate::arch::lapic::LocalApic;
 use crate::arch::ports::Ports;
-use crate::sync::spinlock::Spinlock;
 
 /// The IDT vector number used for LAPIC timer interrupts.
 pub const TIMER_VECTOR: u8 = 48;
