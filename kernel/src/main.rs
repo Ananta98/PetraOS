@@ -14,6 +14,7 @@ pub mod ipc;
 pub mod limine;
 pub mod logger;
 pub mod mm;
+pub mod modules;
 pub mod proc;
 pub mod sched;
 pub mod sync;
@@ -26,6 +27,7 @@ unsafe extern "C" fn kmain() -> ! {
     arch::init();
     proc::init();
     drivers::init();
+    modules::init();
     fs::init();
     log::info!("PetraOS Kernel booted successfully.");
     hcf();

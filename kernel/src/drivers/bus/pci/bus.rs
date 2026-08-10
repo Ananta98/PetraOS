@@ -84,32 +84,6 @@ impl PciBus {
                 entry.subclass,
                 entry.class_name()
             );
-
-            if entry.class_code == 0x01 && entry.subclass == 0x06 {
-                let mut ahci = crate::drivers::block::ahci::AhciDriver::new(*entry);
-                if ahci.init().is_ok() {
-                    *crate::drivers::block::ahci::AHCI_DEVICE.lock() = Some(ahci);
-                    let device_ref: alloc::sync::Arc<
-                        crate::sync::spinlock::Spinlock<alloc::boxed::Box<dyn Device>>,
-                    > = alloc::sync::Arc::new(crate::sync::spinlock::Spinlock::new(
-                        alloc::boxed::Box::new(crate::drivers::block::ahci::AhciDeviceRef),
-                    ));
-                    crate::device::DEVICE_MANAGER.lock().register(device_ref);
-                    log::info!("PCI: AHCI device initialized and registered to DEVICE_MANAGER");
-                }
-            } else if entry.class_code == 0x01 && entry.subclass == 0x08 {
-                let mut nvme = crate::drivers::block::nvme::NvmeDriver::new(*entry);
-                if nvme.init().is_ok() {
-                    *crate::drivers::block::nvme::NVME_DEVICE.lock() = Some(nvme);
-                    let device_ref: alloc::sync::Arc<
-                        crate::sync::spinlock::Spinlock<alloc::boxed::Box<dyn Device>>,
-                    > = alloc::sync::Arc::new(crate::sync::spinlock::Spinlock::new(
-                        alloc::boxed::Box::new(crate::drivers::block::nvme::NvmeDeviceRef),
-                    ));
-                    crate::device::DEVICE_MANAGER.lock().register(device_ref);
-                    log::info!("PCI: NVMe device initialized and registered to DEVICE_MANAGER");
-                }
-            }
         }
 
         Ok(())

@@ -6,6 +6,8 @@ use crate::device::{BlockDevice, Device, DeviceType, DriverError};
 use crate::drivers::pci::config;
 use crate::drivers::pci::device::PciDevice;
 use crate::sync::spinlock::Spinlock;
+use alloc::boxed::Box;
+use alloc::sync::Arc;
 use queue::NvmeQueue;
 use regs::NvmeRegs;
 
@@ -214,3 +216,41 @@ impl BlockDevice for NvmeDriver {
         4096
     }
 }
+
+#[derive(Default)]
+pub struct NvmeModuleDriver;
+
+impl crate::device::Driver for NvmeModuleDriver {
+    fn name(&self) -> &'static str {
+        "nvme"
+    }
+
+    fn bus_name(&self) -> &'static str {
+        "pci"
+    }
+
+    fn description(&self) -> &'static str {
+        "NVM Express Block Device Driver"
+    }
+
+    fn probe(&self) -> Result<(), DriverError> {
+        if let Some(nvme) = NvmeDriver::find_and_init() {
+            *NVME_DEVICE.lock() = Some(nvme);
+            let device_ref: Arc<Spinlock<Box<dyn Device>>> =
+                Arc::new(Spinlock::new(Box::new(NvmeDeviceRef)));
+            crate::device::DEVICE_MANAGER.lock().register(device_ref);
+            log::info!("[NVMe Module] Probed and registered NVMe Controller to DEVICE_MANAGER");
+            Ok(())
+        } else {
+            Err(DriverError::InitFailed)
+        }
+    }
+}
+
+crate::MODULE_LICENSE!("BSD-2-Clause");
+crate::MODULE_AUTHOR!("PetraOS Development Team");
+crate::MODULE_DESCRIPTION!("NVM Express Block Device Driver");
+crate::MODULE_VERSION!("1.0.0");
+
+// Independent Linux C-style driver registration
+crate::module_driver!(NVME_INITCALL, nvme_driver_init, "nvme", NvmeModuleDriver);

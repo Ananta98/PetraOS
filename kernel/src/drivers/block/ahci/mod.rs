@@ -7,6 +7,8 @@ use crate::device::{BlockDevice, Device, DeviceType, DriverError};
 use crate::drivers::pci::config;
 use crate::drivers::pci::device::PciDevice;
 use crate::sync::spinlock::Spinlock;
+use alloc::boxed::Box;
+use alloc::sync::Arc;
 use fis::{FisRegH2D, FisType};
 use hba::{
     ATA_CMD_READ_DMA_EXT, ATA_CMD_WRITE_DMA_EXT, ATA_DEV_BUSY, ATA_DEV_DRQ, ATA_DEV_LBA,
@@ -483,3 +485,41 @@ impl BlockDevice for AhciDriver {
         1024
     }
 }
+
+#[derive(Default)]
+pub struct AhciModuleDriver;
+
+impl crate::device::Driver for AhciModuleDriver {
+    fn name(&self) -> &'static str {
+        "ahci"
+    }
+
+    fn bus_name(&self) -> &'static str {
+        "pci"
+    }
+
+    fn description(&self) -> &'static str {
+        "AHCI SATA Mass Storage Controller Driver"
+    }
+
+    fn probe(&self) -> Result<(), DriverError> {
+        if let Some(ahci) = AhciDriver::find_and_init() {
+            *AHCI_DEVICE.lock() = Some(ahci);
+            let device_ref: Arc<Spinlock<Box<dyn Device>>> =
+                Arc::new(Spinlock::new(Box::new(AhciDeviceRef)));
+            crate::device::DEVICE_MANAGER.lock().register(device_ref);
+            log::info!(
+                "[AHCI Module] Probed and registered AHCI SATA Controller to DEVICE_MANAGER"
+            );
+            Ok(())
+        } else {
+            Err(DriverError::InitFailed)
+        }
+    }
+}
+
+crate::MODULE_LICENSE!("BSD-2-Clause");
+crate::MODULE_AUTHOR!("PetraOS Development Team");
+crate::MODULE_DESCRIPTION!("AHCI SATA Mass Storage Controller Driver");
+crate::MODULE_VERSION!("1.0.0");
+crate::module_driver!(AHCI_INITCALL, ahci_driver_init, "ahci", AhciModuleDriver);

@@ -9,6 +9,8 @@ pub enum DeviceType {
     Block,
     Network,
     Bus,
+    Gpu,
+    Audio,
     Unknown,
 }
 
