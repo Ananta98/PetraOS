@@ -1,5 +1,9 @@
+//! NVMe Queue Pair (Submission & Completion Queue) Implementation
+
+use crate::device::DriverError;
+
 #[repr(C, packed)]
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct NvmeCmd {
     pub opcode: u8,
     pub flags: u8,
@@ -17,7 +21,7 @@ pub struct NvmeCmd {
 }
 
 #[repr(C, packed)]
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct NvmeCqe {
     pub result: u32,
     pub reserved: u32,
@@ -30,8 +34,10 @@ pub struct NvmeCqe {
 pub struct NvmeQueue {
     pub qid: u32,
     pub size: u16,
-    pub sq_dma: *mut NvmeCmd,
-    pub cq_dma: *mut NvmeCqe,
+    pub sq_virt: *mut NvmeCmd,
+    pub sq_phys: u64,
+    pub cq_virt: *mut NvmeCqe,
+    pub cq_phys: u64,
     pub sq_tail: u16,
     pub cq_head: u16,
     pub cq_phase: bool,
@@ -39,25 +45,105 @@ pub struct NvmeQueue {
     pub cq_db: *mut u32,
 }
 
+unsafe impl Send for NvmeQueue {}
+unsafe impl Sync for NvmeQueue {}
+
 impl NvmeQueue {
     pub fn new(
         qid: u32,
         size: u16,
-        sq_dma: *mut NvmeCmd,
-        cq_dma: *mut NvmeCqe,
+        sq_virt: *mut NvmeCmd,
+        sq_phys: u64,
+        cq_virt: *mut NvmeCqe,
+        cq_phys: u64,
         sq_db: *mut u32,
         cq_db: *mut u32,
     ) -> Self {
         Self {
             qid,
             size,
-            sq_dma,
-            cq_dma,
+            sq_virt,
+            sq_phys,
+            cq_virt,
+            cq_phys,
             sq_tail: 0,
             cq_head: 0,
             cq_phase: true,
             sq_db,
             cq_db,
         }
+    }
+
+    /// Submit a command into the submission queue ring, advance tail, and write doorbell.
+    pub fn submit(&mut self, cmd: NvmeCmd) {
+        unsafe {
+            // SAFETY: sq_virt points to valid allocated DMA memory with capacity `size`.
+            let slot = self.sq_virt.add(self.sq_tail as usize);
+            core::ptr::write_volatile(slot, cmd);
+        }
+
+        self.sq_tail = (self.sq_tail + 1) % self.size;
+
+        unsafe {
+            // SAFETY: sq_db is the MMIO doorbell pointer for this submission queue.
+            core::ptr::write_volatile(self.sq_db, self.sq_tail as u32);
+        }
+    }
+
+    /// Poll the completion queue for an entry matching the active phase tag.
+    pub fn poll_completion(&mut self) -> Option<NvmeCqe> {
+        let cqe = unsafe {
+            // SAFETY: cq_virt points to valid allocated DMA memory with capacity `size`.
+            let slot = self.cq_virt.add(self.cq_head as usize);
+            core::ptr::read_volatile(slot)
+        };
+
+        let phase = (cqe.status & 1) != 0;
+        if phase != self.cq_phase {
+            return None; // No new completion entry yet
+        }
+
+        // Advance CQ head and update phase bit if wrapped
+        self.cq_head = (self.cq_head + 1) % self.size;
+        if self.cq_head == 0 {
+            self.cq_phase = !self.cq_phase;
+        }
+
+        unsafe {
+            // SAFETY: cq_db is the MMIO doorbell pointer for this completion queue.
+            core::ptr::write_volatile(self.cq_db, self.cq_head as u32);
+        }
+
+        Some(cqe)
+    }
+
+    /// Submit command and synchronously poll until completion is received or timeout occurs.
+    pub fn submit_and_wait(&mut self, cmd: NvmeCmd) -> Result<NvmeCqe, DriverError> {
+        let target_cid = cmd.cid;
+        self.submit(cmd);
+
+        let mut timeout = 1_000_000usize;
+        while timeout > 0 {
+            if let Some(cqe) = self.poll_completion() {
+                if cqe.cid == target_cid {
+                    let status_code = (cqe.status >> 1) & 0x7FFF;
+                    if status_code != 0 {
+                        log::error!(
+                            "NVMe QID {} Cmd CID {} failed with status {:#x}",
+                            self.qid,
+                            target_cid,
+                            status_code
+                        );
+                        return Err(DriverError::ReadFailed);
+                    }
+                    return Ok(cqe);
+                }
+            }
+            core::hint::spin_loop();
+            timeout -= 1;
+        }
+
+        log::error!("NVMe QID {} Cmd CID {} timed out", self.qid, target_cid);
+        Err(DriverError::ReadFailed)
     }
 }

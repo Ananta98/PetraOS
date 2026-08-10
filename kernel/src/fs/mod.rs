@@ -36,9 +36,11 @@ pub fn init() {
         for dev in dm.get_devices() {
             let dev_lock = dev.lock();
             let name = dev_lock.as_ref().name();
-            if name == "AHCI SATA Controller" || name == "NVMe Controller" {
+            if name == "NVMe Controller" {
                 target_name = Some(name);
                 break;
+            } else if name == "AHCI SATA Controller" && target_name.is_none() {
+                target_name = Some(name);
             }
         }
         target_name
