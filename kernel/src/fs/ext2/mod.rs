@@ -19,6 +19,48 @@ impl Ext2Fs {
     pub fn new(device_name: &'static str) -> Self {
         Self { device_name }
     }
+
+    /// Auto-detect and mount Ext2 filesystem on available block storage devices.
+    pub fn init() -> Result<(), &'static str> {
+        let device_name = {
+            let dm = crate::device::DEVICE_MANAGER.lock();
+            let mut target_name = None;
+            for dev in dm.get_devices() {
+                let dev_lock = dev.lock();
+                let name = dev_lock.as_ref().name();
+                if name == "NVMe Controller" {
+                    target_name = Some(name);
+                    break;
+                } else if name == "AHCI SATA Controller" && target_name.is_none() {
+                    target_name = Some(name);
+                }
+            }
+            target_name
+        };
+
+        if let Some(dev_name) = device_name {
+            let ext2_fs = Ext2Fs::new(dev_name);
+            match crate::fs::vfs::mount::MOUNT_TABLE
+                .lock()
+                .mount("/mnt", &ext2_fs)
+            {
+                Ok(_) => {
+                    log::info!(
+                        "[Ext2] Successfully mounted Ext2 filesystem on '{}' at /mnt",
+                        dev_name
+                    );
+                }
+                Err(err) => {
+                    log::info!(
+                        "[Ext2] Ext2 mount skipped on '{}' at /mnt ({:?})",
+                        dev_name,
+                        err
+                    );
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 impl FileSystem for Ext2Fs {
@@ -49,70 +91,7 @@ impl FileSystem for Ext2Fs {
     }
 }
 
-/// A memory-backed mock block device containing an ext2 disk image buffer.
-pub struct MockDisk {
-    pub data: Spinlock<::alloc::vec::Vec<u8>>,
-    pub name: &'static str,
-}
-
-impl MockDisk {
-    pub fn new(initial_data: &[u8], name: &'static str) -> Self {
-        Self {
-            data: Spinlock::new(initial_data.to_vec()),
-            name,
-        }
-    }
-}
-
-impl Device for MockDisk {
-    fn dev_type(&self) -> DeviceType {
-        DeviceType::Block
-    }
-
-    fn name(&self) -> &'static str {
-        self.name
-    }
-
-    fn init(&mut self) -> Result<(), DriverError> {
-        Ok(())
-    }
-
-    fn as_block_device(&self) -> Option<&dyn BlockDevice> {
-        Some(self)
-    }
-
-    fn as_block_device_mut(&mut self) -> Option<&mut dyn BlockDevice> {
-        Some(self)
-    }
-}
-
-impl BlockDevice for MockDisk {
-    fn read_block(&mut self, block_id: u64, buf: &mut [u8]) -> Result<usize, DriverError> {
-        let block_size = self.block_size();
-        let offset = block_id as usize * block_size;
-        let data = self.data.lock();
-        if offset + buf.len() > data.len() {
-            return Err(DriverError::Unsupported);
-        }
-        buf.copy_from_slice(&data[offset..offset + buf.len()]);
-        Ok(buf.len())
-    }
-
-    fn write_block(&mut self, block_id: u64, buf: &[u8]) -> Result<usize, DriverError> {
-        let block_size = self.block_size();
-        let offset = block_id as usize * block_size;
-        let mut data = self.data.lock();
-        let end = offset + buf.len();
-        if end > data.len() {
-            data.resize(end, 0);
-        }
-        data[offset..end].copy_from_slice(buf);
-        Ok(buf.len())
-    }
-
-    fn block_size(&self) -> usize {
-        1024
-    }
-}
-
-
+crate::late_initcall!(Ext2Fs::init);
+crate::MODULE_LICENSE!("BSD-2-Clause");
+crate::MODULE_AUTHOR!("PetraOS Development Team");
+crate::MODULE_DESCRIPTION!("Ext2 Filesystem Driver Subsystem");

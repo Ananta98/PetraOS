@@ -202,6 +202,25 @@ impl InodeOps for RamDirInode {
 /// In-memory filesystem. Used as the root filesystem.
 pub struct RamFs;
 
+impl RamFs {
+    /// Initialize root RamFS and create default mountpoints.
+    pub fn init() -> Result<(), &'static str> {
+        log::info!("[RamFS] Initializing Root RamFS...");
+        let ramfs = RamFs;
+        crate::fs::vfs::mount::MOUNT_TABLE
+            .lock()
+            .mount("/", &ramfs)
+            .map_err(|_| "Failed to mount RamFS root")?;
+
+        let _ = crate::fs::vfs::path::mkdir("/dev");
+        let _ = crate::fs::vfs::path::mkdir("/proc");
+        let _ = crate::fs::vfs::path::mkdir("/mnt");
+
+        log::info!("[RamFS] Root RamFS mounted at /.");
+        Ok(())
+    }
+}
+
 impl FileSystem for RamFs {
     fn name(&self) -> &'static str {
         "ramfs"
@@ -225,3 +244,8 @@ impl FileSystem for RamFs {
         })
     }
 }
+
+crate::fs_initcall!(RamFs::init);
+crate::MODULE_LICENSE!("BSD-2-Clause");
+crate::MODULE_AUTHOR!("PetraOS Development Team");
+crate::MODULE_DESCRIPTION!("In-Memory RamFS Root Filesystem");
