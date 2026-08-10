@@ -44,9 +44,6 @@ SECTIONS
         __initcall_end = .;
 
         . = ALIGN(8);
-        KEEP(*(.linkme*))
-
-        . = ALIGN(8);
         __modinfo_start = .;
         KEEP(*(.modinfo))
         __modinfo_end = .;

@@ -1,7 +1,5 @@
 //! Kernel Module Definitions and Metadata
 
-pub use linkme::distributed_slice;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModuleState {
     Unloaded,
@@ -18,14 +16,18 @@ pub enum ModAttrKind {
     Version,
 }
 
+#[repr(C)]
 pub struct ModAttr {
     pub module_path: &'static str,
     pub kind: ModAttrKind,
     pub value: &'static str,
 }
 
-#[distributed_slice]
-pub static MOD_ATTRS: [ModAttr];
+#[allow(improper_ctypes)]
+unsafe extern "C" {
+    static __modinfo_start: ModAttr;
+    static __modinfo_end: ModAttr;
+}
 
 pub struct ModuleInfo {
     pub name: &'static str,
@@ -34,9 +36,6 @@ pub struct ModuleInfo {
     pub license: &'static str,
     pub version: &'static str,
 }
-
-#[distributed_slice]
-pub static MODULE_METADATA: [ModuleInfo];
 
 pub struct KernelModule {
     pub info: ModuleInfo,
@@ -75,9 +74,23 @@ pub fn get_attr_for_module(
     kind: ModAttrKind,
     default: &'static str,
 ) -> &'static str {
-    for attr in MOD_ATTRS.iter() {
-        if attr.module_path == module_path && attr.kind == kind {
-            return attr.value;
+    let (start_ptr, count) = unsafe {
+        let start = &__modinfo_start as *const ModAttr;
+        let end = &__modinfo_end as *const ModAttr;
+        let num_attrs = if (end as usize) >= (start as usize) {
+            (end as usize - start as usize) / core::mem::size_of::<ModAttr>()
+        } else {
+            0
+        };
+        (start, num_attrs)
+    };
+
+    if count > 0 {
+        let attrs = unsafe { core::slice::from_raw_parts(start_ptr, count) };
+        for attr in attrs {
+            if attr.module_path == module_path && attr.kind == kind {
+                return attr.value;
+            }
         }
     }
     default
@@ -88,7 +101,8 @@ pub fn get_attr_for_module(
 macro_rules! MODULE_LICENSE {
     ($val:expr) => {
         const _: () = {
-            #[$crate::modules::module::distributed_slice($crate::modules::module::MOD_ATTRS)]
+            #[used]
+            #[unsafe(link_section = ".modinfo")]
             static __ATTR_LICENSE: $crate::modules::module::ModAttr =
                 $crate::modules::module::ModAttr {
                     module_path: module_path!(),
@@ -103,7 +117,8 @@ macro_rules! MODULE_LICENSE {
 macro_rules! MODULE_AUTHOR {
     ($val:expr) => {
         const _: () = {
-            #[$crate::modules::module::distributed_slice($crate::modules::module::MOD_ATTRS)]
+            #[used]
+            #[unsafe(link_section = ".modinfo")]
             static __ATTR_AUTHOR: $crate::modules::module::ModAttr =
                 $crate::modules::module::ModAttr {
                     module_path: module_path!(),
@@ -118,7 +133,8 @@ macro_rules! MODULE_AUTHOR {
 macro_rules! MODULE_DESCRIPTION {
     ($val:expr) => {
         const _: () = {
-            #[$crate::modules::module::distributed_slice($crate::modules::module::MOD_ATTRS)]
+            #[used]
+            #[unsafe(link_section = ".modinfo")]
             static __ATTR_DESC: $crate::modules::module::ModAttr =
                 $crate::modules::module::ModAttr {
                     module_path: module_path!(),
@@ -134,36 +150,13 @@ macro_rules! MODULE_DESCRIPTION {
 macro_rules! MODULE_VERSION {
     ($val:expr) => {
         const _: () = {
-            #[$crate::modules::module::distributed_slice($crate::modules::module::MOD_ATTRS)]
+            #[used]
+            #[unsafe(link_section = ".modinfo")]
             static __ATTR_VER: $crate::modules::module::ModAttr =
                 $crate::modules::module::ModAttr {
                     module_path: module_path!(),
                     kind: $crate::modules::module::ModAttrKind::Version,
                     value: $val,
-                };
-        };
-    };
-}
-
-/// Unified module_info! macro
-#[macro_export]
-macro_rules! module_info {
-    (
-        name: $name:expr,
-        author: $author:expr,
-        description: $desc:expr,
-        license: $license:expr,
-        version: $version:expr $(,)?
-    ) => {
-        const _: () = {
-            #[$crate::modules::module::distributed_slice($crate::modules::module::MODULE_METADATA)]
-            static __META: $crate::modules::module::ModuleInfo =
-                $crate::modules::module::ModuleInfo {
-                    name: $name,
-                    author: $author,
-                    description: $desc,
-                    license: $license,
-                    version: $version,
                 };
         };
     };
