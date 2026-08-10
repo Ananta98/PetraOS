@@ -9,13 +9,17 @@ pub const PAGE_ACCESSED: u64 = 1 << 5;
 pub const PAGE_DIRTY: u64 = 1 << 6;
 pub const PAGE_HUGE: u64 = 1 << 7;
 pub const PAGE_GLOBAL: u64 = 1 << 8;
+pub const PAGE_COW: u64 = 1 << 9; // Copy-On-Write OS-defined flag
 pub const PAGE_NO_EXECUTE: u64 = 1 << 63;
 
 /// Convert generic architecture-independent `MapFlags` to x86_64 page table entry raw flags.
 pub fn translate_flags(flags: MapFlags) -> u64 {
     let mut entry_flags = PAGE_PRESENT; // Present (bit 0) is set for valid mappings
-    if flags.contains(MapFlags::WRITE) {
+    if flags.contains(MapFlags::WRITE) && !flags.contains(MapFlags::COW) {
         entry_flags |= PAGE_WRITABLE;
+    }
+    if flags.contains(MapFlags::COW) {
+        entry_flags |= PAGE_COW;
     }
     if flags.contains(MapFlags::USER) {
         entry_flags |= PAGE_USER;

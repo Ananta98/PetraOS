@@ -7,6 +7,7 @@ pub const MAX_ORDER: usize = 16;
 pub struct Page {
     pub flags: PageFlags,
     pub order: u8,
+    pub ref_count: u32,
 }
 
 impl Page {
@@ -14,6 +15,7 @@ impl Page {
         Self {
             flags: PageFlags::empty(),
             order: 0,
+            ref_count: 0,
         }
     }
 }
@@ -74,6 +76,34 @@ impl BuddyAllocator {
 
     pub fn free_pages(&self) -> usize {
         self.free_pages
+    }
+
+    pub fn inc_ref(&mut self, paddr: PhysAddr) {
+        let idx = self.get_page_index(paddr);
+        if idx < self.page_map.len() {
+            self.page_map[idx].ref_count += 1;
+        }
+    }
+
+    pub fn dec_ref(&mut self, paddr: PhysAddr) -> u32 {
+        let idx = self.get_page_index(paddr);
+        if idx < self.page_map.len() {
+            if self.page_map[idx].ref_count > 0 {
+                self.page_map[idx].ref_count -= 1;
+            }
+            self.page_map[idx].ref_count
+        } else {
+            0
+        }
+    }
+
+    pub fn get_ref(&self, paddr: PhysAddr) -> u32 {
+        let idx = self.get_page_index(paddr);
+        if idx < self.page_map.len() {
+            self.page_map[idx].ref_count
+        } else {
+            0
+        }
     }
 
     /// Safely split a larger free block and remove the node from the free list.
@@ -144,6 +174,10 @@ impl BuddyAllocator {
 
         // Set the order of the allocated block on its head page
         self.page_map[page_idx].order = order as u8;
+        let num_allocated = 1 << order;
+        for i in 0..num_allocated {
+            self.page_map[page_idx + i].ref_count = 1;
+        }
 
         self.free_pages -= 1 << order;
 

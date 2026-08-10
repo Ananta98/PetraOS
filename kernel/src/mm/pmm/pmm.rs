@@ -183,10 +183,44 @@ impl PhysicalMemoryManagement {
                 return;
             }
 
-            // SAFETY: We checked that the page is usable and not already free.
+            let new_ref = allocator.dec_ref(paddr);
+            if new_ref > 0 {
+                // Page is still referenced by another shared mapping (COW)
+                return;
+            }
+
+            // SAFETY: We checked that the page is usable, not already free, and ref_count reached 0.
             unsafe {
                 allocator.free_block_internal(paddr, order);
             }
+        }
+    }
+
+    /// Increment reference count for a physical page frame.
+    pub fn inc_ref(&self, paddr: PhysAddr) {
+        let mut guard = self.allocator.lock();
+        if let Some(ref mut allocator) = *guard {
+            allocator.inc_ref(paddr);
+        }
+    }
+
+    /// Decrement reference count for a physical page frame without returning it to free list.
+    pub fn dec_ref(&self, paddr: PhysAddr) -> u32 {
+        let mut guard = self.allocator.lock();
+        if let Some(ref mut allocator) = *guard {
+            allocator.dec_ref(paddr)
+        } else {
+            0
+        }
+    }
+
+    /// Query reference count for a physical page frame.
+    pub fn get_ref(&self, paddr: PhysAddr) -> u32 {
+        let guard = self.allocator.lock();
+        if let Some(ref allocator) = *guard {
+            allocator.get_ref(paddr)
+        } else {
+            0
         }
     }
 

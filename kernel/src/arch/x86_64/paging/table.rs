@@ -363,6 +363,57 @@ impl PageTable for ArchPageTable {
         Some(PhysAddr((pt_entry & 0x000F_FFFF_FFFF_F000) + offset))
     }
 
+    fn get_entry(&self, virt: VirtAddr) -> Option<(PhysAddr, u64)> {
+        let hhdm = hhdm_offset();
+        let l4_idx = pml4_index(virt);
+        let l3_idx = pdpt_index(virt);
+        let l2_idx = pd_index(virt);
+        let l1_idx = pt_index(virt);
+
+        let pml4 = self.pml4_phys.as_ptr::<u64>(hhdm);
+        let pml4_entry = unsafe { *pml4.add(l4_idx) };
+        if (pml4_entry & PAGE_PRESENT) == 0 {
+            return None;
+        }
+
+        let pdpt_phys = PhysAddr(pml4_entry & 0x000F_FFFF_FFFF_F000);
+        let pdpt = pdpt_phys.as_ptr::<u64>(hhdm);
+        let pdpt_entry = unsafe { *pdpt.add(l3_idx) };
+        if (pdpt_entry & PAGE_PRESENT) == 0 {
+            return None;
+        }
+
+        if (pdpt_entry & PAGE_HUGE) != 0 {
+            let offset = virt.as_u64() & 0x3FFF_FFFF;
+            let phys = PhysAddr((pdpt_entry & 0x000F_FFFF_C000_0000) + offset);
+            return Some((phys, pdpt_entry));
+        }
+
+        let pd_phys = PhysAddr(pdpt_entry & 0x000F_FFFF_FFFF_F000);
+        let pd = pd_phys.as_ptr::<u64>(hhdm);
+        let pd_entry = unsafe { *pd.add(l2_idx) };
+        if (pd_entry & PAGE_PRESENT) == 0 {
+            return None;
+        }
+
+        if (pd_entry & PAGE_HUGE) != 0 {
+            let offset = virt.as_u64() & 0x1F_FFFF;
+            let phys = PhysAddr((pd_entry & 0x000F_FFFF_FFE0_0000) + offset);
+            return Some((phys, pd_entry));
+        }
+
+        let pt_phys = PhysAddr(pd_entry & 0x000F_FFFF_FFFF_F000);
+        let pt = pt_phys.as_ptr::<u64>(hhdm);
+        let pt_entry = unsafe { *pt.add(l1_idx) };
+        if (pt_entry & PAGE_PRESENT) == 0 {
+            return None;
+        }
+
+        let offset = virt.as_u64() & 0xFFF;
+        let phys = PhysAddr((pt_entry & 0x000F_FFFF_FFFF_F000) + offset);
+        Some((phys, pt_entry))
+    }
+
     unsafe fn activate(&self) {
         // SAFETY: Switch CR3 register to reload the active page tables.
         unsafe {

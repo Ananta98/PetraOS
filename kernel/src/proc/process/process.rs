@@ -98,8 +98,8 @@ impl Process {
         let p_lock = parent.lock();
         let child_pid = next_pid();
 
-        // 1. Deep-copy virtual address space (PML4 page table and allocated physical pages)
-        let parent_addr_space = p_lock.address_space.lock();
+        // 1. Copy-On-Write clone of virtual address space
+        let mut parent_addr_space = p_lock.address_space.lock();
         let child_addr_space = parent_addr_space
             .clone()
             .map_err(|_| "Failed to clone address space for child process")?;

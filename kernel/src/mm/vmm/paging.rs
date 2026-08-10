@@ -8,6 +8,7 @@ bitflags::bitflags! {
         const EXECUTE  = 1 << 2;
         const USER     = 1 << 3;
         const NO_CACHE = 1 << 4;
+        const COW      = 1 << 5;
     }
 }
 
@@ -88,6 +89,9 @@ pub trait PageTable: Send + Sync {
 
     /// Translate a virtual address to its corresponding physical address.
     fn translate(&self, virt: VirtAddr) -> Option<PhysAddr>;
+
+    /// Retrieve physical frame address and raw page entry flags for a virtual address.
+    fn get_entry(&self, virt: VirtAddr) -> Option<(PhysAddr, u64)>;
 
     /// Activate this page table by loading it into the MMU.
     ///

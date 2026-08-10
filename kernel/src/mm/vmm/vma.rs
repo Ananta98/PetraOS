@@ -61,10 +61,9 @@ impl<P: PageTable> AddrSpace<P> {
         &self.page_table
     }
 
-    /// Duplicate (deep copy) the virtual address space and allocated physical pages.
-    pub fn clone(&self) -> Result<Self, AddrSpaceError> {
+    /// Duplicate the virtual address space using Copy-On-Write (COW) semantics for writable pages.
+    pub fn clone(&mut self) -> Result<Self, AddrSpaceError> {
         let mut new_page_table = P::new().map_err(AddrSpaceError::PagingError)?;
-        let hhdm = crate::mm::hhdm_offset();
         let mut allocated_frames = alloc::vec::Vec::new();
 
         for (&_vaddr, area) in &self.vm_areas {
@@ -76,31 +75,38 @@ impl<P: PageTable> AddrSpace<P> {
                 if let Some(parent_phys) = self.page_table.translate(page_virt) {
                     match area.kind {
                         VmAreaKind::Anonymous => {
-                            let child_frame = match crate::mm::PMM.alloc_page() {
-                                Some(frame) => frame,
-                                None => {
+                            if area.flags.contains(MapFlags::WRITE) {
+                                // COW: Mark both parent and child PTEs as Read-Only + COW
+                                let cow_flags = (area.flags & !MapFlags::WRITE) | MapFlags::COW;
+
+                                if let Err(err) = self.page_table.remap(page_virt, cow_flags) {
                                     for frame in allocated_frames {
                                         crate::mm::PMM.free_page(frame);
                                     }
-                                    return Err(AddrSpaceError::PagingError(
-                                        MapError::FrameAllocationFailed,
-                                    ));
+                                    return Err(AddrSpaceError::PagingError(err));
                                 }
-                            };
-                            allocated_frames.push(child_frame);
 
-                            unsafe {
-                                let src = parent_phys.as_ptr::<u8>(hhdm);
-                                let dest = child_frame.as_ptr::<u8>(hhdm);
-                                core::ptr::copy_nonoverlapping(src, dest, 4096);
-                            }
-
-                            if let Err(err) = new_page_table.map(page_virt, child_frame, area.flags)
-                            {
-                                for frame in allocated_frames {
-                                    crate::mm::PMM.free_page(frame);
+                                if let Err(err) =
+                                    new_page_table.map(page_virt, parent_phys, cow_flags)
+                                {
+                                    for frame in allocated_frames {
+                                        crate::mm::PMM.free_page(frame);
+                                    }
+                                    return Err(AddrSpaceError::PagingError(err));
                                 }
-                                return Err(AddrSpaceError::PagingError(err));
+
+                                crate::mm::PMM.inc_ref(parent_phys);
+                            } else {
+                                // Read-only anonymous page: share directly
+                                if let Err(err) =
+                                    new_page_table.map(page_virt, parent_phys, area.flags)
+                                {
+                                    for frame in allocated_frames {
+                                        crate::mm::PMM.free_page(frame);
+                                    }
+                                    return Err(AddrSpaceError::PagingError(err));
+                                }
+                                crate::mm::PMM.inc_ref(parent_phys);
                             }
                         }
                         VmAreaKind::Device { .. } => {
@@ -324,8 +330,43 @@ impl<P: PageTable> AddrSpace<P> {
 
         let page_virt = VirtAddr(fault_addr.as_u64() & !4095);
 
-        // 3. Check if page is already mapped
-        if self.page_table.translate(page_virt).is_some() {
+        // 3. Check if page is already mapped in page table
+        if let Some((parent_phys, entry_flags)) = self.page_table.get_entry(page_virt) {
+            let is_cow_entry = (entry_flags & crate::arch::paging::flags::PAGE_COW) != 0;
+            if access.contains(PageFaultAccess::WRITE)
+                && (is_cow_entry || area.flags.contains(MapFlags::WRITE))
+            {
+                let ref_count = crate::mm::PMM.get_ref(parent_phys);
+                if ref_count > 1 {
+                    // Shared COW frame: allocate a new physical frame and copy contents
+                    let new_frame = crate::mm::PMM
+                        .alloc_page()
+                        .ok_or(PageFaultError::FrameAllocationFailed)?;
+
+                    let hhdm = crate::mm::hhdm_offset();
+                    unsafe {
+                        let src = parent_phys.as_ptr::<u8>(hhdm);
+                        let dest = new_frame.as_ptr::<u8>(hhdm);
+                        core::ptr::copy_nonoverlapping(src, dest, 4096);
+                    }
+
+                    // Unmap old frame and map new frame with original VMA flags (writable, no COW)
+                    let _ = self.page_table.unmap(page_virt);
+                    self.page_table
+                        .map(page_virt, new_frame, area.flags)
+                        .map_err(PageFaultError::PagingError)?;
+
+                    // Decrement reference count on old parent frame
+                    crate::mm::PMM.dec_ref(parent_phys);
+                } else {
+                    // Sole reference remaining: upgrade page flags to Writable (clearing COW)
+                    self.page_table
+                        .remap(page_virt, area.flags)
+                        .map_err(PageFaultError::PagingError)?;
+                }
+                return Ok(());
+            }
+
             if access.contains(PageFaultAccess::PRESENT) {
                 return Err(PageFaultError::ProtectionViolation);
             }

@@ -79,10 +79,34 @@ extern "x86-interrupt" fn page_fault_handler(
 ) {
     let fault_virt = unsafe { super::paging::read_cr2() };
     let fault_code = super::paging::ArchPageFaultErrorCode::from_raw(error_code);
-    let _access_flags = fault_code.to_generic_access();
+    let access_flags = fault_code.to_generic_access();
+
+    let cpu_id = unsafe { super::lapic::get_lapic().id() };
+
+    let current_thread = {
+        let saved_flags = crate::arch::disable_interrupts();
+        let sched = crate::sched::SCHEDULER.lock();
+        let current = sched.current_threads[cpu_id as usize].clone();
+        drop(sched);
+        if saved_flags {
+            crate::arch::enable_interrupts();
+        }
+        current
+    };
+
+    if let Some(thread_arc) = current_thread {
+        let thread = thread_arc.lock();
+        if let Some(proc_arc) = thread.process.upgrade() {
+            let proc = proc_arc.lock();
+            let mut addr_space = proc.address_space.lock();
+            if addr_space.handle_page_fault(fault_virt, access_flags).is_ok() {
+                return;
+            }
+        }
+    }
 
     log::error!(
-        "EXCEPTION: PAGE FAULT (Fault Address: {:#x}, Error Code: {:#x} [{:?}])\n{:#?}",
+        "UNHANDLED EXCEPTION: PAGE FAULT (Fault Address: {:#x}, Error Code: {:#x} [{:?}])\n{:#?}",
         fault_virt.as_u64(),
         error_code,
         fault_code,
