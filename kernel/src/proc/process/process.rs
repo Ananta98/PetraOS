@@ -180,62 +180,6 @@ impl Process {
         ))
     }
 
-    /// Load default built-in user payload if no VFS binary was found.
-    pub fn load_builtin_payload(&mut self) -> Result<(u64, u64), &'static str> {
-        let payload = crate::arch::userspace::DEFAULT_USER_PAYLOAD;
-        let addr_space = Arc::get_mut(&mut self.address_space)
-            .ok_or("Failed to acquire mutable address space for builtin payload")?;
-
-        let code_phys = crate::mm::PMM
-            .alloc_page()
-            .ok_or("Failed to allocate physical page for user code")?;
-        let code_vaddr = crate::mm::VirtAddr(crate::arch::userspace::USER_CODE_VBASE);
-        let code_flags = crate::mm::MapFlags::READ
-            | crate::mm::MapFlags::WRITE
-            | crate::mm::MapFlags::EXECUTE
-            | crate::mm::MapFlags::USER;
-
-        addr_space
-            .page_table_mut()
-            .map(code_vaddr, code_phys, code_flags)
-            .map_err(|_| "Failed to map user code page table")?;
-        addr_space
-            .map_area_lazy(code_vaddr, 4096, code_flags, crate::mm::VmAreaKind::Anonymous)
-            .map_err(|_| "Failed to register user code VMA")?;
-
-        let hhdm = crate::mm::hhdm_offset();
-        let code_ptr = code_phys.as_ptr::<u8>(hhdm);
-        let copy_len = core::cmp::min(payload.len(), 4096);
-
-        // SAFETY: Copying default payload into physical page.
-        unsafe {
-            core::ptr::copy_nonoverlapping(payload.as_ptr(), code_ptr, copy_len);
-        }
-
-        let stack_phys = crate::mm::PMM
-            .alloc_page()
-            .ok_or("Failed to allocate physical page for user stack")?;
-        let stack_vaddr = crate::mm::VirtAddr(crate::arch::userspace::USER_STACK_VTOP - 4096);
-        let stack_flags =
-            crate::mm::MapFlags::READ | crate::mm::MapFlags::WRITE | crate::mm::MapFlags::USER;
-
-        addr_space
-            .page_table_mut()
-            .map(stack_vaddr, stack_phys, stack_flags)
-            .map_err(|_| "Failed to map user stack page table")?;
-        addr_space
-            .map_area_lazy(stack_vaddr, 4096, stack_flags, crate::mm::VmAreaKind::Anonymous)
-            .map_err(|_| "Failed to register user stack VMA")?;
-
-        self.state = ProcessState::Running;
-
-        Ok((
-            crate::arch::userspace::USER_CODE_VBASE,
-            crate::arch::userspace::USER_STACK_VTOP,
-        ))
-    }
-
-
     /// Clone the current process (POSIX fork semantics).
     pub fn fork(parent: Arc<Spinlock<Process>>) -> Result<Arc<Spinlock<Process>>, &'static str> {
         let mut p_lock = parent.lock();
@@ -451,28 +395,4 @@ impl Process {
             let _ = crate::arch::signal::setup_signal_frame(frame, sig, &action, old_mask);
         }
     }
-}
-
-/// Automated Kernel Integration Test for POSIX Signals
-pub fn test_signals() {
-    log::info!("── Running POSIX Signal Integration Test ──");
-    let mut pending = PendingSignals::new();
-    pending.add(crate::ipc::signal::SIGUSR1);
-    pending.add(crate::ipc::signal::SIGINT);
-
-    assert!(pending.has(crate::ipc::signal::SIGUSR1));
-    assert!(pending.has(crate::ipc::signal::SIGINT));
-    assert!(!pending.has(crate::ipc::signal::SIGKILL));
-
-    // Test dequeuing with signal mask
-    let blocked_mask = 1 << (crate::ipc::signal::SIGUSR1 - 1);
-    let dequeued = pending.dequeue(blocked_mask);
-    assert_eq!(dequeued, Some(crate::ipc::signal::SIGINT));
-
-    // Verify uncatchable check
-    assert!(crate::ipc::signal::is_uncatchable(crate::ipc::signal::SIGKILL));
-    assert!(crate::ipc::signal::is_uncatchable(crate::ipc::signal::SIGSTOP));
-    assert!(!crate::ipc::signal::is_uncatchable(crate::ipc::signal::SIGUSR1));
-
-    log::info!("✔ TEST PASSED: POSIX Signal logic verified successfully!");
 }

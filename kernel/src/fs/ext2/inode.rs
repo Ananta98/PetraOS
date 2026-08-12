@@ -201,7 +201,7 @@ impl Ext2Volume {
             sb.log_block_size,
             sb.block_size
         );
-        if sb.magic != 0xEF53 || sb.rev_level != 0 || sb.log_block_size != 0 {
+        if sb.magic != 0xEF53 || (sb.rev_level != 0 && sb.rev_level != 1) || sb.log_block_size > 2 {
             return Err(VfsError::InvalidInput);
         }
 
@@ -259,44 +259,176 @@ impl Ext2Volume {
         self.reader.write_bytes(inode_offset, &bytes)
     }
 
-    /// Resolve or allocate physical block for virtual block index.
+    /// Resolve or allocate physical block for virtual block index (direct, singly, and doubly indirect).
     pub fn get_or_alloc_inode_block(
         &self,
         inode: &mut Ext2Inode,
         block_offset: u32,
     ) -> Result<u32, VfsError> {
+        let block_size = self.sb.block_size;
+        let n = block_size / 4;
+
         if block_offset < 12 {
             if inode.block[block_offset as usize] == 0 {
                 let new_block = Ext2Bitmap::alloc_block(self)?;
                 inode.block[block_offset as usize] = new_block;
-                inode.blocks += self.sb.block_size / 512;
+                inode.blocks += block_size / 512;
             }
             return Ok(inode.block[block_offset as usize]);
         }
+
+        let mut offset = block_offset - 12;
+
+        // 1. Singly Indirect Allocation
+        if offset < n {
+            if inode.block[12] == 0 {
+                let new_singly = Ext2Bitmap::alloc_block(self)?;
+                inode.block[12] = new_singly;
+                inode.blocks += block_size / 512;
+                let zero_buf = alloc::vec![0u8; block_size as usize];
+                self.reader
+                    .write_bytes(new_singly as u64 * block_size as u64, &zero_buf)?;
+            }
+            let singly_block = inode.block[12];
+            let phys_ptr = singly_block as u64 * block_size as u64 + offset as u64 * 4;
+            let mut ptr_buf = [0u8; 4];
+            self.reader.read_bytes(phys_ptr, &mut ptr_buf)?;
+            let mut data_block = u32::from_le_bytes(ptr_buf);
+            if data_block == 0 {
+                data_block = Ext2Bitmap::alloc_block(self)?;
+                self.reader.write_bytes(phys_ptr, &data_block.to_le_bytes())?;
+                inode.blocks += block_size / 512;
+            }
+            return Ok(data_block);
+        }
+
+        offset -= n;
+
+        // 2. Doubly Indirect Allocation
+        if offset < n * n {
+            if inode.block[13] == 0 {
+                let new_doubly = Ext2Bitmap::alloc_block(self)?;
+                inode.block[13] = new_doubly;
+                inode.blocks += block_size / 512;
+                let zero_buf = alloc::vec![0u8; block_size as usize];
+                self.reader
+                    .write_bytes(new_doubly as u64 * block_size as u64, &zero_buf)?;
+            }
+            let doubly_block = inode.block[13];
+            let i1 = offset / n;
+            let i2 = offset % n;
+
+            let p1_phys = doubly_block as u64 * block_size as u64 + i1 as u64 * 4;
+            let mut ptr1_buf = [0u8; 4];
+            self.reader.read_bytes(p1_phys, &mut ptr1_buf)?;
+            let mut singly_block = u32::from_le_bytes(ptr1_buf);
+
+            if singly_block == 0 {
+                singly_block = Ext2Bitmap::alloc_block(self)?;
+                self.reader.write_bytes(p1_phys, &singly_block.to_le_bytes())?;
+                inode.blocks += block_size / 512;
+                let zero_buf = alloc::vec![0u8; block_size as usize];
+                self.reader
+                    .write_bytes(singly_block as u64 * block_size as u64, &zero_buf)?;
+            }
+
+            let p2_phys = singly_block as u64 * block_size as u64 + i2 as u64 * 4;
+            let mut ptr2_buf = [0u8; 4];
+            self.reader.read_bytes(p2_phys, &mut ptr2_buf)?;
+            let mut data_block = u32::from_le_bytes(ptr2_buf);
+
+            if data_block == 0 {
+                data_block = Ext2Bitmap::alloc_block(self)?;
+                self.reader.write_bytes(p2_phys, &data_block.to_le_bytes())?;
+                inode.blocks += block_size / 512;
+            }
+
+            return Ok(data_block);
+        }
+
         Err(VfsError::NotSupported)
     }
 
-    /// Resolve physical block number for virtual block offset.
+    /// Resolve physical block number for virtual block offset (direct, singly, doubly, triply indirect).
     pub fn get_inode_block(&self, inode: &Ext2Inode, block_offset: u32) -> Result<u32, VfsError> {
         let block_size = self.sb.block_size;
-        let ptrs_per_block = block_size / 4;
+        let n = block_size / 4;
 
         if block_offset < 12 {
             return Ok(inode.block[block_offset as usize]);
         }
 
-        let mut indirect_offset = block_offset - 12;
+        let mut offset = block_offset - 12;
 
-        if indirect_offset < ptrs_per_block {
-            let singly_indirect_block = inode.block[12];
-            if singly_indirect_block == 0 {
+        // 1. Singly Indirect (block[12])
+        if offset < n {
+            let singly_block = inode.block[12];
+            if singly_block == 0 {
                 return Ok(0);
             }
-            let offset =
-                singly_indirect_block as u64 * block_size as u64 + indirect_offset as u64 * 4;
+            let phys = singly_block as u64 * block_size as u64 + offset as u64 * 4;
             let mut ptr_buf = [0u8; 4];
-            self.reader.read_bytes(offset, &mut ptr_buf)?;
+            self.reader.read_bytes(phys, &mut ptr_buf)?;
             return Ok(u32::from_le_bytes(ptr_buf));
+        }
+
+        offset -= n;
+
+        // 2. Doubly Indirect (block[13])
+        if offset < n * n {
+            let doubly_block = inode.block[13];
+            if doubly_block == 0 {
+                return Ok(0);
+            }
+            let i1 = offset / n;
+            let i2 = offset % n;
+
+            let p1_phys = doubly_block as u64 * block_size as u64 + i1 as u64 * 4;
+            let mut ptr1_buf = [0u8; 4];
+            self.reader.read_bytes(p1_phys, &mut ptr1_buf)?;
+            let singly_block = u32::from_le_bytes(ptr1_buf);
+            if singly_block == 0 {
+                return Ok(0);
+            }
+
+            let p2_phys = singly_block as u64 * block_size as u64 + i2 as u64 * 4;
+            let mut ptr2_buf = [0u8; 4];
+            self.reader.read_bytes(p2_phys, &mut ptr2_buf)?;
+            return Ok(u32::from_le_bytes(ptr2_buf));
+        }
+
+        offset -= n * n;
+
+        // 3. Triply Indirect (block[14])
+        if offset < n * n * n {
+            let triply_block = inode.block[14];
+            if triply_block == 0 {
+                return Ok(0);
+            }
+            let i1 = offset / (n * n);
+            let i2 = (offset / n) % n;
+            let i3 = offset % n;
+
+            let p1_phys = triply_block as u64 * block_size as u64 + i1 as u64 * 4;
+            let mut ptr1_buf = [0u8; 4];
+            self.reader.read_bytes(p1_phys, &mut ptr1_buf)?;
+            let doubly_block = u32::from_le_bytes(ptr1_buf);
+            if doubly_block == 0 {
+                return Ok(0);
+            }
+
+            let p2_phys = doubly_block as u64 * block_size as u64 + i2 as u64 * 4;
+            let mut ptr2_buf = [0u8; 4];
+            self.reader.read_bytes(p2_phys, &mut ptr2_buf)?;
+            let singly_block = u32::from_le_bytes(ptr2_buf);
+            if singly_block == 0 {
+                return Ok(0);
+            }
+
+            let p3_phys = singly_block as u64 * block_size as u64 + i3 as u64 * 4;
+            let mut ptr3_buf = [0u8; 4];
+            self.reader.read_bytes(p3_phys, &mut ptr3_buf)?;
+            return Ok(u32::from_le_bytes(ptr3_buf));
         }
 
         Err(VfsError::NotSupported)

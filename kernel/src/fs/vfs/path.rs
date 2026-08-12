@@ -1,15 +1,22 @@
+use super::dcache::{dcache_evict, dcache_insert, dcache_lookup};
 use super::dentry::Dentry;
 use super::mount::MOUNT_TABLE;
 use super::types::{InodeType, VfsError};
 use alloc::sync::Arc;
 
-/// Resolve an absolute path to a dentry, traversing mount boundaries.
-///
-/// Finds the longest-prefix mount for `path`, then walks each path component
-/// through the dentry cache (or via `InodeOps::lookup` on cache miss).
-/// If a component's dentry corresponds to a mount point for another filesystem,
-/// resolution switches to that mount's root dentry.
+/// Maximum symlink traversal depth to prevent infinite circular loops.
+pub const MAX_SYMLINK_DEPTH: usize = 8;
+
+/// Resolve an absolute path to a dentry, traversing mount boundaries and symlinks.
 pub fn resolve_path(path: &str) -> Result<Arc<Dentry>, VfsError> {
+    resolve_path_symlink(path, 0)
+}
+
+fn resolve_path_symlink(path: &str, depth: usize) -> Result<Arc<Dentry>, VfsError> {
+    if depth >= MAX_SYMLINK_DEPTH {
+        return Err(VfsError::NotSupported);
+    }
+
     let mt = MOUNT_TABLE.lock();
     let (mount, remainder) = mt.lookup(path).ok_or(VfsError::NotFound)?;
 
@@ -22,39 +29,42 @@ pub fn resolve_path(path: &str) -> Result<Arc<Dentry>, VfsError> {
     let parts = remainder.split('/').filter(|s| !s.is_empty());
 
     for part in parts {
-        // Check dentry cache first
-        let cached = current.children.lock().get(part).cloned();
-        if let Some(child) = cached {
-            // Check if this child is itself a mount point
-            let child_path = build_path(&child);
-            if let Some((child_mount, _)) = mt.lookup(&child_path) {
-                if child_mount.mount_point == child_path
-                    && child_mount.mount_point != mount.mount_point
-                {
-                    current = child_mount.root_dentry.clone();
-                    continue;
-                }
-            }
-            current = child;
+        // 1. Check global dcache and local children dentry cache first
+        let dentry = if let Some(cached) = dcache_lookup(&current, part) {
+            cached
+        } else if let Some(cached_child) = current.children.lock().get(part).cloned() {
+            dcache_insert(&current, part, cached_child.clone());
+            cached_child
         } else {
             if current.inode.inode_type != InodeType::Directory {
                 return Err(VfsError::NotDirectory);
             }
             let child_inode = current.inode.ops.lookup(part)?;
             let child_dentry = Dentry::add_child(&current, part.into(), child_inode);
+            dcache_insert(&current, part, child_dentry.clone());
+            child_dentry
+        };
 
-            // Check if new child is a mount point
-            let child_path = build_path(&child_dentry);
-            if let Some((child_mount, _)) = mt.lookup(&child_path) {
-                if child_mount.mount_point == child_path
-                    && child_mount.mount_point != mount.mount_point
-                {
-                    current = child_mount.root_dentry.clone();
-                    continue;
-                }
+        // 2. Handle symbolic link resolution
+        if dentry.inode.inode_type == InodeType::Symlink {
+            if let Ok(target) = dentry.inode.ops.readlink() {
+                drop(mt);
+                return resolve_path_symlink(&target, depth + 1);
             }
-            current = child_dentry;
         }
+
+        // 3. Mount boundary traversal check
+        let child_path = build_path(&dentry);
+        if let Some((child_mount, _)) = mt.lookup(&child_path) {
+            if child_mount.mount_point == child_path
+                && child_mount.mount_point != mount.mount_point
+            {
+                current = child_mount.root_dentry.clone();
+                continue;
+            }
+        }
+
+        current = dentry;
     }
 
     Ok(current)
@@ -130,6 +140,7 @@ pub fn unlink(path: &str) -> Result<(), VfsError> {
 
     parent_dentry.inode.ops.unlink(file_name)?;
     Dentry::remove_child(&parent_dentry, file_name);
+    dcache_evict(&parent_dentry, file_name);
     Ok(())
 }
 
@@ -151,6 +162,7 @@ pub fn rmdir(path: &str) -> Result<(), VfsError> {
 
     parent_dentry.inode.ops.rmdir(dir_name)?;
     Dentry::remove_child(&parent_dentry, dir_name);
+    dcache_evict(&parent_dentry, dir_name);
     Ok(())
 }
 

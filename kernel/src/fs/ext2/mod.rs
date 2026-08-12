@@ -38,22 +38,33 @@ impl Ext2Fs {
 
         if let Some(dev_name) = device_name {
             let ext2_fs = Ext2Fs::new(dev_name);
-            match crate::fs::vfs::mount::MOUNT_TABLE
-                .lock()
-                .mount("/mnt", &ext2_fs)
-            {
+            let mut mt = crate::fs::vfs::mount::MOUNT_TABLE.lock();
+
+            // First attempt to mount Ext2 at root '/' (if valid rootfs disk image present)
+            match mt.mount("/", &ext2_fs) {
                 Ok(_) => {
                     log::info!(
-                        "[Ext2] Successfully mounted Ext2 filesystem on '{}' at /mnt",
+                        "[Ext2] Successfully mounted Ext2 filesystem on '{}' as root '/'",
                         dev_name
                     );
                 }
-                Err(err) => {
-                    log::info!(
-                        "[Ext2] Ext2 mount skipped on '{}' at /mnt ({:?})",
-                        dev_name,
-                        err
-                    );
+                Err(_) => {
+                    // Fallback to mounting at /mnt
+                    match mt.mount("/mnt", &ext2_fs) {
+                        Ok(_) => {
+                            log::info!(
+                                "[Ext2] Successfully mounted Ext2 filesystem on '{}' at /mnt",
+                                dev_name
+                            );
+                        }
+                        Err(err) => {
+                            log::info!(
+                                "[Ext2] Ext2 mount skipped on '{}' ({:?})",
+                                dev_name,
+                                err
+                            );
+                        }
+                    }
                 }
             }
         }

@@ -139,10 +139,6 @@ impl PhysicalMemoryManagement {
         *self.allocator.lock() = Some(allocator);
     }
 
-    pub fn init_for_test(&self, allocator: BuddyAllocator) {
-        *self.allocator.lock() = Some(allocator);
-    }
-
     /// Allocate a block of physical memory of size 2^order pages.
     pub fn alloc_pages(&self, order: usize) -> Option<PhysAddr> {
         let mut guard = self.allocator.lock();
