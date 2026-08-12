@@ -5,6 +5,7 @@ const STACK_SIZE: usize = 4096 * 5; // 20 KiB stack
 struct Stack([u8; STACK_SIZE]);
 
 static mut DOUBLE_FAULT_STACK: Stack = Stack([0; STACK_SIZE]);
+static mut EXCEPTION_STACK: Stack = Stack([0; STACK_SIZE]);
 
 #[derive(Debug, Clone, Copy)]
 #[repr(C, packed)]
@@ -38,9 +39,25 @@ pub static mut CPU_TSS_POINTERS: [u64; 8] = [0; 8];
 
 pub fn init() {
     unsafe {
-        let stack_start = core::ptr::addr_of!(DOUBLE_FAULT_STACK) as u64;
-        let stack_end = stack_start + STACK_SIZE as u64;
+        let df_stack_start = core::ptr::addr_of!(DOUBLE_FAULT_STACK) as u64;
+        let df_stack_end = df_stack_start + STACK_SIZE as u64;
         // IST1 is index 0
-        TSS.ist[0] = stack_end;
+        TSS.ist[0] = df_stack_end;
+
+        let exc_stack_start = core::ptr::addr_of!(EXCEPTION_STACK) as u64;
+        let exc_stack_end = exc_stack_start + STACK_SIZE as u64;
+        // IST2 is index 1
+        TSS.ist[1] = exc_stack_end;
     }
 }
+
+
+/// Set the Privilege Level 0 Kernel Stack Pointer (RSP0) in the TSS.
+///
+/// Used during Ring 3 execution so interrupts and system calls can switch to a valid kernel stack.
+pub fn set_rsp0(rsp: u64) {
+    unsafe {
+        TSS.rsp[0] = rsp;
+    }
+}
+

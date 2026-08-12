@@ -14,6 +14,31 @@ pub struct StackFrame {
     pub rip: u64,
 }
 
+/// A 16-byte aligned kernel stack allocated dynamically.
+#[repr(C, align(16))]
+pub struct KernelStack {
+    buffer: alloc::vec::Vec<u8>,
+}
+
+impl KernelStack {
+    /// Create a new kernel stack with the specified size in bytes.
+    pub fn new(size: usize) -> Self {
+        let buffer = alloc::vec![0u8; size];
+        Self { buffer }
+    }
+
+    /// Returns the 16-byte aligned top virtual address of the stack.
+    pub fn top(&self) -> u64 {
+        let top = self.buffer.as_ptr() as u64 + self.buffer.len() as u64;
+        top & !15
+    }
+
+    /// Access the underlying stack buffer slice.
+    pub fn as_slice_mut(&mut self) -> &mut [u8] {
+        &mut self.buffer
+    }
+}
+
 /// Initialize the stack frame for a new x86_64 thread.
 pub fn init_stack(stack: &mut [u8], entry: extern "C" fn(*mut u8), arg: *mut u8) -> u64 {
     let stack_top = stack.as_ptr() as u64 + stack.len() as u64;
@@ -38,3 +63,4 @@ pub fn init_stack(stack: &mut [u8], entry: extern "C" fn(*mut u8), arg: *mut u8)
 
     rsp
 }
+

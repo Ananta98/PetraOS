@@ -7,7 +7,23 @@ use crate::mm::vmm::AddrSpace;
 use crate::proc::thread::{Thread, ThreadId, ThreadState};
 use crate::sync::spinlock::Spinlock;
 use alloc::collections::BTreeMap;
+
 use alloc::sync::Arc;
+use alloc::vec::Vec;
+
+/// Helper to read a binary executable file from VFS paths into memory.
+pub fn read_file_from_vfs(path: &str) -> Result<Vec<u8>, &'static str> {
+    let dentry = crate::fs::resolve_path(path).map_err(|_| "File not found in VFS")?;
+    let stat = dentry.inode.ops.stat().map_err(|_| "Failed to stat file")?;
+    let file_ops = dentry.inode.ops.open().map_err(|_| "Failed to open file ops")?;
+
+    let alloc_size = if stat.size > 0 { stat.size as usize } else { 4096 };
+    let mut buf = alloc::vec![0u8; alloc_size];
+    let bytes_read = file_ops.read(0, &mut buf).map_err(|_| "Failed to read file data")?;
+    buf.truncate(bytes_read);
+    Ok(buf)
+}
+
 
 /// State of a process.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -78,18 +94,147 @@ impl Process {
         argc: usize,
         argv: *const *const u8,
         envp: *const *const u8,
-    ) -> Result<(), &'static str> {
-        let cmdline = unsafe { CommandLine::from_raw(argc, argv, envp)? };
+    ) -> Result<(u64, u64), &'static str> {
+        let cmdline = if !argv.is_null() {
+            unsafe { CommandLine::from_raw(argc, argv, envp)? }
+        } else {
+            CommandLine::default()
+        };
+
         log::info!(
             "Executing process '{}' (PID {}) with {} arg(s)",
             file_name,
             self.pid,
             cmdline.argc()
         );
+
+        let binary_data = read_file_from_vfs(file_name)?;
+        if binary_data.is_empty() {
+            return Err("Executable file is empty");
+        }
+
+        // 1. Try loading as ELF binary
+        if let Ok(elf) = crate::proc::loader::elf::Elf::new(&binary_data) {
+            if let Ok(loaded_elf) = elf.load() {
+                self.address_space = Arc::new(loaded_elf.addr_space);
+                self.cmdline = cmdline;
+                self.state = ProcessState::Running;
+                return Ok((
+                    loaded_elf.entry_point.as_u64(),
+                    loaded_elf.stack_pointer.as_u64(),
+                ));
+            }
+        }
+
+        // 2. Fallback for raw binary payloads
+        let addr_space = Arc::get_mut(&mut self.address_space)
+            .ok_or("Failed to acquire mutable address space for process execution")?;
+
+        let code_phys = crate::mm::PMM
+            .alloc_page()
+            .ok_or("Failed to allocate physical page for user code")?;
+        let code_vaddr = crate::mm::VirtAddr(crate::arch::userspace::USER_CODE_VBASE);
+        let code_flags = crate::mm::MapFlags::READ
+            | crate::mm::MapFlags::WRITE
+            | crate::mm::MapFlags::EXECUTE
+            | crate::mm::MapFlags::USER;
+
+        addr_space
+            .page_table_mut()
+            .map(code_vaddr, code_phys, code_flags)
+            .map_err(|_| "Failed to map user code page table")?;
+        addr_space
+            .map_area_lazy(code_vaddr, 4096, code_flags, crate::mm::VmAreaKind::Anonymous)
+            .map_err(|_| "Failed to register user code VMA")?;
+
+        let hhdm = crate::mm::hhdm_offset();
+        let code_ptr = code_phys.as_ptr::<u8>(hhdm);
+        let copy_len = core::cmp::min(binary_data.len(), 4096);
+
+        // SAFETY: Copying binary content into physical frame.
+        unsafe {
+            core::ptr::copy_nonoverlapping(binary_data.as_ptr(), code_ptr, copy_len);
+        }
+
+        let stack_phys = crate::mm::PMM
+            .alloc_page()
+            .ok_or("Failed to allocate physical page for user stack")?;
+        let stack_vaddr = crate::mm::VirtAddr(crate::arch::userspace::USER_STACK_VTOP - 4096);
+        let stack_flags =
+            crate::mm::MapFlags::READ | crate::mm::MapFlags::WRITE | crate::mm::MapFlags::USER;
+
+        addr_space
+            .page_table_mut()
+            .map(stack_vaddr, stack_phys, stack_flags)
+            .map_err(|_| "Failed to map user stack page table")?;
+        addr_space
+            .map_area_lazy(stack_vaddr, 4096, stack_flags, crate::mm::VmAreaKind::Anonymous)
+            .map_err(|_| "Failed to register user stack VMA")?;
+
         self.cmdline = cmdline;
         self.state = ProcessState::Running;
-        Ok(())
+
+        Ok((
+            crate::arch::userspace::USER_CODE_VBASE,
+            crate::arch::userspace::USER_STACK_VTOP,
+        ))
     }
+
+    /// Load default built-in user payload if no VFS binary was found.
+    pub fn load_builtin_payload(&mut self) -> Result<(u64, u64), &'static str> {
+        let payload = crate::arch::userspace::DEFAULT_USER_PAYLOAD;
+        let addr_space = Arc::get_mut(&mut self.address_space)
+            .ok_or("Failed to acquire mutable address space for builtin payload")?;
+
+        let code_phys = crate::mm::PMM
+            .alloc_page()
+            .ok_or("Failed to allocate physical page for user code")?;
+        let code_vaddr = crate::mm::VirtAddr(crate::arch::userspace::USER_CODE_VBASE);
+        let code_flags = crate::mm::MapFlags::READ
+            | crate::mm::MapFlags::WRITE
+            | crate::mm::MapFlags::EXECUTE
+            | crate::mm::MapFlags::USER;
+
+        addr_space
+            .page_table_mut()
+            .map(code_vaddr, code_phys, code_flags)
+            .map_err(|_| "Failed to map user code page table")?;
+        addr_space
+            .map_area_lazy(code_vaddr, 4096, code_flags, crate::mm::VmAreaKind::Anonymous)
+            .map_err(|_| "Failed to register user code VMA")?;
+
+        let hhdm = crate::mm::hhdm_offset();
+        let code_ptr = code_phys.as_ptr::<u8>(hhdm);
+        let copy_len = core::cmp::min(payload.len(), 4096);
+
+        // SAFETY: Copying default payload into physical page.
+        unsafe {
+            core::ptr::copy_nonoverlapping(payload.as_ptr(), code_ptr, copy_len);
+        }
+
+        let stack_phys = crate::mm::PMM
+            .alloc_page()
+            .ok_or("Failed to allocate physical page for user stack")?;
+        let stack_vaddr = crate::mm::VirtAddr(crate::arch::userspace::USER_STACK_VTOP - 4096);
+        let stack_flags =
+            crate::mm::MapFlags::READ | crate::mm::MapFlags::WRITE | crate::mm::MapFlags::USER;
+
+        addr_space
+            .page_table_mut()
+            .map(stack_vaddr, stack_phys, stack_flags)
+            .map_err(|_| "Failed to map user stack page table")?;
+        addr_space
+            .map_area_lazy(stack_vaddr, 4096, stack_flags, crate::mm::VmAreaKind::Anonymous)
+            .map_err(|_| "Failed to register user stack VMA")?;
+
+        self.state = ProcessState::Running;
+
+        Ok((
+            crate::arch::userspace::USER_CODE_VBASE,
+            crate::arch::userspace::USER_STACK_VTOP,
+        ))
+    }
+
 
     /// Clone the current process (POSIX fork semantics).
     pub fn fork(parent: Arc<Spinlock<Process>>) -> Result<Arc<Spinlock<Process>>, &'static str> {

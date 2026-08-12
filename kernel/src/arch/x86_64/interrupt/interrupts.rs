@@ -27,7 +27,9 @@ pub fn init() {
         IDT.entries[8].set_ist_index(1);
 
         IDT.entries[13].set_handler_fn(general_protection_fault_handler as *const () as u64);
+        IDT.entries[13].set_ist_index(2);
         IDT.entries[14].set_handler_fn(page_fault_handler as *const () as u64);
+        IDT.entries[14].set_ist_index(2);
 
         // LAPIC timer interrupt (vector 48)
         IDT.entries[lapic_timer::TIMER_VECTOR as usize]

@@ -9,7 +9,9 @@ pub mod timer;
 pub use cpu::gdt;
 pub use cpu::ports;
 pub use cpu::tss;
+pub use cpu::userspace;
 pub use interrupt::idt;
+
 pub use interrupt::interrupts;
 pub use interrupt::lapic;
 pub use timer::lapic_timer;
