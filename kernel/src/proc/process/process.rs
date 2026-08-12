@@ -1,5 +1,6 @@
 use super::cmdline::CommandLine;
-use super::pid::{ProcessId, next_pid};
+use super::pid::{next_pid, ProcessId};
+use super::process_table::{register_process, unregister_process};
 use crate::arch::paging::ArchPageTable;
 use crate::ipc::signal::{MAX_SIGNALS, PendingSignals, SigAction};
 use crate::mm::PageTable;
@@ -24,7 +25,6 @@ pub fn read_file_from_vfs(path: &str) -> Result<Vec<u8>, &'static str> {
     Ok(buf)
 }
 
-
 /// State of a process.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProcessState {
@@ -43,11 +43,17 @@ pub struct Process {
     /// Parent Process ID (PPID)
     pub ppid: ProcessId,
 
+    /// Process Group ID (PGID)
+    pub pgid: ProcessId,
+
+    /// Current working directory
+    pub cwd: alloc::string::String,
+
     /// Process state
     pub state: ProcessState,
 
     /// Virtual Address Space
-    pub address_space: Arc<AddrSpace<ArchPageTable>>,
+    pub address_space: Arc<Spinlock<AddrSpace<ArchPageTable>>>,
 
     /// Command line arguments and environment variables
     pub cmdline: CommandLine,
@@ -66,16 +72,30 @@ pub struct Process {
 
     /// Threads running in this process
     pub threads: BTreeMap<ThreadId, Arc<Spinlock<Thread>>>,
+
+    /// Per-process file descriptor table
+    pub fd_table: Arc<crate::fs::fd::FdTable>,
+
+    /// Virtual memory heap break start (for brk syscall)
+    pub heap_start: u64,
+
+    /// Current virtual memory heap break address
+    pub heap_brk: u64,
+
+    /// Next virtual address for mmap allocation
+    pub mmap_bump: u64,
 }
 
 impl Process {
     pub fn new(pid: ProcessId, ppid: ProcessId) -> Result<Self, &'static str> {
         let page_table =
             ArchPageTable::new().map_err(|_| "Failed to allocate process page table")?;
-        let address_space = Arc::new(AddrSpace::new(page_table));
+        let address_space = Arc::new(Spinlock::new(AddrSpace::new(page_table)));
         Ok(Self {
             pid,
             ppid,
+            pgid: pid,
+            cwd: alloc::string::String::from("/"),
             state: ProcessState::Creating,
             address_space,
             cmdline: CommandLine::default(),
@@ -84,6 +104,10 @@ impl Process {
             pending_signals: PendingSignals::new(),
             children: BTreeMap::new(),
             threads: BTreeMap::new(),
+            fd_table: Arc::new(crate::fs::fd::FdTable::new()),
+            heap_start: crate::arch::userspace::USER_HEAP_VBASE,
+            heap_brk: crate::arch::userspace::USER_HEAP_VBASE,
+            mmap_bump: crate::arch::userspace::USER_MMAP_VBASE,
         })
     }
 
@@ -116,7 +140,7 @@ impl Process {
         // 1. Try loading as ELF binary
         if let Ok(elf) = crate::proc::loader::elf::Elf::new(&binary_data) {
             if let Ok(loaded_elf) = elf.load() {
-                self.address_space = Arc::new(loaded_elf.addr_space);
+                self.address_space = Arc::new(Spinlock::new(loaded_elf.addr_space));
                 self.cmdline = cmdline;
                 self.state = ProcessState::Running;
                 return Ok((
@@ -127,8 +151,8 @@ impl Process {
         }
 
         // 2. Fallback for raw binary payloads
-        let addr_space = Arc::get_mut(&mut self.address_space)
-            .ok_or("Failed to acquire mutable address space for process execution")?;
+        let mut addr_space_guard = self.address_space.lock();
+        let addr_space = &mut *addr_space_guard;
 
         let code_phys = crate::mm::PMM
             .alloc_page()
@@ -171,6 +195,8 @@ impl Process {
             .map_area_lazy(stack_vaddr, 4096, stack_flags, crate::mm::VmAreaKind::Anonymous)
             .map_err(|_| "Failed to register user stack VMA")?;
 
+        drop(addr_space_guard);
+
         self.cmdline = cmdline;
         self.state = ProcessState::Running;
 
@@ -186,20 +212,30 @@ impl Process {
         let child_pid = next_pid();
 
         // 1. Copy-On-Write clone of virtual address space
-        let parent_addr_space = Arc::get_mut(&mut p_lock.address_space)
-            .ok_or("Failed to acquire mutable parent address space")?;
-        let child_addr_space = parent_addr_space
+        let child_addr_space = p_lock
+            .address_space
+            .lock()
             .clone()
             .map_err(|_| "Failed to clone address space for child process")?;
 
-        let child_addr_space_arc = Arc::new(child_addr_space);
-        let child_cr3 = child_addr_space_arc.page_table().root().as_u64() as usize;
+        let child_addr_space_arc = Arc::new(Spinlock::new(child_addr_space));
+        let child_cr3 = child_addr_space_arc
+            .lock()
+            .page_table()
+            .root()
+            .as_u64() as usize;
 
         // 2. Initialize child process structure
         let mut child_proc = Process::new(child_pid, p_lock.pid)?;
+        child_proc.pgid = p_lock.pgid;
         child_proc.address_space = child_addr_space_arc;
         child_proc.cmdline = p_lock.cmdline.clone();
         child_proc.sig_actions = p_lock.sig_actions;
+        child_proc.fd_table = Arc::new(p_lock.fd_table.clone_table());
+        child_proc.cwd = p_lock.cwd.clone();
+        child_proc.heap_start = p_lock.heap_start;
+        child_proc.heap_brk = p_lock.heap_brk;
+        child_proc.mmap_bump = p_lock.mmap_bump;
         child_proc.state = p_lock.state;
 
         let child = Arc::new(Spinlock::new(child_proc));
@@ -236,6 +272,8 @@ impl Process {
 
         child.lock().threads = child_threads;
 
+        register_process(child.clone());
+
         drop(p_lock);
         parent.lock().children.insert(child_pid, child.clone());
 
@@ -255,6 +293,7 @@ impl Process {
                 let exit_code = c_lock.exit_code.unwrap_or(0);
                 drop(c_lock);
                 self.children.remove(&pid);
+                unregister_process(pid);
                 return Ok(exit_code);
             }
             drop(c_lock);

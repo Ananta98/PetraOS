@@ -99,11 +99,10 @@ extern "x86-interrupt" fn page_fault_handler(
     if let Some(thread_arc) = current_thread {
         let thread = thread_arc.lock();
         if let Some(proc_arc) = thread.process.upgrade() {
-            let mut proc = proc_arc.lock();
-            if let Some(addr_space) = alloc::sync::Arc::get_mut(&mut proc.address_space) {
-                if addr_space.handle_page_fault(fault_virt, access_flags).is_ok() {
-                    return;
-                }
+            let proc = proc_arc.lock();
+            let mut addr_space = proc.address_space.lock();
+            if addr_space.handle_page_fault(fault_virt, access_flags).is_ok() {
+                return;
             }
         }
     }

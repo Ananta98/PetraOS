@@ -9,6 +9,10 @@ pub const USER_DS: u64 = 0x23;
 pub const USER_CODE_VBASE: u64 = 0x0000_0000_0040_0000;
 /// Default top address for user process stack
 pub const USER_STACK_VTOP: u64 = 0x0000_0000_7000_0000;
+/// Default virtual memory base address for user process heap (brk)
+pub const USER_HEAP_VBASE: u64 = 0x0000_0000_1000_0000;
+/// Default virtual memory base address for user mmap region
+pub const USER_MMAP_VBASE: u64 = 0x0000_7000_0000_0000;
 /// Default user stack size (16 KiB)
 
 /// Transition CPU privilege level from Ring 0 (Kernel) to Ring 3 (User Mode).

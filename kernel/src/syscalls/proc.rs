@@ -1,5 +1,6 @@
+use super::{is_user_ptr_valid, read_user_string, SyscallError, SyscallResult};
 use crate::arch::syscall::syscall::SyscallFrame;
-use super::SyscallResult;
+use crate::proc::ProcessId;
 
 /// `sys_yield` (SYS_YIELD = 24)
 /// Yield the CPU to another runnable thread.
@@ -8,10 +9,146 @@ pub fn sys_yield(_frame: &mut SyscallFrame) -> SyscallResult {
     Ok(0)
 }
 
+/// `sys_getpid` (SYS_GETPID = 39)
+/// Get process ID.
+pub fn sys_getpid(_frame: &mut SyscallFrame) -> SyscallResult {
+    let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
+    let proc = proc_arc.lock();
+    Ok(proc.pid.as_u64() as usize)
+}
+
+/// `sys_getppid` (SYS_GETPPID = 110)
+/// Get parent process ID.
+pub fn sys_getppid(_frame: &mut SyscallFrame) -> SyscallResult {
+    let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
+    let proc = proc_arc.lock();
+    Ok(proc.ppid.as_u64() as usize)
+}
+
+/// `sys_getpgrp` (SYS_GETPGRP = 111)
+/// Get process group ID.
+pub fn sys_getpgrp(_frame: &mut SyscallFrame) -> SyscallResult {
+    let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
+    let proc = proc_arc.lock();
+    Ok(proc.pgid.as_u64() as usize)
+}
+
+/// `sys_setpgid` (SYS_SETPGID = 109)
+/// Set process group ID.
+pub fn sys_setpgid(frame: &mut SyscallFrame) -> SyscallResult {
+    let pid_raw = frame.arg1() as i32;
+    let pgid_raw = frame.arg2() as i32;
+
+    let target_pid = if pid_raw <= 0 {
+        let current_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
+        current_arc.lock().pid
+    } else {
+        ProcessId(pid_raw as u64)
+    };
+
+    let target_proc = crate::proc::find_process(target_pid).ok_or(SyscallError::ESRCH)?;
+    let mut proc = target_proc.lock();
+
+    let new_pgid = if pgid_raw <= 0 {
+        proc.pid
+    } else {
+        ProcessId(pgid_raw as u64)
+    };
+
+    proc.pgid = new_pgid;
+    Ok(0)
+}
+
+/// `sys_fork` (SYS_FORK = 57)
+/// Create a child process (POSIX fork).
+pub fn sys_fork(_frame: &mut SyscallFrame) -> SyscallResult {
+    let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
+    let child_arc = crate::proc::Process::fork(proc_arc).map_err(|_| SyscallError::EAGAIN)?;
+    let child_pid = child_arc.lock().pid.as_u64();
+    Ok(child_pid as usize)
+}
+
+/// `sys_vfork` (SYS_VFORK = 58)
+/// Create a child process and block parent.
+pub fn sys_vfork(frame: &mut SyscallFrame) -> SyscallResult {
+    sys_fork(frame)
+}
+
+/// `sys_execve` (SYS_EXECVE = 59)
+/// Execute program file.
+pub fn sys_execve(frame: &mut SyscallFrame) -> SyscallResult {
+    let path_ptr = frame.arg1() as *const u8;
+    let argv_ptr = frame.arg2() as *const *const u8;
+    let envp_ptr = frame.arg3() as *const *const u8;
+
+    let path = unsafe { read_user_string(path_ptr, 256)? };
+
+    let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
+    let mut proc = proc_arc.lock();
+
+    let (entry_point, stack_top) = proc
+        .execute(&path, 0, argv_ptr, envp_ptr)
+        .map_err(|_| SyscallError::ENOENT)?;
+
+    frame.rip = entry_point;
+    frame.rsp = stack_top;
+
+    Ok(0)
+}
+
+/// `sys_wait4` (SYS_WAIT4 = 61)
+/// Wait for process state change.
+pub fn sys_wait4(frame: &mut SyscallFrame) -> SyscallResult {
+    let pid_raw = frame.arg1() as i32;
+    let wstatus = frame.arg2() as *mut i32;
+
+    if pid_raw <= 0 {
+        return Err(SyscallError::ECHILD);
+    }
+
+    let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
+    let mut proc = proc_arc.lock();
+
+    let status = proc
+        .wait(ProcessId(pid_raw as u64))
+        .map_err(|_| SyscallError::ECHILD)?;
+
+    if !wstatus.is_null() && is_user_ptr_valid(wstatus as u64, core::mem::size_of::<i32>()) {
+        // SAFETY: User pointer validated within Ring 3 address bounds.
+        unsafe {
+            core::ptr::write_volatile(wstatus, status);
+        }
+    }
+
+    Ok(pid_raw as usize)
+}
+
 /// `sys_exit` (SYS_EXIT = 60)
 /// Terminate the calling thread or process.
 pub fn sys_exit(frame: &mut SyscallFrame) -> SyscallResult {
     let code = frame.arg1() as i32;
     log::info!("sys_exit called with status code {}", code);
+
+    if let Some(proc_arc) = crate::proc::current_process() {
+        proc_arc.lock().exit(code);
+    }
+    if let Some(thread_arc) = crate::proc::current_thread() {
+        thread_arc.lock().exit(code as u32);
+    }
+    Ok(0)
+}
+
+/// `sys_exit_group` (SYS_EXIT_GROUP = 231)
+/// Exit all threads in a process.
+pub fn sys_exit_group(frame: &mut SyscallFrame) -> SyscallResult {
+    let code = frame.arg1() as i32;
+    log::info!("sys_exit_group called with status code {}", code);
+
+    if let Some(proc_arc) = crate::proc::current_process() {
+        proc_arc.lock().exit(code);
+    }
+    if let Some(thread_arc) = crate::proc::current_thread() {
+        thread_arc.lock().exit(code as u32);
+    }
     Ok(0)
 }

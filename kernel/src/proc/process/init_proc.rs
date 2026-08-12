@@ -35,7 +35,9 @@ pub fn create_init_process() -> Result<(Arc<Spinlock<Process>>, u64, u64), &'sta
                 "✔ [Init Process] Successfully resolved and loaded init binary from candidate path: '{}'",
                 candidate_path
             );
-            return Ok((Arc::new(Spinlock::new(proc)), entry_point, stack_top));
+            let proc_arc = Arc::new(Spinlock::new(proc));
+            super::process_table::register_process(proc_arc.clone());
+            return Ok((proc_arc, entry_point, stack_top));
         }
     }
 
@@ -54,7 +56,7 @@ pub fn run_init_process() -> ! {
     };
 
     let p_lock = proc_arc.lock();
-    let cr3 = p_lock.address_space.page_table().root().as_u64();
+    let cr3 = p_lock.address_space.lock().page_table().root().as_u64();
     drop(p_lock);
 
     // Allocate a dynamic 16-byte aligned kernel stack for TSS RSP0 and Ring 0 transition

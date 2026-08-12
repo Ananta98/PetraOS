@@ -44,6 +44,25 @@ impl FdTable {
         }
     }
 
+    /// Associate a specific `fd` number with `file`. Closes previous file if `fd` was open.
+    pub fn set(&self, fd: i32, file: Arc<File>) -> Result<(), VfsError> {
+        if fd < 0 {
+            return Err(VfsError::BadFd);
+        }
+        self.fds.lock().insert(fd, file);
+        Ok(())
+    }
+
+    /// Duplicate the file descriptor table for process cloning (POSIX `fork()`).
+    pub fn clone_table(&self) -> Self {
+        let fds = self.fds.lock().clone();
+        let next_fd = self.next_fd.load(Ordering::SeqCst);
+        Self {
+            fds: Spinlock::new(fds),
+            next_fd: AtomicI32::new(next_fd),
+        }
+    }
+
     /// Set up standard file descriptors (0 = stdin, 1 = stdout, 2 = stderr)
     /// all pointing to the same console file.
     pub fn setup_std_fds(&self, console_file: Arc<File>) {
@@ -53,3 +72,4 @@ impl FdTable {
         fds.insert(2, console_file);
     }
 }
+
