@@ -31,7 +31,7 @@ pub struct Process {
     pub state: ProcessState,
 
     /// Virtual Address Space
-    pub address_space: Arc<Spinlock<AddrSpace<ArchPageTable>>>,
+    pub address_space: Arc<AddrSpace<ArchPageTable>>,
 
     /// Command line arguments and environment variables
     pub cmdline: CommandLine,
@@ -53,12 +53,11 @@ pub struct Process {
 }
 
 impl Process {
-    pub fn new(
-        pid: ProcessId,
-        ppid: ProcessId,
-        address_space: Arc<Spinlock<AddrSpace<ArchPageTable>>>,
-    ) -> Self {
-        Self {
+    pub fn new(pid: ProcessId, ppid: ProcessId) -> Result<Self, &'static str> {
+        let page_table =
+            ArchPageTable::new().map_err(|_| "Failed to allocate process page table")?;
+        let address_space = Arc::new(AddrSpace::new(page_table));
+        Ok(Self {
             pid,
             ppid,
             state: ProcessState::Creating,
@@ -69,7 +68,7 @@ impl Process {
             pending_signals: PendingSignals::new(),
             children: BTreeMap::new(),
             threads: BTreeMap::new(),
-        }
+        })
     }
 
     /// Execute an executable file with arguments and environment.
@@ -94,21 +93,22 @@ impl Process {
 
     /// Clone the current process (POSIX fork semantics).
     pub fn fork(parent: Arc<Spinlock<Process>>) -> Result<Arc<Spinlock<Process>>, &'static str> {
-        let p_lock = parent.lock();
+        let mut p_lock = parent.lock();
         let child_pid = next_pid();
 
         // 1. Copy-On-Write clone of virtual address space
-        let mut parent_addr_space = p_lock.address_space.lock();
+        let parent_addr_space = Arc::get_mut(&mut p_lock.address_space)
+            .ok_or("Failed to acquire mutable parent address space")?;
         let child_addr_space = parent_addr_space
             .clone()
             .map_err(|_| "Failed to clone address space for child process")?;
-        drop(parent_addr_space);
 
-        let child_addr_space_arc = Arc::new(Spinlock::new(child_addr_space));
-        let child_cr3 = child_addr_space_arc.lock().page_table().root().as_u64() as usize;
+        let child_addr_space_arc = Arc::new(child_addr_space);
+        let child_cr3 = child_addr_space_arc.page_table().root().as_u64() as usize;
 
         // 2. Initialize child process structure
-        let mut child_proc = Process::new(child_pid, p_lock.pid, child_addr_space_arc);
+        let mut child_proc = Process::new(child_pid, p_lock.pid)?;
+        child_proc.address_space = child_addr_space_arc;
         child_proc.cmdline = p_lock.cmdline.clone();
         child_proc.sig_actions = p_lock.sig_actions;
         child_proc.state = p_lock.state;
@@ -331,4 +331,3 @@ pub fn test_signals() {
 
     log::info!("✔ TEST PASSED: POSIX Signal logic verified successfully!");
 }
-
