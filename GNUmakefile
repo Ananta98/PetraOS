@@ -23,7 +23,9 @@ all-hdd: $(IMAGE_NAME).hdd
 run: run-$(KARCH)
 
 .PHONY: initramfs
-initramfs:
+initramfs: initramfs.cpio
+
+initramfs.cpio: tools/create_initramfs.sh $(shell find initramfs_root -type f 2>/dev/null)
 	@if [ -f tools/create_initramfs.sh ]; then \
 		chmod +x tools/create_initramfs.sh && ./tools/create_initramfs.sh; \
 	fi
@@ -156,7 +158,7 @@ limine/limine:
 kernel:
 	$(MAKE) -C kernel
 
-$(IMAGE_NAME).iso: limine/limine kernel
+$(IMAGE_NAME).iso: limine/limine kernel initramfs.cpio
 	rm -rf iso_root
 	mkdir -p iso_root/boot
 	cp -v kernel/kernel iso_root/boot/
@@ -201,7 +203,7 @@ ifeq ($(KARCH),loongarch64)
 endif
 	rm -rf iso_root
 
-$(IMAGE_NAME).hdd: limine/limine kernel
+$(IMAGE_NAME).hdd: limine/limine kernel initramfs.cpio
 	rm -f $(IMAGE_NAME).hdd
 	dd if=/dev/zero bs=1M count=0 seek=64 of=$(IMAGE_NAME).hdd
 	sgdisk $(IMAGE_NAME).hdd -n 1:2048 -t 1:ef00
