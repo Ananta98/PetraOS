@@ -148,15 +148,23 @@ impl Process {
         }
 
         // 1. Try loading as ELF binary
-        if let Ok(elf) = crate::proc::loader::elf::Elf::new(&binary_data) {
-            if let Ok(loaded_elf) = elf.load_with_cmdline(Some(&cmdline)) {
-                self.address_space = Arc::new(Spinlock::new(loaded_elf.addr_space));
-                self.cmdline = cmdline;
-                self.state = ProcessState::Running;
-                return Ok((
-                    loaded_elf.entry_point.as_u64(),
-                    loaded_elf.stack_pointer.as_u64(),
-                ));
+        match crate::proc::loader::elf::Elf::new(&binary_data) {
+            Ok(elf) => match elf.load_with_cmdline(Some(&cmdline)) {
+                Ok(loaded_elf) => {
+                    self.address_space = Arc::new(Spinlock::new(loaded_elf.addr_space));
+                    self.cmdline = cmdline;
+                    self.state = ProcessState::Running;
+                    return Ok((
+                        loaded_elf.entry_point.as_u64(),
+                        loaded_elf.stack_pointer.as_u64(),
+                    ));
+                }
+                Err(err) => {
+                    log::error!("[Process] ELF loading failed for '{}': {}", file_name, err);
+                }
+            },
+            Err(err) => {
+                log::error!("[Process] ELF parsing failed for '{}': {}", file_name, err);
             }
         }
 
@@ -304,21 +312,44 @@ impl Process {
     }
 
     /// Terminate the process.
+    ///
+    /// Marks the process zombie and removes all **queued** (non-current) threads from the
+    /// scheduler run queue. The currently-executing thread is in `current_threads[cpu_id]`,
+    /// not the run queue, so it must NOT be removed here; `schedule(false)` → `block_current()`
+    /// will clear it after this function returns.
     pub fn exit(&mut self, status: i32) {
         self.state = ProcessState::Zombie;
         self.exit_code = Some(status);
 
-        // Terminate all threads
         let saved_flags = crate::arch::disable_interrupts();
-        for (_, thread) in self.threads.iter_mut() {
+
+        // Determine the TID of the currently-running thread on this CPU.
+        let cpu_id = crate::arch::cpu_id();
+        let current_tid = crate::sched::SCHEDULER
+            .lock()
+            .current_threads[cpu_id as usize]
+            .as_ref()
+            .map(|t| t.lock().tid);
+
+        // Remove all non-current threads from the scheduler run queue.
+        for (_, thread) in self.threads.iter() {
             let mut t_lock = thread.lock();
+            let tid = t_lock.tid;
+            let is_current = current_tid.map_or(false, |ctid| ctid == tid);
             t_lock.state = ThreadState::Zombie;
-            crate::sched::SCHEDULER.lock().remove_thread(t_lock.tid);
+            drop(t_lock);
+            if !is_current {
+                // Thread is in the run queue (not current_threads[cpu]) — remove it.
+                crate::sched::SCHEDULER.lock().remove_thread(tid);
+            }
+            // If is_current: leave it in current_threads[cpu]; block_current() handles it.
         }
+
         if saved_flags {
             crate::arch::enable_interrupts();
         }
-        self.threads.clear();
+        // Do NOT clear self.threads here. current_thread() must remain valid
+        // until schedule(false) switches context away in do_exit.
     }
 
     /// Update signal action for a given signal number (sigaction semantics).

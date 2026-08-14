@@ -2,7 +2,8 @@ pub mod fair;
 pub mod nice;
 
 use crate::arch::cpu::context::{switch_context, switch_context_to};
-use crate::arch::halt;
+
+
 use crate::sync::spinlock::Spinlock;
 use alloc::sync::Arc;
 
@@ -62,9 +63,16 @@ pub fn schedule(yielding: bool) {
             unsafe { switch_context_to(next_rsp) };
         }
         (Some(_), None) => {
-            // No runnable threads. We should halt.
-            halt();
+            // No runnable threads. Drop scheduler lock then idle permanently.
+            // idle() is divergent (loop { hlt }), so we never return here and
+            // never fall back into the dead syscall frame.
+            drop(sched);
+            if saved_flags {
+                crate::arch::enable_interrupts();
+            }
+            crate::arch::idle();
         }
+
         (None, None) => {
             // Do nothing, idle or still booting.
             drop(sched);

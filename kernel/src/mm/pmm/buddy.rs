@@ -183,7 +183,8 @@ impl BuddyAllocator {
             }
         }
 
-        self.free_pages -= 1 << order;
+        self.free_pages = self.free_pages.saturating_sub(1 << order);
+
 
         Some(paddr)
     }

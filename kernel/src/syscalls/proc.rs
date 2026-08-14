@@ -128,14 +128,7 @@ pub fn sys_wait4(frame: &mut SyscallFrame) -> SyscallResult {
 pub fn sys_exit(frame: &mut SyscallFrame) -> SyscallResult {
     let code = frame.arg1() as i32;
     log::info!("sys_exit called with status code {}", code);
-
-    if let Some(proc_arc) = crate::proc::current_process() {
-        proc_arc.lock().exit(code);
-    }
-    if let Some(thread_arc) = crate::proc::current_thread() {
-        thread_arc.lock().exit(code as u32);
-    }
-    Ok(0)
+    do_exit(code);
 }
 
 /// `sys_exit_group` (SYS_EXIT_GROUP = 231)
@@ -143,12 +136,39 @@ pub fn sys_exit(frame: &mut SyscallFrame) -> SyscallResult {
 pub fn sys_exit_group(frame: &mut SyscallFrame) -> SyscallResult {
     let code = frame.arg1() as i32;
     log::info!("sys_exit_group called with status code {}", code);
+    do_exit(code);
+}
 
+/// Common exit path shared by `sys_exit` and `sys_exit_group`.
+///
+/// This function never returns: it marks the current thread and process as zombie,
+/// then yields the CPU via `schedule(false)`. If no other runnable thread exists,
+/// it falls into the idle loop. Either path prevents `iretq` from firing into a
+/// dead user-space context.
+fn do_exit(code: i32) -> ! {
+    // 1. Mark the owning process as zombie (signals children, sets exit code).
     if let Some(proc_arc) = crate::proc::current_process() {
         proc_arc.lock().exit(code);
     }
+
+    // 2. Mark the current thread as zombie (sets exit_code, state = Zombie).
+    //    Do NOT call schedule() here; we do it once below so we fully control
+    //    the context-switch path.
     if let Some(thread_arc) = crate::proc::current_thread() {
-        thread_arc.lock().exit(code as u32);
+        let mut t = thread_arc.lock();
+        t.state = crate::proc::ThreadState::Zombie;
+        t.exit_code = Some(code as u32);
     }
-    Ok(0)
+
+    // 3. Remove ourselves from the scheduler's current-thread slot and switch
+    //    to the next runnable thread.  schedule(false) calls block_current(),
+    //    which sets current_threads[cpu] = None, then picks the next thread.
+    //    If another thread exists, switch_context() diverges (never returns here).
+    //    If no threads remain, the (Some(_prev), None) arm calls idle().
+    crate::sched::schedule(false);
+
+    // Unreachable: schedule(false) either context-switches away permanently or
+    // calls idle() which loops forever.  The compiler cannot verify this, so we
+    // satisfy the `-> !` return type explicitly.
+    crate::arch::idle()
 }

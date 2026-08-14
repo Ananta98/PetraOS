@@ -202,12 +202,12 @@ impl SlabAllocator {
 
 unsafe impl GlobalAlloc for SlabAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        let size = layout.size();
+        let size = if layout.size() == 0 { layout.align().max(8) } else { layout.size() };
         let align = layout.align();
 
         let hhdm_offset = crate::mm::hhdm_offset();
 
-        if size > 2048 {
+        if size > 2048 || align > 2048 {
             // Allocate pages directly from PMM
             let align_pages = (align + 4095) / 4096;
             let pages_needed = core::cmp::max((size + 4095) / 4096, align_pages);
@@ -238,12 +238,12 @@ unsafe impl GlobalAlloc for SlabAllocator {
             return;
         }
 
-        let size = layout.size();
+        let size = if layout.size() == 0 { layout.align().max(8) } else { layout.size() };
         let align = layout.align();
 
         let hhdm_offset = crate::mm::hhdm_offset();
 
-        if size > 2048 {
+        if size > 2048 || align > 2048 {
             // Large allocation, free pages back to PMM
             let align_pages = (align + 4095) / 4096;
             let pages_needed = core::cmp::max((size + 4095) / 4096, align_pages);

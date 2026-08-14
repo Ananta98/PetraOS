@@ -71,6 +71,9 @@ impl SyscallFrame {
 /// Called from assembly entry with `rdi` pointing to a valid `SyscallFrame` saved on the stack.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn do_syscall(frame: &mut SyscallFrame) {
+    let num = frame.syscall_num();
+    let a1 = frame.arg1();
     let ret = crate::syscalls::dispatch(frame);
+    log::info!("[Syscall Debug] sys_nr={} arg1={:#x} ret={}", num, a1, ret as isize);
     frame.set_return_value(ret);
 }
