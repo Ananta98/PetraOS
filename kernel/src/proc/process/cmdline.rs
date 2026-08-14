@@ -41,19 +41,21 @@ impl CommandLine {
         argv: *const *const u8,
         envp: *const *const u8,
     ) -> Result<Self, &'static str> {
-        let mut args = Vec::with_capacity(argc);
-        if argc > 0 {
-            if argv.is_null() {
-                return Err("argv pointer is null");
-            }
-            for i in 0..argc {
+        let mut args = Vec::new();
+        if !argv.is_null() {
+            let mut i = 0;
+            loop {
+                if argc > 0 && i >= argc {
+                    break;
+                }
                 let arg_ptr = unsafe { *argv.add(i) };
                 if arg_ptr.is_null() {
-                    return Err("argv element is null pointer");
+                    break;
                 }
                 let c_str = unsafe { CStr::from_ptr(arg_ptr as *const i8) };
                 let str_slice = c_str.to_str().map_err(|_| "Invalid UTF-8 in argv")?;
                 args.push(String::from(str_slice));
+                i += 1;
             }
         }
 

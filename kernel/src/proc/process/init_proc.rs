@@ -1,10 +1,13 @@
 use crate::arch::cpu::stack::KernelStack;
 use crate::arch::userspace::jump_to_userspace;
 use crate::mm::vmm::paging::PageTable;
+use crate::proc::process::cmdline::CommandLine;
 use crate::proc::process::pid::ProcessId;
 use crate::proc::process::process::Process;
 use crate::sync::spinlock::Spinlock;
+use alloc::string::String;
 use alloc::sync::Arc;
+use alloc::vec;
 
 /// POSIX standard paths scanned in order to find the initial user-space init binary.
 pub const DEFAULT_INIT_EXEC_PATHS: &[&str] = &[
@@ -25,12 +28,24 @@ pub fn create_init_process() -> Result<(Arc<Spinlock<Process>>, u64, u64), &'sta
 
     let mut proc = Process::new(ProcessId(1), ProcessId(0))?;
 
+    // Default environment variables for user space initialization
+    let default_env = vec![
+        String::from("PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin"),
+        String::from("TERM=petraos"),
+        String::from("HOME=/"),
+        String::from("USER=root"),
+    ];
+
     // 1. Iterate over candidate init paths and execute
     for candidate_path in DEFAULT_INIT_EXEC_PATHS {
         log::info!("[Init Process] Checking candidate path: '{}'", candidate_path);
-        if let Ok((entry_point, stack_top)) =
-            proc.execute(candidate_path, 0, core::ptr::null(), core::ptr::null())
-        {
+
+        let cmdline = CommandLine::new(
+            vec![String::from(*candidate_path)],
+            default_env.clone(),
+        );
+
+        if let Ok((entry_point, stack_top)) = proc.execute_cmdline(candidate_path, cmdline) {
             log::info!(
                 "✔ [Init Process] Successfully resolved and loaded init binary from candidate path: '{}'",
                 candidate_path

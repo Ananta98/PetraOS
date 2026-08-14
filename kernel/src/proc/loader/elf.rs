@@ -149,8 +149,11 @@ impl<'a> Elf<'a> {
     }
 
     /// Maps the loadable segments, creates the user address space, allocates a user stack,
-    /// and returns the loaded image information.
-    pub fn load(&self) -> Result<LoadedElf, &'static str> {
+    /// sets up System V AMD64 ABI argc/argv/envp parameters, and returns loaded image information.
+    pub fn load_with_cmdline(
+        &self,
+        cmdline: Option<&crate::proc::process::CommandLine>,
+    ) -> Result<LoadedElf, &'static str> {
         let page_table = ArchPageTable::new().map_err(|_| "Failed to create PML4 page table")?;
         let mut addr_space = AddrSpace::new(page_table);
 
@@ -165,11 +168,120 @@ impl<'a> Elf<'a> {
             .map_area(stack_start, stack_size, stack_flags, VmAreaKind::Anonymous)
             .map_err(|_| "Failed to map user stack VMA")?;
 
+        let initial_sp = if let Some(cmd) = cmdline {
+            Self::setup_user_stack(&mut addr_space, stack_top, cmd)?
+        } else {
+            stack_top
+        };
+
         Ok(LoadedElf {
             entry_point: self.entry_point(),
-            stack_pointer: stack_top,
+            stack_pointer: initial_sp,
             addr_space,
         })
+    }
+
+    /// Maps the loadable segments, creates the user address space, allocates a user stack,
+    /// and returns the loaded image information.
+    pub fn load(&self) -> Result<LoadedElf, &'static str> {
+        self.load_with_cmdline(None)
+    }
+
+    /// Setup the System V AMD64 ABI user stack frame with argc, argv, envp, and string tables.
+    fn setup_user_stack(
+        addr_space: &mut AddrSpace<ArchPageTable>,
+        stack_top: VirtAddr,
+        cmdline: &crate::proc::process::CommandLine,
+    ) -> Result<VirtAddr, &'static str> {
+        let hhdm = crate::mm::hhdm_offset();
+        let mut cur_sp = stack_top.as_u64();
+
+        // Helper closure to copy byte slice onto the stack at decremented SP
+        let mut write_user_bytes = |sp: &mut u64, bytes: &[u8]| -> Result<u64, &'static str> {
+            *sp -= bytes.len() as u64;
+            let target_vaddr = *sp;
+
+            let mut written = 0;
+            while written < bytes.len() {
+                let curr_v = target_vaddr + written as u64;
+                let page_v = curr_v & !4095;
+                let page_off = (curr_v & 4095) as usize;
+                let chunk_len = core::cmp::min(bytes.len() - written, 4096 - page_off);
+
+                let phys = addr_space
+                    .page_table()
+                    .translate(VirtAddr(page_v))
+                    .ok_or("Failed to translate user stack page")?;
+
+                unsafe {
+                    let dest = phys.as_ptr::<u8>(hhdm).add(page_off);
+                    core::ptr::copy_nonoverlapping(bytes[written..].as_ptr(), dest, chunk_len);
+                }
+                written += chunk_len;
+            }
+            Ok(target_vaddr)
+        };
+
+        // 1. Push environment strings (null-terminated)
+        let mut env_ptrs = alloc::vec::Vec::with_capacity(cmdline.env.len());
+        for env_str in &cmdline.env {
+            let mut str_bytes = alloc::vec::Vec::with_capacity(env_str.len() + 1);
+            str_bytes.extend_from_slice(env_str.as_bytes());
+            str_bytes.push(0);
+            let str_vaddr = write_user_bytes(&mut cur_sp, &str_bytes)?;
+            env_ptrs.push(str_vaddr);
+        }
+
+        // 2. Push argument strings (null-terminated)
+        let mut arg_ptrs = alloc::vec::Vec::with_capacity(cmdline.args.len());
+        for arg_str in &cmdline.args {
+            let mut str_bytes = alloc::vec::Vec::with_capacity(arg_str.len() + 1);
+            str_bytes.extend_from_slice(arg_str.as_bytes());
+            str_bytes.push(0);
+            let str_vaddr = write_user_bytes(&mut cur_sp, &str_bytes)?;
+            arg_ptrs.push(str_vaddr);
+        }
+
+        // 3. Align cur_sp to 8 bytes
+        cur_sp &= !7;
+
+        // Calculate total table entries:
+        // argc (1) + argv pointers (N) + NULL (1) + envp pointers (M) + NULL (1) + auxv (2)
+        let total_entries = 1 + arg_ptrs.len() + 1 + env_ptrs.len() + 1 + 2;
+        let total_table_bytes = total_entries * 8;
+
+        // System V AMD64 ABI requires RSP to be 16-byte aligned at process entry
+        if (cur_sp - total_table_bytes as u64) % 16 != 0 {
+            cur_sp -= 8;
+        }
+
+        // Helper to push a single u64 value
+        let mut write_u64 = |sp: &mut u64, val: u64| -> Result<(), &'static str> {
+            let bytes = val.to_ne_bytes();
+            write_user_bytes(sp, &bytes)?;
+            Ok(())
+        };
+
+        // 4. Push aux vector AT_NULL (0, 0)
+        write_u64(&mut cur_sp, 0)?; // AT_NULL a_val
+        write_u64(&mut cur_sp, 0)?; // AT_NULL a_type
+
+        // 5. Push envp array (NULL-terminated)
+        write_u64(&mut cur_sp, 0)?;
+        for &ptr in env_ptrs.iter().rev() {
+            write_u64(&mut cur_sp, ptr)?;
+        }
+
+        // 6. Push argv array (NULL-terminated)
+        write_u64(&mut cur_sp, 0)?;
+        for &ptr in arg_ptrs.iter().rev() {
+            write_u64(&mut cur_sp, ptr)?;
+        }
+
+        // 7. Push argc
+        write_u64(&mut cur_sp, arg_ptrs.len() as u64)?;
+
+        Ok(VirtAddr(cur_sp))
     }
 
     /// Validate the header's identity, endianness, machine and type.

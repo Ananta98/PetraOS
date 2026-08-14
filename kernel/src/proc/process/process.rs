@@ -112,7 +112,7 @@ impl Process {
         })
     }
 
-    /// Execute an executable file with arguments and environment.
+    /// Execute an executable file with raw argument and environment pointers.
     pub fn execute(
         &mut self,
         file_name: &str,
@@ -125,12 +125,21 @@ impl Process {
         } else {
             CommandLine::default()
         };
+        self.execute_cmdline(file_name, cmdline)
+    }
 
+    /// Execute an executable file with a structured `CommandLine` (argv + envp).
+    pub fn execute_cmdline(
+        &mut self,
+        file_name: &str,
+        cmdline: CommandLine,
+    ) -> Result<(u64, u64), &'static str> {
         log::info!(
-            "Executing process '{}' (PID {}) with {} arg(s)",
+            "Executing process '{}' (PID {}) with {} arg(s) and {} env var(s)",
             file_name,
             self.pid,
-            cmdline.argc()
+            cmdline.argc(),
+            cmdline.envp().len()
         );
 
         let binary_data = read_file_from_vfs(file_name)?;
@@ -140,7 +149,7 @@ impl Process {
 
         // 1. Try loading as ELF binary
         if let Ok(elf) = crate::proc::loader::elf::Elf::new(&binary_data) {
-            if let Ok(loaded_elf) = elf.load() {
+            if let Ok(loaded_elf) = elf.load_with_cmdline(Some(&cmdline)) {
                 self.address_space = Arc::new(Spinlock::new(loaded_elf.addr_space));
                 self.cmdline = cmdline;
                 self.state = ProcessState::Running;
