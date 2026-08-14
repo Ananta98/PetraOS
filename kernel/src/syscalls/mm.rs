@@ -2,6 +2,7 @@ use super::{SyscallError, SyscallResult};
 use crate::arch::syscall::syscall::SyscallFrame;
 use crate::mm::vmm::vma::VmAreaKind;
 use crate::mm::{MapFlags, VirtAddr};
+use alloc::sync::Arc;
 
 /// `sys_brk` (SYS_BRK = 12)
 /// Change data segment size (heap break pointer).

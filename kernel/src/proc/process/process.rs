@@ -8,6 +8,7 @@ use crate::mm::vmm::AddrSpace;
 use crate::proc::thread::{Thread, ThreadId, ThreadState};
 use crate::sync::spinlock::Spinlock;
 use alloc::collections::BTreeMap;
+use crate::fs::FdTable;
 
 use alloc::sync::Arc;
 use alloc::vec::Vec;
@@ -74,7 +75,7 @@ pub struct Process {
     pub threads: BTreeMap<ThreadId, Arc<Spinlock<Thread>>>,
 
     /// Per-process file descriptor table
-    pub fd_table: Arc<crate::fs::fd::FdTable>,
+    pub fd_table: Arc<FdTable>,
 
     /// Virtual memory heap break start (for brk syscall)
     pub heap_start: u64,
@@ -104,7 +105,7 @@ impl Process {
             pending_signals: PendingSignals::new(),
             children: BTreeMap::new(),
             threads: BTreeMap::new(),
-            fd_table: Arc::new(crate::fs::fd::FdTable::new()),
+            fd_table: Arc::new(crate::fs::FdTable::new()),
             heap_start: crate::arch::userspace::USER_HEAP_VBASE,
             heap_brk: crate::arch::userspace::USER_HEAP_VBASE,
             mmap_bump: crate::arch::userspace::USER_MMAP_VBASE,

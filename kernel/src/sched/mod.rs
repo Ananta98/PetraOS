@@ -1,15 +1,15 @@
 pub mod fair;
-pub mod stats;
+pub mod nice;
 
 use crate::arch::cpu::context::{switch_context, switch_context_to};
 use crate::arch::halt;
 use crate::sync::spinlock::Spinlock;
 use alloc::sync::Arc;
 
-pub use fair::{MAX_CPUS, NICE_0_WEIGHT, Scheduler};
-pub use stats::SchedulerStats;
+pub use fair::{BASE_SLICE_NS, MAX_CPUS, Scheduler};
+pub use nice::{nice_to_weight, Nice, MAX_NICE, MIN_NICE, NICE_0_WEIGHT};
 
-/// Global CFS Scheduler instance
+/// Global EEVDF Scheduler instance
 pub static SCHEDULER: Spinlock<Scheduler> = Spinlock::new(Scheduler::new());
 
 /// The main scheduling routine.
@@ -40,7 +40,6 @@ pub fn schedule(yielding: bool) {
                 }
                 return; // Nothing to do
             }
-            sched.stats.inc_context_switches();
             // Get raw pointers
             let prev_rsp_ptr = {
                 let mut p = prev.lock();
@@ -56,7 +55,6 @@ pub fn schedule(yielding: bool) {
             unsafe { switch_context(prev_rsp_ptr, next_rsp) };
         }
         (None, Some(next)) => {
-            sched.stats.inc_context_switches();
             // First ever thread switch (from kmain)
             let next_rsp = next.lock().context.rsp as u64;
             drop(sched);

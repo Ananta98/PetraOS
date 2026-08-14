@@ -5,6 +5,10 @@ use crate::proc::process::Process;
 use crate::sync::spinlock::Spinlock;
 use alloc::string::String;
 use alloc::sync::{Arc, Weak};
+use crate::sched::nice::Nice;
+
+/// Default requested time slice for threads in nanoseconds (10 ms).
+pub const DEFAULT_THREAD_SLICE_NS: u64 = 10_000_000;
 
 /// Represents the execution state of a thread.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -31,10 +35,19 @@ pub struct Thread {
     /// CPU Context (Registers, RSP, RIP)
     pub context: ThreadContext,
 
-    /// Accumulated virtual runtime in nanoseconds (CFS)
+    /// Accumulated virtual runtime in nanoseconds (EEVDF)
     pub vruntime: u64,
 
-    /// Thread weight for CFS (higher weight = more CPU time)
+    /// Virtual deadline in nanoseconds (EEVDF)
+    pub vdeadline: u64,
+
+    /// Requested time slice in nanoseconds
+    pub slice_ns: u64,
+
+    /// Thread scheduling nice value ([-20, 19])
+    pub nice: Nice,
+
+    /// Thread weight for proportional sharing (higher weight = more CPU time)
     pub weight: u32,
 
     /// Signal mask (blocked signals for this specific thread)
@@ -52,18 +65,29 @@ pub struct Thread {
 
 impl Thread {
     pub fn new(tid: ThreadId, name: String, weight: u32, process: Weak<Spinlock<Process>>) -> Self {
+        let nice = Nice::default();
+        let effective_weight = if weight > 0 { weight } else { nice.weight() };
         Self {
             tid,
             name,
             process,
             context: ThreadContext::default(),
             vruntime: 0,
-            weight,
+            vdeadline: 0,
+            slice_ns: DEFAULT_THREAD_SLICE_NS,
+            nice,
+            weight: effective_weight,
             sig_mask: 0,
             pending_signals: PendingSignals::new(),
             state: ThreadState::Creating,
             exit_code: None,
         }
+    }
+
+    /// Sets the thread nice value and updates its associated CPU weight.
+    pub fn set_nice(&mut self, nice: Nice) {
+        self.nice = nice;
+        self.weight = nice.weight();
     }
 
     /// Yield the CPU to another thread.

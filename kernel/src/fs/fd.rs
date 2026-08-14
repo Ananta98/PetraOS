@@ -1,4 +1,4 @@
-use crate::fs::vfs::types::{File, VfsError};
+use super::{File, VfsError};
 use crate::sync::spinlock::Spinlock;
 use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
