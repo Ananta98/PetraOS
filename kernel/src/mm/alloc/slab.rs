@@ -75,12 +75,18 @@ impl KmemCache {
     /// # Safety
     /// Caller must ensure that self is locked or accessed exclusively.
     pub unsafe fn alloc(&mut self, hhdm_offset: u64) -> *mut u8 {
-        // Find a slab that has free blocks:
-        // First, check partial slabs. If none, check empty slabs.
         let mut slab_node = self.slabs_partial.head;
-        if slab_node.is_null() {
+        let is_new = if slab_node.is_null() {
             slab_node = self.slabs_empty.head;
-        }
+            if !slab_node.is_null() {
+                unsafe {
+                    self.slabs_empty.remove(slab_node);
+                }
+            }
+            true
+        } else {
+            false
+        };
 
         // If no usable slab exists, allocate a new page from PMM
         if slab_node.is_null() {
@@ -91,10 +97,6 @@ impl KmemCache {
 
             let page_virt = (page_phys.as_u64() + hhdm_offset) as usize;
             let new_slab = unsafe { Slab::init(page_virt, self.object_size, self.alignment) };
-
-            unsafe {
-                self.slabs_empty.push_front(&mut (*new_slab).node);
-            }
             slab_node = unsafe { &mut (*new_slab).node };
         }
 
@@ -102,21 +104,18 @@ impl KmemCache {
 
         unsafe {
             let block = (*slab).free_list;
-            (*slab).free_list = (*block).next;
-
-            // Remove slab from its current list
-            if (*slab).allocated_count == 0 {
-                self.slabs_empty.remove(slab_node);
-            } else {
-                self.slabs_partial.remove(slab_node);
+            if block.is_null() {
+                return core::ptr::null_mut();
             }
-
+            (*slab).free_list = (*block).next;
             (*slab).allocated_count += 1;
 
-            // Transition to new list
             if (*slab).allocated_count == (*slab).total_count {
+                if !is_new {
+                    self.slabs_partial.remove(slab_node);
+                }
                 self.slabs_full.push_front(slab_node);
-            } else {
+            } else if is_new {
                 self.slabs_partial.push_front(slab_node);
             }
 
@@ -137,21 +136,19 @@ impl KmemCache {
             (*block).next = (*slab).free_list;
             (*slab).free_list = block;
 
-            // Remove slab from its current list (full or partial)
-            if (*slab).allocated_count == (*slab).total_count {
-                self.slabs_full.remove(slab_node);
-            } else {
-                self.slabs_partial.remove(slab_node);
-            }
-
+            let was_full = (*slab).allocated_count == (*slab).total_count;
             (*slab).allocated_count -= 1;
 
-            // Transition slab to empty or partial list
             if (*slab).allocated_count == 0 {
-                // Free the page back to PMM
+                if was_full {
+                    self.slabs_full.remove(slab_node);
+                } else {
+                    self.slabs_partial.remove(slab_node);
+                }
                 let paddr = PhysAddr(page_start as u64 - hhdm_offset);
                 PMM.free_page(paddr);
-            } else {
+            } else if was_full {
+                self.slabs_full.remove(slab_node);
                 self.slabs_partial.push_front(slab_node);
             }
         }

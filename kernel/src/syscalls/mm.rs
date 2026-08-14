@@ -31,7 +31,7 @@ pub fn sys_brk(frame: &mut SyscallFrame) -> SyscallResult {
                 &mut *(Arc::as_ptr(&proc.address_space)
                     as *mut crate::mm::vmm::AddrSpace<crate::arch::paging::ArchPageTable>)
             };
-            let _ = addr_space.map_area_lazy(
+            let _ = addr_space.map_area(
                 VirtAddr(page_start),
                 size,
                 flags,
@@ -51,8 +51,8 @@ pub fn sys_mmap(frame: &mut SyscallFrame) -> SyscallResult {
     let len = frame.arg2() as usize;
     let _prot = frame.arg3() as i32;
     let _flags = frame.arg4() as i32;
-    let _fd = frame.arg5() as i32;
-    let _offset = frame.arg6() as u64;
+    let fd = frame.arg5() as i32;
+    let offset = frame.arg6() as u64;
 
     if len == 0 {
         return Err(SyscallError::EINVAL);
@@ -72,6 +72,21 @@ pub fn sys_mmap(frame: &mut SyscallFrame) -> SyscallResult {
 
     let map_flags = MapFlags::READ | MapFlags::WRITE | MapFlags::USER;
 
+    let kind = if fd >= 0 {
+        if let Ok(file) = proc.fd_table.get(fd) {
+            let file_size = file.ops.stat().map(|s| s.size as usize).unwrap_or(0);
+            VmAreaKind::File {
+                file: file.ops.clone(),
+                offset: offset as usize,
+                file_size,
+            }
+        } else {
+            VmAreaKind::Anonymous
+        }
+    } else {
+        VmAreaKind::Anonymous
+    };
+
     // SAFETY: `proc` lock is held exclusively by active process thread during syscall execution.
     let addr_space = unsafe {
         &mut *(Arc::as_ptr(&proc.address_space)
@@ -79,11 +94,11 @@ pub fn sys_mmap(frame: &mut SyscallFrame) -> SyscallResult {
     };
 
     if addr_space
-        .map_area_lazy(
+        .map_area(
             VirtAddr(target_vaddr),
             aligned_len,
             map_flags,
-            VmAreaKind::Anonymous,
+            kind,
         )
         .is_err()
     {
@@ -112,7 +127,10 @@ pub fn sys_munmap(frame: &mut SyscallFrame) -> SyscallResult {
             as *mut crate::mm::vmm::AddrSpace<crate::arch::paging::ArchPageTable>)
     };
 
-    let _ = addr_space.unmap_area(VirtAddr(addr));
+    if addr_space.unmap_area(VirtAddr(addr)).is_err() {
+        return Err(SyscallError::EINVAL);
+    }
+
     Ok(0)
 }
 

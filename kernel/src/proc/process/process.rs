@@ -155,9 +155,6 @@ impl Process {
         let mut addr_space_guard = self.address_space.lock();
         let addr_space = &mut *addr_space_guard;
 
-        let code_phys = crate::mm::PMM
-            .alloc_page()
-            .ok_or("Failed to allocate physical page for user code")?;
         let code_vaddr = crate::mm::VirtAddr(crate::arch::userspace::USER_CODE_VBASE);
         let code_flags = crate::mm::MapFlags::READ
             | crate::mm::MapFlags::WRITE
@@ -165,12 +162,13 @@ impl Process {
             | crate::mm::MapFlags::USER;
 
         addr_space
-            .page_table_mut()
-            .map(code_vaddr, code_phys, code_flags)
-            .map_err(|_| "Failed to map user code page table")?;
-        addr_space
-            .map_area_lazy(code_vaddr, 4096, code_flags, crate::mm::VmAreaKind::Anonymous)
-            .map_err(|_| "Failed to register user code VMA")?;
+            .map_area(code_vaddr, 4096, code_flags, crate::mm::VmAreaKind::Anonymous)
+            .map_err(|_| "Failed to map user code VMA")?;
+
+        let code_phys = addr_space
+            .page_table()
+            .translate(code_vaddr)
+            .ok_or("Failed to translate user code virtual page")?;
 
         let hhdm = crate::mm::hhdm_offset();
         let code_ptr = code_phys.as_ptr::<u8>(hhdm);
@@ -181,20 +179,13 @@ impl Process {
             core::ptr::copy_nonoverlapping(binary_data.as_ptr(), code_ptr, copy_len);
         }
 
-        let stack_phys = crate::mm::PMM
-            .alloc_page()
-            .ok_or("Failed to allocate physical page for user stack")?;
         let stack_vaddr = crate::mm::VirtAddr(crate::arch::userspace::USER_STACK_VTOP - 4096);
         let stack_flags =
             crate::mm::MapFlags::READ | crate::mm::MapFlags::WRITE | crate::mm::MapFlags::USER;
 
         addr_space
-            .page_table_mut()
-            .map(stack_vaddr, stack_phys, stack_flags)
-            .map_err(|_| "Failed to map user stack page table")?;
-        addr_space
-            .map_area_lazy(stack_vaddr, 4096, stack_flags, crate::mm::VmAreaKind::Anonymous)
-            .map_err(|_| "Failed to register user stack VMA")?;
+            .map_area(stack_vaddr, 4096, stack_flags, crate::mm::VmAreaKind::Anonymous)
+            .map_err(|_| "Failed to map user stack VMA")?;
 
         drop(addr_space_guard);
 

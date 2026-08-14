@@ -151,45 +151,61 @@ impl FileOps for BlockDeviceFileOps {
     }
 }
 
-/// Mount the device filesystem at `/dev` and register core device nodes.
-pub fn mount_devfs() {
-    let mut mt = MOUNT_TABLE.lock();
-    let dev_mount = mt
-        .mount("/dev", &DevFs)
-        .expect("Failed to mount devfs at /dev");
+impl DevFs {
+    /// Mount the device filesystem at `/dev` and register core device nodes.
+    pub fn init() -> Result<(), &'static str> {
+        let mut mt = MOUNT_TABLE.lock();
+        let dev_mount = mt
+            .mount("/dev", &DevFs)
+            .map_err(|_| "Failed to mount devfs at /dev")?;
 
-    // Register console character device
-    let console_ino = dev_mount.superblock.alloc_ino();
-    let console_inode = Arc::new(Inode {
-        ino: console_ino,
-        inode_type: InodeType::CharDevice,
-        ops: Arc::new(ConsoleInode),
-    });
-    Dentry::add_child(&dev_mount.root_dentry, "console".into(), console_inode);
+        // Register console character device
+        let console_ino = dev_mount.superblock.alloc_ino();
+        let console_inode = Arc::new(Inode {
+            ino: console_ino,
+            inode_type: InodeType::CharDevice,
+            ops: Arc::new(ConsoleInode),
+        });
+        Dentry::add_child(&dev_mount.root_dentry, "console".into(), console_inode);
 
-    // Scan DEVICE_MANAGER and dynamically register discovered block devices
-    let dm = DEVICE_MANAGER.lock();
-    for dev_arc in dm.get_devices() {
-        let dev_lock = dev_arc.lock();
-        if dev_lock.dev_type() == crate::device::DeviceType::Block {
-            let dev_name = dev_lock.name();
-            let vfs_name = if dev_name.contains("AHCI") {
-                "sda"
-            } else if dev_name.contains("NVMe") {
-                "nvme0n1"
-            } else {
-                continue;
-            };
+        // Scan DEVICE_MANAGER and dynamically register discovered block devices
+        let dm = DEVICE_MANAGER.lock();
+        for dev_arc in dm.get_devices() {
+            let dev_lock = dev_arc.lock();
+            if dev_lock.dev_type() == crate::device::DeviceType::Block {
+                let dev_name = dev_lock.name();
+                let vfs_name = if dev_name.contains("AHCI") {
+                    "sda"
+                } else if dev_name.contains("NVMe") {
+                    "nvme0n1"
+                } else {
+                    continue;
+                };
 
-            let block_ino = dev_mount.superblock.alloc_ino();
-            let block_inode = Arc::new(Inode {
-                ino: block_ino,
-                inode_type: InodeType::BlockDevice,
-                ops: Arc::new(BlockDeviceInode {
-                    device_name: dev_name,
-                }),
-            });
-            Dentry::add_child(&dev_mount.root_dentry, vfs_name.into(), block_inode);
+                let block_ino = dev_mount.superblock.alloc_ino();
+                let block_inode = Arc::new(Inode {
+                    ino: block_ino,
+                    inode_type: InodeType::BlockDevice,
+                    ops: Arc::new(BlockDeviceInode {
+                        device_name: dev_name,
+                    }),
+                });
+                Dentry::add_child(&dev_mount.root_dentry, vfs_name.into(), block_inode);
+            }
         }
+
+        log::info!("[DevFS] Mounted /dev successfully.");
+        Ok(())
     }
 }
+
+/// Legacy wrapper for mounting devfs.
+pub fn mount_devfs() {
+    let _ = DevFs::init();
+}
+
+crate::fs_initcall!(DevFs::init);
+crate::MODULE_LICENSE!("BSD-2-Clause");
+crate::MODULE_AUTHOR!("PetraOS Development Team");
+crate::MODULE_DESCRIPTION!("Device Filesystem Subsystem");
+

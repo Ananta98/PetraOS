@@ -19,6 +19,7 @@ pub mod proc;
 pub mod sched;
 pub mod sync;
 pub mod syscalls;
+pub mod utils;
 
 #[unsafe(no_mangle)]
 unsafe extern "C" fn kmain() -> ! {

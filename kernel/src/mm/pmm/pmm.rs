@@ -42,11 +42,12 @@ impl PhysicalMemoryManagement {
         let num_pages = (max_paddr / 4096) as usize;
         let page_map_size = num_pages * core::mem::size_of::<Page>();
 
-        // Locate a usable region of memory to hold the page_map array
+        // Locate a usable region of memory above 16MB to hold the page_map array
         let mut page_map_phys = 0;
         for entry in memmap_response.entries() {
             if entry.entry_type == limine::memory_map::EntryType::USABLE {
-                let aligned_base = (entry.base + 4095) & !4095;
+                let region_start = entry.base.max(0x1000_000);
+                let aligned_base = (region_start + 4095) & !4095;
                 let aligned_end = (entry.base + entry.length) & !4095;
                 if aligned_end > aligned_base
                     && (aligned_end - aligned_base) >= page_map_size as u64
@@ -89,6 +90,10 @@ impl PhysicalMemoryManagement {
 
                 for page_idx in start_page..end_page {
                     let paddr = (page_idx * 4096) as u64;
+                    // Exclude real-mode / BIOS / firmware low memory below 16MB (0x1000000)
+                    if paddr < 0x1000_000 {
+                        continue;
+                    }
                     // Exclude the pages containing the page map itself
                     if paddr >= page_map_phys && paddr < page_map_phys + page_map_size as u64 {
                         continue;

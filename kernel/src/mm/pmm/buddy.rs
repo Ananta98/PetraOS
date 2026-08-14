@@ -162,13 +162,15 @@ impl BuddyAllocator {
             let buddy_paddr = PhysAddr(paddr.as_u64() + ((1 << cur_order) * 4096) as u64);
             let buddy_idx = self.get_page_index(buddy_paddr);
 
-            // Mark the buddy block as free with order `cur_order`
-            self.page_map[buddy_idx].order = cur_order as u8;
-            self.page_map[buddy_idx].flags.insert(PageFlags::FREE);
+            if buddy_idx < self.page_map.len() {
+                // Mark the buddy block as free with order `cur_order`
+                self.page_map[buddy_idx].order = cur_order as u8;
+                self.page_map[buddy_idx].flags.insert(PageFlags::FREE);
 
-            // Add the buddy block to the free list for `cur_order`
-            unsafe {
-                self.insert_block(buddy_paddr, cur_order);
+                // Add the buddy block to the free list for `cur_order`
+                unsafe {
+                    self.insert_block(buddy_paddr, cur_order);
+                }
             }
         }
 
@@ -176,7 +178,9 @@ impl BuddyAllocator {
         self.page_map[page_idx].order = order as u8;
         let num_allocated = 1 << order;
         for i in 0..num_allocated {
-            self.page_map[page_idx + i].ref_count = 1;
+            if page_idx + i < self.page_map.len() {
+                self.page_map[page_idx + i].ref_count = 1;
+            }
         }
 
         self.free_pages -= 1 << order;
@@ -194,7 +198,8 @@ impl BuddyAllocator {
 
         while order < MAX_ORDER - 1 {
             let buddy_idx = page_idx ^ (1 << order);
-            if buddy_idx >= self.page_map.len() {
+            let block_pages = 1 << order;
+            if buddy_idx >= self.page_map.len() || buddy_idx + block_pages > self.page_map.len() {
                 break;
             }
 

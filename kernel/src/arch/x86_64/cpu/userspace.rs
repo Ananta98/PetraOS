@@ -41,20 +41,20 @@ pub unsafe fn jump_to_userspace(
     // Configure TSS RSP0 for user mode interrupts and syscalls
     super::tss::set_rsp0(kernel_rsp0);
 
-    // SAFETY: Switch stack to valid kernel_rsp0, load user CR3, set segment registers, push iretq frame, and execute iretq.
+    // SAFETY: Switch stack to valid kernel_rsp0, load user CR3, push iretq frame, set segment registers, and execute iretq.
     unsafe {
         asm!(
             "mov rsp, {kstack_top}",
             "mov cr3, {cr3}",
-            "mov ds, {user_ds:e}",
-            "mov es, {user_ds:e}",
-            "mov fs, {user_ds:e}",
-            "mov gs, {user_ds:e}",
             "push {user_ds}",
             "push {rsp}",
             "push {rflags}",
             "push {user_cs}",
             "push {rip}",
+            "mov ds, {user_ds:e}",
+            "mov es, {user_ds:e}",
+            "mov fs, {user_ds:e}",
+            "mov gs, {user_ds:e}",
             "iretq",
             kstack_top = in(reg) kernel_rsp0,
             cr3 = in(reg) cr3,

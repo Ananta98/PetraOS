@@ -159,13 +159,10 @@ impl<'a> Elf<'a> {
         let stack_size = 256 * 1024; // 256 KiB stack
         let stack_top = VirtAddr(0x7FFF_FFFF_0000);
         let stack_start = stack_top - stack_size;
+        let stack_flags = MapFlags::USER | MapFlags::READ | MapFlags::WRITE;
+
         addr_space
-            .map_area(
-                stack_start,
-                stack_size,
-                MapFlags::USER | MapFlags::READ | MapFlags::WRITE,
-                VmAreaKind::Anonymous,
-            )
+            .map_area(stack_start, stack_size, stack_flags, VmAreaKind::Anonymous)
             .map_err(|_| "Failed to map user stack VMA")?;
 
         Ok(LoadedElf {
@@ -270,7 +267,7 @@ impl<'a> Elf<'a> {
                     let src_slice = &self.data[file_src_offset..file_src_offset + copy_len];
                     let dest_ptr = phys_addr.as_ptr::<u8>(hhdm);
 
-                    // SAFETY: Copying within bounds of checked src_slice and validated dest_ptr.
+                    // SAFETY: Copying within bounds of checked src_slice and allocated physical frame.
                     unsafe {
                         core::ptr::copy_nonoverlapping(
                             src_slice.as_ptr(),
@@ -281,6 +278,7 @@ impl<'a> Elf<'a> {
                 }
             }
         }
+
         Ok(())
     }
 }

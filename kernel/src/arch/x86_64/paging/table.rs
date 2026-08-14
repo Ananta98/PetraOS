@@ -60,10 +60,10 @@ impl PageTable for ArchPageTable {
         let hhdm = hhdm_offset();
         let new_pml4 = pml4_phys.as_ptr::<u64>(hhdm);
 
-        // Zero out the lower half (entries 0..256) and copy the higher half (entries 256..512)
+        // Zero out the entire PML4 (4096 bytes) and copy the higher half (entries 256..512)
         // to share kernel-space mappings.
         unsafe {
-            core::ptr::write_bytes(new_pml4, 0, 512);
+            core::ptr::write_bytes(new_pml4, 0, 4096);
 
             let active_phys = active_cr3();
             let active_pml4 = active_phys.as_ptr::<u64>(hhdm);

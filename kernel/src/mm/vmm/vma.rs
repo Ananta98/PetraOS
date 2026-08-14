@@ -3,14 +3,60 @@ use crate::mm::vmm::paging::{
     MapError, MapFlags, PageFaultAccess, PageFaultError, PageTable, UnmapError,
 };
 use alloc::collections::BTreeMap;
+use alloc::sync::Arc;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone)]
 pub enum VmAreaKind {
     Anonymous,
-    Device { phys_start: PhysAddr },
+    Device {
+        phys_start: PhysAddr,
+    },
+    File {
+        file: Arc<dyn crate::fs::FileOps>,
+        offset: usize,
+        file_size: usize,
+    },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+impl PartialEq for VmAreaKind {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (VmAreaKind::Anonymous, VmAreaKind::Anonymous) => true,
+            (VmAreaKind::Device { phys_start: p1 }, VmAreaKind::Device { phys_start: p2 }) => {
+                p1 == p2
+            }
+            (
+                VmAreaKind::File {
+                    file: f1,
+                    offset: o1,
+                    file_size: s1,
+                },
+                VmAreaKind::File {
+                    file: f2,
+                    offset: o2,
+                    file_size: s2,
+                },
+            ) => o1 == o2 && s1 == s2 && Arc::ptr_eq(f1, f2),
+            _ => false,
+        }
+    }
+}
+
+impl Eq for VmAreaKind {}
+
+impl core::fmt::Debug for VmAreaKind {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            VmAreaKind::Anonymous => write!(f, "Anonymous"),
+            VmAreaKind::Device { phys_start } => write!(f, "Device({:?})", phys_start),
+            VmAreaKind::File {
+                offset, file_size, ..
+            } => write!(f, "File(offset={}, size={})", offset, file_size),
+        }
+    }
+}
+
+#[derive(Clone, PartialEq, Eq)]
 pub struct VmArea {
     pub start: VirtAddr,
     pub end: VirtAddr,
@@ -61,6 +107,10 @@ impl<P: PageTable> AddrSpace<P> {
         &self.page_table
     }
 
+    pub fn page_table_mut(&mut self) -> &mut P {
+        &mut self.page_table
+    }
+
     /// Duplicate the virtual address space using Copy-On-Write (COW) semantics for writable pages.
     pub fn clone(&mut self) -> Result<Self, AddrSpaceError> {
         let mut new_page_table = P::new().map_err(AddrSpaceError::PagingError)?;
@@ -73,8 +123,8 @@ impl<P: PageTable> AddrSpace<P> {
             for i in 0..num_pages {
                 let page_virt = area.start + (i * 4096);
                 if let Some(parent_phys) = self.page_table.translate(page_virt) {
-                    match area.kind {
-                        VmAreaKind::Anonymous => {
+                    match &area.kind {
+                        VmAreaKind::Anonymous | VmAreaKind::File { .. } => {
                             if area.flags.contains(MapFlags::WRITE) {
                                 // COW: Mark both parent and child PTEs as Read-Only + COW
                                 let cow_flags = (area.flags & !MapFlags::WRITE) | MapFlags::COW;
@@ -97,7 +147,7 @@ impl<P: PageTable> AddrSpace<P> {
 
                                 crate::mm::PMM.inc_ref(parent_phys);
                             } else {
-                                // Read-only anonymous page: share directly
+                                // Read-only page: share directly
                                 if let Err(err) =
                                     new_page_table.map(page_virt, parent_phys, area.flags)
                                 {
@@ -129,10 +179,6 @@ impl<P: PageTable> AddrSpace<P> {
         })
     }
 
-    pub fn page_table_mut(&mut self) -> &mut P {
-        &mut self.page_table
-    }
-
     /// Efficiently lookup the VMA containing the specified virtual address ($O(\log N)$).
     pub fn find_vma(&self, addr: VirtAddr) -> Option<&VmArea> {
         self.vm_areas
@@ -160,59 +206,7 @@ impl<P: PageTable> AddrSpace<P> {
         }
     }
 
-    /// Register a virtual memory area lazily without immediately mapping physical pages ($O(\log N)$).
-    /// Physical pages will be populated on demand via `handle_page_fault`.
-    pub fn map_area_lazy(
-        &mut self,
-        start: VirtAddr,
-        size: usize,
-        flags: MapFlags,
-        kind: VmAreaKind,
-    ) -> Result<(), AddrSpaceError> {
-        if size == 0 || !start.is_aligned(4096) || size % 4096 != 0 {
-            return Err(AddrSpaceError::InvalidRange);
-        }
-
-        let mut end = start + size;
-
-        // Optimized O(log N) overlap check
-        if self.check_overlap(start, end) {
-            return Err(AddrSpaceError::OverlappingArea);
-        }
-
-        let mut final_start = start;
-
-        // Attempt VMA Coalescing with predecessor
-        if let Some((&pred_start, pred_area)) = self.vm_areas.range(..start).next_back() {
-            if pred_area.end == start && pred_area.flags == flags && pred_area.kind == kind {
-                final_start = pred_start;
-                end = pred_area.end.max(end);
-                self.vm_areas.remove(&pred_start);
-            }
-        }
-
-        // Attempt VMA Coalescing with successor
-        if let Some((&succ_start, succ_area)) = self.vm_areas.range(start..).next() {
-            if succ_start == end && succ_area.flags == flags && succ_area.kind == kind {
-                end = succ_area.end;
-                self.vm_areas.remove(&succ_start);
-            }
-        }
-
-        self.vm_areas.insert(
-            final_start,
-            VmArea {
-                start: final_start,
-                end,
-                flags,
-                kind,
-            },
-        );
-
-        Ok(())
-    }
-
-    /// Map a contiguous range of virtual memory to physical RAM or MMIO immediately (eager mapping).
+    /// Map a contiguous range of virtual memory to physical RAM, MMIO, or a File eagerly.
     pub fn map_area(
         &mut self,
         start: VirtAddr,
@@ -231,28 +225,66 @@ impl<P: PageTable> AddrSpace<P> {
             return Err(AddrSpaceError::OverlappingArea);
         }
 
-        // Eagerly map pages only for Device memory.
-        // Anonymous memory is lazily mapped on demand by the page fault handler.
-        if matches!(kind, VmAreaKind::Device { .. }) {
-            let num_pages = size / 4096;
-            let mut mapped_pages: usize = 0;
+        let num_pages = size / 4096;
+        let mut mapped_pages: usize = 0;
+        let hhdm = crate::mm::hhdm_offset();
 
-            for i in 0..num_pages {
-                let page_virt = start + (i * 4096);
-                let frame_phys = match kind {
-                    VmAreaKind::Device { phys_start } => phys_start + (i * 4096),
-                    _ => unreachable!(),
-                };
-
-                match self.page_table.map(page_virt, frame_phys, flags) {
-                    Ok(_) => mapped_pages += 1,
-                    Err(err) => {
-                        for j in 0..mapped_pages {
-                            let rollback_virt = start + (j * 4096);
-                            let _ = self.page_table.unmap(rollback_virt);
+        for i in 0..num_pages {
+            let page_virt = start + (i * 4096);
+            let frame_phys = match &kind {
+                VmAreaKind::Anonymous => {
+                    let frame = match crate::mm::PMM.alloc_page() {
+                        Some(f) => f,
+                        None => {
+                            self.rollback_mapping(start, mapped_pages, &kind);
+                            return Err(AddrSpaceError::PagingError(MapError::FrameAllocationFailed));
                         }
-                        return Err(AddrSpaceError::PagingError(err));
+                    };
+                    let dest_ptr = frame.as_ptr::<u8>(hhdm);
+                    // SAFETY: Zeroing newly allocated anonymous physical frame.
+                    unsafe {
+                        core::ptr::write_bytes(dest_ptr, 0, 4096);
                     }
+                    frame
+                }
+                VmAreaKind::Device { phys_start } => *phys_start + (i * 4096),
+                VmAreaKind::File {
+                    file,
+                    offset,
+                    file_size,
+                } => {
+                    let frame = match crate::mm::PMM.alloc_page() {
+                        Some(f) => f,
+                        None => {
+                            self.rollback_mapping(start, mapped_pages, &kind);
+                            return Err(AddrSpaceError::PagingError(MapError::FrameAllocationFailed));
+                        }
+                    };
+                    let dest_ptr = frame.as_ptr::<u8>(hhdm);
+                    // SAFETY: Zeroing frame before populating with file contents.
+                    unsafe {
+                        core::ptr::write_bytes(dest_ptr, 0, 4096);
+                    }
+
+                    let page_file_offset = offset + (i * 4096);
+                    if page_file_offset < *file_size {
+                        let bytes_to_read = core::cmp::min(4096, *file_size - page_file_offset);
+                        let buf_slice =
+                            unsafe { core::slice::from_raw_parts_mut(dest_ptr, bytes_to_read) };
+                        let _ = file.read(page_file_offset, buf_slice);
+                    }
+                    frame
+                }
+            };
+
+            match self.page_table.map(page_virt, frame_phys, flags) {
+                Ok(_) => mapped_pages += 1,
+                Err(err) => {
+                    self.rollback_mapping(start, mapped_pages, &kind);
+                    if matches!(kind, VmAreaKind::Anonymous | VmAreaKind::File { .. }) {
+                        crate::mm::PMM.free_page(frame_phys);
+                    }
+                    return Err(AddrSpaceError::PagingError(err));
                 }
             }
         }
@@ -270,6 +302,17 @@ impl<P: PageTable> AddrSpace<P> {
         Ok(())
     }
 
+    fn rollback_mapping(&mut self, start: VirtAddr, mapped_pages: usize, kind: &VmAreaKind) {
+        for j in 0..mapped_pages {
+            let rollback_virt = start + (j * 4096);
+            if let Ok(frame) = self.page_table.unmap(rollback_virt) {
+                if matches!(kind, VmAreaKind::Anonymous | VmAreaKind::File { .. }) {
+                    crate::mm::PMM.free_page(frame);
+                }
+            }
+        }
+    }
+
     /// Unmap a virtual memory area starting at the specified virtual address.
     pub fn unmap_area(&mut self, start: VirtAddr) -> Result<(), AddrSpaceError> {
         let area = self
@@ -284,15 +327,12 @@ impl<P: PageTable> AddrSpace<P> {
             let page_virt = area.start + (i * 4096);
             match self.page_table.unmap(page_virt) {
                 Ok(frame) => {
-                    if matches!(area.kind, VmAreaKind::Anonymous) {
+                    if matches!(area.kind, VmAreaKind::Anonymous | VmAreaKind::File { .. }) {
                         crate::mm::PMM.free_page(frame);
                     }
                 }
-                Err(UnmapError::NotMapped) => {
-                    // Ignore, it was lazily mapped and never allocated.
-                }
+                Err(UnmapError::NotMapped) => {}
                 Err(err) => {
-                    // Restore VMA structure on failure
                     self.vm_areas.insert(start, area);
                     return Err(AddrSpaceError::UnmapError(err));
                 }
@@ -305,7 +345,7 @@ impl<P: PageTable> AddrSpace<P> {
     /// Architecture-independent Page Fault Resolution Algorithm.
     ///
     /// Evaluates virtual address fault against registered VMAs, checks access permissions,
-    /// and resolves demand paging / lazy allocation.
+    /// and resolves Copy-On-Write (COW).
     pub fn handle_page_fault(
         &mut self,
         fault_addr: VirtAddr,
@@ -313,7 +353,7 @@ impl<P: PageTable> AddrSpace<P> {
     ) -> Result<(), PageFaultError> {
         // 1. Locate VMA covering fault_addr in O(log N)
         let area = match self.find_vma(fault_addr) {
-            Some(vma) => *vma,
+            Some(vma) => vma.clone(),
             None => return Err(PageFaultError::UnmappedAccess),
         };
 
@@ -330,7 +370,7 @@ impl<P: PageTable> AddrSpace<P> {
 
         let page_virt = VirtAddr(fault_addr.as_u64() & !4095);
 
-        // 3. Check if page is already mapped in page table
+        // 3. Check if page is present in page table for COW resolution
         if let Some((parent_phys, entry_flags)) = self.page_table.get_entry(page_virt) {
             let is_cow_entry = (entry_flags & crate::arch::paging::flags::PAGE_COW) != 0;
             if access.contains(PageFaultAccess::WRITE)
@@ -373,31 +413,7 @@ impl<P: PageTable> AddrSpace<P> {
             return Ok(()); // Spurious fault
         }
 
-        // 4. Resolve Demand Paging / Allocation
-        let frame_phys = match area.kind {
-            VmAreaKind::Anonymous => {
-                let frame = crate::mm::PMM
-                    .alloc_page()
-                    .ok_or(PageFaultError::FrameAllocationFailed)?;
-                let hhdm = crate::mm::hhdm_offset();
-                let ptr = frame.as_ptr::<u8>(hhdm);
-                unsafe {
-                    core::ptr::write_bytes(ptr, 0, 4096);
-                }
-                frame
-            }
-            VmAreaKind::Device { phys_start } => {
-                let offset = (page_virt - area.start) as u64;
-                phys_start + offset
-            }
-        };
-
-        // 5. Map virtual page into CPU page table
-        self.page_table
-            .map(page_virt, frame_phys, area.flags)
-            .map_err(PageFaultError::PagingError)?;
-
-        Ok(())
+        Err(PageFaultError::UnmappedAccess)
     }
 
     /// Load the associated page table into the CPU's control register.
