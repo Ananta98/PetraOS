@@ -36,6 +36,7 @@ pub enum DeliveryMode {
 /// The IOAPIC uses an indirect register access scheme:
 /// - Write the register index to the IOREGSEL register (offset 0x00)
 /// - Read/write the value from/to the IOWIN register (offset 0x10)
+#[derive(Clone, Copy)]
 pub struct IoApic {
     /// Virtual address of the IOREGSEL (register select) register.
     reg_select: *mut u32,
@@ -234,3 +235,103 @@ impl IoApic {
         }
     }
 }
+
+use crate::sync::spinlock::Spinlock;
+
+static IO_APICS: Spinlock<[Option<IoApic>; 8]> =
+    Spinlock::new([None, None, None, None, None, None, None, None]);
+static ISOS: Spinlock<([Option<InterruptSourceOverride>; 16], usize)> =
+    Spinlock::new(([None; 16], 0));
+
+/// Register an initialized IOAPIC instance for global IRQ routing management.
+pub fn register_ioapic(ioapic: IoApic) {
+    let mut guard = IO_APICS.lock();
+    for slot in guard.iter_mut() {
+        if slot.is_none() {
+            *slot = Some(ioapic);
+            break;
+        }
+    }
+}
+
+/// Store ACPI MADT Interrupt Source Overrides.
+pub fn set_isos(isos: &[Option<InterruptSourceOverride>], count: usize) {
+    let mut guard = ISOS.lock();
+    guard.1 = count.min(16);
+    for (i, iso) in isos.iter().take(16).enumerate() {
+        guard.0[i] = *iso;
+    }
+}
+
+/// Unmask a standard ISA IRQ line (0..15), resolving any MADT GSI overrides.
+pub fn unmask_isa_irq(irq: u8) {
+    let gsi = {
+        let (isos, count) = *ISOS.lock();
+        let mut target_gsi = irq as u32;
+        for i in 0..count {
+            if let Some(iso) = &isos[i] {
+                if iso.irq_source == irq {
+                    target_gsi = iso.gsi;
+                    break;
+                }
+            }
+        }
+        target_gsi
+    };
+
+    unmask_gsi(gsi);
+}
+
+/// Mask a standard ISA IRQ line (0..15), resolving any MADT GSI overrides.
+pub fn mask_isa_irq(irq: u8) {
+    let gsi = {
+        let (isos, count) = *ISOS.lock();
+        let mut target_gsi = irq as u32;
+        for i in 0..count {
+            if let Some(iso) = &isos[i] {
+                if iso.irq_source == irq {
+                    target_gsi = iso.gsi;
+                    break;
+                }
+            }
+        }
+        target_gsi
+    };
+
+    mask_gsi(gsi);
+}
+
+/// Unmask a Global System Interrupt (GSI) on its controlling IOAPIC.
+pub fn unmask_gsi(gsi: u32) {
+    let guard = IO_APICS.lock();
+    for ioapic_opt in guard.iter() {
+        if let Some(ioapic) = ioapic_opt {
+            let max_entries = ioapic.max_redirection_entries();
+            if gsi >= ioapic.gsi_base && gsi - ioapic.gsi_base < max_entries {
+                let irq_line = gsi - ioapic.gsi_base;
+                ioapic.unmask_irq(irq_line);
+                log::info!("IOAPIC unmasked GSI {} (IRQ line {})", gsi, irq_line);
+                return;
+            }
+        }
+    }
+    log::warn!("IOAPIC: No controller found for GSI {}", gsi);
+}
+
+/// Mask a Global System Interrupt (GSI) on its controlling IOAPIC.
+pub fn mask_gsi(gsi: u32) {
+    let guard = IO_APICS.lock();
+    for ioapic_opt in guard.iter() {
+        if let Some(ioapic) = ioapic_opt {
+            let max_entries = ioapic.max_redirection_entries();
+            if gsi >= ioapic.gsi_base && gsi - ioapic.gsi_base < max_entries {
+                let irq_line = gsi - ioapic.gsi_base;
+                ioapic.mask_irq(irq_line);
+                log::info!("IOAPIC masked GSI {} (IRQ line {})", gsi, irq_line);
+                return;
+            }
+        }
+    }
+    log::warn!("IOAPIC: No controller found for GSI {}", gsi);
+}
+

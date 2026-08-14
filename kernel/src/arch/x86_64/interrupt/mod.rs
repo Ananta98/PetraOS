@@ -21,8 +21,11 @@ pub fn init(madt_info: &acpi::MadtInfo) {
             paging::map_mmio(entry.address as u64, 4096);
             let io_apic = ioapic::IoApic::new(entry.address, entry.gsi_base);
             io_apic.configure_isa_irqs(lapic_id, &madt_info.isos, madt_info.iso_count);
+            ioapic::register_ioapic(io_apic);
         }
     }
+
+    ioapic::set_isos(&madt_info.isos, madt_info.iso_count);
 
     unsafe {
         lapic::LAPIC = Some(local_apic);

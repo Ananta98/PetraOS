@@ -2,6 +2,8 @@ use crate::arch::halt;
 use crate::arch::idt::{InterruptDescriptorTable, InterruptStackFrame};
 use crate::arch::lapic_timer;
 
+pub const KEYBOARD_VECTOR: u8 = 33;
+
 static mut IDT: InterruptDescriptorTable = InterruptDescriptorTable::new();
 
 /// Load the shared IDT on the calling CPU.
@@ -34,6 +36,10 @@ pub fn init() {
         // LAPIC timer interrupt (vector 48)
         IDT.entries[lapic_timer::TIMER_VECTOR as usize]
             .set_handler_fn(timer_handler as *const () as u64);
+
+        // Keyboard interrupt (vector 33, ISA IRQ 1)
+        IDT.entries[KEYBOARD_VECTOR as usize]
+            .set_handler_fn(keyboard_handler as *const () as u64);
 
         // System call interrupt (vector 0x80)
         IDT.entries[0x80].set_user_handler_fn(syscall_asm_entry as *const () as u64);
@@ -146,3 +152,18 @@ extern "x86-interrupt" fn spurious_interrupt_handler(_stack_frame: &mut Interrup
     // They occur when an interrupt is raised and then de-asserted before delivery.
     log::trace!("Spurious interrupt received.");
 }
+
+
+extern "x86-interrupt" fn keyboard_handler(_stack_frame: &mut InterruptStackFrame) {
+    // SAFETY: Reading port 0x60 reads the keyboard scancode and clears the 8042 output buffer.
+    let scancode = unsafe { crate::arch::ports::Ports::inb(0x60) };
+
+    // Dispatch scancode to character keyboard driver
+    crate::drivers::char::keyboard::handle_scancode(scancode);
+
+    // SAFETY: LAPIC is guaranteed to be initialized and active when receiving interrupts.
+    unsafe {
+        super::lapic::get_lapic().end_of_interrupt();
+    }
+}
+
