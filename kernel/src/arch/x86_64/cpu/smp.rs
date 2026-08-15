@@ -28,6 +28,8 @@ unsafe extern "C" fn ap_entry(cpu: &limine::mp::Cpu) -> ! {
     let tss_addr = gdt::init_per_cpu();
     unsafe {
         CPU_TSS_POINTERS[cpu.lapic_id as usize] = tss_addr;
+        super::enable_sse();
+        super::enable_syscall();
     }
 
     // Load the shared IDT so exception/interrupt handlers are available.

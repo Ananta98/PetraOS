@@ -172,16 +172,22 @@ pub fn init() {
 /// duration of the kernel, so the memory is never freed.
 pub fn init_per_cpu() -> u64 {
     unsafe {
-        // Allocate a separate double-fault stack for this AP.
+        // Allocate a separate double-fault stack for this AP (IST1).
         const STACK_SIZE: usize = 4096 * 5;
         let df_stack: Box<[u8; STACK_SIZE]> = Box::new([0u8; STACK_SIZE]);
-        let stack_ptr = Box::into_raw(df_stack);
-        let stack_end = stack_ptr as u64 + STACK_SIZE as u64;
+        let df_stack_ptr = Box::into_raw(df_stack);
+        let df_stack_end = df_stack_ptr as u64 + STACK_SIZE as u64;
+
+        // Allocate a separate exception stack for this AP (IST2).
+        let exc_stack: Box<[u8; STACK_SIZE]> = Box::new([0u8; STACK_SIZE]);
+        let exc_stack_ptr = Box::into_raw(exc_stack);
+        let exc_stack_end = exc_stack_ptr as u64 + STACK_SIZE as u64;
 
         // Allocate and initialise TSS.
         let tss = Box::new(super::tss::TaskStateSegment::new());
         let tss_ptr = Box::into_raw(tss);
-        (*tss_ptr).ist[0] = stack_end;
+        (*tss_ptr).ist[0] = df_stack_end;
+        (*tss_ptr).ist[1] = exc_stack_end;
 
         // Allocate and build GDT with this AP's TSS.
         let mut gdt = Box::new(GlobalDescriptorTable::new());

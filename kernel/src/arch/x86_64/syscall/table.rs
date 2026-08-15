@@ -1,9 +1,7 @@
 //! Architecture-specific system call numbering and dispatch table for x86_64 Linux ABI.
 
 use crate::define_syscall_table;
-use crate::syscalls::{
-    fs, ioctl, mm, proc, signals, sync, sys_info, time,
-};
+use crate::syscalls::{arch_prctl, fs, ioctl, mm, proc, signals, sync, sys_info, time};
 
 // Entries in SYSCALL_TABLE must be kept sorted by system call number for binary search.
 define_syscall_table! {
@@ -42,6 +40,7 @@ define_syscall_table! {
     SYS_SETPGID       = 109 => ("setpgid",        proc::sys_setpgid),
     SYS_GETPPID       = 110 => ("getppid",        proc::sys_getppid),
     SYS_GETPGRP       = 111 => ("getpgrp",        proc::sys_getpgrp),
+    SYS_ARCH_PRCTL    = 158 => ("arch_prctl",     arch_prctl::sys_arch_prctl),
     SYS_FUTEX         = 202 => ("futex",          sync::sys_futex),
     SYS_ISATTY        = 215 => ("isatty",         ioctl::sys_isatty),
     SYS_EXIT_GROUP    = 231 => ("exit_group",     proc::sys_exit_group),

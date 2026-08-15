@@ -26,8 +26,12 @@ pub fn create_init_process() -> Result<(Arc<Spinlock<Process>>, u64, u64), &'sta
         DEFAULT_INIT_EXEC_PATHS
     );
 
-    let init_pid = super::pid::next_pid();
     let mut proc = Process::new(init_pid, ProcessId(0))?;
+
+    // Set up standard file descriptors (0 = stdin, 1 = stdout, 2 = stderr) pointing to /dev/console
+    if let Ok(console_file) = crate::fs::open_file("/dev/console", crate::fs::OpenFlags::READ_WRITE) {
+        proc.fd_table.setup_std_fds(console_file);
+    }
 
     // Default environment variables for user space initialization
     let default_env = vec![

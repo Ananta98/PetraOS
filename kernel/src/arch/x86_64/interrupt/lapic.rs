@@ -141,6 +141,14 @@ impl LocalApic {
     }
 }
 
+/// Get a reference to the global Local APIC instance if initialized.
+pub(crate) unsafe fn try_get_lapic() -> Option<&'static LocalApic> {
+    unsafe {
+        let lapic_ptr = core::ptr::addr_of!(LAPIC);
+        (*lapic_ptr).as_ref()
+    }
+}
+
 /// Get a reference to the global Local APIC instance.
 /// # Safety
 /// Must only be called after `init_hardware()` has completed LAPIC initialization.
@@ -148,7 +156,6 @@ pub(crate) unsafe fn get_lapic() -> &'static LocalApic {
     // SAFETY: LAPIC is initialized once in init_hardware() before interrupts are enabled.
     // After initialization, it is only read (for EOI), never written.
     unsafe {
-        let lapic_ptr = core::ptr::addr_of!(LAPIC);
-        (*lapic_ptr).as_ref().expect("LAPIC not initialized")
+        try_get_lapic().expect("LAPIC not initialized")
     }
 }

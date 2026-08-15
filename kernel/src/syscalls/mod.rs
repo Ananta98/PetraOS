@@ -1,3 +1,4 @@
+pub mod arch_prctl;
 pub mod fs;
 pub mod ioctl;
 pub mod mm;

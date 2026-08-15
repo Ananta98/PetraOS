@@ -1,7 +1,7 @@
 use core::arch::asm;
 
 /// The interrupt stack frame pushed by the CPU on exception/interrupt.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 #[repr(C)]
 pub struct InterruptStackFrame {
     pub instruction_pointer: u64,
@@ -9,6 +9,26 @@ pub struct InterruptStackFrame {
     pub cpu_flags: u64,
     pub stack_pointer: u64,
     pub stack_segment: u64,
+}
+
+impl core::fmt::Display for InterruptStackFrame {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(
+            f,
+            "InterruptStackFrame {{\n    RIP: {:#018x},\n    CS:  {:#06x},\n    RFLAGS: {:#018x},\n    RSP: {:#018x},\n    SS:  {:#06x},\n}}",
+            self.instruction_pointer,
+            self.code_segment,
+            self.cpu_flags,
+            self.stack_pointer,
+            self.stack_segment
+        )
+    }
+}
+
+impl core::fmt::Debug for InterruptStackFrame {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        core::fmt::Display::fmt(self, f)
+    }
 }
 
 pub type HandlerFunc = extern "x86-interrupt" fn(&mut InterruptStackFrame);

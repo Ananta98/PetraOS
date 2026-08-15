@@ -81,10 +81,9 @@ pub fn without_interrupts<R>(func: impl FnOnce() -> R) -> R {
     result
 }
 
-/// Get the Local APIC ID of the calling CPU core.
+/// Get the Local APIC ID of the calling CPU core (defaults to 0 if APIC not yet initialized).
 pub fn cpu_id() -> u32 {
-    // SAFETY: LAPIC base address is guaranteed to be mapped and initialized before this is called.
-    unsafe { interrupt::lapic::get_lapic().id() }
+    unsafe { interrupt::lapic::try_get_lapic().map(|l| l.id()).unwrap_or(0) }
 }
 
 /// Initialize execution stack for a new thread context.
