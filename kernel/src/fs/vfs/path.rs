@@ -1,7 +1,7 @@
 use super::dcache::{dcache_evict, dcache_insert, dcache_lookup};
 use super::dentry::Dentry;
 use super::mount::MOUNT_TABLE;
-use super::types::{InodeType, VfsError};
+use super::types::{File, InodeType, VfsError};
 use alloc::sync::Arc;
 
 /// Maximum symlink traversal depth to prevent infinite circular loops.
@@ -213,6 +213,20 @@ pub fn read_file(path: &str) -> Result<alloc::vec::Vec<u8>, VfsError> {
     let bytes_read = file_ops.read(0, &mut buf)?;
     buf.truncate(bytes_read);
     Ok(buf)
+}
+
+/// Open a file at `path` with `flags`, returning an open [`File`] instance.
+pub fn open_file(path: &str, flags: u32) -> Result<Arc<File>, VfsError> {
+    let dentry = match resolve_path(path) {
+        Ok(d) => d,
+        Err(VfsError::NotFound) if (flags & super::types::O_CREAT) != 0 => {
+            create_file(path)?
+        }
+        Err(err) => return Err(err),
+    };
+
+    let file_ops = dentry.inode.ops.open()?;
+    Ok(Arc::new(File::new(dentry, flags, file_ops)))
 }
 
 /// Rename an existing path to a new path.

@@ -1,5 +1,31 @@
+# Limine & Firmware
 /limine
 /ovmf
+/edk2-ovmf
+
+# Target images & generated artifacts
+iso_root/
 *.iso
 *.hdd
-/edk2-ovmf
+initramfs.cpio
+
+# Out-of-tree Port Builds & Sysroot
+build/
+build-xbstrap/
+.xbstrap/
+bootstrap.link
+pkg-builds/
+sysroot/
+system-root/
+/mlibc
+/bash
+*.tar.*
+*.tar
+*.tgz
+*.zip
+
+# Keep ports tracking explicit
+!ports/
+!ports/**/package.sh
+!ports/**/patches/*
+!ports/build_ports.sh

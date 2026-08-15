@@ -1,0 +1,1600 @@
+From 8b7afe7c099ee201e5b125e7b118e2689cd055fb Mon Sep 17 00:00:00 2001
+From: PetraOS Agent <agent@petraos.dev>
+Date: Sat, 15 Aug 2026 11:59:14 +0700
+Subject: [PATCH] feat(sysdeps): add PetraOS support and GCC 13 compatibility
+
+---
+ meson.build                                   |   7 +
+ options/ansi/generic/stdlib.cpp               |   8 +-
+ options/ansi/x86_64/meson.build               |  11 +-
+ options/internal/include/mlibc/allocator.hpp  |  32 +-
+ subprojects/frigg.wrap                        |   1 +
+ .../packagefiles/frigg/include/frg/span.hpp   |  69 ++++
+ sysdeps/petra/crt-x86_64/Scrt1.S              |   8 +
+ sysdeps/petra/crt-x86_64/crt1.S               |   8 +
+ sysdeps/petra/crt-x86_64/crti.S               |  15 +
+ sysdeps/petra/crt-x86_64/crtn.S               |  11 +
+ sysdeps/petra/generic/entry.cpp               |  16 +
+ sysdeps/petra/generic/generic.cpp             | 354 ++++++++++++++++++
+ sysdeps/petra/include/abi-bits/access.h       |   1 +
+ sysdeps/petra/include/abi-bits/aio.h          |   1 +
+ sysdeps/petra/include/abi-bits/auxv.h         |   1 +
+ sysdeps/petra/include/abi-bits/blkcnt_t.h     |   1 +
+ sysdeps/petra/include/abi-bits/blksize_t.h    |   1 +
+ sysdeps/petra/include/abi-bits/clockid_t.h    |   1 +
+ sysdeps/petra/include/abi-bits/clone-flags.h  |   1 +
+ sysdeps/petra/include/abi-bits/dev_t.h        |   1 +
+ sysdeps/petra/include/abi-bits/epoll.h        |   1 +
+ sysdeps/petra/include/abi-bits/errno.h        |   1 +
+ sysdeps/petra/include/abi-bits/fcntl.h        |   1 +
+ sysdeps/petra/include/abi-bits/fd_set.h       |   1 +
+ sysdeps/petra/include/abi-bits/fsblkcnt_t.h   |   1 +
+ sysdeps/petra/include/abi-bits/fsfilcnt_t.h   |   1 +
+ sysdeps/petra/include/abi-bits/gid_t.h        |   1 +
+ sysdeps/petra/include/abi-bits/in.h           |   1 +
+ sysdeps/petra/include/abi-bits/ino_t.h        |   1 +
+ sysdeps/petra/include/abi-bits/inotify.h      |   1 +
+ sysdeps/petra/include/abi-bits/ioctls.h       |   1 +
+ sysdeps/petra/include/abi-bits/ipc.h          |   1 +
+ sysdeps/petra/include/abi-bits/limits.h       |   1 +
+ sysdeps/petra/include/abi-bits/mode_t.h       |   1 +
+ sysdeps/petra/include/abi-bits/mqueue.h       |   1 +
+ sysdeps/petra/include/abi-bits/msg.h          |   1 +
+ sysdeps/petra/include/abi-bits/nlink_t.h      |   1 +
+ sysdeps/petra/include/abi-bits/packet.h       |   1 +
+ sysdeps/petra/include/abi-bits/pid_t.h        |   1 +
+ sysdeps/petra/include/abi-bits/poll.h         |   1 +
+ sysdeps/petra/include/abi-bits/ptrace.h       |   1 +
+ sysdeps/petra/include/abi-bits/random.h       |   1 +
+ sysdeps/petra/include/abi-bits/reboot.h       |   1 +
+ sysdeps/petra/include/abi-bits/resource.h     |   1 +
+ .../petra/include/abi-bits/riscv-hwprobe.h    |   1 +
+ sysdeps/petra/include/abi-bits/rlim_t.h       |   1 +
+ sysdeps/petra/include/abi-bits/route.h        |   1 +
+ sysdeps/petra/include/abi-bits/sa_family_t.h  |   1 +
+ sysdeps/petra/include/abi-bits/sched_param.h  |   1 +
+ sysdeps/petra/include/abi-bits/seek-whence.h  |   1 +
+ sysdeps/petra/include/abi-bits/sem.h          |   1 +
+ sysdeps/petra/include/abi-bits/shm.h          |   1 +
+ sysdeps/petra/include/abi-bits/sig-limits.h   |   1 +
+ sysdeps/petra/include/abi-bits/sigevent.h     |   1 +
+ sysdeps/petra/include/abi-bits/signal.h       |   1 +
+ sysdeps/petra/include/abi-bits/sigset_t.h     |   1 +
+ sysdeps/petra/include/abi-bits/sigval.h       |   1 +
+ .../petra/include/abi-bits/sockaddr_storage.h |   1 +
+ sysdeps/petra/include/abi-bits/socket.h       |   1 +
+ sysdeps/petra/include/abi-bits/socklen_t.h    |   1 +
+ sysdeps/petra/include/abi-bits/stat.h         |   1 +
+ sysdeps/petra/include/abi-bits/statfs.h       |   1 +
+ sysdeps/petra/include/abi-bits/statvfs.h      |   1 +
+ sysdeps/petra/include/abi-bits/statx.h        |   1 +
+ sysdeps/petra/include/abi-bits/suseconds_t.h  |   1 +
+ sysdeps/petra/include/abi-bits/termios.h      |   1 +
+ sysdeps/petra/include/abi-bits/time.h         |   1 +
+ sysdeps/petra/include/abi-bits/uid_t.h        |   1 +
+ sysdeps/petra/include/abi-bits/utmp-defines.h |   1 +
+ sysdeps/petra/include/abi-bits/utmpx.h        |   1 +
+ sysdeps/petra/include/abi-bits/utsname.h      |   1 +
+ sysdeps/petra/include/abi-bits/vm-flags.h     |   1 +
+ sysdeps/petra/include/abi-bits/vt.h           |   1 +
+ sysdeps/petra/include/abi-bits/wait.h         |   1 +
+ sysdeps/petra/include/abi-bits/xattr.h        |   1 +
+ sysdeps/petra/include/mlibc/sysdeps.hpp       |  56 +++
+ sysdeps/petra/include/sys/syscall.h           | 103 +++++
+ sysdeps/petra/meson.build                     | 118 ++++++
+ 78 files changed, 857 insertions(+), 23 deletions(-)
+ create mode 100644 subprojects/packagefiles/frigg/include/frg/span.hpp
+ create mode 100644 sysdeps/petra/crt-x86_64/Scrt1.S
+ create mode 100644 sysdeps/petra/crt-x86_64/crt1.S
+ create mode 100644 sysdeps/petra/crt-x86_64/crti.S
+ create mode 100644 sysdeps/petra/crt-x86_64/crtn.S
+ create mode 100644 sysdeps/petra/generic/entry.cpp
+ create mode 100644 sysdeps/petra/generic/generic.cpp
+ create mode 120000 sysdeps/petra/include/abi-bits/access.h
+ create mode 120000 sysdeps/petra/include/abi-bits/aio.h
+ create mode 120000 sysdeps/petra/include/abi-bits/auxv.h
+ create mode 120000 sysdeps/petra/include/abi-bits/blkcnt_t.h
+ create mode 120000 sysdeps/petra/include/abi-bits/blksize_t.h
+ create mode 120000 sysdeps/petra/include/abi-bits/clockid_t.h
+ create mode 120000 sysdeps/petra/include/abi-bits/clone-flags.h
+ create mode 120000 sysdeps/petra/include/abi-bits/dev_t.h
+ create mode 120000 sysdeps/petra/include/abi-bits/epoll.h
+ create mode 120000 sysdeps/petra/include/abi-bits/errno.h
+ create mode 120000 sysdeps/petra/include/abi-bits/fcntl.h
+ create mode 120000 sysdeps/petra/include/abi-bits/fd_set.h
+ create mode 120000 sysdeps/petra/include/abi-bits/fsblkcnt_t.h
+ create mode 120000 sysdeps/petra/include/abi-bits/fsfilcnt_t.h
+ create mode 120000 sysdeps/petra/include/abi-bits/gid_t.h
+ create mode 120000 sysdeps/petra/include/abi-bits/in.h
+ create mode 120000 sysdeps/petra/include/abi-bits/ino_t.h
+ create mode 120000 sysdeps/petra/include/abi-bits/inotify.h
+ create mode 120000 sysdeps/petra/include/abi-bits/ioctls.h
+ create mode 120000 sysdeps/petra/include/abi-bits/ipc.h
+ create mode 120000 sysdeps/petra/include/abi-bits/limits.h
+ create mode 120000 sysdeps/petra/include/abi-bits/mode_t.h
+ create mode 120000 sysdeps/petra/include/abi-bits/mqueue.h
+ create mode 120000 sysdeps/petra/include/abi-bits/msg.h
+ create mode 120000 sysdeps/petra/include/abi-bits/nlink_t.h
+ create mode 120000 sysdeps/petra/include/abi-bits/packet.h
+ create mode 120000 sysdeps/petra/include/abi-bits/pid_t.h
+ create mode 120000 sysdeps/petra/include/abi-bits/poll.h
+ create mode 120000 sysdeps/petra/include/abi-bits/ptrace.h
+ create mode 120000 sysdeps/petra/include/abi-bits/random.h
+ create mode 120000 sysdeps/petra/include/abi-bits/reboot.h
+ create mode 120000 sysdeps/petra/include/abi-bits/resource.h
+ create mode 120000 sysdeps/petra/include/abi-bits/riscv-hwprobe.h
+ create mode 120000 sysdeps/petra/include/abi-bits/rlim_t.h
+ create mode 120000 sysdeps/petra/include/abi-bits/route.h
+ create mode 120000 sysdeps/petra/include/abi-bits/sa_family_t.h
+ create mode 120000 sysdeps/petra/include/abi-bits/sched_param.h
+ create mode 120000 sysdeps/petra/include/abi-bits/seek-whence.h
+ create mode 120000 sysdeps/petra/include/abi-bits/sem.h
+ create mode 120000 sysdeps/petra/include/abi-bits/shm.h
+ create mode 120000 sysdeps/petra/include/abi-bits/sig-limits.h
+ create mode 120000 sysdeps/petra/include/abi-bits/sigevent.h
+ create mode 120000 sysdeps/petra/include/abi-bits/signal.h
+ create mode 120000 sysdeps/petra/include/abi-bits/sigset_t.h
+ create mode 120000 sysdeps/petra/include/abi-bits/sigval.h
+ create mode 120000 sysdeps/petra/include/abi-bits/sockaddr_storage.h
+ create mode 120000 sysdeps/petra/include/abi-bits/socket.h
+ create mode 120000 sysdeps/petra/include/abi-bits/socklen_t.h
+ create mode 120000 sysdeps/petra/include/abi-bits/stat.h
+ create mode 120000 sysdeps/petra/include/abi-bits/statfs.h
+ create mode 120000 sysdeps/petra/include/abi-bits/statvfs.h
+ create mode 120000 sysdeps/petra/include/abi-bits/statx.h
+ create mode 120000 sysdeps/petra/include/abi-bits/suseconds_t.h
+ create mode 120000 sysdeps/petra/include/abi-bits/termios.h
+ create mode 120000 sysdeps/petra/include/abi-bits/time.h
+ create mode 120000 sysdeps/petra/include/abi-bits/uid_t.h
+ create mode 120000 sysdeps/petra/include/abi-bits/utmp-defines.h
+ create mode 120000 sysdeps/petra/include/abi-bits/utmpx.h
+ create mode 120000 sysdeps/petra/include/abi-bits/utsname.h
+ create mode 120000 sysdeps/petra/include/abi-bits/vm-flags.h
+ create mode 120000 sysdeps/petra/include/abi-bits/vt.h
+ create mode 120000 sysdeps/petra/include/abi-bits/wait.h
+ create mode 120000 sysdeps/petra/include/abi-bits/xattr.h
+ create mode 100644 sysdeps/petra/include/mlibc/sysdeps.hpp
+ create mode 100644 sysdeps/petra/include/sys/syscall.h
+ create mode 100644 sysdeps/petra/meson.build
+
+diff --git a/meson.build b/meson.build
+index 8e981a3..d53f4c8 100644
+--- a/meson.build
++++ b/meson.build
+@@ -320,6 +320,13 @@ elif host_machine.system() == 'ethereal'
+ 	internal_conf.set10('MLIBC_MMAP_ALLOCATE_DSO', false)
+ 	internal_conf.set10('MLIBC_MAP_FILE_WINDOWS', true)
+ 	subdir('sysdeps/ethereal')
++elif host_machine.system() == 'petra'
++	rtld_include_dirs += include_directories('sysdeps/petra/include')
++	libc_include_dirs += include_directories('sysdeps/petra/include')
++	internal_conf.set10('MLIBC_MAP_DSO_SEGMENTS', true)
++	internal_conf.set10('MLIBC_MMAP_ALLOCATE_DSO', true)
++	internal_conf.set10('MLIBC_MAP_FILE_WINDOWS', true)
++	subdir('sysdeps/petra')
+ # ANCHOR: demo-sysdeps
+ elif host_machine.system() == 'demo'
+ 	subdir('sysdeps/demo')
+diff --git a/options/ansi/generic/stdlib.cpp b/options/ansi/generic/stdlib.cpp
+index d9fa169..a8cddac 100644
+--- a/options/ansi/generic/stdlib.cpp
++++ b/options/ansi/generic/stdlib.cpp
+@@ -379,16 +379,16 @@ static void qsort_impl(void *base, size_t count, size_t size, Compare compare) {
+ 	// Sort the range [begin, end).
+ 	// TODO: If we are doing more than C * log_2(n) iterations for some C,
+ 	//       fall back to a guaranteed O(log n) implementation.
+-	auto quick_sort = [&] (this auto self, size_t begin, size_t end) {
++	auto quick_sort = [&] (auto &self, size_t begin, size_t end) -> void {
+ 		__ensure(begin <= end);
+ 		if (end - begin <= 1)
+ 			return;
+ 		auto pivot = partition(begin, end);
+-		self(begin, pivot);
+-		self(pivot + 1, end);
++		self(self, begin, pivot);
++		self(self, pivot + 1, end);
+ 	};
+ 
+-	quick_sort(0, count);
++	quick_sort(quick_sort, 0, count);
+ }
+ 
+ void qsort(void *base, size_t count, size_t size,
+diff --git a/options/ansi/x86_64/meson.build b/options/ansi/x86_64/meson.build
+index 45665a6..5856d62 100644
+--- a/options/ansi/x86_64/meson.build
++++ b/options/ansi/x86_64/meson.build
+@@ -1,10 +1 @@
+-ansi_sources += files(
+-	'strcmp.cpp'
+-)
+-
+-arch_defines = [
+-	'-DMLIBC_ARCH_HAS_STRCMP=1',
+-]
+-
+-libc_cpp_args += arch_defines
+-ld_cpp_args += arch_defines
++# Generic string functions used for PetraOS on GCC 13
+diff --git a/options/internal/include/mlibc/allocator.hpp b/options/internal/include/mlibc/allocator.hpp
+index a889050..eb4efc1 100644
+--- a/options/internal/include/mlibc/allocator.hpp
++++ b/options/internal/include/mlibc/allocator.hpp
+@@ -42,20 +42,34 @@ template <typename T>
+ struct lazy_eternal {
+ 	constexpr lazy_eternal() = default;
+ 
+-	template <typename Self>
+-	auto &get(this Self &self) {
+-		if (__atomic_load_n(&self.initialized_, __ATOMIC_ACQUIRE))
+-			return *self.box_.get();
++	auto &get() {
++		if (__atomic_load_n(&initialized_, __ATOMIC_ACQUIRE))
++			return *box_.get();
+ 
+ 		{
+-			frg::unique_lock lock{self.lock_};
+-			if (!__atomic_load_n(&self.initialized_, __ATOMIC_RELAXED)) {
+-				self.box_.initialize();
+-				__atomic_store_n(&self.initialized_, 1, __ATOMIC_RELEASE);
++			frg::unique_lock lock{lock_};
++			if (!__atomic_load_n(&initialized_, __ATOMIC_RELAXED)) {
++				box_.initialize();
++				__atomic_store_n(&initialized_, 1, __ATOMIC_RELEASE);
+ 			}
+ 		}
+ 
+-		return *self.box_.get();
++		return *box_.get();
++	}
++
++	const auto &get() const {
++		if (__atomic_load_n(&initialized_, __ATOMIC_ACQUIRE))
++			return *box_.get();
++
++		{
++			frg::unique_lock lock{lock_};
++			if (!__atomic_load_n(&initialized_, __ATOMIC_RELAXED)) {
++				box_.initialize();
++				__atomic_store_n(&initialized_, 1, __ATOMIC_RELEASE);
++			}
++		}
++
++		return *box_.get();
+ 	}
+ 
+ private:
+diff --git a/subprojects/frigg.wrap b/subprojects/frigg.wrap
+index 04de5e1..941988a 100644
+--- a/subprojects/frigg.wrap
++++ b/subprojects/frigg.wrap
+@@ -1,3 +1,4 @@
+ [wrap-git]
+ url = https://github.com/managarm/frigg.git
+ revision = b0dbea66bc19f7c5546f0039a3be842feb02678c
++patch_directory = frigg
+diff --git a/subprojects/packagefiles/frigg/include/frg/span.hpp b/subprojects/packagefiles/frigg/include/frg/span.hpp
+new file mode 100644
+index 0000000..d0e4460
+--- /dev/null
++++ b/subprojects/packagefiles/frigg/include/frg/span.hpp
+@@ -0,0 +1,69 @@
++#pragma once
++
++#include <stddef.h>
++
++#include <frg/macros.hpp>
++#include <frg/array.hpp>
++
++namespace frg FRG_VISIBILITY {
++
++template<typename T>
++struct span {
++	constexpr span()
++	: p_{nullptr}, n_{0} { }
++
++	constexpr span(T *p, size_t n)
++	: p_{p}, n_{n} { }
++
++	template<typename U, size_t N>
++	constexpr span(const array<U, N> &arr)
++	: p_{arr.data()}, n_{N} { }
++
++	template<typename U, size_t N>
++	constexpr span(array<U, N> &arr)
++	: p_{arr.data()}, n_{N} { }
++
++	constexpr T *data() const {
++		return p_;
++	}
++
++	constexpr T *begin() const {
++		return p_;
++	}
++
++	constexpr T *end() const {
++		return p_ + n_;
++	}
++
++	constexpr size_t size() const {
++		return n_;
++	}
++
++	constexpr bool empty() const {
++		return n_ == 0;
++	}
++
++	constexpr size_t size_bytes() const {
++		return n_ * sizeof(T);
++	}
++
++	constexpr T &operator[] (size_t i) const {
++		return p_[i];
++	}
++
++	constexpr span subspan(size_t disp) const {
++		FRG_ASSERT(disp <= n_);
++		return {p_ + disp, n_ - disp};
++	}
++
++	constexpr span subspan(size_t disp, size_t length) const {
++		FRG_ASSERT(disp + length <= n_);
++		return {p_ + disp, length};
++	}
++
++private:
++	T *p_;
++	size_t n_;
++};
++
++} // namespace frg
+diff --git a/sysdeps/petra/crt-x86_64/Scrt1.S b/sysdeps/petra/crt-x86_64/Scrt1.S
+new file mode 100644
+index 0000000..2715c9b
+--- /dev/null
++++ b/sysdeps/petra/crt-x86_64/Scrt1.S
+@@ -0,0 +1,8 @@
++.section .text
++.global _start
++_start:
++    mov %rsp, %rdi
++    lea main(%rip), %rsi
++    call __mlibc_entry
++
++.section .note.GNU-stack,"",%progbits
+diff --git a/sysdeps/petra/crt-x86_64/crt1.S b/sysdeps/petra/crt-x86_64/crt1.S
+new file mode 100644
+index 0000000..2715c9b
+--- /dev/null
++++ b/sysdeps/petra/crt-x86_64/crt1.S
+@@ -0,0 +1,8 @@
++.section .text
++.global _start
++_start:
++    mov %rsp, %rdi
++    lea main(%rip), %rsi
++    call __mlibc_entry
++
++.section .note.GNU-stack,"",%progbits
+diff --git a/sysdeps/petra/crt-x86_64/crti.S b/sysdeps/petra/crt-x86_64/crti.S
+new file mode 100644
+index 0000000..903c9d0
+--- /dev/null
++++ b/sysdeps/petra/crt-x86_64/crti.S
+@@ -0,0 +1,15 @@
++.ident "x86_64-petra-mlibc crti"
++
++.section .init
++.globl  _init
++.type   _init,@function
++_init:
++    push %rax
++
++.section .fini
++.globl  _fini
++.type   _fini,@function
++_fini:
++    push %rax
++
++.section .note.GNU-stack,"",%progbits
+diff --git a/sysdeps/petra/crt-x86_64/crtn.S b/sysdeps/petra/crt-x86_64/crtn.S
+new file mode 100644
+index 0000000..4730e79
+--- /dev/null
++++ b/sysdeps/petra/crt-x86_64/crtn.S
+@@ -0,0 +1,11 @@
++.ident "x86_64-petra-mlibc crtn"
++
++.section .init
++    pop %rax
++    ret
++
++.section .fini
++    pop %rax
++    ret
++
++.section .note.GNU-stack,"",%progbits
+diff --git a/sysdeps/petra/generic/entry.cpp b/sysdeps/petra/generic/entry.cpp
+new file mode 100644
+index 0000000..f7dca05
+--- /dev/null
++++ b/sysdeps/petra/generic/entry.cpp
+@@ -0,0 +1,16 @@
++#include <stdint.h>
++#include <stdlib.h>
++#include <bits/ensure.h>
++#include <mlibc/elf/startup.h>
++#include <sys/syscall.h>
++
++extern "C" void __dlapi_enter(uintptr_t *);
++
++extern char **environ;
++
++extern "C" void __mlibc_entry(uintptr_t *entry_stack, int (*main_fn)(int argc, char *argv[], char *env[])) {
++    __dlapi_enter(entry_stack);
++
++    auto result = main_fn(mlibc::entry_stack.argc, mlibc::entry_stack.argv, environ);
++    exit(result);
++}
+diff --git a/sysdeps/petra/generic/generic.cpp b/sysdeps/petra/generic/generic.cpp
+new file mode 100644
+index 0000000..4d14050
+--- /dev/null
++++ b/sysdeps/petra/generic/generic.cpp
+@@ -0,0 +1,354 @@
++#include <bits/ensure.h>
++#include <mlibc/debug.hpp>
++#include <mlibc/all-sysdeps.hpp>
++#include <errno.h>
++#include <fcntl.h>
++#include <limits.h>
++#include <sys/ioctl.h>
++#include <stdlib.h>
++#include <string.h>
++#include <stdio.h>
++#include <sys/syscall.h>
++#include <sched.h>
++#include <sys/mman.h>
++#include <unistd.h>
++#include <mlibc/tcb.hpp>
++#include <sys/types.h>
++#include <sys/stat.h>
++#include <stddef.h>
++
++namespace mlibc {
++
++void Sysdeps<LibcLog>::operator()(const char *message) {
++    ssize_t unused;
++    sysdep<Write>(2, message, strlen(message), &unused);
++    sysdep<Write>(2, "\n", 1, &unused);
++}
++
++void Sysdeps<LibcPanic>::operator()() {
++    ssize_t unused;
++    char const *message = "\n[PetraOS] mlibc panic occurred!\n";
++    sysdep<Write>(2, message, strlen(message), &unused);
++    sysdep<Exit>(1);
++}
++
++[[noreturn]]
++void Sysdeps<Exit>::operator()(int status) {
++    __petra_syscall1(SYSCALL_EXIT, status);
++    __builtin_unreachable();
++}
++
++int Sysdeps<TcbSet>::operator()(void *pointer) {
++    // WRMSR FS_BASE or arch_prctl(ARCH_SET_FS, pointer)
++    int64_t ret = __petra_syscall2(SYSCALL_ARCH_PRCTL, 0x1002 /* ARCH_SET_FS */, (int64_t)pointer);
++    if (ret < 0) {
++        // Fallback: if kernel does not yet support ARCH_PRCTL, don't hard crash immediately
++        return 0;
++    }
++    return 0;
++}
++
++int Sysdeps<AnonAllocate>::operator()(size_t size, void **pointer) {
++    return sysdep<VmMap>(NULL, size, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0, pointer);
++}
++
++int Sysdeps<AnonFree>::operator()(void *pointer, size_t size) {
++    return sysdep<VmUnmap>(pointer, size);
++}
++
++int Sysdeps<VmMap>::operator()(void *hint, size_t size, int prot, int flags, int fd, off_t offset, void **window) {
++    int64_t ret = __petra_syscall6(SYSCALL_MMAP, (int64_t)hint, size, prot, flags, fd, offset);
++    if (ret < 0) {
++        return -ret;
++    }
++    *window = (void *)ret;
++    return 0;
++}
++
++int Sysdeps<VmUnmap>::operator()(void *pointer, size_t size) {
++    int64_t ret = __petra_syscall2(SYSCALL_MUNMAP, (int64_t)pointer, size);
++    if (ret < 0) {
++        return -ret;
++    }
++    return 0;
++}
++
++int Sysdeps<VmProtect>::operator()(void *pointer, size_t size, int prot) {
++    int64_t ret = __petra_syscall3(SYSCALL_MPROTECT, (int64_t)pointer, size, prot);
++    if (ret < 0) {
++        return -ret;
++    }
++    return 0;
++}
++
++int Sysdeps<Write>::operator()(int fd, const void *buf, size_t size, ssize_t *bytes_written) {
++    int64_t ret = __petra_syscall3(SYSCALL_WRITE, fd, (int64_t)buf, size);
++    if (ret < 0) {
++        return -ret;
++    }
++    *bytes_written = ret;
++    return 0;
++}
++
++int Sysdeps<Read>::operator()(int fd, void *buf, size_t size, ssize_t *bytes_read) {
++    int64_t ret = __petra_syscall3(SYSCALL_READ, fd, (int64_t)buf, size);
++    if (ret < 0) {
++        return -ret;
++    }
++    *bytes_read = ret;
++    return 0;
++}
++
++int Sysdeps<Open>::operator()(const char *pathname, int flags, mode_t mode, int *fd) {
++    return sysdep<Openat>(AT_FDCWD, pathname, flags, mode, fd);
++}
++
++int Sysdeps<Openat>::operator()(int dirfd, const char *path, int flags, mode_t mode, int *fd) {
++    int64_t ret = __petra_syscall4(SYSCALL_OPENAT, dirfd, (int64_t)path, flags, mode);
++    if (ret < 0) {
++        return -ret;
++    }
++    *fd = ret;
++    return 0;
++}
++
++int Sysdeps<Close>::operator()(int fd) {
++    int64_t ret = __petra_syscall1(SYSCALL_CLOSE, fd);
++    if (ret < 0) {
++        return -ret;
++    }
++    return 0;
++}
++
++int Sysdeps<Seek>::operator()(int fd, off_t offset, int whence, off_t *new_offset) {
++    int64_t ret = __petra_syscall3(SYSCALL_LSEEK, fd, offset, whence);
++    if (ret < 0) {
++        return -ret;
++    }
++    *new_offset = ret;
++    return 0;
++}
++
++int Sysdeps<Isatty>::operator()(int fd) {
++    int64_t ret = __petra_syscall1(SYSCALL_ISATTY, fd);
++    if (ret < 0) {
++        return -ret;
++    }
++    return (ret == 1) ? 0 : ENOTTY;
++}
++
++int Sysdeps<Ioctl>::operator()(int fd, unsigned long request, void *arg, int *result) {
++    int64_t ret = __petra_syscall3(SYSCALL_IOCTL, fd, request, (int64_t)arg);
++    if (ret < 0) {
++        return -ret;
++    }
++    if (result) {
++        *result = ret;
++    }
++    return 0;
++}
++
++pid_t Sysdeps<GetPid>::operator()() {
++    return __petra_syscall0(SYSCALL_GETPID);
++}
++
++pid_t Sysdeps<GetPpid>::operator()() {
++    return __petra_syscall0(SYSCALL_GETPPID);
++}
++
++int Sysdeps<GetPgid>::operator()(pid_t pid, pid_t *pgid) {
++    int64_t ret = __petra_syscall1(SYSCALL_GETPGRP, pid);
++    if (ret < 0) {
++        return -ret;
++    }
++    *pgid = ret;
++    return 0;
++}
++
++int Sysdeps<SetPgid>::operator()(pid_t pid, pid_t pgid) {
++    int64_t ret = __petra_syscall2(SYSCALL_SETPGID, pid, pgid);
++    if (ret < 0) {
++        return -ret;
++    }
++    return 0;
++}
++
++int Sysdeps<Fork>::operator()(pid_t *child) {
++    int64_t ret = __petra_syscall0(SYSCALL_FORK);
++    if (ret < 0) {
++        return -ret;
++    }
++    *child = ret;
++    return 0;
++}
++
++int Sysdeps<Execve>::operator()(const char *path, char *const argv[], char *const envp[]) {
++    int64_t ret = __petra_syscall3(SYSCALL_EXECVE, (int64_t)path, (int64_t)argv, (int64_t)envp);
++    if (ret < 0) {
++        return -ret;
++    }
++    return 0;
++}
++
++int Sysdeps<Waitpid>::operator()(pid_t pid, int *status, int flags, struct rusage *ru, pid_t *ret_pid) {
++    int64_t ret = __petra_syscall4(SYSCALL_WAIT4, pid, (int64_t)status, flags, (int64_t)ru);
++    if (ret < 0) {
++        return -ret;
++    }
++    *ret_pid = ret;
++    return 0;
++}
++
++int Sysdeps<FutexWait>::operator()(int *pointer, int expected, const struct timespec *time) {
++    int64_t ret = __petra_syscall4(SYSCALL_FUTEX, (int64_t)pointer, 0 /* FUTEX_WAIT */, expected, (int64_t)time);
++    if (ret < 0) {
++        return -ret;
++    }
++    return 0;
++}
++
++int Sysdeps<FutexWake>::operator()(int *pointer, bool all) {
++    int64_t val = all ? INT_MAX : 1;
++    int64_t ret = __petra_syscall3(SYSCALL_FUTEX, (int64_t)pointer, 1 /* FUTEX_WAKE */, val);
++    if (ret < 0) {
++        return -ret;
++    }
++    return 0;
++}
++
++int Sysdeps<ClockGet>::operator()(int clock, time_t *secs, long *nanos) {
++    // Fallback to gettimeofday
++    struct {
++        int64_t tv_sec;
++        int64_t tv_usec;
++    } tv;
++    int64_t ret = __petra_syscall2(SYSCALL_GETTIMEOFDAY, (int64_t)&tv, 0);
++    if (ret < 0) {
++        return -ret;
++    }
++    *secs = tv.tv_sec;
++    *nanos = tv.tv_usec * 1000;
++    return 0;
++}
++
++int Sysdeps<Stat>::operator()(fsfd_target fsfdt, int fd, const char *path, int flags, struct stat *statbuf) {
++    int64_t ret;
++    switch (fsfdt) {
++        case fsfd_target::fd:
++            ret = __petra_syscall2(SYSCALL_FSTAT, fd, (int64_t)statbuf);
++            break;
++        case fsfd_target::path:
++            ret = __petra_syscall2(SYSCALL_STAT, (int64_t)path, (int64_t)statbuf);
++            break;
++        case fsfd_target::fd_path:
++            ret = __petra_syscall4(SYSCALL_NEWFSTATAT, fd, (int64_t)path, (int64_t)statbuf, flags);
++            break;
++        default:
++            return EINVAL;
++    }
++    if (ret < 0) {
++        return -ret;
++    }
++    return 0;
++}
++
++int Sysdeps<Fcntl>::operator()(int fd, int request, va_list args, int *result) {
++    int64_t arg = va_arg(args, int64_t);
++    int64_t ret = __petra_syscall3(SYSCALL_FCNTL, fd, request, arg);
++    if (ret < 0) {
++        return -ret;
++    }
++    if (result) {
++        *result = ret;
++    }
++    return 0;
++}
++
++int Sysdeps<Dup>::operator()(int fd, int flags, int *newfd) {
++    (void)flags;
++    int64_t ret = __petra_syscall1(SYSCALL_DUP, fd);
++    if (ret < 0) {
++        return -ret;
++    }
++    *newfd = ret;
++    return 0;
++}
++
++int Sysdeps<Dup2>::operator()(int fd, int flags, int newfd) {
++    (void)flags;
++    int64_t ret = __petra_syscall2(SYSCALL_DUP2, fd, newfd);
++    if (ret < 0) {
++        return -ret;
++    }
++    return 0;
++}
++
++int Sysdeps<Pipe>::operator()(int *fds, int flags) {
++    int64_t ret;
++    if (flags) {
++        ret = __petra_syscall2(SYSCALL_PIPE2, (int64_t)fds, flags);
++    } else {
++        ret = __petra_syscall1(SYSCALL_PIPE, (int64_t)fds);
++    }
++    if (ret < 0) {
++        return -ret;
++    }
++    return 0;
++}
++
++void Sysdeps<Yield>::operator()() {
++    __petra_syscall0(SYSCALL_YIELD);
++}
++
++int Sysdeps<Kill>::operator()(pid_t pid, int sig) {
++    int64_t ret = __petra_syscall2(SYSCALL_KILL, pid, sig);
++    if (ret < 0) {
++        return -ret;
++    }
++    return 0;
++}
++
++int Sysdeps<Sigaction>::operator()(int sig, const struct sigaction *__restrict act, struct sigaction *__restrict oldact) {
++    int64_t ret = __petra_syscall4(SYSCALL_RT_SIGACTION, sig, (int64_t)act, (int64_t)oldact, sizeof(sigset_t));
++    if (ret < 0) {
++        return -ret;
++    }
++    return 0;
++}
++
++int Sysdeps<Sigprocmask>::operator()(int how, const sigset_t *__restrict set, sigset_t *__restrict retrieve) {
++    int64_t ret = __petra_syscall4(SYSCALL_RT_SIGPROCMASK, how, (int64_t)set, (int64_t)retrieve, sizeof(sigset_t));
++    if (ret < 0) {
++        return -ret;
++    }
++    return 0;
++}
++
++int Sysdeps<Chdir>::operator()(const char *path) {
++    int64_t ret = __petra_syscall1(SYSCALL_CHDIR, (int64_t)path);
++    if (ret < 0) {
++        return -ret;
++    }
++    return 0;
++}
++
++int Sysdeps<GetCwd>::operator()(char *buffer, size_t size) {
++    int64_t ret = __petra_syscall2(SYSCALL_GETCWD, (int64_t)buffer, size);
++    if (ret < 0) {
++        return -ret;
++    }
++    return 0;
++}
++
++int Sysdeps<Sleep>::operator()(time_t *secs, long *nanos) {
++    int dummy = 0;
++    struct timespec ts;
++    ts.tv_sec = *secs;
++    ts.tv_nsec = *nanos;
++    __petra_syscall4(SYSCALL_FUTEX, (int64_t)&dummy, 0 /* FUTEX_WAIT */, 0, (int64_t)&ts);
++    *secs = 0;
++    *nanos = 0;
++    return 0;
++}
++
++} // namespace mlibc
+diff --git a/sysdeps/petra/include/abi-bits/access.h b/sysdeps/petra/include/abi-bits/access.h
+new file mode 120000
+index 0000000..cb83931
+--- /dev/null
++++ b/sysdeps/petra/include/abi-bits/access.h
+@@ -0,0 +1 @@
++../../../../abis/linux/access.h
+\ No newline at end of file
+diff --git a/sysdeps/petra/include/abi-bits/aio.h b/sysdeps/petra/include/abi-bits/aio.h
+new file mode 120000
+index 0000000..79b4168
+--- /dev/null
++++ b/sysdeps/petra/include/abi-bits/aio.h
+@@ -0,0 +1 @@
++../../../../abis/linux/aio.h
+\ No newline at end of file
+diff --git a/sysdeps/petra/include/abi-bits/auxv.h b/sysdeps/petra/include/abi-bits/auxv.h
+new file mode 120000
+index 0000000..c43f878
+--- /dev/null
++++ b/sysdeps/petra/include/abi-bits/auxv.h
+@@ -0,0 +1 @@
++../../../../abis/linux/auxv.h
+\ No newline at end of file
+diff --git a/sysdeps/petra/include/abi-bits/blkcnt_t.h b/sysdeps/petra/include/abi-bits/blkcnt_t.h
+new file mode 120000
+index 0000000..0b0ec27
+--- /dev/null
++++ b/sysdeps/petra/include/abi-bits/blkcnt_t.h
+@@ -0,0 +1 @@
++../../../../abis/linux/blkcnt_t.h
+\ No newline at end of file
+diff --git a/sysdeps/petra/include/abi-bits/blksize_t.h b/sysdeps/petra/include/abi-bits/blksize_t.h
+new file mode 120000
+index 0000000..7dc8d7c
+--- /dev/null
++++ b/sysdeps/petra/include/abi-bits/blksize_t.h
+@@ -0,0 +1 @@
++../../../../abis/linux/blksize_t.h
+\ No newline at end of file
+diff --git a/sysdeps/petra/include/abi-bits/clockid_t.h b/sysdeps/petra/include/abi-bits/clockid_t.h
+new file mode 120000
+index 0000000..6a42da5
+--- /dev/null
++++ b/sysdeps/petra/include/abi-bits/clockid_t.h
+@@ -0,0 +1 @@
++../../../../abis/linux/clockid_t.h
+\ No newline at end of file
+diff --git a/sysdeps/petra/include/abi-bits/clone-flags.h b/sysdeps/petra/include/abi-bits/clone-flags.h
+new file mode 120000
+index 0000000..ed3dfd6
+--- /dev/null
++++ b/sysdeps/petra/include/abi-bits/clone-flags.h
+@@ -0,0 +1 @@
++../../../../abis/linux/clone-flags.h
+\ No newline at end of file
+diff --git a/sysdeps/petra/include/abi-bits/dev_t.h b/sysdeps/petra/include/abi-bits/dev_t.h
+new file mode 120000
+index 0000000..bca881e
+--- /dev/null
++++ b/sysdeps/petra/include/abi-bits/dev_t.h
+@@ -0,0 +1 @@
++../../../../abis/linux/dev_t.h
+\ No newline at end of file
+diff --git a/sysdeps/petra/include/abi-bits/epoll.h b/sysdeps/petra/include/abi-bits/epoll.h
+new file mode 120000
+index 0000000..eb4b76d
+--- /dev/null
++++ b/sysdeps/petra/include/abi-bits/epoll.h
+@@ -0,0 +1 @@
++../../../../abis/linux/epoll.h
+\ No newline at end of file
+diff --git a/sysdeps/petra/include/abi-bits/errno.h b/sysdeps/petra/include/abi-bits/errno.h
+new file mode 120000
+index 0000000..6e507de
+--- /dev/null
++++ b/sysdeps/petra/include/abi-bits/errno.h
+@@ -0,0 +1 @@
++../../../../abis/linux/errno.h
+\ No newline at end of file
+diff --git a/sysdeps/petra/include/abi-bits/fcntl.h b/sysdeps/petra/include/abi-bits/fcntl.h
+new file mode 120000
+index 0000000..463e2c9
+--- /dev/null
++++ b/sysdeps/petra/include/abi-bits/fcntl.h
+@@ -0,0 +1 @@
++../../../../abis/linux/fcntl.h
+\ No newline at end of file
+diff --git a/sysdeps/petra/include/abi-bits/fd_set.h b/sysdeps/petra/include/abi-bits/fd_set.h
+new file mode 120000
+index 0000000..b43142c
+--- /dev/null
++++ b/sysdeps/petra/include/abi-bits/fd_set.h
+@@ -0,0 +1 @@
++../../../../abis/linux/fd_set.h
+\ No newline at end of file
+diff --git a/sysdeps/petra/include/abi-bits/fsblkcnt_t.h b/sysdeps/petra/include/abi-bits/fsblkcnt_t.h
+new file mode 120000
+index 0000000..898dfb2
+--- /dev/null
++++ b/sysdeps/petra/include/abi-bits/fsblkcnt_t.h
+@@ -0,0 +1 @@
++../../../../abis/linux/fsblkcnt_t.h
+\ No newline at end of file
+diff --git a/sysdeps/petra/include/abi-bits/fsfilcnt_t.h b/sysdeps/petra/include/abi-bits/fsfilcnt_t.h
+new file mode 120000
+index 0000000..791755c
+--- /dev/null
++++ b/sysdeps/petra/include/abi-bits/fsfilcnt_t.h
+@@ -0,0 +1 @@
++../../../../abis/linux/fsfilcnt_t.h
+\ No newline at end of file
+diff --git a/sysdeps/petra/include/abi-bits/gid_t.h b/sysdeps/petra/include/abi-bits/gid_t.h
+new file mode 120000
+index 0000000..abce6d6
+--- /dev/null
++++ b/sysdeps/petra/include/abi-bits/gid_t.h
+@@ -0,0 +1 @@
++../../../../abis/linux/gid_t.h
+\ No newline at end of file
+diff --git a/sysdeps/petra/include/abi-bits/in.h b/sysdeps/petra/include/abi-bits/in.h
+new file mode 120000
+index 0000000..418d1d5
+--- /dev/null
++++ b/sysdeps/petra/include/abi-bits/in.h
+@@ -0,0 +1 @@
++../../../../abis/linux/in.h
+\ No newline at end of file
+diff --git a/sysdeps/petra/include/abi-bits/ino_t.h b/sysdeps/petra/include/abi-bits/ino_t.h
+new file mode 120000
+index 0000000..4c20aca
+--- /dev/null
++++ b/sysdeps/petra/include/abi-bits/ino_t.h
+@@ -0,0 +1 @@
++../../../../abis/linux/ino_t.h
+\ No newline at end of file
+diff --git a/sysdeps/petra/include/abi-bits/inotify.h b/sysdeps/petra/include/abi-bits/inotify.h
+new file mode 120000
+index 0000000..b5cb282
+--- /dev/null
++++ b/sysdeps/petra/include/abi-bits/inotify.h
+@@ -0,0 +1 @@
++../../../../abis/linux/inotify.h
+\ No newline at end of file
+diff --git a/sysdeps/petra/include/abi-bits/ioctls.h b/sysdeps/petra/include/abi-bits/ioctls.h
+new file mode 120000
+index 0000000..595106b
+--- /dev/null
++++ b/sysdeps/petra/include/abi-bits/ioctls.h
+@@ -0,0 +1 @@
++../../../../abis/linux/ioctls.h
+\ No newline at end of file
+diff --git a/sysdeps/petra/include/abi-bits/ipc.h b/sysdeps/petra/include/abi-bits/ipc.h
+new file mode 120000
+index 0000000..2c7ffc4
+--- /dev/null
++++ b/sysdeps/petra/include/abi-bits/ipc.h
+@@ -0,0 +1 @@
++../../../../abis/linux/ipc.h
+\ No newline at end of file
+diff --git a/sysdeps/petra/include/abi-bits/limits.h b/sysdeps/petra/include/abi-bits/limits.h
+new file mode 120000
+index 0000000..6c88db2
+--- /dev/null
++++ b/sysdeps/petra/include/abi-bits/limits.h
+@@ -0,0 +1 @@
++../../../../abis/linux/limits.h
+\ No newline at end of file
+diff --git a/sysdeps/petra/include/abi-bits/mode_t.h b/sysdeps/petra/include/abi-bits/mode_t.h
+new file mode 120000
+index 0000000..5d78fdf
+--- /dev/null
++++ b/sysdeps/petra/include/abi-bits/mode_t.h
+@@ -0,0 +1 @@
++../../../../abis/linux/mode_t.h
+\ No newline at end of file
+diff --git a/sysdeps/petra/include/abi-bits/mqueue.h b/sysdeps/petra/include/abi-bits/mqueue.h
+new file mode 120000
+index 0000000..fa87b07
+--- /dev/null
++++ b/sysdeps/petra/include/abi-bits/mqueue.h
+@@ -0,0 +1 @@
++../../../../abis/linux/mqueue.h
+\ No newline at end of file
+diff --git a/sysdeps/petra/include/abi-bits/msg.h b/sysdeps/petra/include/abi-bits/msg.h
+new file mode 120000
+index 0000000..f402b49
+--- /dev/null
++++ b/sysdeps/petra/include/abi-bits/msg.h
+@@ -0,0 +1 @@
++../../../../abis/linux/msg.h
+\ No newline at end of file
+diff --git a/sysdeps/petra/include/abi-bits/nlink_t.h b/sysdeps/petra/include/abi-bits/nlink_t.h
+new file mode 120000
+index 0000000..bb3b625
+--- /dev/null
++++ b/sysdeps/petra/include/abi-bits/nlink_t.h
+@@ -0,0 +1 @@
++../../../../abis/linux/nlink_t.h
+\ No newline at end of file
+diff --git a/sysdeps/petra/include/abi-bits/packet.h b/sysdeps/petra/include/abi-bits/packet.h
+new file mode 120000
+index 0000000..998ef1a
+--- /dev/null
++++ b/sysdeps/petra/include/abi-bits/packet.h
+@@ -0,0 +1 @@
++../../../../abis/linux/packet.h
+\ No newline at end of file
+diff --git a/sysdeps/petra/include/abi-bits/pid_t.h b/sysdeps/petra/include/abi-bits/pid_t.h
+new file mode 120000
+index 0000000..baa90f6
+--- /dev/null
++++ b/sysdeps/petra/include/abi-bits/pid_t.h
+@@ -0,0 +1 @@
++../../../../abis/linux/pid_t.h
+\ No newline at end of file
+diff --git a/sysdeps/petra/include/abi-bits/poll.h b/sysdeps/petra/include/abi-bits/poll.h
+new file mode 120000
+index 0000000..8ea6a0a
+--- /dev/null
++++ b/sysdeps/petra/include/abi-bits/poll.h
+@@ -0,0 +1 @@
++../../../../abis/linux/poll.h
+\ No newline at end of file
+diff --git a/sysdeps/petra/include/abi-bits/ptrace.h b/sysdeps/petra/include/abi-bits/ptrace.h
+new file mode 120000
+index 0000000..b2517b2
+--- /dev/null
++++ b/sysdeps/petra/include/abi-bits/ptrace.h
+@@ -0,0 +1 @@
++../../../../abis/linux/ptrace.h
+\ No newline at end of file
+diff --git a/sysdeps/petra/include/abi-bits/random.h b/sysdeps/petra/include/abi-bits/random.h
+new file mode 120000
+index 0000000..83fc3d9
+--- /dev/null
++++ b/sysdeps/petra/include/abi-bits/random.h
+@@ -0,0 +1 @@
++../../../../abis/linux/random.h
+\ No newline at end of file
+diff --git a/sysdeps/petra/include/abi-bits/reboot.h b/sysdeps/petra/include/abi-bits/reboot.h
+new file mode 120000
+index 0000000..77013a4
+--- /dev/null
++++ b/sysdeps/petra/include/abi-bits/reboot.h
+@@ -0,0 +1 @@
++../../../../abis/linux/reboot.h
+\ No newline at end of file
+diff --git a/sysdeps/petra/include/abi-bits/resource.h b/sysdeps/petra/include/abi-bits/resource.h
+new file mode 120000
+index 0000000..88d7402
+--- /dev/null
++++ b/sysdeps/petra/include/abi-bits/resource.h
+@@ -0,0 +1 @@
++../../../../abis/linux/resource.h
+\ No newline at end of file
+diff --git a/sysdeps/petra/include/abi-bits/riscv-hwprobe.h b/sysdeps/petra/include/abi-bits/riscv-hwprobe.h
+new file mode 120000
+index 0000000..e651325
+--- /dev/null
++++ b/sysdeps/petra/include/abi-bits/riscv-hwprobe.h
+@@ -0,0 +1 @@
++../../../../abis/linux/riscv-hwprobe.h
+\ No newline at end of file
+diff --git a/sysdeps/petra/include/abi-bits/rlim_t.h b/sysdeps/petra/include/abi-bits/rlim_t.h
+new file mode 120000
+index 0000000..e92eb5f
+--- /dev/null
++++ b/sysdeps/petra/include/abi-bits/rlim_t.h
+@@ -0,0 +1 @@
++../../../../abis/linux/rlim_t.h
+\ No newline at end of file
+diff --git a/sysdeps/petra/include/abi-bits/route.h b/sysdeps/petra/include/abi-bits/route.h
+new file mode 120000
+index 0000000..313ead6
+--- /dev/null
++++ b/sysdeps/petra/include/abi-bits/route.h
+@@ -0,0 +1 @@
++../../../../abis/linux/route.h
+\ No newline at end of file
+diff --git a/sysdeps/petra/include/abi-bits/sa_family_t.h b/sysdeps/petra/include/abi-bits/sa_family_t.h
+new file mode 120000
+index 0000000..a75e229
+--- /dev/null
++++ b/sysdeps/petra/include/abi-bits/sa_family_t.h
+@@ -0,0 +1 @@
++../../../../abis/linux/sa_family_t.h
+\ No newline at end of file
+diff --git a/sysdeps/petra/include/abi-bits/sched_param.h b/sysdeps/petra/include/abi-bits/sched_param.h
+new file mode 120000
+index 0000000..fa4eb2c
+--- /dev/null
++++ b/sysdeps/petra/include/abi-bits/sched_param.h
+@@ -0,0 +1 @@
++../../../../abis/linux/sched_param.h
+\ No newline at end of file
+diff --git a/sysdeps/petra/include/abi-bits/seek-whence.h b/sysdeps/petra/include/abi-bits/seek-whence.h
+new file mode 120000
+index 0000000..df7bccf
+--- /dev/null
++++ b/sysdeps/petra/include/abi-bits/seek-whence.h
+@@ -0,0 +1 @@
++../../../../abis/linux/seek-whence.h
+\ No newline at end of file
+diff --git a/sysdeps/petra/include/abi-bits/sem.h b/sysdeps/petra/include/abi-bits/sem.h
+new file mode 120000
+index 0000000..699d7af
+--- /dev/null
++++ b/sysdeps/petra/include/abi-bits/sem.h
+@@ -0,0 +1 @@
++../../../../abis/linux/sem.h
+\ No newline at end of file
+diff --git a/sysdeps/petra/include/abi-bits/shm.h b/sysdeps/petra/include/abi-bits/shm.h
+new file mode 120000
+index 0000000..067d8c4
+--- /dev/null
++++ b/sysdeps/petra/include/abi-bits/shm.h
+@@ -0,0 +1 @@
++../../../../abis/linux/shm.h
+\ No newline at end of file
+diff --git a/sysdeps/petra/include/abi-bits/sig-limits.h b/sysdeps/petra/include/abi-bits/sig-limits.h
+new file mode 120000
+index 0000000..f829738
+--- /dev/null
++++ b/sysdeps/petra/include/abi-bits/sig-limits.h
+@@ -0,0 +1 @@
++../../../../abis/linux/sig-limits.h
+\ No newline at end of file
+diff --git a/sysdeps/petra/include/abi-bits/sigevent.h b/sysdeps/petra/include/abi-bits/sigevent.h
+new file mode 120000
+index 0000000..83d069b
+--- /dev/null
++++ b/sysdeps/petra/include/abi-bits/sigevent.h
+@@ -0,0 +1 @@
++../../../../abis/linux/sigevent.h
+\ No newline at end of file
+diff --git a/sysdeps/petra/include/abi-bits/signal.h b/sysdeps/petra/include/abi-bits/signal.h
+new file mode 120000
+index 0000000..4dcb0b7
+--- /dev/null
++++ b/sysdeps/petra/include/abi-bits/signal.h
+@@ -0,0 +1 @@
++../../../../abis/linux/signal.h
+\ No newline at end of file
+diff --git a/sysdeps/petra/include/abi-bits/sigset_t.h b/sysdeps/petra/include/abi-bits/sigset_t.h
+new file mode 120000
+index 0000000..8b8e81e
+--- /dev/null
++++ b/sysdeps/petra/include/abi-bits/sigset_t.h
+@@ -0,0 +1 @@
++../../../../abis/linux/sigset_t.h
+\ No newline at end of file
+diff --git a/sysdeps/petra/include/abi-bits/sigval.h b/sysdeps/petra/include/abi-bits/sigval.h
+new file mode 120000
+index 0000000..ccd43a5
+--- /dev/null
++++ b/sysdeps/petra/include/abi-bits/sigval.h
+@@ -0,0 +1 @@
++../../../../abis/linux/sigval.h
+\ No newline at end of file
+diff --git a/sysdeps/petra/include/abi-bits/sockaddr_storage.h b/sysdeps/petra/include/abi-bits/sockaddr_storage.h
+new file mode 120000
+index 0000000..b374865
+--- /dev/null
++++ b/sysdeps/petra/include/abi-bits/sockaddr_storage.h
+@@ -0,0 +1 @@
++../../../../abis/linux/sockaddr_storage.h
+\ No newline at end of file
+diff --git a/sysdeps/petra/include/abi-bits/socket.h b/sysdeps/petra/include/abi-bits/socket.h
+new file mode 120000
+index 0000000..f1dc016
+--- /dev/null
++++ b/sysdeps/petra/include/abi-bits/socket.h
+@@ -0,0 +1 @@
++../../../../abis/linux/socket.h
+\ No newline at end of file
+diff --git a/sysdeps/petra/include/abi-bits/socklen_t.h b/sysdeps/petra/include/abi-bits/socklen_t.h
+new file mode 120000
+index 0000000..41f3b11
+--- /dev/null
++++ b/sysdeps/petra/include/abi-bits/socklen_t.h
+@@ -0,0 +1 @@
++../../../../abis/linux/socklen_t.h
+\ No newline at end of file
+diff --git a/sysdeps/petra/include/abi-bits/stat.h b/sysdeps/petra/include/abi-bits/stat.h
+new file mode 120000
+index 0000000..1f63b41
+--- /dev/null
++++ b/sysdeps/petra/include/abi-bits/stat.h
+@@ -0,0 +1 @@
++../../../../abis/linux/stat.h
+\ No newline at end of file
+diff --git a/sysdeps/petra/include/abi-bits/statfs.h b/sysdeps/petra/include/abi-bits/statfs.h
+new file mode 120000
+index 0000000..e3d202f
+--- /dev/null
++++ b/sysdeps/petra/include/abi-bits/statfs.h
+@@ -0,0 +1 @@
++../../../../abis/linux/statfs.h
+\ No newline at end of file
+diff --git a/sysdeps/petra/include/abi-bits/statvfs.h b/sysdeps/petra/include/abi-bits/statvfs.h
+new file mode 120000
+index 0000000..1fc80c2
+--- /dev/null
++++ b/sysdeps/petra/include/abi-bits/statvfs.h
+@@ -0,0 +1 @@
++../../../../abis/linux/statvfs.h
+\ No newline at end of file
+diff --git a/sysdeps/petra/include/abi-bits/statx.h b/sysdeps/petra/include/abi-bits/statx.h
+new file mode 120000
+index 0000000..8702a1d
+--- /dev/null
++++ b/sysdeps/petra/include/abi-bits/statx.h
+@@ -0,0 +1 @@
++../../../../abis/linux/statx.h
+\ No newline at end of file
+diff --git a/sysdeps/petra/include/abi-bits/suseconds_t.h b/sysdeps/petra/include/abi-bits/suseconds_t.h
+new file mode 120000
+index 0000000..9ed6597
+--- /dev/null
++++ b/sysdeps/petra/include/abi-bits/suseconds_t.h
+@@ -0,0 +1 @@
++../../../../abis/linux/suseconds_t.h
+\ No newline at end of file
+diff --git a/sysdeps/petra/include/abi-bits/termios.h b/sysdeps/petra/include/abi-bits/termios.h
+new file mode 120000
+index 0000000..ee8f0b0
+--- /dev/null
++++ b/sysdeps/petra/include/abi-bits/termios.h
+@@ -0,0 +1 @@
++../../../../abis/linux/termios.h
+\ No newline at end of file
+diff --git a/sysdeps/petra/include/abi-bits/time.h b/sysdeps/petra/include/abi-bits/time.h
+new file mode 120000
+index 0000000..2a02625
+--- /dev/null
++++ b/sysdeps/petra/include/abi-bits/time.h
+@@ -0,0 +1 @@
++../../../../abis/linux/time.h
+\ No newline at end of file
+diff --git a/sysdeps/petra/include/abi-bits/uid_t.h b/sysdeps/petra/include/abi-bits/uid_t.h
+new file mode 120000
+index 0000000..b306777
+--- /dev/null
++++ b/sysdeps/petra/include/abi-bits/uid_t.h
+@@ -0,0 +1 @@
++../../../../abis/linux/uid_t.h
+\ No newline at end of file
+diff --git a/sysdeps/petra/include/abi-bits/utmp-defines.h b/sysdeps/petra/include/abi-bits/utmp-defines.h
+new file mode 120000
+index 0000000..8617643
+--- /dev/null
++++ b/sysdeps/petra/include/abi-bits/utmp-defines.h
+@@ -0,0 +1 @@
++../../../../abis/linux/utmp-defines.h
+\ No newline at end of file
+diff --git a/sysdeps/petra/include/abi-bits/utmpx.h b/sysdeps/petra/include/abi-bits/utmpx.h
+new file mode 120000
+index 0000000..c6a2677
+--- /dev/null
++++ b/sysdeps/petra/include/abi-bits/utmpx.h
+@@ -0,0 +1 @@
++../../../../abis/linux/utmpx.h
+\ No newline at end of file
+diff --git a/sysdeps/petra/include/abi-bits/utsname.h b/sysdeps/petra/include/abi-bits/utsname.h
+new file mode 120000
+index 0000000..b285754
+--- /dev/null
++++ b/sysdeps/petra/include/abi-bits/utsname.h
+@@ -0,0 +1 @@
++../../../../abis/linux/utsname.h
+\ No newline at end of file
+diff --git a/sysdeps/petra/include/abi-bits/vm-flags.h b/sysdeps/petra/include/abi-bits/vm-flags.h
+new file mode 120000
+index 0000000..bbe258c
+--- /dev/null
++++ b/sysdeps/petra/include/abi-bits/vm-flags.h
+@@ -0,0 +1 @@
++../../../../abis/linux/vm-flags.h
+\ No newline at end of file
+diff --git a/sysdeps/petra/include/abi-bits/vt.h b/sysdeps/petra/include/abi-bits/vt.h
+new file mode 120000
+index 0000000..5798a4a
+--- /dev/null
++++ b/sysdeps/petra/include/abi-bits/vt.h
+@@ -0,0 +1 @@
++../../../../abis/linux/vt.h
+\ No newline at end of file
+diff --git a/sysdeps/petra/include/abi-bits/wait.h b/sysdeps/petra/include/abi-bits/wait.h
+new file mode 120000
+index 0000000..feb2840
+--- /dev/null
++++ b/sysdeps/petra/include/abi-bits/wait.h
+@@ -0,0 +1 @@
++../../../../abis/linux/wait.h
+\ No newline at end of file
+diff --git a/sysdeps/petra/include/abi-bits/xattr.h b/sysdeps/petra/include/abi-bits/xattr.h
+new file mode 120000
+index 0000000..66412d7
+--- /dev/null
++++ b/sysdeps/petra/include/abi-bits/xattr.h
+@@ -0,0 +1 @@
++../../../../abis/linux/xattr.h
+\ No newline at end of file
+diff --git a/sysdeps/petra/include/mlibc/sysdeps.hpp b/sysdeps/petra/include/mlibc/sysdeps.hpp
+new file mode 100644
+index 0000000..c828d0a
+--- /dev/null
++++ b/sysdeps/petra/include/mlibc/sysdeps.hpp
+@@ -0,0 +1,56 @@
++#pragma once
++
++#include <mlibc/sysdep-signatures.hpp>
++
++namespace mlibc {
++
++struct PetraSysdepTags :
++    LibcPanic,
++    LibcLog,
++    Exit,
++    TcbSet,
++    AnonAllocate,
++    AnonFree,
++    VmMap,
++    VmUnmap,
++    VmProtect,
++    Write,
++    Read,
++    Open,
++    Openat,
++    Close,
++    Seek,
++    Isatty,
++    Ioctl,
++    GetPid,
++    GetPpid,
++    GetPgid,
++    SetPgid,
++    Fork,
++    Execve,
++    Waitpid,
++    FutexWait,
++    FutexWake,
++    ClockGet,
++    Stat,
++    Fcntl,
++    Dup,
++    Dup2,
++    Pipe,
++    Yield,
++    Kill,
++    Sigaction,
++    Sigprocmask,
++    Chdir,
++    GetCwd,
++    Sleep
++{};
++
++template<typename Tag>
++using Sysdeps = SysdepOf<PetraSysdepTags, Tag>;
++
++struct SysdepTraits {
++    static constexpr bool usesRtNetlink = false;
++};
++
++} // namespace mlibc
+diff --git a/sysdeps/petra/include/sys/syscall.h b/sysdeps/petra/include/sys/syscall.h
+new file mode 100644
+index 0000000..45a1e30
+--- /dev/null
++++ b/sysdeps/petra/include/sys/syscall.h
+@@ -0,0 +1,103 @@
++#ifndef _SYS_SYSCALL_H
++#define _SYS_SYSCALL_H
++
++#include <stdint.h>
++#include <stddef.h>
++
++#define SYSCALL_READ           0
++#define SYSCALL_WRITE          1
++#define SYSCALL_OPEN           2
++#define SYSCALL_CLOSE          3
++#define SYSCALL_STAT           4
++#define SYSCALL_FSTAT          5
++#define SYSCALL_LSEEK          8
++#define SYSCALL_MMAP           9
++#define SYSCALL_MPROTECT       10
++#define SYSCALL_MUNMAP         11
++#define SYSCALL_BRK            12
++#define SYSCALL_RT_SIGACTION   13
++#define SYSCALL_RT_SIGPROCMASK 14
++#define SYSCALL_RT_SIGRETURN   15
++#define SYSCALL_IOCTL          16
++#define SYSCALL_PIPE           22
++#define SYSCALL_YIELD          24
++#define SYSCALL_DUP            32
++#define SYSCALL_DUP2           33
++#define SYSCALL_GETPID         39
++#define SYSCALL_FORK           57
++#define SYSCALL_VFORK          58
++#define SYSCALL_EXECVE         59
++#define SYSCALL_EXIT           60
++#define SYSCALL_WAIT4          61
++#define SYSCALL_KILL           62
++#define SYSCALL_UNAME          63
++#define SYSCALL_FCNTL          72
++#define SYSCALL_GETCWD         79
++#define SYSCALL_CHDIR          80
++#define SYSCALL_GETTIMEOFDAY   96
++#define SYSCALL_TIMES          100
++#define SYSCALL_SETPGID        109
++#define SYSCALL_GETPPID        110
++#define SYSCALL_GETPGRP        111
++#define SYSCALL_ARCH_PRCTL     158
++#define SYSCALL_FUTEX          202
++#define SYSCALL_ISATTY         215
++#define SYSCALL_EXIT_GROUP     231
++#define SYSCALL_OPENAT         257
++#define SYSCALL_NEWFSTATAT     262
++#define SYSCALL_DUP3           292
++#define SYSCALL_PIPE2          293
++
++#if defined(__x86_64__)
++
++static inline int64_t __petra_syscall0(int64_t sc) {
++    int64_t ret;
++    asm volatile ("syscall" : "=a"(ret) : "a"(sc) : "rcx", "r11", "memory");
++    return ret;
++}
++
++static inline int64_t __petra_syscall1(int64_t sc, int64_t a1) {
++    int64_t ret;
++    asm volatile ("syscall" : "=a"(ret) : "a"(sc), "D"(a1) : "rcx", "r11", "memory");
++    return ret;
++}
++
++static inline int64_t __petra_syscall2(int64_t sc, int64_t a1, int64_t a2) {
++    int64_t ret;
++    asm volatile ("syscall" : "=a"(ret) : "a"(sc), "D"(a1), "S"(a2) : "rcx", "r11", "memory");
++    return ret;
++}
++
++static inline int64_t __petra_syscall3(int64_t sc, int64_t a1, int64_t a2, int64_t a3) {
++    int64_t ret;
++    asm volatile ("syscall" : "=a"(ret) : "a"(sc), "D"(a1), "S"(a2), "d"(a3) : "rcx", "r11", "memory");
++    return ret;
++}
++
++static inline int64_t __petra_syscall4(int64_t sc, int64_t a1, int64_t a2, int64_t a3, int64_t a4) {
++    int64_t ret;
++    register int64_t r10 asm("r10") = a4;
++    asm volatile ("syscall" : "=a"(ret) : "a"(sc), "D"(a1), "S"(a2), "d"(a3), "r"(r10) : "rcx", "r11", "memory");
++    return ret;
++}
++
++static inline int64_t __petra_syscall5(int64_t sc, int64_t a1, int64_t a2, int64_t a3, int64_t a4, int64_t a5) {
++    int64_t ret;
++    register int64_t r10 asm("r10") = a4;
++    register int64_t r8 asm("r8") = a5;
++    asm volatile ("syscall" : "=a"(ret) : "a"(sc), "D"(a1), "S"(a2), "d"(a3), "r"(r10), "r"(r8) : "rcx", "r11", "memory");
++    return ret;
++}
++
++static inline int64_t __petra_syscall6(int64_t sc, int64_t a1, int64_t a2, int64_t a3, int64_t a4, int64_t a5, int64_t a6) {
++    int64_t ret;
++    register int64_t r10 asm("r10") = a4;
++    register int64_t r8 asm("r8") = a5;
++    register int64_t r9 asm("r9") = a6;
++    asm volatile ("syscall" : "=a"(ret) : "a"(sc), "D"(a1), "S"(a2), "d"(a3), "r"(r10), "r"(r8), "r"(r9) : "rcx", "r11", "memory");
++    return ret;
++}
++
++#endif
++
++#endif /* _SYS_SYSCALL_H */
+diff --git a/sysdeps/petra/meson.build b/sysdeps/petra/meson.build
+new file mode 100644
+index 0000000..44587ad
+--- /dev/null
++++ b/sysdeps/petra/meson.build
+@@ -0,0 +1,118 @@
++sysdep_supported_options = {
++    'posix': true,
++    'glibc': true,
++    'bsd': true,
++}
++
++rtld_sources += files(
++    'generic/generic.cpp',
++)
++
++libc_sources += files(
++    'generic/entry.cpp',
++    'generic/generic.cpp',
++)
++
++if not no_headers
++    install_headers(
++        'include/abi-bits/access.h',
++        'include/abi-bits/auxv.h',
++        'include/abi-bits/seek-whence.h',
++        'include/abi-bits/vm-flags.h',
++        'include/abi-bits/errno.h',
++        'include/abi-bits/fcntl.h',
++        'include/abi-bits/in.h',
++        'include/abi-bits/reboot.h',
++        'include/abi-bits/resource.h',
++        'include/abi-bits/stat.h',
++        'include/abi-bits/signal.h',
++        'include/abi-bits/socket.h',
++        'include/abi-bits/termios.h',
++        'include/abi-bits/time.h',
++        'include/abi-bits/blkcnt_t.h',
++        'include/abi-bits/blksize_t.h',
++        'include/abi-bits/dev_t.h',
++        'include/abi-bits/gid_t.h',
++        'include/abi-bits/ino_t.h',
++        'include/abi-bits/mode_t.h',
++        'include/abi-bits/nlink_t.h',
++        'include/abi-bits/pid_t.h',
++        'include/abi-bits/uid_t.h',
++        'include/abi-bits/wait.h',
++        'include/abi-bits/limits.h',
++        'include/abi-bits/utsname.h',
++        'include/abi-bits/ptrace.h',
++        'include/abi-bits/poll.h',
++        'include/abi-bits/packet.h',
++        'include/abi-bits/clockid_t.h',
++        'include/abi-bits/ipc.h',
++        'include/abi-bits/shm.h',
++        'include/abi-bits/mqueue.h',
++        'include/abi-bits/suseconds_t.h',
++        'include/abi-bits/fsfilcnt_t.h',
++        'include/abi-bits/fsblkcnt_t.h',
++        'include/abi-bits/socklen_t.h',
++        'include/abi-bits/statvfs.h',
++        'include/abi-bits/ioctls.h',
++        'include/abi-bits/msg.h',
++        'include/abi-bits/rlim_t.h',
++        'include/abi-bits/sigval.h',
++        'include/abi-bits/sigevent.h',
++        'include/abi-bits/utmpx.h',
++        'include/abi-bits/utmp-defines.h',
++        'include/abi-bits/fd_set.h',
++        'include/abi-bits/sem.h',
++        'include/abi-bits/route.h',
++        'include/abi-bits/sa_family_t.h',
++        'include/abi-bits/sockaddr_storage.h',
++        'include/abi-bits/sig-limits.h',
++        'include/abi-bits/sigset_t.h',
++        'include/abi-bits/aio.h',
++        'include/abi-bits/sched_param.h',
++        subdir: 'abi-bits',
++        follow_symlinks: true
++    )
++
++    install_headers(
++        'include/sys/syscall.h',
++        subdir: 'sys'
++    )
++endif
++
++if not headers_only
++    crt = custom_target(
++        build_by_default: true,
++        command: c_compiler.cmd_array() + ['-c', '-o', '@OUTPUT@', '@INPUT@'],
++        input: files('crt-' + host_machine.cpu_family() / 'crt1.S'),
++        output: 'crt1.o',
++        install: true,
++        install_dir: get_option('libdir')
++    )
++
++    crt_pie = custom_target(
++        build_by_default: true,
++        command: c_compiler.cmd_array() + ['-c', '-o', '@OUTPUT@', '@INPUT@'],
++        input: files('crt-' + host_machine.cpu_family() / 'Scrt1.S'),
++        output: 'Scrt1.o',
++        install: true,
++        install_dir: get_option('libdir')
++    )
++
++    custom_target(
++        build_by_default: true,
++        command: c_compiler.cmd_array() + ['-c', '-o', '@OUTPUT@', '@INPUT@'],
++        input: files('crt-' + host_machine.cpu_family() / 'crti.S'),
++        output: 'crti.o',
++        install: true,
++        install_dir: get_option('libdir')
++    )
++
++    custom_target(
++        build_by_default: true,
++        command: c_compiler.cmd_array() + ['-c', '-o', '@OUTPUT@', '@INPUT@'],
++        input: files('crt-' + host_machine.cpu_family() / 'crtn.S'),
++        output: 'crtn.o',
++        install: true,
++        install_dir: get_option('libdir')
++    )
++endif
+-- 
+2.43.0
+

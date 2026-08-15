@@ -1,0 +1,60 @@
+sources:
+  - name: mlibc
+    git: https://github.com/managarm/mlibc.git
+    branch: master
+
+packages:
+  - name: mlibc-headers
+    architecture: x86_64
+    from_source: mlibc
+    configure:
+      - args:
+          - meson
+          - setup
+          - '@BUILD_ROOT@/pkg-builds/mlibc-headers'
+          - '@THIS_SOURCE_DIR@'
+          - --cross-file=@SOURCE_ROOT@/cross-files/petra-x86_64.ini
+          - --prefix=/usr
+          - -Dheaders_only=true
+    build:
+      - args:
+          - ninja
+          - -C
+          - '@BUILD_ROOT@/pkg-builds/mlibc-headers'
+    install:
+      - args:
+          - ninja
+          - -C
+          - '@BUILD_ROOT@/pkg-builds/mlibc-headers'
+          - install
+        environ:
+          DESTDIR: '@SYSROOT_DIR@'
+
+  - name: mlibc
+    architecture: x86_64
+    from_source: mlibc
+    pkgs_required:
+      - mlibc-headers
+    configure:
+      - args:
+          - meson
+          - setup
+          - '@BUILD_ROOT@/pkg-builds/mlibc'
+          - '@THIS_SOURCE_DIR@'
+          - --cross-file=@SOURCE_ROOT@/cross-files/petra-x86_64.ini
+          - --prefix=/usr
+          - --default-library=both
+          - -Dbuildtype=debugoptimized
+    build:
+      - args:
+          - ninja
+          - -C
+          - '@BUILD_ROOT@/pkg-builds/mlibc'
+    install:
+      - args:
+          - ninja
+          - -C
+          - '@BUILD_ROOT@/pkg-builds/mlibc'
+          - install
+        environ:
+          DESTDIR: '@SYSROOT_DIR@'

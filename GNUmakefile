@@ -22,10 +22,59 @@ all-hdd: $(IMAGE_NAME).hdd
 .PHONY: run
 run: run-$(KARCH)
 
-.PHONY: initramfs
-initramfs: initramfs.cpio
+# Userspace / Ports build system (xbstrap)
+$(call USER_VARIABLE,XBSTRAP,xbstrap)
+BUILD_DIR_XBSTRAP := build-xbstrap
+SYSROOT := $(BUILD_DIR_XBSTRAP)/system-root
 
-initramfs.cpio: tools/create_initramfs.sh $(shell find initramfs_root -type f 2>/dev/null)
+.PHONY: xbstrap-init
+xbstrap-init:
+	@mkdir -p $(BUILD_DIR_XBSTRAP)
+	@if [ ! -f $(BUILD_DIR_XBSTRAP)/bootstrap.link ]; then \
+		(cd $(BUILD_DIR_XBSTRAP) && $(XBSTRAP) init ..); \
+	fi
+
+.PHONY: mlibc-headers
+mlibc-headers: xbstrap-init
+	(cd $(BUILD_DIR_XBSTRAP) && $(XBSTRAP) install mlibc-headers)
+
+.PHONY: mlibc
+mlibc: xbstrap-init
+	(cd $(BUILD_DIR_XBSTRAP) && $(XBSTRAP) install mlibc)
+
+.PHONY: bash
+bash: xbstrap-init mlibc
+	(cd $(BUILD_DIR_XBSTRAP) && $(XBSTRAP) install bash)
+
+.PHONY: userspace
+userspace: mlibc
+	@if [ -d userspace ] && [ -f userspace/Makefile ]; then \
+		$(MAKE) -C userspace install; \
+	fi
+	@$(MAKE) sync-initramfs
+
+.PHONY: sync-initramfs
+sync-initramfs:
+	@mkdir -p initramfs_root/bin initramfs_root/sbin initramfs_root/lib initramfs_root/usr/bin initramfs_root/usr/lib
+	@if [ -d $(SYSROOT)/usr/lib ]; then \
+		cp -rf $(SYSROOT)/usr/lib/*.so* initramfs_root/lib/ 2>/dev/null || true; \
+		cp -rf $(SYSROOT)/usr/lib/*.so* initramfs_root/usr/lib/ 2>/dev/null || true; \
+	fi
+	@if [ -d $(SYSROOT)/usr/bin ]; then \
+		cp -rf $(SYSROOT)/usr/bin/* initramfs_root/usr/bin/ 2>/dev/null || true; \
+		cp -rf $(SYSROOT)/usr/bin/* initramfs_root/bin/ 2>/dev/null || true; \
+	fi
+
+.PHONY: clean-userspace
+clean-userspace:
+	rm -rf $(BUILD_DIR_XBSTRAP)
+
+.PHONY: initramfs
+initramfs: userspace initramfs.cpio
+
+USERSPACE_DEPS := $(wildcard userspace/*/*.c userspace/*/*.h userspace/Makefile)
+
+initramfs.cpio: userspace tools/create_initramfs.sh $(USERSPACE_DEPS) $(shell find initramfs_root -type f 2>/dev/null)
 	@if [ -f tools/create_initramfs.sh ]; then \
 		chmod +x tools/create_initramfs.sh && ./tools/create_initramfs.sh; \
 	fi
@@ -233,9 +282,10 @@ endif
 .PHONY: clean
 clean:
 	$(MAKE) -C kernel clean
+	@if [ -d userspace ] && [ -f userspace/Makefile ]; then $(MAKE) -C userspace clean; fi
 	rm -rf iso_root $(IMAGE_NAME).iso $(IMAGE_NAME).hdd initramfs.cpio
 
 .PHONY: distclean
 distclean: clean
 	$(MAKE) -C kernel distclean
-	rm -rf limine ovmf
+	rm -rf limine ovmf $(BUILD_DIR_XBSTRAP)

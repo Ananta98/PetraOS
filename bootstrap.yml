@@ -1,0 +1,7 @@
+general:
+  patch_author: "PetraOS Agent"
+  patch_email: "agent@petraos.dev"
+
+imports:
+  - file: packages/mlibc/mlibc.yml
+  - file: packages/bash/bash.yml
