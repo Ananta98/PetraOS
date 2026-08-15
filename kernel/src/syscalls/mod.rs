@@ -3,6 +3,7 @@ pub mod ioctl;
 pub mod mm;
 pub mod proc;
 pub mod signals;
+pub mod sync;
 pub mod sys_info;
 pub mod time;
 
@@ -29,6 +30,21 @@ pub enum SyscallError {
     EMFILE = 24,
     ENOTTY = 25,
     ENOSYS = 38,
+    ETIMEDOUT = 110,
+}
+
+impl From<crate::sync::futex::FutexError> for SyscallError {
+    fn from(err: crate::sync::futex::FutexError) -> Self {
+        use crate::sync::futex::FutexError;
+        match err {
+            FutexError::WouldBlock => SyscallError::EAGAIN,
+            FutexError::TimedOut => SyscallError::ETIMEDOUT,
+            FutexError::InvalidArgument => SyscallError::EINVAL,
+            FutexError::Fault => SyscallError::EFAULT,
+            FutexError::Interrupted => SyscallError::EINTR,
+            FutexError::NotSupported => SyscallError::ENOSYS,
+        }
+    }
 }
 
 impl From<crate::fs::vfs::types::VfsError> for SyscallError {
