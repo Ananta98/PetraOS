@@ -2,6 +2,7 @@ use alloc::sync::Arc;
 use core::sync::atomic::AtomicU64;
 
 use crate::device::DEVICE_MANAGER;
+use crate::drivers::gpu::framebuffer::{fb_console_write_byte, FRAMEBUFFER};
 use crate::fs::ramfs::RamDirInode;
 use crate::fs::vfs::dentry::Dentry;
 use crate::fs::vfs::mount::MOUNT_TABLE;
@@ -54,10 +55,59 @@ impl FileOps for ConsoleFileOps {
     }
 
     fn write(&self, _offset: usize, buf: &[u8]) -> Result<usize, VfsError> {
+        for &byte in buf {
+            fb_console_write_byte(byte);
+        }
         if let Ok(s) = core::str::from_utf8(buf) {
             log::info!("[CONSOLE] {}", s.trim_end());
         }
         Ok(buf.len())
+    }
+}
+
+/// Inode for the `/dev/fb0` framebuffer device.
+pub struct FbInode;
+
+impl InodeOps for FbInode {
+    fn open(&self) -> Result<Arc<dyn FileOps>, VfsError> {
+        Ok(Arc::new(FbFileOps))
+    }
+}
+
+/// File operations for `/dev/fb0`.
+pub struct FbFileOps;
+
+impl FileOps for FbFileOps {
+    fn read(&self, offset: usize, buf: &mut [u8]) -> Result<usize, VfsError> {
+        let fb_guard = FRAMEBUFFER.lock();
+        let fb = fb_guard.as_ref().ok_or(VfsError::NotFound)?;
+        let total_len = fb.len();
+        if offset >= total_len {
+            return Ok(0);
+        }
+        let available = total_len - offset;
+        let count = core::cmp::min(buf.len(), available);
+        // SAFETY: Pointer is within mapped framebuffer memory.
+        unsafe {
+            core::ptr::copy_nonoverlapping(fb.info().addr.add(offset), buf.as_mut_ptr(), count);
+        }
+        Ok(count)
+    }
+
+    fn write(&self, offset: usize, buf: &[u8]) -> Result<usize, VfsError> {
+        let fb_guard = FRAMEBUFFER.lock();
+        let fb = fb_guard.as_ref().ok_or(VfsError::NotFound)?;
+        let total_len = fb.len();
+        if offset >= total_len {
+            return Ok(0);
+        }
+        let available = total_len - offset;
+        let count = core::cmp::min(buf.len(), available);
+        // SAFETY: Pointer is within mapped framebuffer memory.
+        unsafe {
+            core::ptr::copy_nonoverlapping(buf.as_ptr(), fb.info().addr.add(offset), count);
+        }
+        Ok(count)
     }
 }
 
@@ -168,6 +218,15 @@ impl DevFs {
         });
         Dentry::add_child(&dev_mount.root_dentry, "console".into(), console_inode);
 
+        // Register framebuffer device node /dev/fb0
+        let fb_ino = dev_mount.superblock.alloc_ino();
+        let fb_inode = Arc::new(Inode {
+            ino: fb_ino,
+            inode_type: InodeType::CharDevice,
+            ops: Arc::new(FbInode),
+        });
+        Dentry::add_child(&dev_mount.root_dentry, "fb0".into(), fb_inode);
+
         // Scan DEVICE_MANAGER and dynamically register discovered block devices
         let dm = DEVICE_MANAGER.read();
         for dev_arc in dm.get_devices() {
@@ -208,4 +267,3 @@ crate::fs_initcall!(DevFs::init);
 crate::MODULE_LICENSE!("BSD-2-Clause");
 crate::MODULE_AUTHOR!("PetraOS Development Team");
 crate::MODULE_DESCRIPTION!("Device Filesystem Subsystem");
-
