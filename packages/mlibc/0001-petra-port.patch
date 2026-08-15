@@ -1,4 +1,4 @@
-From 8b7afe7c099ee201e5b125e7b118e2689cd055fb Mon Sep 17 00:00:00 2001
+From a5f2d29e21456a991a2ad3a0ad7d4a1ef1930f52 Mon Sep 17 00:00:00 2001
 From: PetraOS Agent <agent@petraos.dev>
 Date: Sat, 15 Aug 2026 11:59:14 +0700
 Subject: [PATCH] feat(sysdeps): add PetraOS support and GCC 13 compatibility
@@ -15,7 +15,7 @@ Subject: [PATCH] feat(sysdeps): add PetraOS support and GCC 13 compatibility
  sysdeps/petra/crt-x86_64/crti.S               |  15 +
  sysdeps/petra/crt-x86_64/crtn.S               |  11 +
  sysdeps/petra/generic/entry.cpp               |  16 +
- sysdeps/petra/generic/generic.cpp             | 354 ++++++++++++++++++
+ sysdeps/petra/generic/generic.cpp             | 365 ++++++++++++++++++
  sysdeps/petra/include/abi-bits/access.h       |   1 +
  sysdeps/petra/include/abi-bits/aio.h          |   1 +
  sysdeps/petra/include/abi-bits/auxv.h         |   1 +
@@ -82,7 +82,7 @@ Subject: [PATCH] feat(sysdeps): add PetraOS support and GCC 13 compatibility
  sysdeps/petra/include/mlibc/sysdeps.hpp       |  56 +++
  sysdeps/petra/include/sys/syscall.h           | 103 +++++
  sysdeps/petra/meson.build                     | 118 ++++++
- 78 files changed, 857 insertions(+), 23 deletions(-)
+ 78 files changed, 868 insertions(+), 23 deletions(-)
  create mode 100644 subprojects/packagefiles/frigg/include/frg/span.hpp
  create mode 100644 sysdeps/petra/crt-x86_64/Scrt1.S
  create mode 100644 sysdeps/petra/crt-x86_64/crt1.S
@@ -158,7 +158,7 @@ Subject: [PATCH] feat(sysdeps): add PetraOS support and GCC 13 compatibility
  create mode 100644 sysdeps/petra/meson.build
 
 diff --git a/meson.build b/meson.build
-index 8e981a3..d53f4c8 100644
+index 8e981a3c..d53f4c8b 100644
 --- a/meson.build
 +++ b/meson.build
 @@ -320,6 +320,13 @@ elif host_machine.system() == 'ethereal'
@@ -176,7 +176,7 @@ index 8e981a3..d53f4c8 100644
  elif host_machine.system() == 'demo'
  	subdir('sysdeps/demo')
 diff --git a/options/ansi/generic/stdlib.cpp b/options/ansi/generic/stdlib.cpp
-index d9fa169..a8cddac 100644
+index d9fa1697..a8cddac3 100644
 --- a/options/ansi/generic/stdlib.cpp
 +++ b/options/ansi/generic/stdlib.cpp
 @@ -379,16 +379,16 @@ static void qsort_impl(void *base, size_t count, size_t size, Compare compare) {
@@ -201,7 +201,7 @@ index d9fa169..a8cddac 100644
  
  void qsort(void *base, size_t count, size_t size,
 diff --git a/options/ansi/x86_64/meson.build b/options/ansi/x86_64/meson.build
-index 45665a6..5856d62 100644
+index 45665a61..5856d624 100644
 --- a/options/ansi/x86_64/meson.build
 +++ b/options/ansi/x86_64/meson.build
 @@ -1,10 +1 @@
@@ -217,7 +217,7 @@ index 45665a6..5856d62 100644
 -ld_cpp_args += arch_defines
 +# Generic string functions used for PetraOS on GCC 13
 diff --git a/options/internal/include/mlibc/allocator.hpp b/options/internal/include/mlibc/allocator.hpp
-index a889050..eb4efc1 100644
+index a8890506..eb4efc11 100644
 --- a/options/internal/include/mlibc/allocator.hpp
 +++ b/options/internal/include/mlibc/allocator.hpp
 @@ -42,20 +42,34 @@ template <typename T>
@@ -265,7 +265,7 @@ index a889050..eb4efc1 100644
  
  private:
 diff --git a/subprojects/frigg.wrap b/subprojects/frigg.wrap
-index 04de5e1..941988a 100644
+index 04de5e1e..941988ab 100644
 --- a/subprojects/frigg.wrap
 +++ b/subprojects/frigg.wrap
 @@ -1,3 +1,4 @@
@@ -275,7 +275,7 @@ index 04de5e1..941988a 100644
 +patch_directory = frigg
 diff --git a/subprojects/packagefiles/frigg/include/frg/span.hpp b/subprojects/packagefiles/frigg/include/frg/span.hpp
 new file mode 100644
-index 0000000..d0e4460
+index 00000000..d0e44600
 --- /dev/null
 +++ b/subprojects/packagefiles/frigg/include/frg/span.hpp
 @@ -0,0 +1,69 @@
@@ -350,7 +350,7 @@ index 0000000..d0e4460
 +} // namespace frg
 diff --git a/sysdeps/petra/crt-x86_64/Scrt1.S b/sysdeps/petra/crt-x86_64/Scrt1.S
 new file mode 100644
-index 0000000..2715c9b
+index 00000000..2715c9b5
 --- /dev/null
 +++ b/sysdeps/petra/crt-x86_64/Scrt1.S
 @@ -0,0 +1,8 @@
@@ -364,7 +364,7 @@ index 0000000..2715c9b
 +.section .note.GNU-stack,"",%progbits
 diff --git a/sysdeps/petra/crt-x86_64/crt1.S b/sysdeps/petra/crt-x86_64/crt1.S
 new file mode 100644
-index 0000000..2715c9b
+index 00000000..2715c9b5
 --- /dev/null
 +++ b/sysdeps/petra/crt-x86_64/crt1.S
 @@ -0,0 +1,8 @@
@@ -378,7 +378,7 @@ index 0000000..2715c9b
 +.section .note.GNU-stack,"",%progbits
 diff --git a/sysdeps/petra/crt-x86_64/crti.S b/sysdeps/petra/crt-x86_64/crti.S
 new file mode 100644
-index 0000000..903c9d0
+index 00000000..903c9d03
 --- /dev/null
 +++ b/sysdeps/petra/crt-x86_64/crti.S
 @@ -0,0 +1,15 @@
@@ -399,7 +399,7 @@ index 0000000..903c9d0
 +.section .note.GNU-stack,"",%progbits
 diff --git a/sysdeps/petra/crt-x86_64/crtn.S b/sysdeps/petra/crt-x86_64/crtn.S
 new file mode 100644
-index 0000000..4730e79
+index 00000000..4730e79a
 --- /dev/null
 +++ b/sysdeps/petra/crt-x86_64/crtn.S
 @@ -0,0 +1,11 @@
@@ -416,7 +416,7 @@ index 0000000..4730e79
 +.section .note.GNU-stack,"",%progbits
 diff --git a/sysdeps/petra/generic/entry.cpp b/sysdeps/petra/generic/entry.cpp
 new file mode 100644
-index 0000000..f7dca05
+index 00000000..f7dca05d
 --- /dev/null
 +++ b/sysdeps/petra/generic/entry.cpp
 @@ -0,0 +1,16 @@
@@ -438,10 +438,10 @@ index 0000000..f7dca05
 +}
 diff --git a/sysdeps/petra/generic/generic.cpp b/sysdeps/petra/generic/generic.cpp
 new file mode 100644
-index 0000000..4d14050
+index 00000000..2a2eb345
 --- /dev/null
 +++ b/sysdeps/petra/generic/generic.cpp
-@@ -0,0 +1,354 @@
+@@ -0,0 +1,365 @@
 +#include <bits/ensure.h>
 +#include <mlibc/debug.hpp>
 +#include <mlibc/all-sysdeps.hpp>
@@ -661,6 +661,7 @@ index 0000000..4d14050
 +}
 +
 +int Sysdeps<ClockGet>::operator()(int clock, time_t *secs, long *nanos) {
++    (void)clock;
 +    // Fallback to gettimeofday
 +    struct {
 +        int64_t tv_sec;
@@ -785,11 +786,21 @@ index 0000000..4d14050
 +}
 +
 +int Sysdeps<Sleep>::operator()(time_t *secs, long *nanos) {
-+    int dummy = 0;
-+    struct timespec ts;
-+    ts.tv_sec = *secs;
-+    ts.tv_nsec = *nanos;
-+    __petra_syscall4(SYSCALL_FUTEX, (int64_t)&dummy, 0 /* FUTEX_WAIT */, 0, (int64_t)&ts);
++    struct timespec deadline = {}, current = {};
++    sysdep<ClockGet>(0, &deadline.tv_sec, &deadline.tv_nsec);
++    deadline.tv_sec += *secs;
++    deadline.tv_nsec += *nanos;
++    if (deadline.tv_nsec >= 1000000000L) {
++        deadline.tv_sec += deadline.tv_nsec / 1000000000L;
++        deadline.tv_nsec %= 1000000000L;
++    }
++    while (1) {
++        sysdep<ClockGet>(0, &current.tv_sec, &current.tv_nsec);
++        if (current.tv_sec > deadline.tv_sec || (current.tv_sec == deadline.tv_sec && current.tv_nsec >= deadline.tv_nsec)) {
++            break;
++        }
++        sysdep<Yield>();
++    }
 +    *secs = 0;
 +    *nanos = 0;
 +    return 0;
@@ -798,7 +809,7 @@ index 0000000..4d14050
 +} // namespace mlibc
 diff --git a/sysdeps/petra/include/abi-bits/access.h b/sysdeps/petra/include/abi-bits/access.h
 new file mode 120000
-index 0000000..cb83931
+index 00000000..cb839316
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/access.h
 @@ -0,0 +1 @@
@@ -806,7 +817,7 @@ index 0000000..cb83931
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/aio.h b/sysdeps/petra/include/abi-bits/aio.h
 new file mode 120000
-index 0000000..79b4168
+index 00000000..79b41689
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/aio.h
 @@ -0,0 +1 @@
@@ -814,7 +825,7 @@ index 0000000..79b4168
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/auxv.h b/sysdeps/petra/include/abi-bits/auxv.h
 new file mode 120000
-index 0000000..c43f878
+index 00000000..c43f8786
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/auxv.h
 @@ -0,0 +1 @@
@@ -822,7 +833,7 @@ index 0000000..c43f878
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/blkcnt_t.h b/sysdeps/petra/include/abi-bits/blkcnt_t.h
 new file mode 120000
-index 0000000..0b0ec27
+index 00000000..0b0ec270
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/blkcnt_t.h
 @@ -0,0 +1 @@
@@ -830,7 +841,7 @@ index 0000000..0b0ec27
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/blksize_t.h b/sysdeps/petra/include/abi-bits/blksize_t.h
 new file mode 120000
-index 0000000..7dc8d7c
+index 00000000..7dc8d7cf
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/blksize_t.h
 @@ -0,0 +1 @@
@@ -838,7 +849,7 @@ index 0000000..7dc8d7c
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/clockid_t.h b/sysdeps/petra/include/abi-bits/clockid_t.h
 new file mode 120000
-index 0000000..6a42da5
+index 00000000..6a42da56
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/clockid_t.h
 @@ -0,0 +1 @@
@@ -846,7 +857,7 @@ index 0000000..6a42da5
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/clone-flags.h b/sysdeps/petra/include/abi-bits/clone-flags.h
 new file mode 120000
-index 0000000..ed3dfd6
+index 00000000..ed3dfd69
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/clone-flags.h
 @@ -0,0 +1 @@
@@ -854,7 +865,7 @@ index 0000000..ed3dfd6
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/dev_t.h b/sysdeps/petra/include/abi-bits/dev_t.h
 new file mode 120000
-index 0000000..bca881e
+index 00000000..bca881e9
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/dev_t.h
 @@ -0,0 +1 @@
@@ -862,7 +873,7 @@ index 0000000..bca881e
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/epoll.h b/sysdeps/petra/include/abi-bits/epoll.h
 new file mode 120000
-index 0000000..eb4b76d
+index 00000000..eb4b76dc
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/epoll.h
 @@ -0,0 +1 @@
@@ -870,7 +881,7 @@ index 0000000..eb4b76d
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/errno.h b/sysdeps/petra/include/abi-bits/errno.h
 new file mode 120000
-index 0000000..6e507de
+index 00000000..6e507def
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/errno.h
 @@ -0,0 +1 @@
@@ -878,7 +889,7 @@ index 0000000..6e507de
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/fcntl.h b/sysdeps/petra/include/abi-bits/fcntl.h
 new file mode 120000
-index 0000000..463e2c9
+index 00000000..463e2c95
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/fcntl.h
 @@ -0,0 +1 @@
@@ -886,7 +897,7 @@ index 0000000..463e2c9
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/fd_set.h b/sysdeps/petra/include/abi-bits/fd_set.h
 new file mode 120000
-index 0000000..b43142c
+index 00000000..b43142c4
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/fd_set.h
 @@ -0,0 +1 @@
@@ -894,7 +905,7 @@ index 0000000..b43142c
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/fsblkcnt_t.h b/sysdeps/petra/include/abi-bits/fsblkcnt_t.h
 new file mode 120000
-index 0000000..898dfb2
+index 00000000..898dfb2f
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/fsblkcnt_t.h
 @@ -0,0 +1 @@
@@ -902,7 +913,7 @@ index 0000000..898dfb2
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/fsfilcnt_t.h b/sysdeps/petra/include/abi-bits/fsfilcnt_t.h
 new file mode 120000
-index 0000000..791755c
+index 00000000..791755c9
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/fsfilcnt_t.h
 @@ -0,0 +1 @@
@@ -910,7 +921,7 @@ index 0000000..791755c
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/gid_t.h b/sysdeps/petra/include/abi-bits/gid_t.h
 new file mode 120000
-index 0000000..abce6d6
+index 00000000..abce6d69
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/gid_t.h
 @@ -0,0 +1 @@
@@ -918,7 +929,7 @@ index 0000000..abce6d6
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/in.h b/sysdeps/petra/include/abi-bits/in.h
 new file mode 120000
-index 0000000..418d1d5
+index 00000000..418d1d5c
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/in.h
 @@ -0,0 +1 @@
@@ -926,7 +937,7 @@ index 0000000..418d1d5
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/ino_t.h b/sysdeps/petra/include/abi-bits/ino_t.h
 new file mode 120000
-index 0000000..4c20aca
+index 00000000..4c20aca2
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/ino_t.h
 @@ -0,0 +1 @@
@@ -934,7 +945,7 @@ index 0000000..4c20aca
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/inotify.h b/sysdeps/petra/include/abi-bits/inotify.h
 new file mode 120000
-index 0000000..b5cb282
+index 00000000..b5cb2823
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/inotify.h
 @@ -0,0 +1 @@
@@ -942,7 +953,7 @@ index 0000000..b5cb282
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/ioctls.h b/sysdeps/petra/include/abi-bits/ioctls.h
 new file mode 120000
-index 0000000..595106b
+index 00000000..595106b6
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/ioctls.h
 @@ -0,0 +1 @@
@@ -950,7 +961,7 @@ index 0000000..595106b
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/ipc.h b/sysdeps/petra/include/abi-bits/ipc.h
 new file mode 120000
-index 0000000..2c7ffc4
+index 00000000..2c7ffc4c
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/ipc.h
 @@ -0,0 +1 @@
@@ -958,7 +969,7 @@ index 0000000..2c7ffc4
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/limits.h b/sysdeps/petra/include/abi-bits/limits.h
 new file mode 120000
-index 0000000..6c88db2
+index 00000000..6c88db2e
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/limits.h
 @@ -0,0 +1 @@
@@ -966,7 +977,7 @@ index 0000000..6c88db2
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/mode_t.h b/sysdeps/petra/include/abi-bits/mode_t.h
 new file mode 120000
-index 0000000..5d78fdf
+index 00000000..5d78fdfc
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/mode_t.h
 @@ -0,0 +1 @@
@@ -974,7 +985,7 @@ index 0000000..5d78fdf
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/mqueue.h b/sysdeps/petra/include/abi-bits/mqueue.h
 new file mode 120000
-index 0000000..fa87b07
+index 00000000..fa87b078
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/mqueue.h
 @@ -0,0 +1 @@
@@ -982,7 +993,7 @@ index 0000000..fa87b07
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/msg.h b/sysdeps/petra/include/abi-bits/msg.h
 new file mode 120000
-index 0000000..f402b49
+index 00000000..f402b493
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/msg.h
 @@ -0,0 +1 @@
@@ -990,7 +1001,7 @@ index 0000000..f402b49
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/nlink_t.h b/sysdeps/petra/include/abi-bits/nlink_t.h
 new file mode 120000
-index 0000000..bb3b625
+index 00000000..bb3b625c
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/nlink_t.h
 @@ -0,0 +1 @@
@@ -998,7 +1009,7 @@ index 0000000..bb3b625
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/packet.h b/sysdeps/petra/include/abi-bits/packet.h
 new file mode 120000
-index 0000000..998ef1a
+index 00000000..998ef1ab
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/packet.h
 @@ -0,0 +1 @@
@@ -1006,7 +1017,7 @@ index 0000000..998ef1a
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/pid_t.h b/sysdeps/petra/include/abi-bits/pid_t.h
 new file mode 120000
-index 0000000..baa90f6
+index 00000000..baa90f6a
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/pid_t.h
 @@ -0,0 +1 @@
@@ -1014,7 +1025,7 @@ index 0000000..baa90f6
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/poll.h b/sysdeps/petra/include/abi-bits/poll.h
 new file mode 120000
-index 0000000..8ea6a0a
+index 00000000..8ea6a0a3
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/poll.h
 @@ -0,0 +1 @@
@@ -1022,7 +1033,7 @@ index 0000000..8ea6a0a
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/ptrace.h b/sysdeps/petra/include/abi-bits/ptrace.h
 new file mode 120000
-index 0000000..b2517b2
+index 00000000..b2517b2c
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/ptrace.h
 @@ -0,0 +1 @@
@@ -1030,7 +1041,7 @@ index 0000000..b2517b2
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/random.h b/sysdeps/petra/include/abi-bits/random.h
 new file mode 120000
-index 0000000..83fc3d9
+index 00000000..83fc3d96
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/random.h
 @@ -0,0 +1 @@
@@ -1038,7 +1049,7 @@ index 0000000..83fc3d9
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/reboot.h b/sysdeps/petra/include/abi-bits/reboot.h
 new file mode 120000
-index 0000000..77013a4
+index 00000000..77013a41
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/reboot.h
 @@ -0,0 +1 @@
@@ -1046,7 +1057,7 @@ index 0000000..77013a4
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/resource.h b/sysdeps/petra/include/abi-bits/resource.h
 new file mode 120000
-index 0000000..88d7402
+index 00000000..88d74025
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/resource.h
 @@ -0,0 +1 @@
@@ -1054,7 +1065,7 @@ index 0000000..88d7402
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/riscv-hwprobe.h b/sysdeps/petra/include/abi-bits/riscv-hwprobe.h
 new file mode 120000
-index 0000000..e651325
+index 00000000..e6513250
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/riscv-hwprobe.h
 @@ -0,0 +1 @@
@@ -1062,7 +1073,7 @@ index 0000000..e651325
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/rlim_t.h b/sysdeps/petra/include/abi-bits/rlim_t.h
 new file mode 120000
-index 0000000..e92eb5f
+index 00000000..e92eb5fb
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/rlim_t.h
 @@ -0,0 +1 @@
@@ -1070,7 +1081,7 @@ index 0000000..e92eb5f
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/route.h b/sysdeps/petra/include/abi-bits/route.h
 new file mode 120000
-index 0000000..313ead6
+index 00000000..313ead67
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/route.h
 @@ -0,0 +1 @@
@@ -1078,7 +1089,7 @@ index 0000000..313ead6
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/sa_family_t.h b/sysdeps/petra/include/abi-bits/sa_family_t.h
 new file mode 120000
-index 0000000..a75e229
+index 00000000..a75e2296
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/sa_family_t.h
 @@ -0,0 +1 @@
@@ -1086,7 +1097,7 @@ index 0000000..a75e229
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/sched_param.h b/sysdeps/petra/include/abi-bits/sched_param.h
 new file mode 120000
-index 0000000..fa4eb2c
+index 00000000..fa4eb2c7
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/sched_param.h
 @@ -0,0 +1 @@
@@ -1094,7 +1105,7 @@ index 0000000..fa4eb2c
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/seek-whence.h b/sysdeps/petra/include/abi-bits/seek-whence.h
 new file mode 120000
-index 0000000..df7bccf
+index 00000000..df7bccf0
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/seek-whence.h
 @@ -0,0 +1 @@
@@ -1102,7 +1113,7 @@ index 0000000..df7bccf
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/sem.h b/sysdeps/petra/include/abi-bits/sem.h
 new file mode 120000
-index 0000000..699d7af
+index 00000000..699d7afa
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/sem.h
 @@ -0,0 +1 @@
@@ -1110,7 +1121,7 @@ index 0000000..699d7af
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/shm.h b/sysdeps/petra/include/abi-bits/shm.h
 new file mode 120000
-index 0000000..067d8c4
+index 00000000..067d8c4f
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/shm.h
 @@ -0,0 +1 @@
@@ -1118,7 +1129,7 @@ index 0000000..067d8c4
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/sig-limits.h b/sysdeps/petra/include/abi-bits/sig-limits.h
 new file mode 120000
-index 0000000..f829738
+index 00000000..f829738e
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/sig-limits.h
 @@ -0,0 +1 @@
@@ -1126,7 +1137,7 @@ index 0000000..f829738
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/sigevent.h b/sysdeps/petra/include/abi-bits/sigevent.h
 new file mode 120000
-index 0000000..83d069b
+index 00000000..83d069b5
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/sigevent.h
 @@ -0,0 +1 @@
@@ -1134,7 +1145,7 @@ index 0000000..83d069b
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/signal.h b/sysdeps/petra/include/abi-bits/signal.h
 new file mode 120000
-index 0000000..4dcb0b7
+index 00000000..4dcb0b7c
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/signal.h
 @@ -0,0 +1 @@
@@ -1142,7 +1153,7 @@ index 0000000..4dcb0b7
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/sigset_t.h b/sysdeps/petra/include/abi-bits/sigset_t.h
 new file mode 120000
-index 0000000..8b8e81e
+index 00000000..8b8e81e8
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/sigset_t.h
 @@ -0,0 +1 @@
@@ -1150,7 +1161,7 @@ index 0000000..8b8e81e
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/sigval.h b/sysdeps/petra/include/abi-bits/sigval.h
 new file mode 120000
-index 0000000..ccd43a5
+index 00000000..ccd43a55
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/sigval.h
 @@ -0,0 +1 @@
@@ -1158,7 +1169,7 @@ index 0000000..ccd43a5
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/sockaddr_storage.h b/sysdeps/petra/include/abi-bits/sockaddr_storage.h
 new file mode 120000
-index 0000000..b374865
+index 00000000..b3748654
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/sockaddr_storage.h
 @@ -0,0 +1 @@
@@ -1166,7 +1177,7 @@ index 0000000..b374865
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/socket.h b/sysdeps/petra/include/abi-bits/socket.h
 new file mode 120000
-index 0000000..f1dc016
+index 00000000..f1dc016e
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/socket.h
 @@ -0,0 +1 @@
@@ -1174,7 +1185,7 @@ index 0000000..f1dc016
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/socklen_t.h b/sysdeps/petra/include/abi-bits/socklen_t.h
 new file mode 120000
-index 0000000..41f3b11
+index 00000000..41f3b11f
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/socklen_t.h
 @@ -0,0 +1 @@
@@ -1182,7 +1193,7 @@ index 0000000..41f3b11
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/stat.h b/sysdeps/petra/include/abi-bits/stat.h
 new file mode 120000
-index 0000000..1f63b41
+index 00000000..1f63b41f
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/stat.h
 @@ -0,0 +1 @@
@@ -1190,7 +1201,7 @@ index 0000000..1f63b41
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/statfs.h b/sysdeps/petra/include/abi-bits/statfs.h
 new file mode 120000
-index 0000000..e3d202f
+index 00000000..e3d202f5
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/statfs.h
 @@ -0,0 +1 @@
@@ -1198,7 +1209,7 @@ index 0000000..e3d202f
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/statvfs.h b/sysdeps/petra/include/abi-bits/statvfs.h
 new file mode 120000
-index 0000000..1fc80c2
+index 00000000..1fc80c2a
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/statvfs.h
 @@ -0,0 +1 @@
@@ -1206,7 +1217,7 @@ index 0000000..1fc80c2
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/statx.h b/sysdeps/petra/include/abi-bits/statx.h
 new file mode 120000
-index 0000000..8702a1d
+index 00000000..8702a1d0
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/statx.h
 @@ -0,0 +1 @@
@@ -1214,7 +1225,7 @@ index 0000000..8702a1d
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/suseconds_t.h b/sysdeps/petra/include/abi-bits/suseconds_t.h
 new file mode 120000
-index 0000000..9ed6597
+index 00000000..9ed65977
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/suseconds_t.h
 @@ -0,0 +1 @@
@@ -1222,7 +1233,7 @@ index 0000000..9ed6597
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/termios.h b/sysdeps/petra/include/abi-bits/termios.h
 new file mode 120000
-index 0000000..ee8f0b0
+index 00000000..ee8f0b09
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/termios.h
 @@ -0,0 +1 @@
@@ -1230,7 +1241,7 @@ index 0000000..ee8f0b0
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/time.h b/sysdeps/petra/include/abi-bits/time.h
 new file mode 120000
-index 0000000..2a02625
+index 00000000..2a026257
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/time.h
 @@ -0,0 +1 @@
@@ -1238,7 +1249,7 @@ index 0000000..2a02625
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/uid_t.h b/sysdeps/petra/include/abi-bits/uid_t.h
 new file mode 120000
-index 0000000..b306777
+index 00000000..b3067778
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/uid_t.h
 @@ -0,0 +1 @@
@@ -1246,7 +1257,7 @@ index 0000000..b306777
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/utmp-defines.h b/sysdeps/petra/include/abi-bits/utmp-defines.h
 new file mode 120000
-index 0000000..8617643
+index 00000000..86176435
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/utmp-defines.h
 @@ -0,0 +1 @@
@@ -1254,7 +1265,7 @@ index 0000000..8617643
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/utmpx.h b/sysdeps/petra/include/abi-bits/utmpx.h
 new file mode 120000
-index 0000000..c6a2677
+index 00000000..c6a26774
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/utmpx.h
 @@ -0,0 +1 @@
@@ -1262,7 +1273,7 @@ index 0000000..c6a2677
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/utsname.h b/sysdeps/petra/include/abi-bits/utsname.h
 new file mode 120000
-index 0000000..b285754
+index 00000000..b2857547
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/utsname.h
 @@ -0,0 +1 @@
@@ -1270,7 +1281,7 @@ index 0000000..b285754
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/vm-flags.h b/sysdeps/petra/include/abi-bits/vm-flags.h
 new file mode 120000
-index 0000000..bbe258c
+index 00000000..bbe258cf
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/vm-flags.h
 @@ -0,0 +1 @@
@@ -1278,7 +1289,7 @@ index 0000000..bbe258c
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/vt.h b/sysdeps/petra/include/abi-bits/vt.h
 new file mode 120000
-index 0000000..5798a4a
+index 00000000..5798a4ac
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/vt.h
 @@ -0,0 +1 @@
@@ -1286,7 +1297,7 @@ index 0000000..5798a4a
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/wait.h b/sysdeps/petra/include/abi-bits/wait.h
 new file mode 120000
-index 0000000..feb2840
+index 00000000..feb2840c
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/wait.h
 @@ -0,0 +1 @@
@@ -1294,7 +1305,7 @@ index 0000000..feb2840
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/xattr.h b/sysdeps/petra/include/abi-bits/xattr.h
 new file mode 120000
-index 0000000..66412d7
+index 00000000..66412d70
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/xattr.h
 @@ -0,0 +1 @@
@@ -1302,7 +1313,7 @@ index 0000000..66412d7
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/mlibc/sysdeps.hpp b/sysdeps/petra/include/mlibc/sysdeps.hpp
 new file mode 100644
-index 0000000..c828d0a
+index 00000000..c828d0a9
 --- /dev/null
 +++ b/sysdeps/petra/include/mlibc/sysdeps.hpp
 @@ -0,0 +1,56 @@
@@ -1364,7 +1375,7 @@ index 0000000..c828d0a
 +} // namespace mlibc
 diff --git a/sysdeps/petra/include/sys/syscall.h b/sysdeps/petra/include/sys/syscall.h
 new file mode 100644
-index 0000000..45a1e30
+index 00000000..45a1e304
 --- /dev/null
 +++ b/sysdeps/petra/include/sys/syscall.h
 @@ -0,0 +1,103 @@
@@ -1473,7 +1484,7 @@ index 0000000..45a1e30
 +#endif /* _SYS_SYSCALL_H */
 diff --git a/sysdeps/petra/meson.build b/sysdeps/petra/meson.build
 new file mode 100644
-index 0000000..44587ad
+index 00000000..44587ad2
 --- /dev/null
 +++ b/sysdeps/petra/meson.build
 @@ -0,0 +1,118 @@
