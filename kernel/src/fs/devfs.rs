@@ -37,6 +37,59 @@ impl FileSystem for DevFs {
     }
 }
 
+fn try_read_console_byte() -> Option<u8> {
+    // 1. Check PS/2 keyboard buffer
+    if let Some(byte) = crate::drivers::char::keyboard::KEY_RING_BUFFER.pop() {
+        return Some(byte);
+    }
+
+    // 2. Check COM1 Serial Port (0x3F8) Line Status Register (0x3FD)
+    // Bit 0 of LSR (0x3FD) is Data Ready (DR)
+    // SAFETY: Reading standard COM1 16550 UART I/O ports.
+    let lsr = unsafe { crate::arch::ports::Ports::inb(0x3FD) };
+    if (lsr & 0x01) != 0 {
+        // Data is ready on COM1 data port 0x3F8
+        let byte = unsafe { crate::arch::ports::Ports::inb(0x3F8) };
+        let byte = if byte == b'\r' { b'\n' } else { byte };
+        return Some(byte);
+    }
+
+    None
+}
+
+#[inline]
+fn rdtsc() -> u64 {
+    let lo: u32;
+    let hi: u32;
+    // SAFETY: Reading CPU time-stamp counter on x86_64 architecture.
+    unsafe {
+        core::arch::asm!(
+            "rdtsc",
+            out("eax") lo,
+            out("edx") hi,
+            options(nomem, nostack, preserves_flags)
+        );
+    }
+    ((hi as u64) << 32) | (lo as u64)
+}
+
+static URANDOM_STATE: core::sync::atomic::AtomicU64 =
+    core::sync::atomic::AtomicU64::new(0x853c_49e6_748f_ea9b);
+
+fn next_random_u64() -> u64 {
+    let tsc = rdtsc();
+    let mut state = URANDOM_STATE.load(core::sync::atomic::Ordering::Relaxed);
+    if state == 0 {
+        state = tsc | 1;
+    }
+    state ^= state << 13;
+    state ^= state >> 7;
+    state ^= state << 17;
+    state = state.wrapping_add(tsc);
+    URANDOM_STATE.store(state, core::sync::atomic::Ordering::Relaxed);
+    state
+}
+
 /// Inode for the `/dev/console` device.
 pub struct ConsoleInode;
 
@@ -50,8 +103,27 @@ impl InodeOps for ConsoleInode {
 pub struct ConsoleFileOps;
 
 impl FileOps for ConsoleFileOps {
-    fn read(&self, _offset: usize, _buf: &mut [u8]) -> Result<usize, VfsError> {
-        Ok(0)
+    fn read(&self, _offset: usize, buf: &mut [u8]) -> Result<usize, VfsError> {
+        if buf.is_empty() {
+            return Ok(0);
+        }
+
+        let mut read_bytes = 0;
+
+        // Block until at least one character is available, then drain what is immediately ready.
+        while read_bytes < buf.len() {
+            if let Some(ch) = try_read_console_byte() {
+                buf[read_bytes] = ch;
+                read_bytes += 1;
+            } else if read_bytes > 0 {
+                break;
+            } else {
+                core::hint::spin_loop();
+                crate::sched::schedule(true);
+            }
+        }
+
+        Ok(read_bytes)
     }
 
     fn write(&self, _offset: usize, buf: &[u8]) -> Result<usize, VfsError> {
@@ -61,6 +133,89 @@ impl FileOps for ConsoleFileOps {
         if let Ok(s) = core::str::from_utf8(buf) {
             log::info!("[CONSOLE] {}", s.trim_end());
         }
+        Ok(buf.len())
+    }
+}
+
+/// Inode for the `/dev/null` device.
+pub struct NullInode;
+
+impl InodeOps for NullInode {
+    fn open(&self) -> Result<Arc<dyn FileOps>, VfsError> {
+        Ok(Arc::new(NullFileOps))
+    }
+}
+
+/// File operations for `/dev/null`.
+pub struct NullFileOps;
+
+impl FileOps for NullFileOps {
+    fn read(&self, _offset: usize, _buf: &mut [u8]) -> Result<usize, VfsError> {
+        Ok(0)
+    }
+
+    fn write(&self, _offset: usize, buf: &[u8]) -> Result<usize, VfsError> {
+        Ok(buf.len())
+    }
+}
+
+/// Inode for the `/dev/zero` device.
+pub struct ZeroInode;
+
+impl InodeOps for ZeroInode {
+    fn open(&self) -> Result<Arc<dyn FileOps>, VfsError> {
+        Ok(Arc::new(ZeroFileOps))
+    }
+}
+
+/// File operations for `/dev/zero`.
+pub struct ZeroFileOps;
+
+impl FileOps for ZeroFileOps {
+    fn read(&self, _offset: usize, buf: &mut [u8]) -> Result<usize, VfsError> {
+        buf.fill(0);
+        Ok(buf.len())
+    }
+
+    fn write(&self, _offset: usize, buf: &[u8]) -> Result<usize, VfsError> {
+        Ok(buf.len())
+    }
+}
+
+/// Inode for the `/dev/urandom` device.
+pub struct UrandomInode;
+
+impl InodeOps for UrandomInode {
+    fn open(&self) -> Result<Arc<dyn FileOps>, VfsError> {
+        Ok(Arc::new(UrandomFileOps))
+    }
+}
+
+/// File operations for `/dev/urandom`.
+pub struct UrandomFileOps;
+
+impl FileOps for UrandomFileOps {
+    fn read(&self, _offset: usize, buf: &mut [u8]) -> Result<usize, VfsError> {
+        let mut chunks = buf.chunks_exact_mut(8);
+        for chunk in chunks.by_ref() {
+            let rand_val = next_random_u64();
+            chunk.copy_from_slice(&rand_val.to_ne_bytes());
+        }
+        let remainder = chunks.into_remainder();
+        if !remainder.is_empty() {
+            let rand_val = next_random_u64();
+            let bytes = rand_val.to_ne_bytes();
+            remainder.copy_from_slice(&bytes[..remainder.len()]);
+        }
+        Ok(buf.len())
+    }
+
+    fn write(&self, _offset: usize, buf: &[u8]) -> Result<usize, VfsError> {
+        let mut seed_xor = 0u64;
+        for &b in buf.iter().take(8) {
+            seed_xor = (seed_xor << 8) | (b as u64);
+        }
+        URANDOM_STATE.fetch_xor(seed_xor, core::sync::atomic::Ordering::Relaxed);
         Ok(buf.len())
     }
 }
@@ -226,6 +381,33 @@ impl DevFs {
             ops: Arc::new(FbInode),
         });
         Dentry::add_child(&dev_mount.root_dentry, "fb0".into(), fb_inode);
+
+        // Register null character device /dev/null
+        let null_ino = dev_mount.superblock.alloc_ino();
+        let null_inode = Arc::new(Inode {
+            ino: null_ino,
+            inode_type: InodeType::CharDevice,
+            ops: Arc::new(NullInode),
+        });
+        Dentry::add_child(&dev_mount.root_dentry, "null".into(), null_inode);
+
+        // Register zero character device /dev/zero
+        let zero_ino = dev_mount.superblock.alloc_ino();
+        let zero_inode = Arc::new(Inode {
+            ino: zero_ino,
+            inode_type: InodeType::CharDevice,
+            ops: Arc::new(ZeroInode),
+        });
+        Dentry::add_child(&dev_mount.root_dentry, "zero".into(), zero_inode);
+
+        // Register urandom character device /dev/urandom
+        let urandom_ino = dev_mount.superblock.alloc_ino();
+        let urandom_inode = Arc::new(Inode {
+            ino: urandom_ino,
+            inode_type: InodeType::CharDevice,
+            ops: Arc::new(UrandomInode),
+        });
+        Dentry::add_child(&dev_mount.root_dentry, "urandom".into(), urandom_inode);
 
         // Scan DEVICE_MANAGER and dynamically register discovered block devices
         let dm = DEVICE_MANAGER.read();

@@ -56,6 +56,7 @@ define_syscall_table! {
     SYS_SETRLIMIT      = 160 => ("setrlimit",      proc::sys_setrlimit),
     SYS_FUTEX          = 202 => ("futex",          sync::sys_futex),
     SYS_ISATTY         = 215 => ("isatty",         ioctl::sys_isatty),
+    SYS_GETDENTS64     = 217 => ("getdents64",     fs::sys_getdents64),
     SYS_CLOCK_GETTIME  = 228 => ("clock_gettime",  time::sys_clock_gettime),
     SYS_EXIT_GROUP     = 231 => ("exit_group",     proc::sys_exit_group),
     SYS_OPENAT         = 257 => ("openat",         fs::sys_openat),

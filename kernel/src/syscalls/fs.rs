@@ -1,6 +1,6 @@
 use super::{SyscallError, SyscallResult, is_user_ptr_valid, read_user_string};
 use crate::arch::syscall::syscall::SyscallFrame;
-use crate::fs::vfs::types::{File, LinuxStat, O_CREAT, O_RDONLY, O_WRONLY, SeekWhence, Stat};
+use crate::fs::vfs::types::{File, InodeType, LinuxStat, O_CREAT, O_RDONLY, O_WRONLY, SeekWhence, Stat};
 use alloc::sync::Arc;
 
 pub const AT_FDCWD: i32 = -100;
@@ -19,6 +19,15 @@ pub const F_SETLKW: i32 = 7;
 pub const F_SETOWN: i32 = 8;
 pub const F_GETOWN: i32 = 9;
 pub const F_DUPFD_CLOEXEC: i32 = 1030;
+
+pub const DT_UNKNOWN: u8 = 0;
+pub const DT_FIFO: u8 = 1;
+pub const DT_CHR: u8 = 2;
+pub const DT_DIR: u8 = 4;
+pub const DT_BLK: u8 = 6;
+pub const DT_REG: u8 = 8;
+pub const DT_LNK: u8 = 10;
+pub const DT_SOCK: u8 = 12;
 
 /// `sys_read` (SYS_READ = 0)
 /// Read from a file descriptor.
@@ -548,4 +557,121 @@ fn copy_to_linux_stat(stat: &Stat) -> LinuxStat {
         st_ctime_nsec: 0,
         __glibc_reserved: [0; 3],
     }
+}
+
+/// `sys_getdents64` (SYS_GETDENTS64 = 217)
+/// Get directory entries in 64-bit Linux dirent format.
+pub fn sys_getdents64(frame: &mut SyscallFrame) -> SyscallResult {
+    let fd = frame.arg1() as i32;
+    let dirp = frame.arg2() as *mut u8;
+    let count = frame.arg3() as usize;
+
+    if fd < 0 {
+        return Err(SyscallError::EBADF);
+    }
+    if count == 0 {
+        return Ok(0);
+    }
+    if !is_user_ptr_valid(dirp as u64, count) {
+        return Err(SyscallError::EFAULT);
+    }
+
+    let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
+    let proc = proc_arc.lock();
+    let file = proc.fd_table.get(fd)?;
+    drop(proc);
+
+    if file.dentry.inode.inode_type != InodeType::Directory {
+        return Err(SyscallError::ENOTDIR);
+    }
+
+    // Retrieve child entry names from directory inode
+    let entries = file.dentry.inode.ops.readdir()?;
+
+    // Construct full entry list with "." and ".." if not already explicitly returned
+    let mut all_entries: alloc::vec::Vec<(alloc::string::String, u64, u8)> = alloc::vec::Vec::new();
+
+    let has_dot = entries.iter().any(|e| e == ".");
+    let has_dotdot = entries.iter().any(|e| e == "..");
+
+    if !has_dot {
+        all_entries.push((".".into(), file.dentry.inode.ino, DT_DIR));
+    }
+    if !has_dotdot {
+        all_entries.push(("..".into(), file.dentry.inode.ino, DT_DIR));
+    }
+
+    for name in entries {
+        if name == "." {
+            all_entries.push((name, file.dentry.inode.ino, DT_DIR));
+        } else if name == ".." {
+            all_entries.push((name, file.dentry.inode.ino, DT_DIR));
+        } else {
+            let (child_ino, child_type) = match file.dentry.inode.ops.lookup(&name) {
+                Ok(child) => {
+                    let d_type = match child.inode_type {
+                        InodeType::Directory => DT_DIR,
+                        InodeType::File => DT_REG,
+                        InodeType::CharDevice => DT_CHR,
+                        InodeType::BlockDevice => DT_BLK,
+                        InodeType::Symlink => DT_LNK,
+                    };
+                    (child.ino, d_type)
+                }
+                Err(_) => (1, DT_UNKNOWN),
+            };
+            all_entries.push((name, child_ino, child_type));
+        }
+    }
+
+    let mut pos = *file.offset.lock();
+    if pos >= all_entries.len() {
+        return Ok(0);
+    }
+
+    let mut written_bytes = 0;
+
+    while pos < all_entries.len() {
+        let (ref name, ino, d_type) = all_entries[pos];
+        let name_bytes = name.as_bytes();
+        let unaligned_len = 19 + name_bytes.len() + 1;
+        let reclen = (unaligned_len + 7) & !7;
+
+        if written_bytes + reclen > count {
+            if written_bytes == 0 {
+                return Err(SyscallError::EINVAL);
+            }
+            break;
+        }
+
+        let off = (pos + 1) as i64;
+
+        // SAFETY: Pointer and total range verified by is_user_ptr_valid above.
+        unsafe {
+            let dest = dirp.add(written_bytes);
+            // Write d_ino (u64 at offset 0)
+            core::ptr::write_unaligned(dest as *mut u64, ino);
+            // Write d_off (i64 at offset 8)
+            core::ptr::write_unaligned(dest.add(8) as *mut i64, off);
+            // Write d_reclen (u16 at offset 16)
+            core::ptr::write_unaligned(dest.add(16) as *mut u16, reclen as u16);
+            // Write d_type (u8 at offset 18)
+            core::ptr::write(dest.add(18), d_type);
+            // Write d_name (null-terminated string at offset 19)
+            core::ptr::copy_nonoverlapping(name_bytes.as_ptr(), dest.add(19), name_bytes.len());
+            // Null terminator
+            core::ptr::write(dest.add(19 + name_bytes.len()), 0);
+            // Zero padding up to reclen
+            let pad_start = 19 + name_bytes.len() + 1;
+            if pad_start < reclen {
+                core::ptr::write_bytes(dest.add(pad_start), 0, reclen - pad_start);
+            }
+        }
+
+        written_bytes += reclen;
+        pos += 1;
+    }
+
+    *file.offset.lock() = pos;
+    Ok(written_bytes)
 }
