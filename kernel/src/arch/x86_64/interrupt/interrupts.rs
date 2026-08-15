@@ -90,16 +90,10 @@ extern "x86-interrupt" fn page_fault_handler(
 
     let cpu_id = unsafe { super::lapic::get_lapic().id() };
 
-    let current_thread = {
-        let saved_flags = crate::arch::disable_interrupts();
+    let current_thread = crate::arch::without_interrupts(|| {
         let sched = crate::sched::SCHEDULER.lock();
-        let current = sched.current_threads[cpu_id as usize].clone();
-        drop(sched);
-        if saved_flags {
-            crate::arch::enable_interrupts();
-        }
-        current
-    };
+        sched.current_threads[cpu_id as usize].clone()
+    });
 
     if let Some(thread_arc) = current_thread {
         let thread = thread_arc.lock();

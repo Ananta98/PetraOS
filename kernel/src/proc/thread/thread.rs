@@ -107,11 +107,9 @@ impl Thread {
         if t.state == ThreadState::Sleeping {
             t.state = ThreadState::Ready;
             drop(t);
-            let saved_flags = crate::arch::disable_interrupts();
-            crate::sched::SCHEDULER.lock().add_thread(thread);
-            if saved_flags {
-                crate::arch::enable_interrupts();
-            }
+            crate::arch::without_interrupts(|| {
+                crate::sched::SCHEDULER.lock().add_thread(thread);
+            });
         }
     }
 

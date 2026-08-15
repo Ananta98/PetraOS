@@ -18,6 +18,7 @@ pub use timer::lapic_timer;
 
 /// Enable interrupts on the calling CPU.
 pub fn enable_interrupts() {
+    // SAFETY: Enabling interrupts via 'sti' is a standard CPU control operation.
     unsafe {
         core::arch::asm!("sti", options(nomem, nostack));
     }
@@ -25,6 +26,7 @@ pub fn enable_interrupts() {
 
 /// Halt CPU until the next interrupt.
 pub fn halt() {
+    // SAFETY: Halting the CPU via 'hlt' until an interrupt arrives is a safe low-power state.
     unsafe {
         core::arch::asm!("hlt", options(nomem, nostack));
     }
@@ -39,6 +41,7 @@ pub fn idle() -> ! {
 /// Disable interrupts on the calling CPU and return the previous interrupt flag state.
 pub fn disable_interrupts() -> bool {
     let flags: u64;
+    // SAFETY: pushfq/pop reads RFLAGS and cli clears IF without corrupting memory.
     unsafe {
         core::arch::asm!(
             "pushfq",
@@ -51,9 +54,11 @@ pub fn disable_interrupts() -> bool {
     (flags & (1 << 9)) != 0
 }
 
+/// Check if interrupts are currently enabled on the calling CPU.
 #[inline(always)]
 pub fn interrupts_enabled() -> bool {
     let flags: u64;
+    // SAFETY: pushfq/pop reads RFLAGS without modifying state or corrupting memory.
     unsafe {
         core::arch::asm!(
             "pushfq",
@@ -65,6 +70,7 @@ pub fn interrupts_enabled() -> bool {
     (flags & (1 << 9)) != 0
 }
 
+/// Execute a closure with interrupts disabled, restoring the previous interrupt state afterwards.
 #[inline(always)]
 pub fn without_interrupts<R>(func: impl FnOnce() -> R) -> R {
     let enabled = disable_interrupts();
@@ -75,21 +81,9 @@ pub fn without_interrupts<R>(func: impl FnOnce() -> R) -> R {
     result
 }
 
-#[inline(always)]
-pub fn with_interrupts<R>(func: impl FnOnce() -> R) -> R {
-    let enabled = interrupts_enabled();
-    if !enabled {
-        enable_interrupts();
-    }
-    let result = func();
-    if !enabled {
-        disable_interrupts();
-    }
-    result
-}
-
 /// Get the Local APIC ID of the calling CPU core.
 pub fn cpu_id() -> u32 {
+    // SAFETY: LAPIC base address is guaranteed to be mapped and initialized before this is called.
     unsafe { interrupt::lapic::get_lapic().id() }
 }
 

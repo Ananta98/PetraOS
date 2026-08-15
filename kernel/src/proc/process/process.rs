@@ -296,11 +296,9 @@ impl Process {
             child_threads.insert(child_tid, c_thread_arc.clone());
 
             if t_lock.state == ThreadState::Ready || t_lock.state == ThreadState::Running {
-                let saved_flags = crate::arch::disable_interrupts();
-                crate::sched::SCHEDULER.lock().add_thread(c_thread_arc);
-                if saved_flags {
-                    crate::arch::enable_interrupts();
-                }
+                crate::arch::without_interrupts(|| {
+                    crate::sched::SCHEDULER.lock().add_thread(c_thread_arc);
+                });
             }
         }
 
@@ -345,34 +343,28 @@ impl Process {
         self.state = ProcessState::Zombie;
         self.exit_code = Some(status);
 
-        let saved_flags = crate::arch::disable_interrupts();
+        crate::arch::without_interrupts(|| {
+            // Determine the TID of the currently-running thread on this CPU.
+            let cpu_id = crate::arch::cpu_id();
+            let mut sched = crate::sched::SCHEDULER.lock();
+            let current_tid = sched.current_threads[cpu_id as usize]
+                .as_ref()
+                .map(|t| t.lock().tid);
 
-        // Determine the TID of the currently-running thread on this CPU.
-        let cpu_id = crate::arch::cpu_id();
-        let mut sched = crate::sched::SCHEDULER.lock();
-        let current_tid = sched.current_threads[cpu_id as usize]
-            .as_ref()
-            .map(|t| t.lock().tid);
-
-        // Remove all non-current threads from the scheduler run queue in a single lock session.
-        for (_, thread) in self.threads.iter() {
-            let mut t_lock = thread.lock();
-            let tid = t_lock.tid;
-            let is_current = current_tid.map_or(false, |ctid| ctid == tid);
-            t_lock.state = ThreadState::Zombie;
-            drop(t_lock);
-            if !is_current {
-                // Thread is in the run queue (not current_threads[cpu]) — remove it.
-                sched.remove_thread(tid);
+            // Remove all non-current threads from the scheduler run queue in a single lock session.
+            for (_, thread) in self.threads.iter() {
+                let mut t_lock = thread.lock();
+                let tid = t_lock.tid;
+                let is_current = current_tid.map_or(false, |ctid| ctid == tid);
+                t_lock.state = ThreadState::Zombie;
+                drop(t_lock);
+                if !is_current {
+                    // Thread is in the run queue (not current_threads[cpu]) — remove it.
+                    sched.remove_thread(tid);
+                }
+                // If is_current: leave it in current_threads[cpu]; block_current() handles it.
             }
-            // If is_current: leave it in current_threads[cpu]; block_current() handles it.
-        }
-
-        drop(sched);
-
-        if saved_flags {
-            crate::arch::enable_interrupts();
-        }
+        });
     }
 
     /// Update signal action for a given signal number (sigaction semantics).
