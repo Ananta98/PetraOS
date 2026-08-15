@@ -1,12 +1,13 @@
 //! Global Device Manager
 
 use super::device::Device;
+use crate::sync::rwlock::RwLock;
 use crate::sync::spinlock::Spinlock;
 use alloc::boxed::Box;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 
-pub static DEVICE_MANAGER: Spinlock<DeviceManager> = Spinlock::new(DeviceManager::new());
+pub static DEVICE_MANAGER: RwLock<DeviceManager> = RwLock::new(DeviceManager::new());
 
 pub struct DeviceManager {
     devices: Vec<Arc<Spinlock<Box<dyn Device>>>>,

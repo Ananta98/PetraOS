@@ -80,7 +80,7 @@ pub struct BlockDeviceFileOps {
 
 impl FileOps for BlockDeviceFileOps {
     fn read(&self, offset: usize, buf: &mut [u8]) -> Result<usize, VfsError> {
-        let dm = DEVICE_MANAGER.lock();
+        let dm = DEVICE_MANAGER.read();
         for dev_arc in dm.get_devices() {
             let mut dev_lock = dev_arc.lock();
             if dev_lock.name() == self.device_name {
@@ -109,7 +109,7 @@ impl FileOps for BlockDeviceFileOps {
     }
 
     fn write(&self, offset: usize, buf: &[u8]) -> Result<usize, VfsError> {
-        let dm = DEVICE_MANAGER.lock();
+        let dm = DEVICE_MANAGER.read();
         for dev_arc in dm.get_devices() {
             let mut dev_lock = dev_arc.lock();
             if dev_lock.name() == self.device_name {
@@ -154,7 +154,7 @@ impl FileOps for BlockDeviceFileOps {
 impl DevFs {
     /// Mount the device filesystem at `/dev` and register core device nodes.
     pub fn init() -> Result<(), &'static str> {
-        let mut mt = MOUNT_TABLE.lock();
+        let mut mt = MOUNT_TABLE.write();
         let dev_mount = mt
             .mount("/dev", &DevFs)
             .map_err(|_| "Failed to mount devfs at /dev")?;
@@ -169,7 +169,7 @@ impl DevFs {
         Dentry::add_child(&dev_mount.root_dentry, "console".into(), console_inode);
 
         // Scan DEVICE_MANAGER and dynamically register discovered block devices
-        let dm = DEVICE_MANAGER.lock();
+        let dm = DEVICE_MANAGER.read();
         for dev_arc in dm.get_devices() {
             let dev_lock = dev_arc.lock();
             if dev_lock.dev_type() == crate::device::DeviceType::Block {

@@ -81,7 +81,7 @@ impl crate::device::Driver for NvmeModuleDriver {
             *NVME_DRIVER.lock() = Some(nvme);
             let device_ref: Arc<Spinlock<Box<dyn Device>>> =
                 Arc::new(Spinlock::new(Box::new(NvmeDeviceRef)));
-            crate::device::DEVICE_MANAGER.lock().register(device_ref);
+            crate::device::DEVICE_MANAGER.write().register(device_ref);
             log::info!("[NVMe Module] Probed and registered NVMe Controller to DEVICE_MANAGER");
             Ok(())
         } else {

@@ -11,5 +11,5 @@ pub use module::{KernelModule, ModuleInfo, ModuleState};
 pub fn init() {
     log::info!("Initializing Kernel Module Subsystem...");
     do_initcalls();
-    MODULE_MANAGER.lock().list_modules();
+    MODULE_MANAGER.read().list_modules();
 }

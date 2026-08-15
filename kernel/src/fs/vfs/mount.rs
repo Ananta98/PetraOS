@@ -1,9 +1,12 @@
 use super::dentry::Dentry;
 use super::types::{FileSystem, SuperBlock, VfsError};
-use crate::sync::spinlock::Spinlock;
+use crate::sync::rwlock::RwLock;
 use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::sync::Arc;
+
+/// The global mount table, shared across all filesystem operations.
+pub static MOUNT_TABLE: RwLock<MountTable> = RwLock::new(MountTable::new());
 
 /// A single mount point binding a filesystem instance to a path in the VFS tree.
 pub struct Mount {
@@ -84,6 +87,3 @@ impl MountTable {
         self.mounts.get("/").cloned()
     }
 }
-
-/// The global mount table, shared across all filesystem operations.
-pub static MOUNT_TABLE: Spinlock<MountTable> = Spinlock::new(MountTable::new());

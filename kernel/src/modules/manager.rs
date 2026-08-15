@@ -1,10 +1,10 @@
 //! Kernel Module Manager
 
 use alloc::vec::Vec;
-use crate::sync::spinlock::Spinlock;
+use crate::sync::rwlock::RwLock;
 use super::module::KernelModule;
 
-pub static MODULE_MANAGER: Spinlock<ModuleManager> = Spinlock::new(ModuleManager::new());
+pub static MODULE_MANAGER: RwLock<ModuleManager> = RwLock::new(ModuleManager::new());
 
 pub struct ModuleManager {
     modules: Vec<KernelModule>,

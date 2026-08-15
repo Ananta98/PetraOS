@@ -51,6 +51,43 @@ pub fn disable_interrupts() -> bool {
     (flags & (1 << 9)) != 0
 }
 
+#[inline(always)]
+pub fn interrupts_enabled() -> bool {
+    let flags: u64;
+    unsafe {
+        core::arch::asm!(
+            "pushfq",
+            "pop {}",
+            out(reg) flags,
+            options(nomem)
+        );
+    }
+    (flags & (1 << 9)) != 0
+}
+
+#[inline(always)]
+pub fn without_interrupts<R>(func: impl FnOnce() -> R) -> R {
+    let enabled = disable_interrupts();
+    let result = func();
+    if enabled {
+        enable_interrupts();
+    }
+    result
+}
+
+#[inline(always)]
+pub fn with_interrupts<R>(func: impl FnOnce() -> R) -> R {
+    let enabled = interrupts_enabled();
+    if !enabled {
+        enable_interrupts();
+    }
+    let result = func();
+    if !enabled {
+        disable_interrupts();
+    }
+    result
+}
+
 /// Get the Local APIC ID of the calling CPU core.
 pub fn cpu_id() -> u32 {
     unsafe { interrupt::lapic::get_lapic().id() }

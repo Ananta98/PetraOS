@@ -164,7 +164,7 @@ macro_rules! module_driver {
                         $init_fn,
                         None,
                     );
-                    let _ = $crate::modules::MODULE_MANAGER.lock().register(module);
+                    let _ = $crate::modules::MODULE_MANAGER.write().register(module);
                     Ok(())
                 }
                 Err(_e) => {

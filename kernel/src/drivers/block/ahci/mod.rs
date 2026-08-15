@@ -508,7 +508,7 @@ impl crate::device::Driver for AhciModuleDriver {
             *AHCI_DEVICE.lock() = Some(ahci);
             let device_ref: Arc<Spinlock<Box<dyn Device>>> =
                 Arc::new(Spinlock::new(Box::new(AhciDeviceRef)));
-            crate::device::DEVICE_MANAGER.lock().register(device_ref);
+            crate::device::DEVICE_MANAGER.write().register(device_ref);
             log::info!(
                 "[AHCI Module] Probed and registered AHCI SATA Controller to DEVICE_MANAGER"
             );

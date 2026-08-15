@@ -7,13 +7,13 @@ pub mod buffer;
 pub mod ps2;
 pub mod scancode;
 
-use core::sync::atomic::{AtomicU64, Ordering};
 use crate::device::{CharDevice, Device, DeviceType, Driver, DriverError};
 use crate::sync::spinlock::Spinlock;
 use alloc::boxed::Box;
 use alloc::sync::Arc;
+use core::sync::atomic::{AtomicU64, Ordering};
 
-pub use buffer::{KeyBuffer, KEY_RING_BUFFER};
+pub use buffer::{KEY_RING_BUFFER, KeyBuffer};
 pub use ps2::Ps2Controller;
 pub use scancode::{KeyCode, KeyEvent, KeyState, Modifiers, ScancodeDecoder};
 
@@ -92,10 +92,8 @@ impl Driver for Ps2KeyboardDriver {
         let mut kbd = Ps2Keyboard::new();
         kbd.init()?;
 
-        let dev_ref: Arc<Spinlock<Box<dyn Device>>> =
-            Arc::new(Spinlock::new(Box::new(kbd)));
-        crate::device::DEVICE_MANAGER.lock().register(dev_ref);
-
+        let dev_ref: Arc<Spinlock<Box<dyn Device>>> = Arc::new(Spinlock::new(Box::new(kbd)));
+        crate::device::DEVICE_MANAGER.write().register(dev_ref);
         log::info!("[PS/2 Keyboard] Driver probed and registered to DEVICE_MANAGER.");
         Ok(())
     }
@@ -111,7 +109,11 @@ pub fn handle_scancode(scancode: u8) {
         if event.state == KeyState::Pressed {
             if let Some(ch) = event.ascii {
                 KEY_RING_BUFFER.lock().push(ch as u8);
-                log::info!("[KEYBOARD] Key Press: '{}' (Scancode: {:#04x})", ch, scancode);
+                log::info!(
+                    "[KEYBOARD] Key Press: '{}' (Scancode: {:#04x})",
+                    ch,
+                    scancode
+                );
             } else {
                 log::info!(
                     "[KEYBOARD] Special Key Press: {:?} (Scancode: {:#04x})",
@@ -137,4 +139,9 @@ crate::MODULE_LICENSE!("BSD-2-Clause");
 crate::MODULE_AUTHOR!("PetraOS Development Team");
 crate::MODULE_DESCRIPTION!("PS/2 Character Keyboard Driver");
 crate::MODULE_VERSION!("1.0.0");
-crate::module_driver!(KEYBOARD_INITCALL, keyboard_driver_init, "ps2_keyboard", Ps2KeyboardDriver);
+crate::module_driver!(
+    KEYBOARD_INITCALL,
+    keyboard_driver_init,
+    "ps2_keyboard",
+    Ps2KeyboardDriver
+);

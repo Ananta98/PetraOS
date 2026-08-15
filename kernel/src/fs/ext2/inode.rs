@@ -21,7 +21,7 @@ impl BlockDeviceReader {
 
     /// Read up to `buf.len()` bytes starting at `offset` (in bytes).
     pub fn read_bytes(&self, offset: u64, buf: &mut [u8]) -> Result<(), VfsError> {
-        let dm = DEVICE_MANAGER.lock();
+        let dm = DEVICE_MANAGER.read();
         for dev_arc in dm.get_devices() {
             let mut dev_lock = dev_arc.lock();
             if dev_lock.as_ref().name() == self.device_name {
@@ -59,7 +59,7 @@ impl BlockDeviceReader {
 
     /// Write `buf.len()` bytes starting at `offset` (in bytes).
     pub fn write_bytes(&self, offset: u64, buf: &[u8]) -> Result<(), VfsError> {
-        let dm = DEVICE_MANAGER.lock();
+        let dm = DEVICE_MANAGER.read();
         for dev_arc in dm.get_devices() {
             let mut dev_lock = dev_arc.lock();
             if dev_lock.as_ref().name() == self.device_name {

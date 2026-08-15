@@ -1,6 +1,6 @@
 use crate::fs::vfs::types::{FileOps, FileSystem, SuperBlock, VfsError};
 use crate::fs::{Inode, InodeOps, InodeType};
-use crate::sync::spinlock::Spinlock;
+use crate::sync::rwlock::RwLock;
 use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::sync::Arc;
@@ -9,12 +9,12 @@ use core::sync::atomic::{AtomicU64, Ordering};
 
 /// In-memory regular file ops.
 pub struct RamFileOps {
-    pub content: Arc<Spinlock<Vec<u8>>>,
+    pub content: Arc<RwLock<Vec<u8>>>,
 }
 
 impl FileOps for RamFileOps {
     fn read(&self, offset: usize, buf: &mut [u8]) -> Result<usize, VfsError> {
-        let content = self.content.lock();
+        let content = self.content.read();
         if offset >= content.len() {
             return Ok(0);
         }
@@ -24,7 +24,7 @@ impl FileOps for RamFileOps {
     }
 
     fn write(&self, offset: usize, buf: &[u8]) -> Result<usize, VfsError> {
-        let mut content = self.content.lock();
+        let mut content = self.content.write();
         let end = offset + buf.len();
         if end > content.len() {
             content.resize(end, 0);
@@ -34,13 +34,13 @@ impl FileOps for RamFileOps {
     }
 
     fn truncate(&self, size: usize) -> Result<(), VfsError> {
-        let mut content = self.content.lock();
+        let mut content = self.content.write();
         content.resize(size, 0);
         Ok(())
     }
 
     fn stat(&self) -> Result<crate::fs::vfs::types::Stat, VfsError> {
-        let content = self.content.lock();
+        let content = self.content.read();
         Ok(crate::fs::vfs::types::Stat {
             size: content.len() as u64,
             mode: 0o100644,
@@ -52,13 +52,13 @@ impl FileOps for RamFileOps {
 
 /// In-memory regular file inode.
 pub struct RamFileInode {
-    pub content: Arc<Spinlock<Vec<u8>>>,
+    pub content: Arc<RwLock<Vec<u8>>>,
 }
 
 impl RamFileInode {
     pub fn new() -> Self {
         Self {
-            content: Arc::new(Spinlock::new(Vec::new())),
+            content: Arc::new(RwLock::new(Vec::new())),
         }
     }
 }
@@ -71,7 +71,7 @@ impl InodeOps for RamFileInode {
     }
 
     fn stat(&self) -> Result<crate::fs::vfs::types::Stat, VfsError> {
-        let content = self.content.lock();
+        let content = self.content.read();
         Ok(crate::fs::vfs::types::Stat {
             size: content.len() as u64,
             mode: 0o100644,
@@ -81,7 +81,7 @@ impl InodeOps for RamFileInode {
     }
 
     fn truncate(&self, size: usize) -> Result<(), VfsError> {
-        let mut content = self.content.lock();
+        let mut content = self.content.write();
         content.resize(size, 0);
         Ok(())
     }
@@ -89,13 +89,13 @@ impl InodeOps for RamFileInode {
 
 /// In-memory directory inode. Stores child entries in a `BTreeMap`.
 pub struct RamDirInode {
-    pub entries: Spinlock<BTreeMap<String, Arc<Inode>>>,
+    pub entries: RwLock<BTreeMap<String, Arc<Inode>>>,
 }
 
 impl RamDirInode {
     pub fn new() -> Self {
         Self {
-            entries: Spinlock::new(BTreeMap::new()),
+            entries: RwLock::new(BTreeMap::new()),
         }
     }
 
@@ -105,7 +105,7 @@ impl RamDirInode {
         device_ops: Arc<dyn InodeOps>,
         ino: u64,
     ) -> Result<Arc<Inode>, VfsError> {
-        let mut entries = self.entries.lock();
+        let mut entries = self.entries.write();
         if entries.contains_key(name) {
             return Err(VfsError::AlreadyExists);
         }
@@ -121,17 +121,17 @@ impl RamDirInode {
 
 impl InodeOps for RamDirInode {
     fn lookup(&self, name: &str) -> Result<Arc<Inode>, VfsError> {
-        let entries = self.entries.lock();
+        let entries = self.entries.read();
         entries.get(name).cloned().ok_or(VfsError::NotFound)
     }
 
     fn readdir(&self) -> Result<Vec<String>, VfsError> {
-        let entries = self.entries.lock();
+        let entries = self.entries.read();
         Ok(entries.keys().cloned().collect())
     }
 
     fn mkdir(&self, name: &str) -> Result<Arc<Inode>, VfsError> {
-        let mut entries = self.entries.lock();
+        let mut entries = self.entries.write();
         if entries.contains_key(name) {
             return Err(VfsError::AlreadyExists);
         }
@@ -148,7 +148,7 @@ impl InodeOps for RamDirInode {
     }
 
     fn create(&self, name: &str) -> Result<Arc<Inode>, VfsError> {
-        let mut entries = self.entries.lock();
+        let mut entries = self.entries.write();
         if entries.contains_key(name) {
             return Err(VfsError::AlreadyExists);
         }
@@ -165,7 +165,7 @@ impl InodeOps for RamDirInode {
     }
 
     fn unlink(&self, name: &str) -> Result<(), VfsError> {
-        let mut entries = self.entries.lock();
+        let mut entries = self.entries.write();
         let target = entries.get(name).ok_or(VfsError::NotFound)?;
         if target.inode_type == InodeType::Directory {
             return Err(VfsError::IsDirectory);
@@ -175,7 +175,7 @@ impl InodeOps for RamDirInode {
     }
 
     fn rmdir(&self, name: &str) -> Result<(), VfsError> {
-        let mut entries = self.entries.lock();
+        let mut entries = self.entries.write();
         let target = entries.get(name).ok_or(VfsError::NotFound)?;
         if target.inode_type != InodeType::Directory {
             return Err(VfsError::NotDirectory);
@@ -185,7 +185,7 @@ impl InodeOps for RamDirInode {
     }
 
     fn stat(&self) -> Result<crate::fs::vfs::types::Stat, VfsError> {
-        let entries = self.entries.lock();
+        let entries = self.entries.read();
         Ok(crate::fs::vfs::types::Stat {
             size: entries.len() as u64,
             mode: 0o040755,
@@ -208,7 +208,7 @@ impl RamFs {
         log::info!("[RamFS] Initializing Root RamFS...");
         let ramfs = RamFs;
         crate::fs::vfs::mount::MOUNT_TABLE
-            .lock()
+            .write()
             .mount("/", &ramfs)
             .map_err(|_| "Failed to mount RamFS root")?;
 

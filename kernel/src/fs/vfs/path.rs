@@ -17,7 +17,7 @@ fn resolve_path_symlink(path: &str, depth: usize) -> Result<Arc<Dentry>, VfsErro
         return Err(VfsError::NotSupported);
     }
 
-    let mt = MOUNT_TABLE.lock();
+    let mt = MOUNT_TABLE.read();
     let (mount, remainder) = mt.lookup(path).ok_or(VfsError::NotFound)?;
 
     let mut current = mount.root_dentry.clone();

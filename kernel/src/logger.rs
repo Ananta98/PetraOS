@@ -1,3 +1,4 @@
+use crate::arch::without_interrupts;
 use crate::device::{CharDevice, Device};
 use crate::drivers::serial::{PortIoBackend, SerialPort};
 use crate::sync::spinlock::Spinlock;
@@ -33,29 +34,27 @@ impl Log for Logger {
 
     fn log(&self, record: &Record) {
         if self.enabled(record.metadata()) {
-            let saved_flags = crate::arch::disable_interrupts();
-            let mut guard = self.serial.lock();
-            if let Some(ref mut serial) = *guard {
-                let mut writer = SerialWriter(serial);
-                let level_str = match record.level() {
-                    Level::Error => "\x1B[31m[ERROR]\x1B[0m",
-                    Level::Warn => "\x1B[33m[WARN]\x1B[0m",
-                    Level::Info => "\x1B[32m[INFO]\x1B[0m",
-                    Level::Debug => "\x1B[36m[DEBUG]\x1B[0m",
-                    Level::Trace => "\x1B[35m[TRACE]\x1B[0m",
-                };
-                let _ = writeln!(
-                    writer,
-                    "{} {}: {}",
-                    level_str,
-                    record.target(),
-                    record.args()
-                );
-            }
-            drop(guard);
-            if saved_flags {
-                crate::arch::enable_interrupts();
-            }
+            without_interrupts(|| {
+                let mut guard = self.serial.lock();
+                if let Some(ref mut serial) = *guard {
+                    let mut writer = SerialWriter(serial);
+                    let level_str = match record.level() {
+                        Level::Error => "\x1B[31m[ERROR]\x1B[0m",
+                        Level::Warn => "\x1B[33m[WARN]\x1B[0m",
+                        Level::Info => "\x1B[32m[INFO]\x1B[0m",
+                        Level::Debug => "\x1B[36m[DEBUG]\x1B[0m",
+                        Level::Trace => "\x1B[35m[TRACE]\x1B[0m",
+                    };
+                    let _ = writeln!(
+                        writer,
+                        "{} {}: {}",
+                        level_str,
+                        record.target(),
+                        record.args()
+                    );
+                }
+                drop(guard);
+            });
         }
     }
 

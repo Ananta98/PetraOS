@@ -296,7 +296,7 @@ impl Driver for CmosRtcDriver {
         init_boot_time();
         let device_ref: Arc<Spinlock<Box<dyn Device>>> =
             Arc::new(Spinlock::new(Box::new(CmosRtcDeviceRef)));
-        crate::device::DEVICE_MANAGER.lock().register(device_ref);
+        crate::device::DEVICE_MANAGER.write().register(device_ref);
         log::info!("[CMOS RTC Module] Registered CMOS Real-Time Clock to DEVICE_MANAGER");
         Ok(())
     }

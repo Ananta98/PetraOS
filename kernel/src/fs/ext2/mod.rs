@@ -21,7 +21,7 @@ impl Ext2Fs {
     /// Auto-detect and mount Ext2 filesystem on available block storage devices.
     pub fn init() -> Result<(), &'static str> {
         let device_name = {
-            let dm = crate::device::DEVICE_MANAGER.lock();
+            let dm = crate::device::DEVICE_MANAGER.read();
             let mut target_name = None;
             for dev in dm.get_devices() {
                 let dev_lock = dev.lock();
@@ -38,7 +38,7 @@ impl Ext2Fs {
 
         if let Some(dev_name) = device_name {
             let ext2_fs = Ext2Fs::new(dev_name);
-            let mut mt = crate::fs::vfs::mount::MOUNT_TABLE.lock();
+            let mut mt = crate::fs::vfs::mount::MOUNT_TABLE.write();
 
             // First attempt to mount Ext2 at root '/' (if valid rootfs disk image present)
             match mt.mount("/", &ext2_fs) {
