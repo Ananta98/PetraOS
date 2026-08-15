@@ -30,6 +30,9 @@ SYSROOT := $(BUILD_DIR_XBSTRAP)/system-root
 .PHONY: xbstrap-init
 xbstrap-init:
 	@mkdir -p $(BUILD_DIR_XBSTRAP)
+	@if [ ! -L patches ] && [ ! -d patches ]; then \
+		ln -sf packages patches; \
+	fi
 	@if [ ! -f $(BUILD_DIR_XBSTRAP)/bootstrap.link ]; then \
 		(cd $(BUILD_DIR_XBSTRAP) && $(XBSTRAP) init ..); \
 	fi
@@ -45,6 +48,13 @@ mlibc: xbstrap-init
 .PHONY: bash
 bash: xbstrap-init mlibc
 	(cd $(BUILD_DIR_XBSTRAP) && $(XBSTRAP) install bash)
+
+.PHONY: xbstrap-fetch
+xbstrap-fetch: xbstrap-init
+	(cd $(BUILD_DIR_XBSTRAP) && $(XBSTRAP) fetch --all)
+
+.PHONY: userspace
+userspace: mlibc sync-initramfs
 
 .PHONY: sync-initramfs
 sync-initramfs:
@@ -63,7 +73,7 @@ clean-userspace:
 	rm -rf $(BUILD_DIR_XBSTRAP)
 
 .PHONY: initramfs
-initramfs: sync-initramfs initramfs.cpio
+initramfs: userspace initramfs.cpio
 
 initramfs.cpio: sync-initramfs tools/create_initramfs.sh $(shell find initramfs_root -type f 2>/dev/null)
 	@if [ -f tools/create_initramfs.sh ]; then \

@@ -8,6 +8,7 @@ iso_root/
 *.iso
 *.hdd
 initramfs.cpio
+initramfs_root/
 
 # Out-of-tree Port Builds & Sysroot
 build/
