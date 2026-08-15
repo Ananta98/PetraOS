@@ -38,8 +38,7 @@ pub fn init() {
             .set_handler_fn(timer_handler as *const () as u64);
 
         // Keyboard interrupt (vector 33, ISA IRQ 1)
-        IDT.entries[KEYBOARD_VECTOR as usize]
-            .set_handler_fn(keyboard_handler as *const () as u64);
+        IDT.entries[KEYBOARD_VECTOR as usize].set_handler_fn(keyboard_handler as *const () as u64);
 
         // System call interrupt (vector 0x80)
         IDT.entries[0x80].set_user_handler_fn(syscall_asm_entry as *const () as u64);
@@ -107,7 +106,10 @@ extern "x86-interrupt" fn page_fault_handler(
         if let Some(proc_arc) = thread.process.upgrade() {
             let proc = proc_arc.lock();
             let mut addr_space = proc.address_space.lock();
-            if addr_space.handle_page_fault(fault_virt, access_flags).is_ok() {
+            if addr_space
+                .handle_page_fault(fault_virt, access_flags)
+                .is_ok()
+            {
                 return;
             }
         }
@@ -124,25 +126,12 @@ extern "x86-interrupt" fn page_fault_handler(
 }
 
 extern "x86-interrupt" fn timer_handler(_stack_frame: &mut InterruptStackFrame) {
-    // ── Determine which CPU we are running on ─────────────────────────────
-    //
-    // SAFETY: The LAPIC is fully initialised before any AP raises its first
-    // timer interrupt, so `get_lapic()` is always valid here.
     let cpu_id = unsafe { super::lapic::get_lapic().id() };
 
-    // ── Acknowledge the interrupt ─────────────────────────────────────────
-    //
-    // SAFETY: EOI must be written to the LAPIC after every non-spurious
-    // interrupt. The LAPIC is guaranteed to be initialised at this point.
-    //
-    // We send EOI before the context switch so that the LAPIC is ready to
-    // accept new interrupts on the newly scheduled thread once it enables them.
     unsafe {
         super::lapic::get_lapic().end_of_interrupt();
     }
 
-    // Advance vruntime for `cpu_id` by one tick (10ms = 10,000,000 ns),
-    // then ask the scheduler which task should run next.
     crate::sched::SCHEDULER.lock().tick(cpu_id, 10_000_000);
     crate::sched::schedule(true);
 }
@@ -152,7 +141,6 @@ extern "x86-interrupt" fn spurious_interrupt_handler(_stack_frame: &mut Interrup
     // They occur when an interrupt is raised and then de-asserted before delivery.
     log::trace!("Spurious interrupt received.");
 }
-
 
 extern "x86-interrupt" fn keyboard_handler(_stack_frame: &mut InterruptStackFrame) {
     // SAFETY: Reading port 0x60 reads the keyboard scancode and clears the 8042 output buffer.
@@ -166,4 +154,3 @@ extern "x86-interrupt" fn keyboard_handler(_stack_frame: &mut InterruptStackFram
         super::lapic::get_lapic().end_of_interrupt();
     }
 }
-

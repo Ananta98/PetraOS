@@ -81,7 +81,8 @@ impl BuddyAllocator {
     pub fn inc_ref(&mut self, paddr: PhysAddr) {
         let idx = self.get_page_index(paddr);
         if idx < self.page_map.len() {
-            self.page_map[idx].ref_count += 1;
+            // Use saturating_add to prevent u32 overflow causing a premature free.
+            self.page_map[idx].ref_count = self.page_map[idx].ref_count.saturating_add(1);
         }
     }
 
@@ -176,11 +177,10 @@ impl BuddyAllocator {
 
         // Set the order of the allocated block on its head page
         self.page_map[page_idx].order = order as u8;
-        let num_allocated = 1 << order;
-        for i in 0..num_allocated {
-            if page_idx + i < self.page_map.len() {
-                self.page_map[page_idx + i].ref_count = 1;
-            }
+        // Only the head page carries the refcount; the buddy allocator's free path
+        // always uses the head page index via get_page_index(paddr).
+        if page_idx < self.page_map.len() {
+            self.page_map[page_idx].ref_count = 1;
         }
 
         self.free_pages = self.free_pages.saturating_sub(1 << order);
@@ -195,6 +195,13 @@ impl BuddyAllocator {
     /// Caller must guarantee that `paddr` is valid, usable, and currently allocated.
     pub unsafe fn free_block_internal(&mut self, paddr: PhysAddr, mut order: usize) {
         let mut page_idx = self.get_page_index(paddr);
+
+        // Guard: never insert a non-usable page into the free list.
+        if page_idx >= self.page_map.len() || !self.page_map[page_idx].flags.contains(PageFlags::USABLE) {
+            log::error!("free_block_internal: attempted to free non-usable page at {:#x}", paddr.as_u64());
+            return;
+        }
+
         let initial_order = order;
 
         while order < MAX_ORDER - 1 {

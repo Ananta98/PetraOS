@@ -100,6 +100,10 @@ impl IoApic {
         // Delivery mode (bits [10:8])
         entry |= (delivery_mode as u64 & 0x7) << 8;
 
+        // Mask bit (bit 16): set by default so the entry is written masked.
+        // Callers must explicitly invoke `unmask_irq` to enable delivery.
+        entry |= 1 << 16;
+
         // Polarity (bit 13): 0 = active high, 1 = active low
         if active_low {
             entry |= 1 << 13;

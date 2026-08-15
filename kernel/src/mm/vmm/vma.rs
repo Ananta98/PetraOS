@@ -64,59 +64,75 @@ impl<P: PageTable> AddrSpace<P> {
     /// Duplicate the virtual address space using Copy-On-Write (COW) semantics for writable pages.
     pub fn clone(&mut self) -> Result<Self, AddrSpaceError> {
         let mut new_page_table = P::new().map_err(AddrSpaceError::PagingError)?;
-        let mut allocated_frames = alloc::vec::Vec::new();
+
+        // Track every child mapping we've made: (virt, phys, was_cow).
+        // On failure we use this to unmap + dec_ref + revert parent PTEs.
+        let mut child_maps: alloc::vec::Vec<(VirtAddr, PhysAddr, bool)> = alloc::vec::Vec::new();
 
         for (&_vaddr, area) in &self.vm_areas {
             let size = (area.end - area.start) as usize;
             let num_pages = size / 4096;
 
-            for i in 0..num_pages {
+            'pages: for i in 0..num_pages {
                 let page_virt = area.start + (i * 4096);
-                if let Some(parent_phys) = self.page_table.translate(page_virt) {
-                    match &area.kind {
-                        VmAreaKind::Anonymous | VmAreaKind::File { .. } => {
-                            if area.flags.contains(MapFlags::WRITE) {
-                                // COW: Mark both parent and child PTEs as Read-Only + COW
-                                let cow_flags = (area.flags & !MapFlags::WRITE) | MapFlags::COW;
+                let parent_phys = match self.page_table.translate(page_virt) {
+                    Some(p) => p,
+                    None => continue 'pages,
+                };
 
-                                if let Err(err) = self.page_table.remap(page_virt, cow_flags) {
-                                    for frame in allocated_frames {
-                                        crate::mm::PMM.free_page(frame);
-                                    }
-                                    return Err(AddrSpaceError::PagingError(err));
-                                }
-
-                                if let Err(err) =
-                                    new_page_table.map(page_virt, parent_phys, cow_flags)
-                                {
-                                    for frame in allocated_frames {
-                                        crate::mm::PMM.free_page(frame);
-                                    }
-                                    return Err(AddrSpaceError::PagingError(err));
-                                }
-
-                                crate::mm::PMM.inc_ref(parent_phys);
-                            } else {
-                                // Read-only page: share directly
-                                if let Err(err) =
-                                    new_page_table.map(page_virt, parent_phys, area.flags)
-                                {
-                                    for frame in allocated_frames {
-                                        crate::mm::PMM.free_page(frame);
-                                    }
-                                    return Err(AddrSpaceError::PagingError(err));
-                                }
-                                crate::mm::PMM.inc_ref(parent_phys);
-                            }
-                        }
-                        VmAreaKind::Device { .. } => {
-                            if let Err(err) = new_page_table.map(page_virt, parent_phys, area.flags)
-                            {
-                                for frame in allocated_frames {
-                                    crate::mm::PMM.free_page(frame);
-                                }
+                match &area.kind {
+                    VmAreaKind::Anonymous | VmAreaKind::File { .. } => {
+                        if area.flags.contains(MapFlags::WRITE) {
+                            // COW: mark parent PTE read-only + COW first.
+                            let cow_flags = (area.flags & !MapFlags::WRITE) | MapFlags::COW;
+                            if let Err(err) = self.page_table.remap(page_virt, cow_flags) {
+                                Self::rollback_clone(
+                                    &mut self.page_table,
+                                    &mut new_page_table,
+                                    &child_maps,
+                                    &self.vm_areas,
+                                );
                                 return Err(AddrSpaceError::PagingError(err));
                             }
+                            // Map the same frame into the child under COW flags.
+                            if let Err(err) = new_page_table.map(page_virt, parent_phys, cow_flags) {
+                                // Revert the parent remap we just did.
+                                let _ = self.page_table.remap(page_virt, area.flags);
+                                Self::rollback_clone(
+                                    &mut self.page_table,
+                                    &mut new_page_table,
+                                    &child_maps,
+                                    &self.vm_areas,
+                                );
+                                return Err(AddrSpaceError::PagingError(err));
+                            }
+                            crate::mm::PMM.inc_ref(parent_phys);
+                            child_maps.push((page_virt, parent_phys, true));
+                        } else {
+                            // Read-only page: share directly without COW remap.
+                            if let Err(err) = new_page_table.map(page_virt, parent_phys, area.flags) {
+                                Self::rollback_clone(
+                                    &mut self.page_table,
+                                    &mut new_page_table,
+                                    &child_maps,
+                                    &self.vm_areas,
+                                );
+                                return Err(AddrSpaceError::PagingError(err));
+                            }
+                            crate::mm::PMM.inc_ref(parent_phys);
+                            child_maps.push((page_virt, parent_phys, false));
+                        }
+                    }
+                    VmAreaKind::Device { .. } => {
+                        // Device pages are shared as-is with no refcount.
+                        if let Err(err) = new_page_table.map(page_virt, parent_phys, area.flags) {
+                            Self::rollback_clone(
+                                &mut self.page_table,
+                                &mut new_page_table,
+                                &child_maps,
+                                &self.vm_areas,
+                            );
+                            return Err(AddrSpaceError::PagingError(err));
                         }
                     }
                 }
@@ -127,6 +143,28 @@ impl<P: PageTable> AddrSpace<P> {
             page_table: new_page_table,
             vm_areas: self.vm_areas.clone(),
         })
+    }
+
+    /// Undo a partial clone on error: unmap all child pages, dec_ref their frames,
+    /// and revert any parent PTEs that were COW-remapped back to their original flags.
+    fn rollback_clone(
+        parent_pt: &mut P,
+        child_pt: &mut P,
+        child_maps: &[(VirtAddr, PhysAddr, bool)],
+        vm_areas: &alloc::collections::BTreeMap<VirtAddr, VmArea>,
+    ) {
+        for &(virt, phys, was_cow) in child_maps {
+            let _ = child_pt.unmap(virt);
+            crate::mm::PMM.dec_ref(phys);
+            if was_cow {
+                // Restore parent PTE to its original writable flags.
+                if let Some(area) = vm_areas.range(..=virt).next_back().map(|(_, a)| a) {
+                    if area.contains(virt) {
+                        let _ = parent_pt.remap(virt, area.flags);
+                    }
+                }
+            }
+        }
     }
 
     /// Efficiently lookup the VMA containing the specified virtual address ($O(\log N)$).
@@ -211,20 +249,28 @@ impl<P: PageTable> AddrSpace<P> {
                         }
                     };
                     let dest_ptr = frame.as_ptr::<u8>(hhdm);
-                    // SAFETY: Zeroing frame before populating with file contents.
-                    unsafe {
-                        core::ptr::write_bytes(dest_ptr, 0, 4096);
-                    }
 
                     let page_file_offset = offset + (i * 4096);
-                    if page_file_offset < *file_size {
+                    let bytes_written = if page_file_offset < *file_size {
                         let bytes_to_read = core::cmp::min(4096, *file_size - page_file_offset);
                         let buf_slice =
                             unsafe { core::slice::from_raw_parts_mut(dest_ptr, bytes_to_read) };
                         let _ = file.read(page_file_offset, buf_slice);
+                        bytes_to_read
+                    } else {
+                        0
+                    };
+
+                    // SAFETY: Zero only the bytes beyond what the file filled in,
+                    // avoiding a full write_bytes when the entire page came from the file.
+                    if bytes_written < 4096 {
+                        unsafe {
+                            core::ptr::write_bytes(dest_ptr.add(bytes_written), 0, 4096 - bytes_written);
+                        }
                     }
                     frame
                 }
+
             };
 
             match self.page_table.map(page_virt, frame_phys, flags) {

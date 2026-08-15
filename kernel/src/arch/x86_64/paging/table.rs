@@ -25,11 +25,13 @@ fn free_table_recursive(paddr: PhysAddr, level: usize, hhdm: u64) {
     for i in 0..limit {
         let entry = unsafe { *table.add(i) };
         if (entry & PAGE_PRESENT) != 0 {
-            // Do not recurse into huge pages (1GB at level 3, 2MB at level 2)
+            let child_phys = PhysAddr(entry & 0x000F_FFFF_FFFF_F000);
             if level > 1 && (entry & PAGE_HUGE) != 0 {
+                // Huge page leaf (2 MB at level 2, 1 GB at level 3): free the backing frame.
+                // Do not recurse — there are no sub-tables here.
+                crate::mm::PMM.free_page(child_phys);
                 continue;
             }
-            let child_phys = PhysAddr(entry & 0x000F_FFFF_FFFF_F000);
             free_table_recursive(child_phys, level - 1, hhdm);
         }
     }
@@ -60,10 +62,11 @@ impl PageTable for ArchPageTable {
         let hhdm = hhdm_offset();
         let new_pml4 = pml4_phys.as_ptr::<u64>(hhdm);
 
-        // Zero out the entire PML4 (4096 bytes) and copy the higher half (entries 256..512)
-        // to share kernel-space mappings.
+        // Zero all 512 PML4 entries (512 × 8 bytes = 4096 bytes), then copy the higher-half
+        // kernel entries (256..512) from the active page table to share kernel mappings.
         unsafe {
-            core::ptr::write_bytes(new_pml4, 0, 4096);
+            // SAFETY: write_bytes count is in units of T (u64), so 512 zeroes 4096 bytes exactly.
+            core::ptr::write_bytes(new_pml4, 0, 512);
 
             let active_phys = active_cr3();
             let active_pml4 = active_phys.as_ptr::<u64>(hhdm);
