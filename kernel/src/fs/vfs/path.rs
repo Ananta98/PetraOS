@@ -56,8 +56,7 @@ fn resolve_path_symlink(path: &str, depth: usize) -> Result<Arc<Dentry>, VfsErro
         // 3. Mount boundary traversal check
         let child_path = build_path(&dentry);
         if let Some((child_mount, _)) = mt.lookup(&child_path) {
-            if child_mount.mount_point == child_path
-                && child_mount.mount_point != mount.mount_point
+            if child_mount.mount_point == child_path && child_mount.mount_point != mount.mount_point
             {
                 current = child_mount.root_dentry.clone();
                 continue;
@@ -199,6 +198,23 @@ pub fn stat(path: &str) -> Result<super::types::Stat, VfsError> {
     dentry.inode.ops.stat()
 }
 
+/// Read the entire contents of a file at `path` from the VFS into a byte vector.
+pub fn read_file(path: &str) -> Result<alloc::vec::Vec<u8>, VfsError> {
+    let dentry = resolve_path(path)?;
+    let stat = dentry.inode.ops.stat()?;
+    let file_ops = dentry.inode.ops.open()?;
+
+    let alloc_size = if stat.size > 0 {
+        stat.size as usize
+    } else {
+        4096
+    };
+    let mut buf = alloc::vec![0u8; alloc_size];
+    let bytes_read = file_ops.read(0, &mut buf)?;
+    buf.truncate(bytes_read);
+    Ok(buf)
+}
+
 /// Rename an existing path to a new path.
 pub fn rename(old_path: &str, new_path: &str) -> Result<(), VfsError> {
     let old_slash = old_path.rfind('/').ok_or(VfsError::InvalidInput)?;
@@ -235,7 +251,6 @@ pub fn rename(old_path: &str, new_path: &str) -> Result<(), VfsError> {
 
     Ok(())
 }
-
 
 /// Build an absolute path from a dentry by walking up the parent chain.
 fn build_path(dentry: &Dentry) -> alloc::string::String {

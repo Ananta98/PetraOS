@@ -1,5 +1,5 @@
 pub mod syscall;
+pub mod table;
 
-pub fn init() {
-    log::info!("Initializing x86_64 Syscall architecture interface...");
-}
+pub use syscall::SyscallFrame;
+pub use table::SYSCALL_TABLE;

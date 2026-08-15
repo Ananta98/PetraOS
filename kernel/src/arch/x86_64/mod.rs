@@ -122,7 +122,6 @@ pub fn init() {
 
     interrupt::init(&madt_info);
     timer::init();
-    syscall::init();
 
     enable_interrupts();
 

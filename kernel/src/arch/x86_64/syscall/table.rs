@@ -1,0 +1,51 @@
+//! Architecture-specific system call numbering and dispatch table for x86_64 Linux ABI.
+
+use crate::define_syscall_table;
+use crate::syscalls::{
+    fs, ioctl, mm, proc, signals, sys_info, time,
+};
+
+// Entries in SYSCALL_TABLE must be kept sorted by system call number for binary search.
+define_syscall_table! {
+    SYS_READ          = 0   => ("read",           fs::sys_read),
+    SYS_WRITE         = 1   => ("write",          fs::sys_write),
+    SYS_OPEN          = 2   => ("open",           fs::sys_open),
+    SYS_CLOSE         = 3   => ("close",          fs::sys_close),
+    SYS_STAT          = 4   => ("stat",           fs::sys_stat),
+    SYS_FSTAT         = 5   => ("fstat",          fs::sys_fstat),
+    SYS_LSEEK         = 8   => ("lseek",          fs::sys_lseek),
+    SYS_MMAP          = 9   => ("mmap",           mm::sys_mmap),
+    SYS_MPROTECT      = 10  => ("mprotect",       mm::sys_mprotect),
+    SYS_MUNMAP        = 11  => ("munmap",         mm::sys_munmap),
+    SYS_BRK           = 12  => ("brk",            mm::sys_brk),
+    SYS_RT_SIGACTION   = 13  => ("rt_sigaction",   signals::sys_rt_sigaction),
+    SYS_RT_SIGPROCMASK = 14  => ("rt_sigprocmask", signals::sys_rt_sigprocmask),
+    SYS_RT_SIGRETURN  = 15  => ("rt_sigreturn",   signals::sys_rt_sigreturn),
+    SYS_IOCTL         = 16  => ("ioctl",          ioctl::sys_ioctl),
+    SYS_PIPE          = 22  => ("pipe",           fs::sys_pipe),
+    SYS_YIELD         = 24  => ("yield",          proc::sys_yield),
+    SYS_DUP           = 32  => ("dup",            fs::sys_dup),
+    SYS_DUP2          = 33  => ("dup2",           fs::sys_dup2),
+    SYS_GETPID        = 39  => ("getpid",         proc::sys_getpid),
+    SYS_FORK          = 57  => ("fork",           proc::sys_fork),
+    SYS_VFORK         = 58  => ("vfork",          proc::sys_vfork),
+    SYS_EXECVE        = 59  => ("execve",         proc::sys_execve),
+    SYS_EXIT          = 60  => ("exit",           proc::sys_exit),
+    SYS_WAIT4         = 61  => ("wait4",          proc::sys_wait4),
+    SYS_KILL          = 62  => ("kill",           signals::sys_kill),
+    SYS_UNAME         = 63  => ("uname",          sys_info::sys_uname),
+    SYS_FCNTL         = 72  => ("fcntl",          fs::sys_fcntl),
+    SYS_GETCWD        = 79  => ("getcwd",         fs::sys_getcwd),
+    SYS_CHDIR         = 80  => ("chdir",          fs::sys_chdir),
+    SYS_GETTIMEOFDAY  = 96  => ("gettimeofday",   time::sys_gettimeofday),
+    SYS_TIMES         = 100 => ("times",          time::sys_times),
+    SYS_SETPGID       = 109 => ("setpgid",        proc::sys_setpgid),
+    SYS_GETPPID       = 110 => ("getppid",        proc::sys_getppid),
+    SYS_GETPGRP       = 111 => ("getpgrp",        proc::sys_getpgrp),
+    SYS_ISATTY        = 215 => ("isatty",         ioctl::sys_isatty),
+    SYS_EXIT_GROUP    = 231 => ("exit_group",     proc::sys_exit_group),
+    SYS_OPENAT        = 257 => ("openat",         fs::sys_openat),
+    SYS_NEWFSTATAT    = 262 => ("newfstatat",     fs::sys_newfstatat),
+    SYS_DUP3          = 292 => ("dup3",           fs::sys_dup3),
+    SYS_PIPE2         = 293 => ("pipe2",          fs::sys_pipe2),
+}

@@ -11,30 +11,6 @@ use crate::sync::spinlock::Spinlock;
 use alloc::collections::BTreeMap;
 
 use alloc::sync::Arc;
-use alloc::vec::Vec;
-
-/// Helper to read a binary executable file from VFS paths into memory.
-pub fn read_file_from_vfs(path: &str) -> Result<Vec<u8>, &'static str> {
-    let dentry = crate::fs::resolve_path(path).map_err(|_| "File not found in VFS")?;
-    let stat = dentry.inode.ops.stat().map_err(|_| "Failed to stat file")?;
-    let file_ops = dentry
-        .inode
-        .ops
-        .open()
-        .map_err(|_| "Failed to open file ops")?;
-
-    let alloc_size = if stat.size > 0 {
-        stat.size as usize
-    } else {
-        4096
-    };
-    let mut buf = alloc::vec![0u8; alloc_size];
-    let bytes_read = file_ops
-        .read(0, &mut buf)
-        .map_err(|_| "Failed to read file data")?;
-    buf.truncate(bytes_read);
-    Ok(buf)
-}
 
 /// State of a process.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -161,7 +137,8 @@ impl Process {
             cmdline.envp().len()
         );
 
-        let binary_data = read_file_from_vfs(file_name)?;
+        let binary_data =
+            crate::fs::read_file(file_name).map_err(|_| "Failed to read binary from VFS")?;
         if binary_data.is_empty() {
             return Err("Executable file is empty");
         }
