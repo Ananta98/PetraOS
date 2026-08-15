@@ -1,6 +1,6 @@
-use super::{is_user_ptr_valid, SyscallError, SyscallResult};
+use super::{SyscallError, SyscallResult, is_user_ptr_valid};
 use crate::arch::syscall::syscall::SyscallFrame;
-use crate::ipc::signal::{is_uncatchable, SigAction, SigSet};
+use crate::ipc::signal::{SigAction, SigSet, is_uncatchable};
 
 /// `sys_kill` (SYS_KILL = 62)
 /// Sends a signal to a process or process group.

@@ -1,4 +1,4 @@
-use super::{is_user_ptr_valid, read_user_string, SyscallError, SyscallResult};
+use super::{SyscallError, SyscallResult, is_user_ptr_valid, read_user_string};
 use crate::arch::syscall::syscall::SyscallFrame;
 use crate::proc::ProcessId;
 
@@ -146,29 +146,14 @@ pub fn sys_exit_group(frame: &mut SyscallFrame) -> SyscallResult {
 /// it falls into the idle loop. Either path prevents `iretq` from firing into a
 /// dead user-space context.
 fn do_exit(code: i32) -> ! {
-    // 1. Mark the owning process as zombie (signals children, sets exit code).
     if let Some(proc_arc) = crate::proc::current_process() {
         proc_arc.lock().exit(code);
     }
-
-    // 2. Mark the current thread as zombie (sets exit_code, state = Zombie).
-    //    Do NOT call schedule() here; we do it once below so we fully control
-    //    the context-switch path.
     if let Some(thread_arc) = crate::proc::current_thread() {
         let mut t = thread_arc.lock();
         t.state = crate::proc::ThreadState::Zombie;
         t.exit_code = Some(code as u32);
     }
-
-    // 3. Remove ourselves from the scheduler's current-thread slot and switch
-    //    to the next runnable thread.  schedule(false) calls block_current(),
-    //    which sets current_threads[cpu] = None, then picks the next thread.
-    //    If another thread exists, switch_context() diverges (never returns here).
-    //    If no threads remain, the (Some(_prev), None) arm calls idle().
     crate::sched::schedule(false);
-
-    // Unreachable: schedule(false) either context-switches away permanently or
-    // calls idle() which loops forever.  The compiler cannot verify this, so we
-    // satisfy the `-> !` return type explicitly.
     crate::arch::idle()
 }

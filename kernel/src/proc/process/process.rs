@@ -1,14 +1,14 @@
 use super::cmdline::CommandLine;
-use super::pid::{next_pid, ProcessId};
+use super::pid::{ProcessId, next_pid};
 use super::process_table::{register_process, unregister_process};
 use crate::arch::paging::ArchPageTable;
+use crate::fs::FdTable;
 use crate::ipc::signal::{MAX_SIGNALS, PendingSignals, SigAction};
 use crate::mm::PageTable;
 use crate::mm::vmm::AddrSpace;
 use crate::proc::thread::{Thread, ThreadId, ThreadState};
 use crate::sync::spinlock::Spinlock;
 use alloc::collections::BTreeMap;
-use crate::fs::FdTable;
 
 use alloc::sync::Arc;
 use alloc::vec::Vec;
@@ -17,11 +17,21 @@ use alloc::vec::Vec;
 pub fn read_file_from_vfs(path: &str) -> Result<Vec<u8>, &'static str> {
     let dentry = crate::fs::resolve_path(path).map_err(|_| "File not found in VFS")?;
     let stat = dentry.inode.ops.stat().map_err(|_| "Failed to stat file")?;
-    let file_ops = dentry.inode.ops.open().map_err(|_| "Failed to open file ops")?;
+    let file_ops = dentry
+        .inode
+        .ops
+        .open()
+        .map_err(|_| "Failed to open file ops")?;
 
-    let alloc_size = if stat.size > 0 { stat.size as usize } else { 4096 };
+    let alloc_size = if stat.size > 0 {
+        stat.size as usize
+    } else {
+        4096
+    };
     let mut buf = alloc::vec![0u8; alloc_size];
-    let bytes_read = file_ops.read(0, &mut buf).map_err(|_| "Failed to read file data")?;
+    let bytes_read = file_ops
+        .read(0, &mut buf)
+        .map_err(|_| "Failed to read file data")?;
     buf.truncate(bytes_read);
     Ok(buf)
 }
@@ -179,7 +189,12 @@ impl Process {
             | crate::mm::MapFlags::USER;
 
         addr_space
-            .map_area(code_vaddr, 4096, code_flags, crate::mm::VmAreaKind::Anonymous)
+            .map_area(
+                code_vaddr,
+                4096,
+                code_flags,
+                crate::mm::VmAreaKind::Anonymous,
+            )
             .map_err(|_| "Failed to map user code VMA")?;
 
         let code_phys = addr_space
@@ -201,7 +216,12 @@ impl Process {
             crate::mm::MapFlags::READ | crate::mm::MapFlags::WRITE | crate::mm::MapFlags::USER;
 
         addr_space
-            .map_area(stack_vaddr, 4096, stack_flags, crate::mm::VmAreaKind::Anonymous)
+            .map_area(
+                stack_vaddr,
+                4096,
+                stack_flags,
+                crate::mm::VmAreaKind::Anonymous,
+            )
             .map_err(|_| "Failed to map user stack VMA")?;
 
         drop(addr_space_guard);
@@ -228,11 +248,7 @@ impl Process {
             .map_err(|_| "Failed to clone address space for child process")?;
 
         let child_addr_space_arc = Arc::new(Spinlock::new(child_addr_space));
-        let child_cr3 = child_addr_space_arc
-            .lock()
-            .page_table()
-            .root()
-            .as_u64() as usize;
+        let child_cr3 = child_addr_space_arc.lock().page_table().root().as_u64() as usize;
 
         // 2. Initialize child process structure
         let mut child_proc = Process::new(child_pid, p_lock.pid)?;
@@ -325,9 +341,7 @@ impl Process {
 
         // Determine the TID of the currently-running thread on this CPU.
         let cpu_id = crate::arch::cpu_id();
-        let current_tid = crate::sched::SCHEDULER
-            .lock()
-            .current_threads[cpu_id as usize]
+        let current_tid = crate::sched::SCHEDULER.lock().current_threads[cpu_id as usize]
             .as_ref()
             .map(|t| t.lock().tid);
 
@@ -348,12 +362,14 @@ impl Process {
         if saved_flags {
             crate::arch::enable_interrupts();
         }
-        // Do NOT clear self.threads here. current_thread() must remain valid
-        // until schedule(false) switches context away in do_exit.
     }
 
     /// Update signal action for a given signal number (sigaction semantics).
-    pub fn sigaction(&mut self, sig: u8, act: Option<SigAction>) -> Result<SigAction, &'static str> {
+    pub fn sigaction(
+        &mut self,
+        sig: u8,
+        act: Option<SigAction>,
+    ) -> Result<SigAction, &'static str> {
         if sig == 0 || sig > 64 {
             return Err("Invalid signal number");
         }
