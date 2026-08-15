@@ -27,30 +27,107 @@ All AI agents must strictly adhere to the following behavioral rules during deve
 * **Verifiable Steps**: Define clear success criteria before writing code.
 * **Test-Driven Mentality**: Create tests that reproduce bugs or verify new functionality, and ensure they pass before concluding the task.
 
+### 1.5 Git Authorship, Patch Metadata & Committer Policy (Strict Human Attribution)
+* **Human Git Committer Identity**: All git commits, patch headers, package manifests, and module metadata must attribute the human git committer / repository maintainer (from `git config user.name` and `git config user.email`), **NEVER** an AI Agent.
+* **No AI Patch Author / Email**: In patch series (`From: ...`), xbstrap configurations (`bootstrap.yml`, `packages/**/*.yml` with `patch_author` and `patch_email`), never use names like `"AI Agent"`, `"PetraOS Agent"`, `"Antigravity"`, `"ChatGPT"`, `"Claude"`, or synthetic bot emails (e.g., `agent@petraos.dev`). Always use the human committer's name and email.
+* **Module Creator & File Headers**: Any source file headers, module creator tags (`@author`), or documentation author fields must specify the human developer/maintainer as the creator, not an AI persona.
+
 ---
 
 ## 2. Directory Structure & Architecture
 
-To maintain a clean and easily maintainable codebase, the modular monolithic architecture of PetraOS must organize its kernel space into the following directories:
+To maintain a clean and easily maintainable codebase, the modular monolithic architecture of PetraOS organizes the repository and kernel space into the following directory layout:
 
+### 2.1 Repository Structure
 ```
 petraos/
-├── kernel/
-│   ├── src/
-│   ├── arch/       # CPU architecture-specific code (e.g., x86_64, aarch64)
-|   ├── fs/         # File systems (e.g., FAT, NTFS, ext4)
-|   ├── ipc/        # Inter-process communication (e.g., pipes, message queues, shared memory)
-│   ├── drivers/    # Hardware device drivers (e.g., serial, vga, timer, keyboard)
-│   ├── sched/      # Process scheduling algorithms (e.g., Round Robin, Priority, CFS)
-│   ├── syscalls/   # Kernel system call interface and handlers
-│   ├── proc/       # Process and thread management (PCBs, context switching)
-│   ├── sync/       # Synchronization primitives (e.g., mutexes, semaphores, condition variables)
-│   ├── net/        # Networking stack (e.g., TCP/IP, UDP, Ethernet)
-│   ├── mm/         # Memory management (physical, virtual, heap allocator)
-│   ├── limine.rs   # Limine protocol variables related
-|   ├── logger.rs   # Logging related
-│   └── main.rs     # Main entry for Petra operating system
-└── userspace/      # User-space libraries, runtimes, and applications
+├── kernel/             # Rust kernel crate (#![no_std], #![no_main])
+│   ├── src/            # Kernel source code (modular subsystems)
+│   ├── Cargo.toml      # Kernel cargo manifest
+│   ├── build.rs        # Kernel build script
+│   ├── linker-*.ld     # Architecture-specific linker scripts (x86_64, aarch64)
+│   └── GNUmakefile     # Kernel build rules
+├── mlibc/              # C standard library port (sysdeps/petra)
+├── packages/           # Userland package definitions & patches (xbstrap ports)
+│   ├── bash/           # GNU Bash port & recipe
+│   ├── gcc/            # GCC toolchain recipe
+│   ├── mlibc/          # mlibc package manifest & port patches
+│   └── readline/       # Readline port & recipe
+├── cross-files/        # Meson cross-compilation configurations for targets
+├── tools/              # Build scripts, initramfs generator (create_initramfs.sh)
+├── initramfs_root/     # Staging root filesystem directory for initramfs
+├── limine/             # Limine bootloader binary assets
+├── limine.conf         # Limine bootloader configuration
+├── bootstrap.yml       # xbstrap build orchestration manifest
+└── GNUmakefile         # Top-level orchestrator for kernel, ISO, initramfs & QEMU
+```
+
+### 2.2 Kernel Subsystem Architecture (`kernel/src/`)
+```
+kernel/src/
+├── arch/               # CPU architecture-specific code (x86_64, aarch64)
+│   └── x86_64/         # GDT, IDT, ACPI, CPU state, interrupts, paging, signals, syscall entry, timer
+├── device/             # Unified device model, bus management, driver traits & device manager
+├── drivers/            # Hardware device drivers by category
+│   ├── block/          # Block storage drivers (AHCI, NVMe, etc.)
+│   ├── bus/            # Bus drivers (PCI, PCIe, etc.)
+│   ├── char/           # Character devices (serial 16550 UART, console, etc.)
+│   ├── gpu/            # Framebuffer & display drivers
+│   ├── net/            # Network interface card drivers
+│   └── time/           # Hardware timers (RTC, PIT, HPET, APIC timer)
+├── fs/                 # Virtual File System (VFS) & concrete/pseudo filesystems
+│   ├── vfs/            # VFS core, inode, dentry, mount points, file operations
+│   ├── devfs.rs        # Device filesystem (/dev)
+│   ├── ext2/           # Ext2 filesystem driver
+│   ├── fd.rs           # Process file descriptor table management
+│   ├── initramfs.rs    # CPIO initramfs loader and mounting
+│   ├── ioctl.rs        # IOCTL dispatcher and device control handlers
+│   ├── pipe.rs         # Anonymous and named UNIX pipe implementation
+│   └── ramfs.rs        # In-memory RAM filesystem
+├── ipc/                # Inter-process communication
+│   ├── signal.rs       # POSIX signal delivery, handling & sigaction
+│   └── ...             # Pipes, queues, shared memory primitives
+├── mm/                 # Memory management subsystem
+│   ├── alloc/          # Dynamic heap allocator (slab, buddy, bump)
+│   ├── pmm/            # Physical Memory Manager (page frame allocator, bitmap/buddy)
+│   ├── types/          # Strongly-typed PhysicalAddress, VirtualAddress, Page, Frame
+│   └── vmm/            # Virtual Memory Manager (page tables, address space, mmap)
+├── modules/            # Kernel module & extension subsystem
+│   ├── initcall.rs     # Level-based initcall mechanism (early, core, driver, late)
+│   ├── manager.rs      # Dynamic module lifecycle manager
+│   └── module.rs       # Module metadata, registration traits & descriptors
+├── net/                # Network subsystem and protocol stack (sockets, TCP/IP, UDP, Ethernet)
+├── proc/               # Process and thread management
+│   ├── loader/         # ELF64 binary loader and auxiliary vector setup
+│   ├── process/        # Process Control Block (PCB), PID allocation, process hierarchy
+│   └── thread/         # Thread Control Block (TCB), kernel/user threads, context switching
+├── sched/              # Process scheduling subsystem
+│   ├── fair.rs         # Completely Fair Scheduler (CFS) implementation
+│   ├── nice.rs         # POSIX nice levels & dynamic weight calculations
+│   └── mod.rs          # Scheduler core, runqueues, context switch dispatcher
+├── security/           # Access control, credentials, UID/GID, POSIX capabilities
+├── sync/               # Kernel synchronization primitives
+│   ├── futex.rs        # Fast Userspace Mutex (futex) wait/wake implementation
+│   ├── mutex.rs        # Kernel blocking mutex
+│   ├── rwlock.rs       # Read-Write Lock
+│   └── spinlock.rs     # Ticket / atomic spinlock
+├── syscalls/           # System call dispatcher and handler implementations
+│   ├── arch_prctl.rs   # Architecture-specific process control (FS_BASE/GS_BASE)
+│   ├── fs.rs           # Filesystem syscalls (open, read, write, close, stat, etc.)
+│   ├── ioctl.rs        # Device ioctl syscall handler
+│   ├── mm.rs           # Memory syscalls (mmap, munmap, mprotect, brk)
+│   ├── proc.rs         # Process syscalls (fork, execve, exit, wait4, getpid)
+│   ├── signals.rs      # Signal syscalls (sigaction, kill, sigprocmask)
+│   ├── sync.rs         # Synchronization syscalls (futex)
+│   ├── sys_info.rs     # System information syscalls (uname, sysinfo)
+│   ├── time.rs         # Time syscalls (clock_gettime, nanosleep)
+│   └── mod.rs          # Central syscall dispatcher table and argument decoding
+├── utils/              # Utility helpers
+│   ├── cpio.rs         # CPIO archive unpacker for initramfs
+│   └── mod.rs          # General utility functions
+├── limine.rs           # Limine boot protocol request structures & boot info
+├── logger.rs           # Serial port logger & kernel console output
+└── main.rs             # Kernel entry point (`kmain`) and initialization sequence
 ```
 
 ---
