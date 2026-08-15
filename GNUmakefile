@@ -46,13 +46,6 @@ mlibc: xbstrap-init
 bash: xbstrap-init mlibc
 	(cd $(BUILD_DIR_XBSTRAP) && $(XBSTRAP) install bash)
 
-.PHONY: userspace
-userspace: mlibc
-	@if [ -d userspace ] && [ -f userspace/Makefile ]; then \
-		$(MAKE) -C userspace install; \
-	fi
-	@$(MAKE) sync-initramfs
-
 .PHONY: sync-initramfs
 sync-initramfs:
 	@mkdir -p initramfs_root/bin initramfs_root/sbin initramfs_root/lib initramfs_root/usr/bin initramfs_root/usr/lib
@@ -70,11 +63,9 @@ clean-userspace:
 	rm -rf $(BUILD_DIR_XBSTRAP)
 
 .PHONY: initramfs
-initramfs: userspace initramfs.cpio
+initramfs: sync-initramfs initramfs.cpio
 
-USERSPACE_DEPS := $(wildcard userspace/*/*.c userspace/*/*.h userspace/Makefile)
-
-initramfs.cpio: userspace tools/create_initramfs.sh $(USERSPACE_DEPS) $(shell find initramfs_root -type f 2>/dev/null)
+initramfs.cpio: sync-initramfs tools/create_initramfs.sh $(shell find initramfs_root -type f 2>/dev/null)
 	@if [ -f tools/create_initramfs.sh ]; then \
 		chmod +x tools/create_initramfs.sh && ./tools/create_initramfs.sh; \
 	fi
@@ -282,7 +273,6 @@ endif
 .PHONY: clean
 clean:
 	$(MAKE) -C kernel clean
-	@if [ -d userspace ] && [ -f userspace/Makefile ]; then $(MAKE) -C userspace clean; fi
 	rm -rf iso_root $(IMAGE_NAME).iso $(IMAGE_NAME).hdd initramfs.cpio
 
 .PHONY: distclean
