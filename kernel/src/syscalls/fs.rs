@@ -1,9 +1,24 @@
-use super::{is_user_ptr_valid, read_user_string, SyscallError, SyscallResult};
+use super::{SyscallError, SyscallResult, is_user_ptr_valid, read_user_string};
 use crate::arch::syscall::syscall::SyscallFrame;
 use crate::fs::vfs::types::{File, LinuxStat, O_CREAT, O_RDONLY, O_WRONLY, SeekWhence, Stat};
 use alloc::sync::Arc;
 
 pub const AT_FDCWD: i32 = -100;
+
+pub const O_CLOEXEC: u32 = 0x80000;
+pub const O_NONBLOCK: u32 = 0x800;
+
+pub const F_DUPFD: i32 = 0;
+pub const F_GETFD: i32 = 1;
+pub const F_SETFD: i32 = 2;
+pub const F_GETFL: i32 = 3;
+pub const F_SETFL: i32 = 4;
+pub const F_GETLK: i32 = 5;
+pub const F_SETLK: i32 = 6;
+pub const F_SETLKW: i32 = 7;
+pub const F_SETOWN: i32 = 8;
+pub const F_GETOWN: i32 = 9;
+pub const F_DUPFD_CLOEXEC: i32 = 1030;
 
 /// `sys_read` (SYS_READ = 0)
 /// Read from a file descriptor.
@@ -222,7 +237,7 @@ pub fn sys_dup2(frame: &mut SyscallFrame) -> SyscallResult {
     let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
     let proc = proc_arc.lock();
     let file = proc.fd_table.get(oldfd)?;
-    proc.fd_table.set(newfd, file)?;
+    proc.fd_table.set_with_flags(newfd, file, 0)?;
 
     Ok(newfd as usize)
 }
@@ -232,48 +247,84 @@ pub fn sys_dup2(frame: &mut SyscallFrame) -> SyscallResult {
 pub fn sys_dup3(frame: &mut SyscallFrame) -> SyscallResult {
     let oldfd = frame.arg1() as i32;
     let newfd = frame.arg2() as i32;
+    let flags = frame.arg3() as u32;
 
-    if oldfd == newfd {
+    if oldfd == newfd || oldfd < 0 || newfd < 0 {
         return Err(SyscallError::EINVAL);
     }
-    sys_dup2(frame)
+
+    let cloexec = if (flags & O_CLOEXEC) != 0 {
+        crate::fs::fd::FD_CLOEXEC
+    } else {
+        0
+    };
+
+    let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
+    let proc = proc_arc.lock();
+    let file = proc.fd_table.get(oldfd)?;
+    proc.fd_table.set_with_flags(newfd, file, cloexec)?;
+
+    Ok(newfd as usize)
 }
 
 /// `sys_pipe` (SYS_PIPE = 22)
 /// Create an anonymous inter-process pipe.
 pub fn sys_pipe(frame: &mut SyscallFrame) -> SyscallResult {
     let pipefd = frame.arg1() as *mut i32;
+
     if !is_user_ptr_valid(pipefd as u64, 2 * core::mem::size_of::<i32>()) {
         return Err(SyscallError::EFAULT);
     }
 
+    let (f_read, f_write) = crate::fs::pipe::create_pipe(false)?;
+
     let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
     let proc = proc_arc.lock();
 
-    if let Ok(dentry) = crate::fs::resolve_path("/") {
-        if let Ok(file_ops) = dentry.inode.ops.open() {
-            let f_read = Arc::new(File::new(dentry.clone(), O_RDONLY, file_ops.clone()));
-            let f_write = Arc::new(File::new(dentry, O_WRONLY, file_ops));
+    let r_fd = proc.fd_table.alloc(f_read);
+    let w_fd = proc.fd_table.alloc(f_write);
 
-            let r_fd = proc.fd_table.alloc(f_read);
-            let w_fd = proc.fd_table.alloc(f_write);
-
-            // SAFETY: User pipefd pointer range validated within Ring 3 address bounds.
-            unsafe {
-                core::ptr::write_volatile(pipefd, r_fd);
-                core::ptr::write_volatile(pipefd.add(1), w_fd);
-            }
-            return Ok(0);
-        }
+    // SAFETY: User pipefd pointer range validated within Ring 3 address bounds.
+    unsafe {
+        core::ptr::write_volatile(pipefd, r_fd);
+        core::ptr::write_volatile(pipefd.add(1), w_fd);
     }
 
-    Err(SyscallError::EMFILE)
+    Ok(0)
 }
 
 /// `sys_pipe2` (SYS_PIPE2 = 293)
 /// Create an anonymous pipe with flags.
 pub fn sys_pipe2(frame: &mut SyscallFrame) -> SyscallResult {
-    sys_pipe(frame)
+    let pipefd = frame.arg1() as *mut i32;
+    let flags = frame.arg2() as u32;
+
+    if !is_user_ptr_valid(pipefd as u64, 2 * core::mem::size_of::<i32>()) {
+        return Err(SyscallError::EFAULT);
+    }
+
+    let nonblocking = (flags & O_NONBLOCK) != 0;
+    let cloexec = if (flags & O_CLOEXEC) != 0 {
+        crate::fs::fd::FD_CLOEXEC
+    } else {
+        0
+    };
+
+    let (f_read, f_write) = crate::fs::pipe::create_pipe(nonblocking)?;
+
+    let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
+    let proc = proc_arc.lock();
+
+    let r_fd = proc.fd_table.alloc_with_flags(f_read, cloexec);
+    let w_fd = proc.fd_table.alloc_with_flags(f_write, cloexec);
+
+    // SAFETY: User pipefd pointer range validated within Ring 3 address bounds.
+    unsafe {
+        core::ptr::write_volatile(pipefd, r_fd);
+        core::ptr::write_volatile(pipefd.add(1), w_fd);
+    }
+
+    Ok(0)
 }
 
 /// `sys_getcwd` (SYS_GETCWD = 79)
@@ -326,6 +377,7 @@ pub fn sys_chdir(frame: &mut SyscallFrame) -> SyscallResult {
 pub fn sys_fcntl(frame: &mut SyscallFrame) -> SyscallResult {
     let fd = frame.arg1() as i32;
     let cmd = frame.arg2() as i32;
+    let arg = frame.arg3();
 
     if fd < 0 {
         return Err(SyscallError::EBADF);
@@ -333,10 +385,43 @@ pub fn sys_fcntl(frame: &mut SyscallFrame) -> SyscallResult {
 
     let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
     let proc = proc_arc.lock();
-    let file = proc.fd_table.get(fd)?;
 
     match cmd {
-        0 => Ok(proc.fd_table.alloc(file) as usize), // F_DUPFD
+        F_DUPFD => {
+            let min_fd = arg as i32;
+            if min_fd < 0 {
+                return Err(SyscallError::EINVAL);
+            }
+            let file = proc.fd_table.get(fd)?;
+            let new_fd = proc.fd_table.alloc_from(min_fd, file, 0)?;
+            Ok(new_fd as usize)
+        }
+        F_DUPFD_CLOEXEC => {
+            let min_fd = arg as i32;
+            if min_fd < 0 {
+                return Err(SyscallError::EINVAL);
+            }
+            let file = proc.fd_table.get(fd)?;
+            let new_fd = proc
+                .fd_table
+                .alloc_from(min_fd, file, crate::fs::fd::FD_CLOEXEC)?;
+            Ok(new_fd as usize)
+        }
+        F_GETFD => {
+            let flags = proc.fd_table.get_flags(fd)?;
+            Ok(flags as usize)
+        }
+        F_SETFD => {
+            let flags = arg as u32;
+            proc.fd_table.set_flags(fd, flags)?;
+            Ok(0)
+        }
+        F_GETFL => {
+            let file = proc.fd_table.get(fd)?;
+            Ok(file.flags as usize)
+        }
+        F_SETFL => Ok(0),
+        F_GETLK | F_SETLK | F_SETLKW | F_SETOWN | F_GETOWN => Ok(0),
         _ => Ok(0),
     }
 }
@@ -368,6 +453,35 @@ pub fn sys_openat(frame: &mut SyscallFrame) -> SyscallResult {
     Ok(fd as usize)
 }
 
+/// `sys_access` (SYS_ACCESS = 21)
+/// Check user's permissions for a file.
+pub fn sys_access(frame: &mut SyscallFrame) -> SyscallResult {
+    let path_ptr = frame.arg1() as *const u8;
+    let mode = frame.arg2() as i32;
+
+    if mode < 0 || mode > 7 {
+        return Err(SyscallError::EINVAL);
+    }
+
+    let path = unsafe { read_user_string(path_ptr, 256)? };
+    let _dentry = crate::fs::resolve_path(&path)?;
+
+    Ok(0)
+}
+
+/// `sys_umask` (SYS_UMASK = 95)
+/// Set file mode creation mask.
+pub fn sys_umask(frame: &mut SyscallFrame) -> SyscallResult {
+    let mask = frame.arg1() as u32;
+
+    let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
+    let mut proc = proc_arc.lock();
+    let old_mask = proc.umask;
+    proc.umask = mask & 0o777;
+
+    Ok(old_mask as usize)
+}
+
 /// `sys_newfstatat` (SYS_NEWFSTATAT = 262)
 /// Get file status relative to directory descriptor.
 pub fn sys_newfstatat(frame: &mut SyscallFrame) -> SyscallResult {
@@ -387,6 +501,24 @@ pub fn sys_newfstatat(frame: &mut SyscallFrame) -> SyscallResult {
     unsafe {
         core::ptr::write_volatile(statbuf, linux_stat);
     }
+
+    Ok(0)
+}
+
+/// `sys_faccessat` (SYS_FACCESSAT = 269)
+/// Check user's permissions for a file relative to a directory file descriptor.
+pub fn sys_faccessat(frame: &mut SyscallFrame) -> SyscallResult {
+    let _dfd = frame.arg1() as i32;
+    let path_ptr = frame.arg2() as *const u8;
+    let mode = frame.arg3() as i32;
+    let _flags = frame.arg4() as i32;
+
+    if mode < 0 || mode > 7 {
+        return Err(SyscallError::EINVAL);
+    }
+
+    let path = unsafe { read_user_string(path_ptr, 256)? };
+    let _dentry = crate::fs::resolve_path(&path)?;
 
     Ok(0)
 }

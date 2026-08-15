@@ -30,9 +30,6 @@ SYSROOT := $(BUILD_DIR_XBSTRAP)/system-root
 .PHONY: xbstrap-init
 xbstrap-init:
 	@mkdir -p $(BUILD_DIR_XBSTRAP)
-	@if [ ! -L patches ] && [ ! -d patches ]; then \
-		ln -sf packages patches; \
-	fi
 	@if [ ! -f $(BUILD_DIR_XBSTRAP)/bootstrap.link ]; then \
 		(cd $(BUILD_DIR_XBSTRAP) && $(XBSTRAP) init ..); \
 	fi

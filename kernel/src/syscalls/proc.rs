@@ -59,6 +59,184 @@ pub fn sys_setpgid(frame: &mut SyscallFrame) -> SyscallResult {
     Ok(0)
 }
 
+/// `sys_getuid` (SYS_GETUID = 102)
+/// Get real user ID.
+pub fn sys_getuid(_frame: &mut SyscallFrame) -> SyscallResult {
+    let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
+    let proc = proc_arc.lock();
+    Ok(proc.uid as usize)
+}
+
+/// `sys_getgid` (SYS_GETGID = 104)
+/// Get real group ID.
+pub fn sys_getgid(_frame: &mut SyscallFrame) -> SyscallResult {
+    let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
+    let proc = proc_arc.lock();
+    Ok(proc.gid as usize)
+}
+
+/// `sys_setuid` (SYS_SETUID = 105)
+/// Set user ID.
+pub fn sys_setuid(frame: &mut SyscallFrame) -> SyscallResult {
+    let uid = frame.arg1() as u32;
+    let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
+    let mut proc = proc_arc.lock();
+    proc.uid = uid;
+    proc.euid = uid;
+    Ok(0)
+}
+
+/// `sys_setgid` (SYS_SETGID = 106)
+/// Set group ID.
+pub fn sys_setgid(frame: &mut SyscallFrame) -> SyscallResult {
+    let gid = frame.arg1() as u32;
+    let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
+    let mut proc = proc_arc.lock();
+    proc.gid = gid;
+    proc.egid = gid;
+    Ok(0)
+}
+
+/// `sys_geteuid` (SYS_GETEUID = 107)
+/// Get effective user ID.
+pub fn sys_geteuid(_frame: &mut SyscallFrame) -> SyscallResult {
+    let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
+    let proc = proc_arc.lock();
+    Ok(proc.euid as usize)
+}
+
+/// `sys_getegid` (SYS_GETEGID = 108)
+/// Get effective group ID.
+pub fn sys_getegid(_frame: &mut SyscallFrame) -> SyscallResult {
+    let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
+    let proc = proc_arc.lock();
+    Ok(proc.egid as usize)
+}
+
+/// `sys_setsid` (SYS_SETSID = 112)
+/// Creates a new session if the calling process is not a process group leader.
+pub fn sys_setsid(_frame: &mut SyscallFrame) -> SyscallResult {
+    let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
+    let mut proc = proc_arc.lock();
+    proc.pgid = proc.pid;
+    Ok(proc.pid.as_u64() as usize)
+}
+
+/// `sys_getgroups` (SYS_GETGROUPS = 115)
+/// Get list of supplementary group IDs.
+pub fn sys_getgroups(frame: &mut SyscallFrame) -> SyscallResult {
+    let size = frame.arg1() as i32;
+    let list_ptr = frame.arg2() as *mut u32;
+
+    if size < 0 {
+        return Err(SyscallError::EINVAL);
+    }
+    if size == 0 {
+        return Ok(1);
+    }
+    if !is_user_ptr_valid(list_ptr as u64, core::mem::size_of::<u32>()) {
+        return Err(SyscallError::EFAULT);
+    }
+
+    let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
+    let proc = proc_arc.lock();
+    let gid = proc.gid;
+    drop(proc);
+
+    // SAFETY: Validated user memory pointer bounds.
+    unsafe {
+        core::ptr::write_volatile(list_ptr, gid);
+    }
+    Ok(1)
+}
+
+/// Linux 64-bit resource limit structure.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct RLimit64 {
+    pub rlim_cur: u64,
+    pub rlim_max: u64,
+}
+
+const RLIM_INFINITY: u64 = !0u64;
+
+fn get_default_rlimit(resource: i32) -> RLimit64 {
+    match resource {
+        3 /* RLIMIT_STACK */ => RLimit64 {
+            rlim_cur: 8 * 1024 * 1024,
+            rlim_max: 64 * 1024 * 1024,
+        },
+        7 /* RLIMIT_NOFILE */ => RLimit64 {
+            rlim_cur: 1024,
+            rlim_max: 4096,
+        },
+        6 /* RLIMIT_NPROC */ => RLimit64 {
+            rlim_cur: 4096,
+            rlim_max: 4096,
+        },
+        _ => RLimit64 {
+            rlim_cur: RLIM_INFINITY,
+            rlim_max: RLIM_INFINITY,
+        },
+    }
+}
+
+/// `sys_getrlimit` (SYS_GETRLIMIT = 97)
+/// Get resource limits.
+pub fn sys_getrlimit(frame: &mut SyscallFrame) -> SyscallResult {
+    let resource = frame.arg1() as i32;
+    let rlim_ptr = frame.arg2() as *mut RLimit64;
+
+    if !is_user_ptr_valid(rlim_ptr as u64, core::mem::size_of::<RLimit64>()) {
+        return Err(SyscallError::EFAULT);
+    }
+
+    let limit = get_default_rlimit(resource);
+    // SAFETY: Validated user memory pointer bounds.
+    unsafe {
+        core::ptr::write_volatile(rlim_ptr, limit);
+    }
+    Ok(0)
+}
+
+/// `sys_setrlimit` (SYS_SETRLIMIT = 160)
+/// Set resource limits.
+pub fn sys_setrlimit(frame: &mut SyscallFrame) -> SyscallResult {
+    let _resource = frame.arg1() as i32;
+    let rlim_ptr = frame.arg2() as *const RLimit64;
+
+    if !is_user_ptr_valid(rlim_ptr as u64, core::mem::size_of::<RLimit64>()) {
+        return Err(SyscallError::EFAULT);
+    }
+    Ok(0)
+}
+
+/// `sys_prlimit64` (SYS_PRLIMIT64 = 302)
+/// Get/set resource limits of an arbitrary process.
+pub fn sys_prlimit64(frame: &mut SyscallFrame) -> SyscallResult {
+    let _pid = frame.arg1() as i32;
+    let resource = frame.arg2() as i32;
+    let new_limit_ptr = frame.arg3() as *const RLimit64;
+    let old_limit_ptr = frame.arg4() as *mut RLimit64;
+
+    if !new_limit_ptr.is_null() && !is_user_ptr_valid(new_limit_ptr as u64, core::mem::size_of::<RLimit64>()) {
+        return Err(SyscallError::EFAULT);
+    }
+
+    if !old_limit_ptr.is_null() {
+        if !is_user_ptr_valid(old_limit_ptr as u64, core::mem::size_of::<RLimit64>()) {
+            return Err(SyscallError::EFAULT);
+        }
+        let limit = get_default_rlimit(resource);
+        // SAFETY: Validated user memory pointer bounds.
+        unsafe {
+            core::ptr::write_volatile(old_limit_ptr, limit);
+        }
+    }
+
+    Ok(0)
+}
+
 /// `sys_fork` (SYS_FORK = 57)
 /// Create a child process (POSIX fork).
 pub fn sys_fork(_frame: &mut SyscallFrame) -> SyscallResult {
@@ -96,22 +274,39 @@ pub fn sys_execve(frame: &mut SyscallFrame) -> SyscallResult {
     Ok(0)
 }
 
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct RUsage {
+    pub ru_utime: crate::syscalls::time::TimeVal,
+    pub ru_stime: crate::syscalls::time::TimeVal,
+    pub ru_maxrss: i64,
+    pub ru_ixrss: i64,
+    pub ru_idrss: i64,
+    pub ru_isrss: i64,
+    pub ru_minflt: i64,
+    pub ru_majflt: i64,
+    pub ru_nswap: i64,
+    pub ru_inblock: i64,
+    pub ru_oublock: i64,
+    pub ru_msgsnd: i64,
+    pub ru_msgrcv: i64,
+    pub ru_nsignals: i64,
+    pub ru_nvcsw: i64,
+    pub ru_nivcsw: i64,
+}
+
 /// `sys_wait4` (SYS_WAIT4 = 61)
-/// Wait for process state change.
+/// Wait for process state change (POSIX wait4).
 pub fn sys_wait4(frame: &mut SyscallFrame) -> SyscallResult {
     let pid_raw = frame.arg1() as i32;
     let wstatus = frame.arg2() as *mut i32;
-
-    if pid_raw <= 0 {
-        return Err(SyscallError::ECHILD);
-    }
+    let options = frame.arg3() as i32;
+    let rusage_ptr = frame.arg4() as *mut RUsage;
 
     let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
     let mut proc = proc_arc.lock();
 
-    let status = proc
-        .wait(ProcessId(pid_raw as u64))
-        .map_err(|_| SyscallError::ECHILD)?;
+    let (child_pid, status) = proc.wait4(pid_raw, options)?;
 
     if !wstatus.is_null() && is_user_ptr_valid(wstatus as u64, core::mem::size_of::<i32>()) {
         // SAFETY: User pointer validated within Ring 3 address bounds.
@@ -120,7 +315,14 @@ pub fn sys_wait4(frame: &mut SyscallFrame) -> SyscallResult {
         }
     }
 
-    Ok(pid_raw as usize)
+    if !rusage_ptr.is_null() && is_user_ptr_valid(rusage_ptr as u64, core::mem::size_of::<RUsage>()) {
+        // SAFETY: User pointer validated within Ring 3 address bounds.
+        unsafe {
+            core::ptr::write_volatile(rusage_ptr, RUsage::default());
+        }
+    }
+
+    Ok(child_pid.as_u64() as usize)
 }
 
 /// `sys_exit` (SYS_EXIT = 60)

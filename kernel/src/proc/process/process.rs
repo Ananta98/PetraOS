@@ -60,6 +60,21 @@ pub struct Process {
     /// Threads running in this process
     pub threads: BTreeMap<ThreadId, Arc<Spinlock<Thread>>>,
 
+    /// User ID (UID)
+    pub uid: u32,
+
+    /// Effective User ID (EUID)
+    pub euid: u32,
+
+    /// Group ID (GID)
+    pub gid: u32,
+
+    /// Effective Group ID (EGID)
+    pub egid: u32,
+
+    /// File mode creation mask (umask)
+    pub umask: u32,
+
     /// Per-process file descriptor table
     pub fd_table: Arc<FdTable>,
 
@@ -100,6 +115,11 @@ impl Process {
             pending_signals: PendingSignals::new(),
             children: BTreeMap::new(),
             threads: BTreeMap::new(),
+            uid: 0,
+            euid: 0,
+            gid: 0,
+            egid: 0,
+            umask: 0o022,
             fd_table: Arc::new(crate::fs::FdTable::new()),
             heap_start: crate::arch::userspace::USER_HEAP_VBASE,
             heap_brk: crate::arch::userspace::USER_HEAP_VBASE,
@@ -143,12 +163,52 @@ impl Process {
             return Err("Executable file is empty");
         }
 
-        // 1. Try loading as ELF binary
+        // 1. Shebang (`#!`) script interpreter support
+        if binary_data.starts_with(b"#!") {
+            let first_line_end = binary_data
+                .iter()
+                .position(|&b| b == b'\n')
+                .unwrap_or(binary_data.len());
+            if let Ok(line_str) = core::str::from_utf8(&binary_data[2..first_line_end]) {
+                let trimmed = line_str.trim();
+                let mut parts = trimmed.split_whitespace();
+                if let Some(interpreter) = parts.next() {
+                    let mut new_args = alloc::vec::Vec::new();
+                    new_args.push(alloc::string::String::from(interpreter));
+                    if let Some(arg) = parts.next() {
+                        new_args.push(alloc::string::String::from(arg));
+                    }
+                    new_args.push(alloc::string::String::from(file_name));
+                    if cmdline.argc() > 1 {
+                        for arg in &cmdline.args[1..] {
+                            new_args.push(arg.clone());
+                        }
+                    }
+                    let new_cmdline = CommandLine::new(new_args, cmdline.env.clone());
+                    return self.execute_cmdline(interpreter, new_cmdline);
+                }
+            }
+        }
+
+        // 2. Close-on-exec (FD_CLOEXEC) descriptor cleanup
+        self.fd_table.close_on_exec();
+
+        // 3. Reset non-ignored signals to default handlers
+        for action in self.sig_actions.iter_mut() {
+            if action.handler != crate::ipc::signal::SIG_IGN {
+                *action = Default::default();
+            }
+        }
+
+        // 4. Try loading as ELF binary
         match crate::proc::loader::elf::Elf::new(&binary_data) {
             Ok(elf) => match elf.load_with_cmdline(Some(&cmdline)) {
                 Ok(loaded_elf) => {
                     self.address_space = Arc::new(Spinlock::new(loaded_elf.addr_space));
                     self.cmdline = cmdline;
+                    self.heap_start = crate::arch::userspace::USER_HEAP_VBASE;
+                    self.heap_brk = crate::arch::userspace::USER_HEAP_VBASE;
+                    self.mmap_bump = crate::arch::userspace::USER_MMAP_VBASE;
                     self.state = ProcessState::Running;
                     return Ok((
                         loaded_elf.entry_point.as_u64(),
@@ -164,7 +224,7 @@ impl Process {
             }
         }
 
-        // 2. Fallback for raw binary payloads
+        // 5. Fallback for raw binary payloads
         let mut addr_space_guard = self.address_space.lock();
         let addr_space = &mut *addr_space_guard;
 
@@ -213,6 +273,9 @@ impl Process {
         drop(addr_space_guard);
 
         self.cmdline = cmdline;
+        self.heap_start = crate::arch::userspace::USER_HEAP_VBASE;
+        self.heap_brk = crate::arch::userspace::USER_HEAP_VBASE;
+        self.mmap_bump = crate::arch::userspace::USER_MMAP_VBASE;
         self.state = ProcessState::Running;
 
         Ok((
@@ -221,7 +284,7 @@ impl Process {
         ))
     }
 
-    /// Clone the current process (POSIX fork semantics).
+    /// Fork a child process duplicating this process (POSIX fork).
     pub fn fork(parent: Arc<Spinlock<Process>>) -> Result<Arc<Spinlock<Process>>, &'static str> {
         let mut p_lock = parent.lock();
         let child_pid = next_pid();
@@ -244,6 +307,11 @@ impl Process {
         child_proc.sig_actions = p_lock.sig_actions;
         child_proc.fd_table = Arc::new(p_lock.fd_table.clone_table());
         child_proc.cwd = p_lock.cwd.clone();
+        child_proc.uid = p_lock.uid;
+        child_proc.euid = p_lock.euid;
+        child_proc.gid = p_lock.gid;
+        child_proc.egid = p_lock.egid;
+        child_proc.umask = p_lock.umask;
         child_proc.heap_start = p_lock.heap_start;
         child_proc.heap_brk = p_lock.heap_brk;
         child_proc.mmap_bump = p_lock.mmap_bump;
@@ -288,25 +356,68 @@ impl Process {
         Ok(child)
     }
 
-    /// Wait for a child process to exit.
-    pub fn wait(&mut self, pid: ProcessId) -> Result<i32, &'static str> {
-        if !self.children.contains_key(&pid) {
-            return Err("Child not found");
-        }
+    /// Wait for a child process state change (POSIX wait4).
+    pub fn wait4(
+        &mut self,
+        pid_req: i32,
+        options: i32,
+    ) -> Result<(ProcessId, i32), crate::syscalls::SyscallError> {
+        let wnohang = (options & 1) != 0;
+        let wuntraced = (options & 2) != 0;
 
         loop {
-            let child = self.children.get(&pid).unwrap().clone();
-            let c_lock = child.lock();
-            if c_lock.state == ProcessState::Zombie {
-                let exit_code = c_lock.exit_code.unwrap_or(0);
-                drop(c_lock);
-                self.children.remove(&pid);
-                unregister_process(pid);
-                return Ok(exit_code);
+            // 1. Check if there are any children matching the filter
+            let mut matching_pids = alloc::vec::Vec::new();
+            for (&child_pid, child_arc) in self.children.iter() {
+                let c_lock = child_arc.lock();
+                let matches = if pid_req == -1 {
+                    true
+                } else if pid_req > 0 {
+                    child_pid.as_u64() == pid_req as u64
+                } else if pid_req == 0 {
+                    c_lock.pgid == self.pgid
+                } else {
+                    c_lock.pgid.as_u64() == (-pid_req) as u64
+                };
+                if matches {
+                    matching_pids.push((child_pid, c_lock.state, c_lock.exit_code));
+                }
             }
-            drop(c_lock);
 
+            if matching_pids.is_empty() {
+                return Err(crate::syscalls::SyscallError::ECHILD);
+            }
+
+            // 2. Check for exited (Zombie) or stopped children
+            for (child_pid, state, exit_code) in matching_pids {
+                if state == ProcessState::Zombie {
+                    let code = exit_code.unwrap_or(0);
+                    let status = (code & 0xFF) << 8;
+                    self.children.remove(&child_pid);
+                    unregister_process(child_pid);
+                    return Ok((child_pid, status));
+                } else if state == ProcessState::Stopped && wuntraced {
+                    let sig = 19; // SIGSTOP
+                    let status = (sig << 8) | 0x7F;
+                    return Ok((child_pid, status));
+                }
+            }
+
+            // 3. Non-blocking option: return 0 if no child has changed state yet
+            if wnohang {
+                return Ok((ProcessId(0), 0));
+            }
+
+            // 4. Blocking wait: yield CPU
             Thread::yield_cpu();
+        }
+    }
+
+    /// Wait for a child process to exit.
+    pub fn wait(&mut self, pid: ProcessId) -> Result<i32, &'static str> {
+        match self.wait4(pid.as_u64() as i32, 0) {
+            Ok((_, status)) => Ok((status >> 8) & 0xFF),
+            Err(_) => Err("Child not found or wait failed"),
         }
     }
 

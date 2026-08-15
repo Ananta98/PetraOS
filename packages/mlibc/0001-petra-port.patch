@@ -1,4 +1,4 @@
-From a5f2d29e21456a991a2ad3a0ad7d4a1ef1930f52 Mon Sep 17 00:00:00 2001
+From aeeb8b98f65f933b3dddc3d9a1bd1afdf0a6a1b9 Mon Sep 17 00:00:00 2001
 From: PetraOS Agent <agent@petraos.dev>
 Date: Sat, 15 Aug 2026 11:59:14 +0700
 Subject: [PATCH] feat(sysdeps): add PetraOS support and GCC 13 compatibility
@@ -9,13 +9,13 @@ Subject: [PATCH] feat(sysdeps): add PetraOS support and GCC 13 compatibility
  options/ansi/x86_64/meson.build               |  11 +-
  options/internal/include/mlibc/allocator.hpp  |  32 +-
  subprojects/frigg.wrap                        |   1 +
- .../packagefiles/frigg/include/frg/span.hpp   |  69 ++++
+ .../packagefiles/frigg/include/frg/span.hpp   |  69 +++
  sysdeps/petra/crt-x86_64/Scrt1.S              |   8 +
  sysdeps/petra/crt-x86_64/crt1.S               |   8 +
  sysdeps/petra/crt-x86_64/crti.S               |  15 +
  sysdeps/petra/crt-x86_64/crtn.S               |  11 +
  sysdeps/petra/generic/entry.cpp               |  16 +
- sysdeps/petra/generic/generic.cpp             | 365 ++++++++++++++++++
+ sysdeps/petra/generic/generic.cpp             | 461 ++++++++++++++++++
  sysdeps/petra/include/abi-bits/access.h       |   1 +
  sysdeps/petra/include/abi-bits/aio.h          |   1 +
  sysdeps/petra/include/abi-bits/auxv.h         |   1 +
@@ -80,9 +80,9 @@ Subject: [PATCH] feat(sysdeps): add PetraOS support and GCC 13 compatibility
  sysdeps/petra/include/abi-bits/wait.h         |   1 +
  sysdeps/petra/include/abi-bits/xattr.h        |   1 +
  sysdeps/petra/include/mlibc/sysdeps.hpp       |  56 +++
- sysdeps/petra/include/sys/syscall.h           | 103 +++++
- sysdeps/petra/meson.build                     | 118 ++++++
- 78 files changed, 868 insertions(+), 23 deletions(-)
+ sysdeps/petra/include/sys/syscall.h           | 119 +++++
+ sysdeps/petra/meson.build                     | 118 +++++
+ 78 files changed, 980 insertions(+), 23 deletions(-)
  create mode 100644 subprojects/packagefiles/frigg/include/frg/span.hpp
  create mode 100644 sysdeps/petra/crt-x86_64/Scrt1.S
  create mode 100644 sysdeps/petra/crt-x86_64/crt1.S
@@ -438,10 +438,10 @@ index 00000000..f7dca05d
 +}
 diff --git a/sysdeps/petra/generic/generic.cpp b/sysdeps/petra/generic/generic.cpp
 new file mode 100644
-index 00000000..2a2eb345
+index 00000000..c8493d43
 --- /dev/null
 +++ b/sysdeps/petra/generic/generic.cpp
-@@ -0,0 +1,365 @@
+@@ -0,0 +1,461 @@
 +#include <bits/ensure.h>
 +#include <mlibc/debug.hpp>
 +#include <mlibc/all-sysdeps.hpp>
@@ -617,6 +617,103 @@ index 00000000..2a2eb345
 +    return 0;
 +}
 +
++uid_t Sysdeps<GetUid>::operator()() {
++    return __petra_syscall0(SYSCALL_GETUID);
++}
++
++uid_t Sysdeps<GetEuid>::operator()() {
++    return __petra_syscall0(SYSCALL_GETEUID);
++}
++
++gid_t Sysdeps<GetGid>::operator()() {
++    return __petra_syscall0(SYSCALL_GETGID);
++}
++
++gid_t Sysdeps<GetEgid>::operator()() {
++    return __petra_syscall0(SYSCALL_GETEGID);
++}
++
++int Sysdeps<SetUid>::operator()(uid_t id) {
++    int64_t ret = __petra_syscall1(SYSCALL_SETUID, id);
++    if (ret < 0) {
++        return -ret;
++    }
++    return 0;
++}
++
++int Sysdeps<SetGid>::operator()(gid_t id) {
++    int64_t ret = __petra_syscall1(SYSCALL_SETGID, id);
++    if (ret < 0) {
++        return -ret;
++    }
++    return 0;
++}
++
++int Sysdeps<SetSid>::operator()(pid_t *sid) {
++    int64_t ret = __petra_syscall0(SYSCALL_SETSID);
++    if (ret < 0) {
++        return -ret;
++    }
++    if (sid) {
++        *sid = ret;
++    }
++    return 0;
++}
++
++int Sysdeps<GetGroups>::operator()(size_t size, gid_t *list, int *ret_count) {
++    int64_t ret = __petra_syscall2(SYSCALL_GETGROUPS, size, (int64_t)list);
++    if (ret < 0) {
++        return -ret;
++    }
++    if (ret_count) {
++        *ret_count = ret;
++    }
++    return 0;
++}
++
++int Sysdeps<GetRlimit>::operator()(int resource, struct rlimit *limit) {
++    int64_t ret = __petra_syscall2(SYSCALL_GETRLIMIT, resource, (int64_t)limit);
++    if (ret < 0) {
++        return -ret;
++    }
++    return 0;
++}
++
++int Sysdeps<SetRlimit>::operator()(int resource, const struct rlimit *limit) {
++    int64_t ret = __petra_syscall2(SYSCALL_SETRLIMIT, resource, (int64_t)limit);
++    if (ret < 0) {
++        return -ret;
++    }
++    return 0;
++}
++
++int Sysdeps<Access>::operator()(const char *path, int mode) {
++    int64_t ret = __petra_syscall2(SYSCALL_ACCESS, (int64_t)path, mode);
++    if (ret < 0) {
++        return -ret;
++    }
++    return 0;
++}
++
++int Sysdeps<Faccessat>::operator()(int dirfd, const char *path, int mode, int flags) {
++    int64_t ret = __petra_syscall4(SYSCALL_FACCESSAT, dirfd, (int64_t)path, mode, flags);
++    if (ret < 0) {
++        return -ret;
++    }
++    return 0;
++}
++
++int Sysdeps<Umask>::operator()(mode_t mode, mode_t *old) {
++    int64_t ret = __petra_syscall1(SYSCALL_UMASK, mode);
++    if (ret < 0) {
++        return -ret;
++    }
++    if (old) {
++        *old = ret;
++    }
++    return 0;
++}
++
 +int Sysdeps<Fork>::operator()(pid_t *child) {
 +    int64_t ret = __petra_syscall0(SYSCALL_FORK);
 +    if (ret < 0) {
@@ -661,18 +758,13 @@ index 00000000..2a2eb345
 +}
 +
 +int Sysdeps<ClockGet>::operator()(int clock, time_t *secs, long *nanos) {
-+    (void)clock;
-+    // Fallback to gettimeofday
-+    struct {
-+        int64_t tv_sec;
-+        int64_t tv_usec;
-+    } tv;
-+    int64_t ret = __petra_syscall2(SYSCALL_GETTIMEOFDAY, (int64_t)&tv, 0);
++    struct timespec ts;
++    int64_t ret = __petra_syscall2(SYSCALL_CLOCK_GETTIME, clock, (int64_t)&ts);
 +    if (ret < 0) {
 +        return -ret;
 +    }
-+    *secs = tv.tv_sec;
-+    *nanos = tv.tv_usec * 1000;
++    *secs = ts.tv_sec;
++    *nanos = ts.tv_nsec;
 +    return 0;
 +}
 +
@@ -720,8 +812,12 @@ index 00000000..2a2eb345
 +}
 +
 +int Sysdeps<Dup2>::operator()(int fd, int flags, int newfd) {
-+    (void)flags;
-+    int64_t ret = __petra_syscall2(SYSCALL_DUP2, fd, newfd);
++    int64_t ret;
++    if (flags) {
++        ret = __petra_syscall3(SYSCALL_DUP3, fd, newfd, flags);
++    } else {
++        ret = __petra_syscall2(SYSCALL_DUP2, fd, newfd);
++    }
 +    if (ret < 0) {
 +        return -ret;
 +    }
@@ -1375,10 +1471,10 @@ index 00000000..c828d0a9
 +} // namespace mlibc
 diff --git a/sysdeps/petra/include/sys/syscall.h b/sysdeps/petra/include/sys/syscall.h
 new file mode 100644
-index 00000000..45a1e304
+index 00000000..88915e85
 --- /dev/null
 +++ b/sysdeps/petra/include/sys/syscall.h
-@@ -0,0 +1,103 @@
+@@ -0,0 +1,119 @@
 +#ifndef _SYS_SYSCALL_H
 +#define _SYS_SYSCALL_H
 +
@@ -1400,10 +1496,12 @@ index 00000000..45a1e304
 +#define SYSCALL_RT_SIGPROCMASK 14
 +#define SYSCALL_RT_SIGRETURN   15
 +#define SYSCALL_IOCTL          16
++#define SYSCALL_ACCESS         21
 +#define SYSCALL_PIPE           22
 +#define SYSCALL_YIELD          24
 +#define SYSCALL_DUP            32
 +#define SYSCALL_DUP2           33
++#define SYSCALL_NANOSLEEP      35
 +#define SYSCALL_GETPID         39
 +#define SYSCALL_FORK           57
 +#define SYSCALL_VFORK          58
@@ -1415,19 +1513,33 @@ index 00000000..45a1e304
 +#define SYSCALL_FCNTL          72
 +#define SYSCALL_GETCWD         79
 +#define SYSCALL_CHDIR          80
++#define SYSCALL_UMASK          95
 +#define SYSCALL_GETTIMEOFDAY   96
++#define SYSCALL_GETRLIMIT      97
 +#define SYSCALL_TIMES          100
++#define SYSCALL_GETUID         102
++#define SYSCALL_GETGID         104
++#define SYSCALL_SETUID         105
++#define SYSCALL_SETGID         106
++#define SYSCALL_GETEUID        107
++#define SYSCALL_GETEGID        108
 +#define SYSCALL_SETPGID        109
 +#define SYSCALL_GETPPID        110
 +#define SYSCALL_GETPGRP        111
++#define SYSCALL_SETSID         112
++#define SYSCALL_GETGROUPS      115
 +#define SYSCALL_ARCH_PRCTL     158
++#define SYSCALL_SETRLIMIT      160
 +#define SYSCALL_FUTEX          202
 +#define SYSCALL_ISATTY         215
++#define SYSCALL_CLOCK_GETTIME  228
 +#define SYSCALL_EXIT_GROUP     231
 +#define SYSCALL_OPENAT         257
 +#define SYSCALL_NEWFSTATAT     262
++#define SYSCALL_FACCESSAT      269
 +#define SYSCALL_DUP3           292
 +#define SYSCALL_PIPE2          293
++#define SYSCALL_PRLIMIT64      302
 +
 +#if defined(__x86_64__)
 +

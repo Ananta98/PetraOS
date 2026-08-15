@@ -111,3 +111,98 @@ pub fn sys_times(frame: &mut SyscallFrame) -> SyscallResult {
 
     Ok(total_ticks as usize)
 }
+
+pub const CLOCK_REALTIME: i32 = 0;
+pub const CLOCK_MONOTONIC: i32 = 1;
+pub const CLOCK_PROCESS_CPUTIME_ID: i32 = 2;
+pub const CLOCK_THREAD_CPUTIME_ID: i32 = 3;
+pub const CLOCK_MONOTONIC_RAW: i32 = 4;
+pub const CLOCK_REALTIME_COARSE: i32 = 5;
+pub const CLOCK_MONOTONIC_COARSE: i32 = 6;
+pub const CLOCK_BOOTTIME: i32 = 7;
+
+/// POSIX timespec structure for high-precision time.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct TimeSpec {
+    pub tv_sec: i64,
+    pub tv_nsec: i64,
+}
+
+/// `sys_clock_gettime` (SYS_CLOCK_GETTIME = 228)
+/// Retrieve time of the specified clock.
+pub fn sys_clock_gettime(frame: &mut SyscallFrame) -> SyscallResult {
+    let clock_id = frame.arg1() as i32;
+    let tp_ptr = frame.arg2() as *mut TimeSpec;
+
+    if !is_user_ptr_valid(tp_ptr as u64, core::mem::size_of::<TimeSpec>()) {
+        return Err(SyscallError::EFAULT);
+    }
+
+    let ts = match clock_id {
+        CLOCK_REALTIME | CLOCK_REALTIME_COARSE => {
+            let (sec, usec) = crate::drivers::time::cmos_rtc::get_wall_time();
+            TimeSpec {
+                tv_sec: sec as i64,
+                tv_nsec: (usec as i64) * 1000,
+            }
+        }
+        CLOCK_MONOTONIC | CLOCK_MONOTONIC_RAW | CLOCK_MONOTONIC_COARSE | CLOCK_BOOTTIME => {
+            let elapsed_ns = crate::arch::timer::hpet::elapsed_ns();
+            TimeSpec {
+                tv_sec: (elapsed_ns / 1_000_000_000) as i64,
+                tv_nsec: (elapsed_ns % 1_000_000_000) as i64,
+            }
+        }
+        CLOCK_PROCESS_CPUTIME_ID | CLOCK_THREAD_CPUTIME_ID => {
+            let elapsed_ns = crate::arch::timer::hpet::elapsed_ns();
+            TimeSpec {
+                tv_sec: (elapsed_ns / 1_000_000_000) as i64,
+                tv_nsec: (elapsed_ns % 1_000_000_000) as i64,
+            }
+        }
+        _ => return Err(SyscallError::EINVAL),
+    };
+
+    // SAFETY: Validated user memory pointer bounds.
+    unsafe {
+        core::ptr::write_volatile(tp_ptr, ts);
+    }
+
+    Ok(0)
+}
+
+/// `sys_nanosleep` (SYS_NANOSLEEP = 35)
+/// High-resolution sleep.
+pub fn sys_nanosleep(frame: &mut SyscallFrame) -> SyscallResult {
+    let req_ptr = frame.arg1() as *const TimeSpec;
+    let rem_ptr = frame.arg2() as *mut TimeSpec;
+
+    if !is_user_ptr_valid(req_ptr as u64, core::mem::size_of::<TimeSpec>()) {
+        return Err(SyscallError::EFAULT);
+    }
+
+    // SAFETY: Validated user memory pointer bounds.
+    let req = unsafe { core::ptr::read_volatile(req_ptr) };
+    if req.tv_sec < 0 || req.tv_nsec < 0 || req.tv_nsec >= 1_000_000_000 {
+        return Err(SyscallError::EINVAL);
+    }
+
+    let target_ns = (req.tv_sec as u64)
+        .saturating_mul(1_000_000_000)
+        .saturating_add(req.tv_nsec as u64);
+
+    let start_ns = crate::arch::timer::hpet::elapsed_ns();
+    while crate::arch::timer::hpet::elapsed_ns().saturating_sub(start_ns) < target_ns {
+        crate::proc::thread::Thread::yield_cpu();
+    }
+
+    if !rem_ptr.is_null() && is_user_ptr_valid(rem_ptr as u64, core::mem::size_of::<TimeSpec>()) {
+        // SAFETY: Validated user memory pointer bounds.
+        unsafe {
+            core::ptr::write_volatile(rem_ptr, TimeSpec::default());
+        }
+    }
+
+    Ok(0)
+}
