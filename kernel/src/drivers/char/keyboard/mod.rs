@@ -58,7 +58,7 @@ impl Device for Ps2Keyboard {
 
 impl CharDevice for Ps2Keyboard {
     fn read_byte(&mut self) -> Result<u8, DriverError> {
-        if let Some(byte) = KEY_RING_BUFFER.lock().pop() {
+        if let Some(byte) = KEY_RING_BUFFER.pop() {
             Ok(byte)
         } else {
             Err(DriverError::ReadFailed)
@@ -108,7 +108,7 @@ pub fn handle_scancode(scancode: u8) {
     if let Some(event) = event_opt {
         if event.state == KeyState::Pressed {
             if let Some(ch) = event.ascii {
-                KEY_RING_BUFFER.lock().push(ch as u8);
+                KEY_RING_BUFFER.push(ch as u8);
                 log::info!(
                     "[KEYBOARD] Key Press: '{}' (Scancode: {:#04x})",
                     ch,
@@ -127,7 +127,7 @@ pub fn handle_scancode(scancode: u8) {
 
 /// Read a single decoded character from the keyboard input buffer if available.
 pub fn read_char() -> Option<char> {
-    KEY_RING_BUFFER.lock().pop().map(|b| b as char)
+    KEY_RING_BUFFER.pop().map(|b| b as char)
 }
 
 /// Get the count of keyboard hardware interrupts received.
