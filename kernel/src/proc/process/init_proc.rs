@@ -26,7 +26,8 @@ pub fn create_init_process() -> Result<(Arc<Spinlock<Process>>, u64, u64), &'sta
         DEFAULT_INIT_EXEC_PATHS
     );
 
-    let mut proc = Process::new(ProcessId(1), ProcessId(0))?;
+    let init_pid = super::pid::next_pid();
+    let mut proc = Process::new(init_pid, ProcessId(0))?;
 
     // Default environment variables for user space initialization
     let default_env = vec![
@@ -51,7 +52,33 @@ pub fn create_init_process() -> Result<(Arc<Spinlock<Process>>, u64, u64), &'sta
                 candidate_path
             );
             let proc_arc = Arc::new(Spinlock::new(proc));
+
+            // Create and attach the primary thread for the init process
+            let init_tid = crate::proc::thread::next_tid();
+            let init_thread = Arc::new(Spinlock::new(crate::proc::thread::Thread::new(
+                init_tid,
+                String::from("init"),
+                1024,
+                Arc::downgrade(&proc_arc),
+            )));
+
+            let cr3 = proc_arc.lock().address_space.lock().page_table().root().as_u64() as usize;
+            {
+                let mut t_lock = init_thread.lock();
+                t_lock.context.cr3 = cr3;
+                t_lock.state = crate::proc::thread::ThreadState::Running;
+            }
+
+            proc_arc.lock().threads.insert(init_tid, init_thread.clone());
             super::process_table::register_process(proc_arc.clone());
+
+            // Register as active thread on BSP CPU 0
+            let saved_flags = crate::arch::disable_interrupts();
+            crate::sched::SCHEDULER.lock().current_threads[0] = Some(init_thread);
+            if saved_flags {
+                crate::arch::enable_interrupts();
+            }
+
             return Ok((proc_arc, entry_point, stack_top));
         }
     }
@@ -77,6 +104,9 @@ pub fn run_init_process() -> ! {
     // Allocate a dynamic 16-byte aligned kernel stack for TSS RSP0 and Ring 0 transition
     let kernel_stack = KernelStack::new(16 * 1024);
     let kernel_rsp0 = kernel_stack.top();
+
+    // Prevent kernel_stack buffer from being dropped when divergent jump_to_userspace executes
+    core::mem::forget(kernel_stack);
 
     // Jump to user mode (Ring 3) with valid kernel stack top for TSS RSP0
     unsafe {

@@ -16,7 +16,7 @@ impl ThreadId {
 
     /// Allocates and returns the next unique `ThreadId` using atomic increment.
     pub fn next() -> Self {
-        Self(NEXT_TID.fetch_add(1, Ordering::SeqCst))
+        Self(NEXT_TID.fetch_add(1, Ordering::Relaxed))
     }
 
     /// Returns the underlying raw `u64` identifier.

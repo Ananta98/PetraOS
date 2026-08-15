@@ -46,19 +46,45 @@ pub fn schedule(yielding: bool) {
                 let mut p = prev.lock();
                 &mut p.context.rsp as *mut usize as *mut u64
             };
-            let next_rsp = {
+            let (next_rsp, next_cr3) = {
                 let n = next.lock();
-                n.context.rsp as u64
+                (n.context.rsp as u64, n.context.cr3 as u64)
             };
 
             drop(sched);
+
+            // Switch page directory if changing address spaces
+            if next_cr3 != 0 {
+                let active_cr3 = unsafe { crate::arch::paging::active_cr3().as_u64() };
+                if next_cr3 != active_cr3 {
+                    // SAFETY: next_cr3 is a valid PML4 physical root address for the target process.
+                    unsafe {
+                        core::arch::asm!("mov cr3, {}", in(reg) next_cr3);
+                    }
+                }
+            }
+
             // SAFETY: Switching CPU context between valid thread stack pointers.
             unsafe { switch_context(prev_rsp_ptr, next_rsp) };
         }
         (None, Some(next)) => {
             // First ever thread switch (from kmain)
-            let next_rsp = next.lock().context.rsp as u64;
+            let (next_rsp, next_cr3) = {
+                let n = next.lock();
+                (n.context.rsp as u64, n.context.cr3 as u64)
+            };
             drop(sched);
+
+            if next_cr3 != 0 {
+                let active_cr3 = unsafe { crate::arch::paging::active_cr3().as_u64() };
+                if next_cr3 != active_cr3 {
+                    // SAFETY: next_cr3 is a valid PML4 physical root address for the target process.
+                    unsafe {
+                        core::arch::asm!("mov cr3, {}", in(reg) next_cr3);
+                    }
+                }
+            }
+
             // SAFETY: Switching CPU context to initial thread.
             unsafe { switch_context_to(next_rsp) };
         }

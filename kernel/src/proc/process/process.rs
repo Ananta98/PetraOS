@@ -102,7 +102,16 @@ impl Process {
         let page_table =
             ArchPageTable::new().map_err(|_| "Failed to allocate process page table")?;
         let address_space = Arc::new(Spinlock::new(AddrSpace::new(page_table)));
-        Ok(Self {
+        Ok(Self::new_with_address_space(pid, ppid, address_space))
+    }
+
+    /// Creates a new `Process` instance with an existing address space (e.g. for `fork`).
+    pub fn new_with_address_space(
+        pid: ProcessId,
+        ppid: ProcessId,
+        address_space: Arc<Spinlock<AddrSpace<ArchPageTable>>>,
+    ) -> Self {
+        Self {
             pid,
             ppid,
             pgid: pid,
@@ -119,7 +128,7 @@ impl Process {
             heap_start: crate::arch::userspace::USER_HEAP_VBASE,
             heap_brk: crate::arch::userspace::USER_HEAP_VBASE,
             mmap_bump: crate::arch::userspace::USER_MMAP_VBASE,
-        })
+        }
     }
 
     /// Execute an executable file with raw argument and environment pointers.
@@ -250,10 +259,10 @@ impl Process {
         let child_addr_space_arc = Arc::new(Spinlock::new(child_addr_space));
         let child_cr3 = child_addr_space_arc.lock().page_table().root().as_u64() as usize;
 
-        // 2. Initialize child process structure
-        let mut child_proc = Process::new(child_pid, p_lock.pid)?;
+        // 2. Initialize child process structure without redundant page table allocation
+        let mut child_proc =
+            Process::new_with_address_space(child_pid, p_lock.pid, child_addr_space_arc);
         child_proc.pgid = p_lock.pgid;
-        child_proc.address_space = child_addr_space_arc;
         child_proc.cmdline = p_lock.cmdline.clone();
         child_proc.sig_actions = p_lock.sig_actions;
         child_proc.fd_table = Arc::new(p_lock.fd_table.clone_table());
@@ -298,9 +307,8 @@ impl Process {
         child.lock().threads = child_threads;
 
         register_process(child.clone());
-
+        p_lock.children.insert(child_pid, child.clone());
         drop(p_lock);
-        parent.lock().children.insert(child_pid, child.clone());
 
         Ok(child)
     }
@@ -341,11 +349,12 @@ impl Process {
 
         // Determine the TID of the currently-running thread on this CPU.
         let cpu_id = crate::arch::cpu_id();
-        let current_tid = crate::sched::SCHEDULER.lock().current_threads[cpu_id as usize]
+        let mut sched = crate::sched::SCHEDULER.lock();
+        let current_tid = sched.current_threads[cpu_id as usize]
             .as_ref()
             .map(|t| t.lock().tid);
 
-        // Remove all non-current threads from the scheduler run queue.
+        // Remove all non-current threads from the scheduler run queue in a single lock session.
         for (_, thread) in self.threads.iter() {
             let mut t_lock = thread.lock();
             let tid = t_lock.tid;
@@ -354,10 +363,12 @@ impl Process {
             drop(t_lock);
             if !is_current {
                 // Thread is in the run queue (not current_threads[cpu]) — remove it.
-                crate::sched::SCHEDULER.lock().remove_thread(tid);
+                sched.remove_thread(tid);
             }
             // If is_current: leave it in current_threads[cpu]; block_current() handles it.
         }
+
+        drop(sched);
 
         if saved_flags {
             crate::arch::enable_interrupts();

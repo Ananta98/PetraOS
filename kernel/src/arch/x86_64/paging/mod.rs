@@ -6,4 +6,4 @@ pub mod utils;
 
 pub use fault::ArchPageFaultErrorCode;
 pub use table::ArchPageTable;
-pub use utils::{ensure_mapped, map_mmio, read_cr2};
+pub use utils::{active_cr3, ensure_mapped, map_mmio, read_cr2};
