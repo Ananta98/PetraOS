@@ -2,11 +2,12 @@ use super::tid::ThreadId;
 use crate::arch::cpu::context::ThreadContext;
 use crate::arch::cpu::stack::KernelStack;
 use crate::ipc::signal::{PendingSignals, SigSet};
+use crate::ipc::signal::{SIG_BLOCK, SIG_SETMASK, SIG_UNBLOCK};
 use crate::proc::process::Process;
+use crate::sched::nice::Nice;
 use crate::sync::spinlock::Spinlock;
 use alloc::string::String;
 use alloc::sync::{Arc, Weak};
-use crate::sched::nice::Nice;
 
 /// Default requested time slice for threads in nanoseconds (10 ms).
 pub const DEFAULT_THREAD_SLICE_NS: u64 = 10_000_000;
@@ -135,16 +136,16 @@ impl Thread {
     pub fn update_sigmask(&mut self, how: i32, set: SigSet) -> Result<SigSet, &'static str> {
         let old_mask = self.sig_mask;
         // SIGKILL and SIGSTOP cannot be blocked
-        let unblockable = (1 << (crate::ipc::signal::SIGKILL - 1)) | (1 << (crate::ipc::signal::SIGSTOP - 1));
+        let unblockable =
+            (1 << (crate::ipc::signal::SIGKILL - 1)) | (1 << (crate::ipc::signal::SIGSTOP - 1));
         let set = set & !unblockable;
 
         match how {
-            crate::ipc::signal::SIG_BLOCK => self.sig_mask |= set,
-            crate::ipc::signal::SIG_UNBLOCK => self.sig_mask &= !set,
-            crate::ipc::signal::SIG_SETMASK => self.sig_mask = set,
+            SIG_BLOCK => self.sig_mask |= set,
+            SIG_UNBLOCK => self.sig_mask &= !set,
+            SIG_SETMASK => self.sig_mask = set,
             _ => return Err("Invalid sigprocmask how argument"),
         }
         Ok(old_mask)
     }
 }
-

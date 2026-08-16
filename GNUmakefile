@@ -156,9 +156,6 @@ run-x86_64: $(OVMF_DIR) $(IMAGE_NAME).iso
 		-M q35 \
 		-smp 4 \
 		-drive if=pflash,unit=0,format=raw,file=$(OVMF_DIR)/ovmf-code-$(KARCH).fd,readonly=on \
-		-device qemu-xhci \
-		-device usb-kbd \
-		-device usb-mouse \
 		-cdrom $(IMAGE_NAME).iso \
 		$(QEMUFLAGS)
 

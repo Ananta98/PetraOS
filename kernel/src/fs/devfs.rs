@@ -38,12 +38,20 @@ impl FileSystem for DevFs {
 }
 
 fn try_read_console_byte() -> Option<u8> {
-    // 1. Check PS/2 keyboard buffer
+    // 1. Drain pending scancodes directly from PS/2 controller (port 0x64/0x60)
+    // SAFETY: Reading status port 0x64 has no side effects and reading 0x60 when output buffer is full retrieves hardware scancode.
+    let status = unsafe { crate::arch::ports::Ports::inb(0x64) };
+    if (status & 0x01) != 0 && (status & 0x20) == 0 {
+        let scancode = unsafe { crate::arch::ports::Ports::inb(0x60) };
+        crate::drivers::char::keyboard::handle_scancode(scancode);
+    }
+
+    // 2. Check PS/2 keyboard buffer
     if let Some(byte) = crate::drivers::char::keyboard::KEY_RING_BUFFER.pop() {
         return Some(byte);
     }
 
-    // 2. Check COM1 Serial Port (0x3F8) Line Status Register (0x3FD)
+    // 3. Check COM1 Serial Port (0x3F8) Line Status Register (0x3FD)
     // Bit 0 of LSR (0x3FD) is Data Ready (DR)
     // SAFETY: Reading standard COM1 16550 UART I/O ports.
     let lsr = unsafe { crate::arch::ports::Ports::inb(0x3FD) };
