@@ -1,6 +1,6 @@
-From 39144cfd07563fa2587563f3afecf79648a0cc79 Mon Sep 17 00:00:00 2001
+From e22edad778d6191f271d911244745434b024bea4 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
-Date: Sat, 15 Aug 2026 11:59:14 +0700
+Date: Sun, 16 Aug 2026 18:18:17 +0700
 Subject: [PATCH] feat(sysdeps): add PetraOS support and GCC 13 compatibility
 
 ---
@@ -9,13 +9,13 @@ Subject: [PATCH] feat(sysdeps): add PetraOS support and GCC 13 compatibility
  options/ansi/x86_64/meson.build               |  11 +-
  options/internal/include/mlibc/allocator.hpp  |  32 +-
  subprojects/frigg.wrap                        |   1 +
- .../packagefiles/frigg/include/frg/span.hpp   |  69 +++
+ .../packagefiles/frigg/include/frg/span.hpp   |  69 ++
  sysdeps/petra/crt-x86_64/Scrt1.S              |   8 +
  sysdeps/petra/crt-x86_64/crt1.S               |   8 +
  sysdeps/petra/crt-x86_64/crti.S               |  15 +
  sysdeps/petra/crt-x86_64/crtn.S               |  11 +
  sysdeps/petra/generic/entry.cpp               |  16 +
- sysdeps/petra/generic/generic.cpp             | 461 ++++++++++++++++++
+ sysdeps/petra/generic/generic.cpp             | 642 ++++++++++++++++++
  sysdeps/petra/include/abi-bits/access.h       |   1 +
  sysdeps/petra/include/abi-bits/aio.h          |   1 +
  sysdeps/petra/include/abi-bits/auxv.h         |   1 +
@@ -79,10 +79,10 @@ Subject: [PATCH] feat(sysdeps): add PetraOS support and GCC 13 compatibility
  sysdeps/petra/include/abi-bits/vt.h           |   1 +
  sysdeps/petra/include/abi-bits/wait.h         |   1 +
  sysdeps/petra/include/abi-bits/xattr.h        |   1 +
- sysdeps/petra/include/mlibc/sysdeps.hpp       |  69 +++
- sysdeps/petra/include/sys/syscall.h           | 119 +++++
- sysdeps/petra/meson.build                     | 118 +++++
- 78 files changed, 993 insertions(+), 23 deletions(-)
+ sysdeps/petra/include/mlibc/sysdeps.hpp       |  80 +++
+ sysdeps/petra/include/sys/syscall.h           | 119 ++++
+ sysdeps/petra/meson.build                     | 118 ++++
+ 78 files changed, 1185 insertions(+), 23 deletions(-)
  create mode 100644 subprojects/packagefiles/frigg/include/frg/span.hpp
  create mode 100644 sysdeps/petra/crt-x86_64/Scrt1.S
  create mode 100644 sysdeps/petra/crt-x86_64/crt1.S
@@ -438,10 +438,10 @@ index 00000000..f7dca05d
 +}
 diff --git a/sysdeps/petra/generic/generic.cpp b/sysdeps/petra/generic/generic.cpp
 new file mode 100644
-index 00000000..c8493d43
+index 00000000..0f823027
 --- /dev/null
 +++ b/sysdeps/petra/generic/generic.cpp
-@@ -0,0 +1,461 @@
+@@ -0,0 +1,642 @@
 +#include <bits/ensure.h>
 +#include <mlibc/debug.hpp>
 +#include <mlibc/all-sysdeps.hpp>
@@ -459,7 +459,11 @@ index 00000000..c8493d43
 +#include <mlibc/tcb.hpp>
 +#include <sys/types.h>
 +#include <sys/stat.h>
++#include <sys/select.h>
++#include <termios.h>
++#include <poll.h>
 +#include <stddef.h>
++#include <sys/utsname.h>
 +
 +namespace mlibc {
 +
@@ -899,6 +903,183 @@ index 00000000..c8493d43
 +    }
 +    *secs = 0;
 +    *nanos = 0;
++    return 0;
++}
++
++int Sysdeps<Tcgetattr>::operator()(int fd, struct termios *attr) {
++    int64_t ret = __petra_syscall3(SYSCALL_IOCTL, fd, 0x5401 /* TCGETS */, (int64_t)attr);
++    if (ret >= 0) {
++        return 0;
++    }
++    // Fallback for kernels that do not implement TCGETS: report sane defaults
++    // for a canonical terminal so that programs (e.g. Bash/readline) do not
++    // abort on a missing termios.
++    memset(attr, 0, sizeof(struct termios));
++    attr->c_iflag = ICRNL | IXON;
++    attr->c_oflag = OPOST | ONLCR;
++    attr->c_cflag = CREAD | CS8 | CLOCAL;
++    attr->c_lflag = ISIG | ICANON | ECHO | ECHOE | ECHOK | IEXTEN;
++    attr->c_cc[VEOF] = 4;    // ^D
++    attr->c_cc[VINTR] = 3;   // ^C
++    attr->c_cc[VERASE] = 0x7f; // DEL
++    attr->c_cc[VKILL] = 21;  // ^U
++    attr->c_cc[VMIN] = 1;
++    attr->c_cc[VTIME] = 0;
++    attr->c_ibaud = 0;
++    attr->c_obaud = 0;
++    return 0;
++}
++
++int Sysdeps<Tcsetattr>::operator()(int fd, int optional_action, const struct termios *attr) {
++    (void)optional_action;
++    int64_t ret = __petra_syscall3(SYSCALL_IOCTL, fd, 0x5402 /* TCSETS */, (int64_t)attr);
++    if (ret < 0) {
++        return -ret;
++    }
++    return 0;
++}
++
++int Sysdeps<Ttyname>::operator()(int fd, char *buf, size_t size) {
++    if (int e = sysdep<Isatty>(fd); e) {
++        return e;
++    }
++    static const char tty_name[] = "/dev/tty";
++    if (size < sizeof(tty_name)) {
++        return ERANGE;
++    }
++    memcpy(buf, tty_name, sizeof(tty_name));
++    return 0;
++}
++
++int Sysdeps<GetHostname>::operator()(char *buffer, size_t bufsize) {
++    if (bufsize == 0) {
++        return 0;
++    }
++    struct utsname uts;
++    const char *name = "petraos";
++    int64_t ret = __petra_syscall1(SYSCALL_UNAME, (int64_t)&uts);
++    if (ret >= 0 && uts.nodename[0] != '\0') {
++        name = uts.nodename;
++    }
++    size_t len = strlen(name);
++    size_t copy = (len < bufsize) ? len : bufsize - 1;
++    memcpy(buffer, name, copy);
++    buffer[copy] = '\0';
++    return 0;
++}
++
++int Sysdeps<Tcsendbreak>::operator()(int fd, int) {
++    (void)fd;
++    return 0;
++}
++
++int Sysdeps<Tcflow>::operator()(int fd, int action) {
++    (void)fd;
++    (void)action;
++    return 0;
++}
++
++int Sysdeps<Tcflush>::operator()(int fd, int queue) {
++    (void)fd;
++    (void)queue;
++    return 0;
++}
++
++int Sysdeps<Ppoll>::operator()(struct pollfd *fds, nfds_t count, const struct timespec *timeout, const sigset_t *sigmask, int *num_events) {
++    (void)timeout;
++    (void)sigmask;
++    int ready = 0;
++    for (nfds_t i = 0; i < count; i++) {
++        fds[i].revents = fds[i].events & (POLLIN | POLLOUT);
++        if (fds[i].revents) {
++            ready++;
++        }
++    }
++    if (num_events) {
++        *num_events = ready;
++    }
++    return 0;
++}
++
++int Sysdeps<Poll>::operator()(struct pollfd *fds, nfds_t count, int timeout, int *num_events) {
++    (void)timeout;
++    return sysdep<Ppoll>(fds, count, NULL, NULL, num_events);
++}
++
++#ifndef MLIBC_BUILDING_RTLD
++int Sysdeps<Pselect>::operator()(int nfds, fd_set *read_set, fd_set *write_set,
++        fd_set *except_set, const struct timespec *timeout,
++        const sigset_t *sigmask, int *num_events) {
++    if (nfds <= 0) {
++        if (num_events) {
++            *num_events = 0;
++        }
++        return 0;
++    }
++
++    struct pollfd *fds = static_cast<struct pollfd *>(malloc(nfds * sizeof(struct pollfd)));
++    if (!fds) {
++        return ENOMEM;
++    }
++
++    int actual_count = 0;
++    for (int fd = 0; fd < nfds; fd++) {
++        short events = 0;
++        if (read_set && FD_ISSET(fd, read_set)) {
++            events |= POLLIN;
++        }
++        if (write_set && FD_ISSET(fd, write_set)) {
++            events |= POLLOUT;
++        }
++        if (except_set && FD_ISSET(fd, except_set)) {
++            events |= POLLPRI;
++        }
++        if (events) {
++            fds[actual_count].fd = fd;
++            fds[actual_count].events = events;
++            fds[actual_count].revents = 0;
++            actual_count++;
++        }
++    }
++
++    int num;
++    int err = sysdep<Ppoll>(fds, actual_count, timeout, sigmask, &num);
++    if (err) {
++        free(fds);
++        return err;
++    }
++
++    int return_count = 0;
++    for (int i = 0; i < actual_count; i++) {
++        int events = fds[i].events;
++        if ((events & POLLIN) && (fds[i].revents & (POLLIN | POLLHUP | POLLERR)) == 0) {
++            FD_CLR(fds[i].fd, read_set);
++            events &= ~POLLIN;
++        }
++        if ((events & POLLOUT) && (fds[i].revents & (POLLOUT | POLLERR)) == 0) {
++            FD_CLR(fds[i].fd, write_set);
++            events &= ~POLLOUT;
++        }
++        if ((events & POLLPRI) && (fds[i].revents & POLLPRI) == 0) {
++            FD_CLR(fds[i].fd, except_set);
++            events &= ~POLLPRI;
++        }
++        if (events) {
++            return_count++;
++        }
++    }
++    if (num_events) {
++        *num_events = return_count;
++    }
++    free(fds);
++    return 0;
++}
++#endif /* !MLIBC_BUILDING_RTLD */
++
++int Sysdeps<Sigpending>::operator()(sigset_t *set) {
++    if (set) {
++        memset(set, 0, sizeof(sigset_t));
++    }
 +    return 0;
 +}
 +
@@ -1409,10 +1590,10 @@ index 00000000..66412d70
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/mlibc/sysdeps.hpp b/sysdeps/petra/include/mlibc/sysdeps.hpp
 new file mode 100644
-index 00000000..5681c78f
+index 00000000..47b92d23
 --- /dev/null
 +++ b/sysdeps/petra/include/mlibc/sysdeps.hpp
-@@ -0,0 +1,69 @@
+@@ -0,0 +1,80 @@
 +#pragma once
 +
 +#include <mlibc/sysdep-signatures.hpp>
@@ -1471,7 +1652,18 @@ index 00000000..5681c78f
 +    Umask,
 +    Chdir,
 +    GetCwd,
-+    Sleep
++    Sleep,
++    Tcgetattr,
++    Tcsetattr,
++    Ttyname,
++    GetHostname,
++    Tcsendbreak,
++    Tcflow,
++    Tcflush,
++    Ppoll,
++    Poll,
++    Pselect,
++    Sigpending
 +{};
 +
 +template<typename Tag>

@@ -285,7 +285,10 @@ impl Process {
     }
 
     /// Fork a child process duplicating this process (POSIX fork).
-    pub fn fork(parent: Arc<Spinlock<Process>>) -> Result<Arc<Spinlock<Process>>, &'static str> {
+    pub fn fork(
+        parent: Arc<Spinlock<Process>>,
+        parent_frame: &crate::arch::syscall::SyscallFrame,
+    ) -> Result<Arc<Spinlock<Process>>, &'static str> {
         let mut p_lock = parent.lock();
         let child_pid = next_pid();
 
@@ -319,33 +322,58 @@ impl Process {
 
         let child = Arc::new(Spinlock::new(child_proc));
 
-        // 3. Clone process threads and register in scheduler
+        // 3. Create child primary thread replicating the calling thread's context and user register state
         let mut child_threads = BTreeMap::new();
-        for (&_tid, thread_arc) in p_lock.threads.iter() {
-            let t_lock = thread_arc.lock();
-            let child_tid = crate::proc::thread::next_tid();
+        let child_tid = crate::proc::thread::next_tid();
 
-            let mut child_thread = Thread::new(
-                child_tid,
-                t_lock.name.clone(),
-                t_lock.weight,
-                Arc::downgrade(&child),
-            );
+        let (thread_name, thread_weight, sig_mask, fs_base, gs_base) =
+            if let Some(calling_thread) = crate::proc::current_thread() {
+                let t_lock = calling_thread.lock();
+                (
+                    t_lock.name.clone(),
+                    t_lock.weight,
+                    t_lock.sig_mask,
+                    t_lock.context.fs_base,
+                    t_lock.context.gs_base,
+                )
+            } else if let Some((_, t_arc)) = p_lock.threads.iter().next() {
+                let t_lock = t_arc.lock();
+                (
+                    t_lock.name.clone(),
+                    t_lock.weight,
+                    t_lock.sig_mask,
+                    t_lock.context.fs_base,
+                    t_lock.context.gs_base,
+                )
+            } else {
+                (alloc::string::String::from("fork_child"), 1024, 0, 0, 0)
+            };
 
-            child_thread.context = t_lock.context;
-            child_thread.context.cr3 = child_cr3;
-            child_thread.sig_mask = t_lock.sig_mask;
-            child_thread.state = t_lock.state;
+        let mut child_thread = Thread::new(
+            child_tid,
+            thread_name,
+            thread_weight,
+            Arc::downgrade(&child),
+        );
 
-            let c_thread_arc = Arc::new(Spinlock::new(child_thread));
-            child_threads.insert(child_tid, c_thread_arc.clone());
+        let mut child_kstack = crate::arch::cpu::stack::KernelStack::new(16 * 1024);
+        let child_rsp = crate::arch::cpu::stack::init_fork_stack(&mut child_kstack, parent_frame);
 
-            if t_lock.state == ThreadState::Ready || t_lock.state == ThreadState::Running {
-                crate::arch::without_interrupts(|| {
-                    crate::sched::SCHEDULER.lock().add_thread(c_thread_arc);
-                });
-            }
-        }
+        child_thread.context.rsp = child_rsp as usize;
+        child_thread.context.cr3 = child_cr3;
+        child_thread.context.rflags = 0x202;
+        child_thread.context.fs_base = fs_base;
+        child_thread.context.gs_base = gs_base;
+        child_thread.sig_mask = sig_mask;
+        child_thread.kernel_stack = Some(child_kstack);
+        child_thread.state = ThreadState::Ready;
+
+        let c_thread_arc = Arc::new(Spinlock::new(child_thread));
+        child_threads.insert(child_tid, c_thread_arc.clone());
+
+        crate::arch::without_interrupts(|| {
+            crate::sched::SCHEDULER.lock().add_thread(c_thread_arc);
+        });
 
         child.lock().threads = child_threads;
 

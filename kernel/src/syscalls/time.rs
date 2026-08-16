@@ -44,7 +44,7 @@ pub fn sys_gettimeofday(frame: &mut SyscallFrame) -> SyscallResult {
         };
         // SAFETY: tv_ptr verified with is_user_ptr_valid above.
         unsafe {
-            core::ptr::write_volatile(tv_ptr, tv);
+            core::ptr::write_unaligned(tv_ptr, tv);
         }
     }
 
@@ -58,7 +58,7 @@ pub fn sys_gettimeofday(frame: &mut SyscallFrame) -> SyscallResult {
         };
         // SAFETY: tz_ptr verified with is_user_ptr_valid above.
         unsafe {
-            core::ptr::write_volatile(tz_ptr, tz);
+            core::ptr::write_unaligned(tz_ptr, tz);
         }
     }
 
@@ -105,7 +105,7 @@ pub fn sys_times(frame: &mut SyscallFrame) -> SyscallResult {
 
         // SAFETY: buf_ptr verified with is_user_ptr_valid above.
         unsafe {
-            core::ptr::write_volatile(buf_ptr, tms);
+            core::ptr::write_unaligned(buf_ptr, tms);
         }
     }
 
@@ -166,7 +166,7 @@ pub fn sys_clock_gettime(frame: &mut SyscallFrame) -> SyscallResult {
 
     // SAFETY: Validated user memory pointer bounds.
     unsafe {
-        core::ptr::write_volatile(tp_ptr, ts);
+        core::ptr::write_unaligned(tp_ptr, ts);
     }
 
     Ok(0)
@@ -183,7 +183,7 @@ pub fn sys_nanosleep(frame: &mut SyscallFrame) -> SyscallResult {
     }
 
     // SAFETY: Validated user memory pointer bounds.
-    let req = unsafe { core::ptr::read_volatile(req_ptr) };
+    let req = unsafe { core::ptr::read_unaligned(req_ptr) };
     if req.tv_sec < 0 || req.tv_nsec < 0 || req.tv_nsec >= 1_000_000_000 {
         return Err(SyscallError::EINVAL);
     }
@@ -200,7 +200,7 @@ pub fn sys_nanosleep(frame: &mut SyscallFrame) -> SyscallResult {
     if !rem_ptr.is_null() && is_user_ptr_valid(rem_ptr as u64, core::mem::size_of::<TimeSpec>()) {
         // SAFETY: Validated user memory pointer bounds.
         unsafe {
-            core::ptr::write_volatile(rem_ptr, TimeSpec::default());
+            core::ptr::write_unaligned(rem_ptr, TimeSpec::default());
         }
     }
 

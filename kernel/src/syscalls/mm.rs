@@ -26,11 +26,7 @@ pub fn sys_brk(frame: &mut SyscallFrame) -> SyscallResult {
             let size = (page_end - page_start) as usize;
             let flags = MapFlags::READ | MapFlags::WRITE | MapFlags::USER;
 
-            // SAFETY: `proc` lock is held exclusively by active process thread during syscall execution.
-            let addr_space = unsafe {
-                &mut *(Arc::as_ptr(&proc.address_space)
-                    as *mut crate::mm::vmm::AddrSpace<crate::arch::paging::ArchPageTable>)
-            };
+            let mut addr_space = proc.address_space.lock();
             let _ = addr_space.map_area(
                 VirtAddr(page_start),
                 size,
@@ -87,12 +83,7 @@ pub fn sys_mmap(frame: &mut SyscallFrame) -> SyscallResult {
         VmAreaKind::Anonymous
     };
 
-    // SAFETY: `proc` lock is held exclusively by active process thread during syscall execution.
-    let addr_space = unsafe {
-        &mut *(Arc::as_ptr(&proc.address_space)
-            as *mut crate::mm::vmm::AddrSpace<crate::arch::paging::ArchPageTable>)
-    };
-
+    let mut addr_space = proc.address_space.lock();
     if addr_space
         .map_area(
             VirtAddr(target_vaddr),
@@ -121,12 +112,7 @@ pub fn sys_munmap(frame: &mut SyscallFrame) -> SyscallResult {
     let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
     let proc = proc_arc.lock();
 
-    // SAFETY: `proc` lock is held exclusively by active process thread during syscall execution.
-    let addr_space = unsafe {
-        &mut *(Arc::as_ptr(&proc.address_space)
-            as *mut crate::mm::vmm::AddrSpace<crate::arch::paging::ArchPageTable>)
-    };
-
+    let mut addr_space = proc.address_space.lock();
     if addr_space.unmap_area(VirtAddr(addr)).is_err() {
         return Err(SyscallError::EINVAL);
     }

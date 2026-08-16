@@ -1,5 +1,6 @@
 use super::tid::ThreadId;
 use crate::arch::cpu::context::ThreadContext;
+use crate::arch::cpu::stack::KernelStack;
 use crate::ipc::signal::{PendingSignals, SigSet};
 use crate::proc::process::Process;
 use crate::sync::spinlock::Spinlock;
@@ -34,6 +35,9 @@ pub struct Thread {
 
     /// CPU Context (Registers, RSP, RIP)
     pub context: ThreadContext,
+
+    /// Dynamically allocated kernel stack for Ring 0 transitions and context switches
+    pub kernel_stack: Option<KernelStack>,
 
     /// Accumulated virtual runtime in nanoseconds (EEVDF)
     pub vruntime: u64,
@@ -72,6 +76,7 @@ impl Thread {
             name,
             process,
             context: ThreadContext::default(),
+            kernel_stack: None,
             vruntime: 0,
             vdeadline: 0,
             slice_ns: DEFAULT_THREAD_SLICE_NS,
@@ -82,6 +87,11 @@ impl Thread {
             state: ThreadState::Creating,
             exit_code: None,
         }
+    }
+
+    /// Returns the kernel stack top virtual address if allocated.
+    pub fn kernel_stack_top(&self) -> u64 {
+        self.kernel_stack.as_ref().map(|s| s.top()).unwrap_or(0)
     }
 
     /// Sets the thread nice value and updates its associated CPU weight.

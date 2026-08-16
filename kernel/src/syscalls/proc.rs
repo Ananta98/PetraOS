@@ -145,7 +145,7 @@ pub fn sys_getgroups(frame: &mut SyscallFrame) -> SyscallResult {
 
     // SAFETY: Validated user memory pointer bounds.
     unsafe {
-        core::ptr::write_volatile(list_ptr, gid);
+        core::ptr::write_unaligned(list_ptr, gid);
     }
     Ok(1)
 }
@@ -194,7 +194,7 @@ pub fn sys_getrlimit(frame: &mut SyscallFrame) -> SyscallResult {
     let limit = get_default_rlimit(resource);
     // SAFETY: Validated user memory pointer bounds.
     unsafe {
-        core::ptr::write_volatile(rlim_ptr, limit);
+        core::ptr::write_unaligned(rlim_ptr, limit);
     }
     Ok(0)
 }
@@ -230,7 +230,7 @@ pub fn sys_prlimit64(frame: &mut SyscallFrame) -> SyscallResult {
         let limit = get_default_rlimit(resource);
         // SAFETY: Validated user memory pointer bounds.
         unsafe {
-            core::ptr::write_volatile(old_limit_ptr, limit);
+            core::ptr::write_unaligned(old_limit_ptr, limit);
         }
     }
 
@@ -238,16 +238,16 @@ pub fn sys_prlimit64(frame: &mut SyscallFrame) -> SyscallResult {
 }
 
 /// `sys_fork` (SYS_FORK = 57)
-/// Create a child process (POSIX fork).
-pub fn sys_fork(_frame: &mut SyscallFrame) -> SyscallResult {
+/// Fork the current running process and thread context.
+pub fn sys_fork(frame: &mut SyscallFrame) -> SyscallResult {
     let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
-    let child_arc = crate::proc::Process::fork(proc_arc).map_err(|_| SyscallError::EAGAIN)?;
+    let child_arc = crate::proc::Process::fork(proc_arc, frame).map_err(|_| SyscallError::EAGAIN)?;
     let child_pid = child_arc.lock().pid.as_u64();
     Ok(child_pid as usize)
 }
 
 /// `sys_vfork` (SYS_VFORK = 58)
-/// Create a child process and block parent.
+/// Create a child process and block parent until exec/exit.
 pub fn sys_vfork(frame: &mut SyscallFrame) -> SyscallResult {
     sys_fork(frame)
 }
@@ -296,7 +296,7 @@ pub struct RUsage {
 }
 
 /// `sys_wait4` (SYS_WAIT4 = 61)
-/// Wait for process state change (POSIX wait4).
+/// Wait for process state change.
 pub fn sys_wait4(frame: &mut SyscallFrame) -> SyscallResult {
     let pid_raw = frame.arg1() as i32;
     let wstatus = frame.arg2() as *mut i32;
@@ -311,14 +311,14 @@ pub fn sys_wait4(frame: &mut SyscallFrame) -> SyscallResult {
     if !wstatus.is_null() && is_user_ptr_valid(wstatus as u64, core::mem::size_of::<i32>()) {
         // SAFETY: User pointer validated within Ring 3 address bounds.
         unsafe {
-            core::ptr::write_volatile(wstatus, status);
+            core::ptr::write_unaligned(wstatus, status);
         }
     }
 
     if !rusage_ptr.is_null() && is_user_ptr_valid(rusage_ptr as u64, core::mem::size_of::<RUsage>()) {
         // SAFETY: User pointer validated within Ring 3 address bounds.
         unsafe {
-            core::ptr::write_volatile(rusage_ptr, RUsage::default());
+            core::ptr::write_unaligned(rusage_ptr, RUsage::default());
         }
     }
 

@@ -7,6 +7,7 @@ unsafe extern "C" {
     pub fn switch_context(prev_rsp_ptr: *mut u64, next_rsp: u64);
     pub fn switch_context_to(next_rsp: u64) -> !;
     pub fn thread_bootstrapper() -> !;
+    pub fn fork_child_return() -> !;
 }
 
 // ── Thread CPU Context ────────────────────────────────────────────────────────
@@ -31,6 +32,10 @@ pub struct ThreadContext {
     pub r13: usize,
     pub r14: usize,
     pub r15: usize,
+    /// Architecture-specific TLS / Thread Control Block base (FS_BASE)
+    pub fs_base: u64,
+    /// Architecture-specific Thread Control Block base (GS_BASE)
+    pub gs_base: u64,
 }
 
 impl ThreadContext {
@@ -47,6 +52,8 @@ impl ThreadContext {
             r13: 0,
             r14: 0,
             r15: 0,
+            fs_base: 0,
+            gs_base: 0,
         }
     }
 

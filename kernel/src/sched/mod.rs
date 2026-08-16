@@ -44,11 +44,17 @@ pub fn schedule(yielding: bool) {
             // Get raw pointers
             let prev_rsp_ptr = {
                 let mut p = prev.lock();
+                p.context.fs_base = crate::arch::cpu::msr::read_fs_base();
                 &mut p.context.rsp as *mut usize as *mut u64
             };
-            let (next_rsp, next_cr3) = {
+            let (next_rsp, next_cr3, next_kstack_top, next_fs_base) = {
                 let n = next.lock();
-                (n.context.rsp as u64, n.context.cr3 as u64)
+                (
+                    n.context.rsp as u64,
+                    n.context.cr3 as u64,
+                    n.kernel_stack_top(),
+                    n.context.fs_base,
+                )
             };
 
             drop(sched);
@@ -64,14 +70,27 @@ pub fn schedule(yielding: bool) {
                 }
             }
 
+            // Restore IA32_FS_BASE for TLS context
+            crate::arch::cpu::msr::write_fs_base(next_fs_base);
+
+            // Update TSS RSP0 and CpuLocal kernel stack pointer for Ring 3 transitions
+            if next_kstack_top != 0 {
+                crate::arch::cpu::tss::set_rsp0(next_kstack_top);
+            }
+
             // SAFETY: Switching CPU context between valid thread stack pointers.
             unsafe { switch_context(prev_rsp_ptr, next_rsp) };
         }
         (None, Some(next)) => {
             // First ever thread switch (from kmain)
-            let (next_rsp, next_cr3) = {
+            let (next_rsp, next_cr3, next_kstack_top, next_fs_base) = {
                 let n = next.lock();
-                (n.context.rsp as u64, n.context.cr3 as u64)
+                (
+                    n.context.rsp as u64,
+                    n.context.cr3 as u64,
+                    n.kernel_stack_top(),
+                    n.context.fs_base,
+                )
             };
             drop(sched);
 
@@ -83,6 +102,12 @@ pub fn schedule(yielding: bool) {
                         core::arch::asm!("mov cr3, {}", in(reg) next_cr3);
                     }
                 }
+            }
+
+            crate::arch::cpu::msr::write_fs_base(next_fs_base);
+
+            if next_kstack_top != 0 {
+                crate::arch::cpu::tss::set_rsp0(next_kstack_top);
             }
 
             // SAFETY: Switching CPU context to initial thread.

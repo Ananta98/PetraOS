@@ -50,7 +50,7 @@ pub fn sys_uname(frame: &mut SyscallFrame) -> SyscallResult {
 
     // SAFETY: Writing UtsName struct to user pointer after bounds validation.
     unsafe {
-        core::ptr::write_volatile(buf, uts);
+        core::ptr::write_unaligned(buf, uts);
     }
 
     Ok(0)

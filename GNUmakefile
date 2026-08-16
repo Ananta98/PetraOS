@@ -104,14 +104,28 @@ userspace-all: xbstrap-init xbstrap-fetch mlibc ncurses readline bash automake l
 
 .PHONY: sync-initramfs
 sync-initramfs:
-	@mkdir -p $(INITRAMFS_ROOT)/bin $(INITRAMFS_ROOT)/sbin $(INITRAMFS_ROOT)/lib $(INITRAMFS_ROOT)/usr/bin $(INITRAMFS_ROOT)/usr/lib
+	@mkdir -p $(INITRAMFS_ROOT)/bin $(INITRAMFS_ROOT)/sbin $(INITRAMFS_ROOT)/lib $(INITRAMFS_ROOT)/usr/bin $(INITRAMFS_ROOT)/usr/lib $(INITRAMFS_ROOT)/usr/sbin $(INITRAMFS_ROOT)/etc
+	@if [ -d $(SYSROOT)/lib ]; then cp -rf $(SYSROOT)/lib/* $(INITRAMFS_ROOT)/lib/ 2>/dev/null || true; fi
 	@if [ -d $(SYSROOT)/usr/lib ]; then \
 		cp -rf $(SYSROOT)/usr/lib/*.so* $(INITRAMFS_ROOT)/lib/ 2>/dev/null || true; \
 		cp -rf $(SYSROOT)/usr/lib/*.so* $(INITRAMFS_ROOT)/usr/lib/ 2>/dev/null || true; \
 	fi
+	@if [ -d $(SYSROOT)/bin ]; then cp -rf $(SYSROOT)/bin/* $(INITRAMFS_ROOT)/bin/ 2>/dev/null || true; fi
+	@if [ -d $(SYSROOT)/sbin ]; then cp -rf $(SYSROOT)/sbin/* $(INITRAMFS_ROOT)/sbin/ 2>/dev/null || true; fi
 	@if [ -d $(SYSROOT)/usr/bin ]; then \
 		cp -rf $(SYSROOT)/usr/bin/* $(INITRAMFS_ROOT)/usr/bin/ 2>/dev/null || true; \
 		cp -rf $(SYSROOT)/usr/bin/* $(INITRAMFS_ROOT)/bin/ 2>/dev/null || true; \
+	fi
+	@if [ -d $(SYSROOT)/usr/sbin ]; then \
+		cp -rf $(SYSROOT)/usr/sbin/* $(INITRAMFS_ROOT)/usr/sbin/ 2>/dev/null || true; \
+		cp -rf $(SYSROOT)/usr/sbin/* $(INITRAMFS_ROOT)/sbin/ 2>/dev/null || true; \
+	fi
+	@if [ -d $(SYSROOT)/etc ]; then cp -rf $(SYSROOT)/etc/* $(INITRAMFS_ROOT)/etc/ 2>/dev/null || true; fi
+	@if [ -d $(INITRAMFS_ROOT)/bin ]; then \
+		find $(INITRAMFS_ROOT)/bin $(INITRAMFS_ROOT)/usr/bin -type f -exec x86_64-linux-gnu-strip -s {} + 2>/dev/null || true; \
+	fi
+	@if [ -d $(INITRAMFS_ROOT)/lib ]; then \
+		find $(INITRAMFS_ROOT)/lib $(INITRAMFS_ROOT)/usr/lib -name "*.so*" -type f -exec x86_64-linux-gnu-strip -s {} + 2>/dev/null || true; \
 	fi
 
 .PHONY: clean-userspace

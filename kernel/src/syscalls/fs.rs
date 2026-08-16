@@ -78,13 +78,6 @@ pub fn sys_write(frame: &mut SyscallFrame) -> SyscallResult {
     // SAFETY: User buffer pointer range validated within user space bounds.
     let user_slice = unsafe { core::slice::from_raw_parts(buf, count) };
 
-    if fd == 1 || fd == 2 {
-        if let Ok(s) = core::str::from_utf8(user_slice) {
-            log::info!("[Userspace Output] {}", s.trim_end());
-        }
-        return Ok(count);
-    }
-
     let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
     let proc = proc_arc.lock();
 
@@ -152,7 +145,7 @@ pub fn sys_stat(frame: &mut SyscallFrame) -> SyscallResult {
     let linux_stat = copy_to_linux_stat(&vfs_stat);
     // SAFETY: Writing stat struct to user statbuf after validation.
     unsafe {
-        core::ptr::write_volatile(statbuf, linux_stat);
+        core::ptr::write_unaligned(statbuf, linux_stat);
     }
 
     Ok(0)
@@ -181,7 +174,7 @@ pub fn sys_fstat(frame: &mut SyscallFrame) -> SyscallResult {
 
     // SAFETY: Writing stat struct to user statbuf after validation.
     unsafe {
-        core::ptr::write_volatile(statbuf, linux_stat);
+        core::ptr::write_unaligned(statbuf, linux_stat);
     }
 
     Ok(0)
@@ -295,8 +288,8 @@ pub fn sys_pipe(frame: &mut SyscallFrame) -> SyscallResult {
 
     // SAFETY: User pipefd pointer range validated within Ring 3 address bounds.
     unsafe {
-        core::ptr::write_volatile(pipefd, r_fd);
-        core::ptr::write_volatile(pipefd.add(1), w_fd);
+        core::ptr::write_unaligned(pipefd, r_fd);
+        core::ptr::write_unaligned(pipefd.add(1), w_fd);
     }
 
     Ok(0)
@@ -329,8 +322,8 @@ pub fn sys_pipe2(frame: &mut SyscallFrame) -> SyscallResult {
 
     // SAFETY: User pipefd pointer range validated within Ring 3 address bounds.
     unsafe {
-        core::ptr::write_volatile(pipefd, r_fd);
-        core::ptr::write_volatile(pipefd.add(1), w_fd);
+        core::ptr::write_unaligned(pipefd, r_fd);
+        core::ptr::write_unaligned(pipefd.add(1), w_fd);
     }
 
     Ok(0)
@@ -357,7 +350,7 @@ pub fn sys_getcwd(frame: &mut SyscallFrame) -> SyscallResult {
     // SAFETY: User buffer pointer range validated within Ring 3 address bounds.
     unsafe {
         core::ptr::copy_nonoverlapping(cwd_bytes.as_ptr(), buf, cwd_bytes.len());
-        core::ptr::write_volatile(buf.add(cwd_bytes.len()), 0);
+        core::ptr::write_unaligned(buf.add(cwd_bytes.len()), 0);
     }
 
     Ok(buf as usize)
@@ -508,7 +501,7 @@ pub fn sys_newfstatat(frame: &mut SyscallFrame) -> SyscallResult {
     let linux_stat = copy_to_linux_stat(&vfs_stat);
     // SAFETY: Writing stat struct to user statbuf after validation.
     unsafe {
-        core::ptr::write_volatile(statbuf, linux_stat);
+        core::ptr::write_unaligned(statbuf, linux_stat);
     }
 
     Ok(0)

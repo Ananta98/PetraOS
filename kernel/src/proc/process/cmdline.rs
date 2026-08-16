@@ -42,14 +42,18 @@ impl CommandLine {
         envp: *const *const u8,
     ) -> Result<Self, &'static str> {
         let mut args = Vec::new();
-        if !argv.is_null() {
+        if !argv.is_null() && crate::syscalls::is_user_ptr_valid(argv as u64, 8) {
             let mut i = 0;
             loop {
                 if argc > 0 && i >= argc {
                     break;
                 }
-                let arg_ptr = unsafe { *argv.add(i) };
-                if arg_ptr.is_null() {
+                let ptr_addr = (argv as u64).wrapping_add((i * 8) as u64);
+                if !crate::syscalls::is_user_ptr_valid(ptr_addr, 8) {
+                    break;
+                }
+                let arg_ptr = unsafe { *(ptr_addr as *const *const u8) };
+                if arg_ptr.is_null() || !crate::syscalls::is_user_ptr_valid(arg_ptr as u64, 1) {
                     break;
                 }
                 let c_str = unsafe { CStr::from_ptr(arg_ptr as *const i8) };
@@ -60,11 +64,15 @@ impl CommandLine {
         }
 
         let mut env = Vec::new();
-        if !envp.is_null() {
+        if !envp.is_null() && crate::syscalls::is_user_ptr_valid(envp as u64, 8) {
             let mut i = 0;
             loop {
-                let env_ptr = unsafe { *envp.add(i) };
-                if env_ptr.is_null() {
+                let ptr_addr = (envp as u64).wrapping_add((i * 8) as u64);
+                if !crate::syscalls::is_user_ptr_valid(ptr_addr, 8) {
+                    break;
+                }
+                let env_ptr = unsafe { *(ptr_addr as *const *const u8) };
+                if env_ptr.is_null() || !crate::syscalls::is_user_ptr_valid(env_ptr as u64, 1) {
                     break;
                 }
                 let c_str = unsafe { CStr::from_ptr(env_ptr as *const i8) };

@@ -88,6 +88,10 @@ pub unsafe fn setup_signal_frame(
         uc: sig_context,
     };
 
+    if !crate::syscalls::is_user_ptr_valid(user_rsp, size_of::<SigFrame>()) {
+        return Err("Invalid user stack pointer for signal frame");
+    }
+
     // SAFETY: Copy SigFrame directly to user stack space
     let frame_ptr = user_rsp as *mut SigFrame;
     unsafe {
@@ -110,6 +114,9 @@ pub unsafe fn setup_signal_frame(
 /// Reads `SigFrame` from user stack pointer in `SyscallFrame`.
 pub unsafe fn restore_signal_frame(frame: &mut SyscallFrame) -> Result<SigSet, &'static str> {
     let user_rsp = frame.rsp;
+    if !crate::syscalls::is_user_ptr_valid(user_rsp, size_of::<SigFrame>()) {
+        return Err("Invalid user stack pointer for sigreturn");
+    }
     let frame_ptr = user_rsp as *const SigFrame;
 
     // SAFETY: Read SigFrame from current user stack pointer

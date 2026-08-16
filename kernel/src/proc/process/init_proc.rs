@@ -10,12 +10,7 @@ use alloc::sync::Arc;
 use alloc::vec;
 
 /// POSIX standard paths scanned in order to find the initial user-space init binary.
-pub const DEFAULT_INIT_EXEC_PATHS: &[&str] = &[
-    "/sbin/init",
-    "/etc/init",
-    "/bin/init",
-    "/bin/sh",
-];
+pub const DEFAULT_INIT_EXEC_PATHS: &[&str] = &["/bin/bash", "/usr/bin/bash", "/usr/bin/sh"];
 
 /// Initialize the primary user process (PID 1).
 ///
@@ -44,12 +39,12 @@ pub fn create_init_process() -> Result<(Arc<Spinlock<Process>>, u64, u64), &'sta
 
     // 1. Iterate over candidate init paths and execute
     for candidate_path in DEFAULT_INIT_EXEC_PATHS {
-        log::info!("[Init Process] Checking candidate path: '{}'", candidate_path);
-
-        let cmdline = CommandLine::new(
-            vec![String::from(*candidate_path)],
-            default_env.clone(),
+        log::info!(
+            "[Init Process] Checking candidate path: '{}'",
+            candidate_path
         );
+
+        let cmdline = CommandLine::new(vec![String::from(*candidate_path)], default_env.clone());
 
         if let Ok((entry_point, stack_top)) = proc.execute_cmdline(candidate_path, cmdline) {
             log::info!(
@@ -67,14 +62,26 @@ pub fn create_init_process() -> Result<(Arc<Spinlock<Process>>, u64, u64), &'sta
                 Arc::downgrade(&proc_arc),
             )));
 
-            let cr3 = proc_arc.lock().address_space.lock().page_table().root().as_u64() as usize;
+            let cr3 = proc_arc
+                .lock()
+                .address_space
+                .lock()
+                .page_table()
+                .root()
+                .as_u64() as usize;
+
+            let kernel_stack = KernelStack::new(16 * 1024);
             {
                 let mut t_lock = init_thread.lock();
                 t_lock.context.cr3 = cr3;
                 t_lock.state = crate::proc::thread::ThreadState::Running;
+                t_lock.kernel_stack = Some(kernel_stack);
             }
 
-            proc_arc.lock().threads.insert(init_tid, init_thread.clone());
+            proc_arc
+                .lock()
+                .threads
+                .insert(init_tid, init_thread.clone());
             super::process_table::register_process(proc_arc.clone());
 
             // Register as active thread on BSP CPU 0
@@ -102,17 +109,17 @@ pub fn run_init_process() -> ! {
 
     let p_lock = proc_arc.lock();
     let cr3 = p_lock.address_space.lock().page_table().root().as_u64();
+    let kernel_rsp0 = p_lock
+        .threads
+        .values()
+        .next()
+        .map(|t| t.lock().kernel_stack_top())
+        .unwrap_or(0);
     drop(p_lock);
-
-    // Allocate a dynamic 16-byte aligned kernel stack for TSS RSP0 and Ring 0 transition
-    let kernel_stack = KernelStack::new(16 * 1024);
-    let kernel_rsp0 = kernel_stack.top();
-
-    // Prevent kernel_stack buffer from being dropped when divergent jump_to_userspace executes
-    core::mem::forget(kernel_stack);
 
     // Jump to user mode (Ring 3) with valid kernel stack top for TSS RSP0
     unsafe {
         jump_to_userspace(entry_point, stack_top, kernel_rsp0, cr3);
     }
 }
+

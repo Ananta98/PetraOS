@@ -409,7 +409,64 @@ impl<P: PageTable> AddrSpace<P> {
             return Ok(()); // Spurious fault
         }
 
-        Err(PageFaultError::UnmappedAccess)
+        // 4. Page is not present in hardware page table: handle demand paging for registered VMA
+        let hhdm = crate::mm::hhdm_offset();
+        let frame_phys = match &area.kind {
+            VmAreaKind::Anonymous => {
+                let frame = crate::mm::PMM
+                    .alloc_page()
+                    .ok_or(PageFaultError::FrameAllocationFailed)?;
+                let dest_ptr = frame.as_ptr::<u8>(hhdm);
+                // SAFETY: Zeroing newly allocated anonymous physical frame.
+                unsafe {
+                    core::ptr::write_bytes(dest_ptr, 0, 4096);
+                }
+                frame
+            }
+            VmAreaKind::Device { phys_start } => {
+                let page_offset = (page_virt - area.start) as usize;
+                *phys_start + page_offset
+            }
+            VmAreaKind::File {
+                file,
+                offset,
+                file_size,
+            } => {
+                let frame = crate::mm::PMM
+                    .alloc_page()
+                    .ok_or(PageFaultError::FrameAllocationFailed)?;
+                let dest_ptr = frame.as_ptr::<u8>(hhdm);
+
+                let page_file_offset = offset + (page_virt - area.start) as usize;
+                let bytes_written = if page_file_offset < *file_size {
+                    let bytes_to_read = core::cmp::min(4096, *file_size - page_file_offset);
+                    let buf_slice =
+                        unsafe { core::slice::from_raw_parts_mut(dest_ptr, bytes_to_read) };
+                    let _ = file.read(page_file_offset, buf_slice);
+                    bytes_to_read
+                } else {
+                    0
+                };
+
+                if bytes_written < 4096 {
+                    // SAFETY: Zero remaining bytes of the demand page.
+                    unsafe {
+                        core::ptr::write_bytes(
+                            dest_ptr.add(bytes_written),
+                            0,
+                            4096 - bytes_written,
+                        );
+                    }
+                }
+                frame
+            }
+        };
+
+        self.page_table
+            .map(page_virt, frame_phys, area.flags)
+            .map_err(PageFaultError::PagingError)?;
+
+        Ok(())
     }
 
     /// Load the associated page table into the CPU's control register.
