@@ -13,6 +13,8 @@ sources:
       - args: ['rm', '-rf', 'gnulib']
       - args: ['cp', '-r', '@SOURCE_ROOT@/sources/gnulib', './']
       - args: ['./bootstrap']
+        environ:
+          HELP2MAN: '/usr/bin/true'
 
 tools:
   - name: host-libtool
@@ -47,6 +49,9 @@ packages:
           - '--host=x86_64-petra'
           - '--prefix=/usr'
     build:
-      - args: ['make', '-j@PARALLELISM@']
+      - args: ['touch',
+               '@THIS_SOURCE_DIR@/doc/libtool.1',
+               '@THIS_SOURCE_DIR@/doc/libtoolize.1']
+      - args: ['make', '-j@PARALLELISM@', 'HELP2MAN=/usr/bin/true']
     install:
       - args: ['make', 'DESTDIR=@SYSROOT_DIR@', 'install-strip']

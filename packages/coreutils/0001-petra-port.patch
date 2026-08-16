@@ -1,0 +1,61 @@
+From a1b2c3d4e5f60718293a4b5c6d7e8f9012345678 Mon Sep 17 00:00:00 2001
+From: Ananta <kusumaananta042@gmail.com>
+Date: Sat, 15 Aug 2026 21:55:00 +0700
+Subject: [PATCH] feat(petra): add PetraOS support to GNU Coreutils 9.1
+
+Signed-off-by: Ananta <kusumaananta042@gmail.com>
+---
+ m4/mountlist.m4 | 4 ++--
+ src/stat.c      | 9 +++++----
+ 2 files changed, 7 insertions(+), 6 deletions(-)
+
+diff --git a/m4/mountlist.m4 b/m4/mountlist.m4
+index 7289b4f..c34d5e6 100644
+--- a/m4/mountlist.m4
++++ b/m4/mountlist.m4
+@@ -308,7 +308,8 @@
+   if test -z "$ac_list_mounted_fs"; then
+-    AC_MSG_ERROR([could not determine how to read list of mounted file systems])
+-    # FIXME -- no need to abort building the whole package
+-    # Can't build mountlist.c or anything that needs its functions
++    AC_DEFINE([MOUNTED_NOT_PORTED], [1],
++      [Define if we don't know how to determine the list of mounted file systems.])
++    ac_list_mounted_fs=found
+   fi
+ 
+   if test $ac_list_mounted_fs = found; then
+diff --git a/src/stat.c b/src/stat.c
+index 3765a8f65..413b25459 100644
+--- a/src/stat.c
++++ b/src/stat.c
+@@ -20,9 +20,7 @@
+ 
+ /* Keep this conditional in sync with the similar conditional in
+    ../m4/stat-prog.m4.  */
+-#if ((STAT_STATVFS || STAT_STATVFS64)                                       \
+-     && (HAVE_STRUCT_STATVFS_F_BASETYPE || HAVE_STRUCT_STATVFS_F_FSTYPENAME \
+-         || (! HAVE_STRUCT_STATFS_F_FSTYPENAME && HAVE_STRUCT_STATVFS_F_TYPE)))
++#if (STAT_STATVFS || STAT_STATVFS64)
+ # define USE_STATVFS 1
+ #else
+ # define USE_STATVFS 0
+@@ -263,7 +261,7 @@ human_fstype (STRUCT_STATVFS const *statfsbuf)
+ {
+ #ifdef STATXFS_FILE_SYSTEM_TYPE_MEMBER_NAME
+   return statfsbuf->STATXFS_FILE_SYSTEM_TYPE_MEMBER_NAME;
+-#else
++#elif HAVE_STRUCT_STATXFS_F_TYPE
+   switch (statfsbuf->f_type)
+     {
+ # if defined __linux__ || defined __ANDROID__
+@@ -630,6 +628,9 @@ human_fstype (STRUCT_STATVFS const *statfsbuf)
+         return buf;
+       }
+     }
++#else
++  (void)statfsbuf;
++  return "unknown";
+ #endif
+ }
+-- 
+2.43.0

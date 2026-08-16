@@ -49,6 +49,6 @@ packages:
           - '--disable-nls'
           - '--disable-werror'
     build:
-      - args: ['make', '-j@PARALLELISM@']
+      - args: ['make', '-j@PARALLELISM@', 'all-binutils', 'all-gas', 'all-ld']
     install:
-      - args: ['make', 'DESTDIR=@SYSROOT_DIR@', 'install-strip']
+      - args: ['make', 'DESTDIR=@SYSROOT_DIR@', 'install-strip-binutils', 'install-strip-gas', 'install-strip-ld']

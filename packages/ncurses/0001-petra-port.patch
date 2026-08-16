@@ -5,20 +5,22 @@ Subject: [PATCH] feat(petra): add PetraOS support to ncurses 6.3
 
 Signed-off-by: Ananta <kusumaananta042@gmail.com>
 ---
- configure | 4 ++++
- 1 file changed, 4 insertions(+)
+ configure | 6 ++++++
+ 1 file changed, 6 insertions(+)
 
 diff --git a/configure b/configure
 index 421cf859..7a1669fa 100755
 --- a/configure
 +++ b/configure
-@@ -6423,6 +6423,10 @@ CF_EOF
+@@ -6423,6 +6423,12 @@ CF_EOF
  		LINK_PROGS="$SHELL ${rel_builddir}/mk_prog.sh"
  		LINK_TESTS="$SHELL ${rel_builddir}/mk_prog.sh"
  		;;
 +	(petra*)
 +		CC_SHARED_OPTS='-fPIC'
 +		MK_SHARED_LIB='${CC} -shared -o $@'
++		cf_cv_shlib_version=rel
++		cf_cv_shlib_version_infix=no
 +		;;
  	(mingw*)
  		cf_cv_shlib_version=mingw

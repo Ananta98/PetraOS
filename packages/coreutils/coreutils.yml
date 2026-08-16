@@ -4,6 +4,7 @@ sources:
     git: 'https://git.savannah.gnu.org/git/coreutils.git'
     tag: 'v9.1'
     version: '9.1'
+    patch_path_strip: 1
     sources_required: ['gnulib']
     tools_required:
       - host-autoconf-v2.69

@@ -203,6 +203,32 @@ index 17f8e5f30..c4def9213 100644
  netbsd*)
    if echo __ELF__ | $CC -E - | $GREP __ELF__ > /dev/null; then
      lt_cv_deplibs_check_method='match_pattern /lib[[^/]]+(\.so\.[[0-9]]+\.[[0-9]]+|_pic\.a)$'
+diff --git a/gcc/cp/module.cc b/gcc/cp/module.cc
+index cebf9c35c1d..53125668c5d 100644
+--- a/gcc/cp/module.cc
++++ b/gcc/cp/module.cc
+@@ -1638,8 +1638,10 @@ elf_in::defrost (const char *name)
+ 	      set_error (errno);
+ 	  else
+ 	    {
++#if defined(MADV_RANDOM)
+ 	      if (madvise (mapping, hdr.pos, MADV_RANDOM))
+ 		goto fail;
++#endif
+ 
+ 	      /* These buffers are never NULL in this case.  */
+ 	      strtab.buffer = mapping + strtab.pos;
+@@ -1749,8 +1751,10 @@ elf_in::begin (location_t loc)
+     }
+   /* We'll be hopping over this randomly.  Some systems declare the
+      first parm as char *, and other declare it as void *.  */
++#if defined(MADV_RANDOM)
+   if (madvise (reinterpret_cast <char *> (mapping), size, MADV_RANDOM))
+     goto fail;
++#endif
+ 
+   hdr.buffer = (char *)mapping;
+ #else
 -- 
 2.43.0
 
