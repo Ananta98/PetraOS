@@ -1,5 +1,5 @@
-From aeeb8b98f65f933b3dddc3d9a1bd1afdf0a6a1b9 Mon Sep 17 00:00:00 2001
-From: PetraOS Agent <agent@petraos.dev>
+From 39144cfd07563fa2587563f3afecf79648a0cc79 Mon Sep 17 00:00:00 2001
+From: Ananta <kusumaananta042@gmail.com>
 Date: Sat, 15 Aug 2026 11:59:14 +0700
 Subject: [PATCH] feat(sysdeps): add PetraOS support and GCC 13 compatibility
 
@@ -79,10 +79,10 @@ Subject: [PATCH] feat(sysdeps): add PetraOS support and GCC 13 compatibility
  sysdeps/petra/include/abi-bits/vt.h           |   1 +
  sysdeps/petra/include/abi-bits/wait.h         |   1 +
  sysdeps/petra/include/abi-bits/xattr.h        |   1 +
- sysdeps/petra/include/mlibc/sysdeps.hpp       |  56 +++
+ sysdeps/petra/include/mlibc/sysdeps.hpp       |  69 +++
  sysdeps/petra/include/sys/syscall.h           | 119 +++++
  sysdeps/petra/meson.build                     | 118 +++++
- 78 files changed, 980 insertions(+), 23 deletions(-)
+ 78 files changed, 993 insertions(+), 23 deletions(-)
  create mode 100644 subprojects/packagefiles/frigg/include/frg/span.hpp
  create mode 100644 sysdeps/petra/crt-x86_64/Scrt1.S
  create mode 100644 sysdeps/petra/crt-x86_64/crt1.S
@@ -1409,10 +1409,10 @@ index 00000000..66412d70
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/mlibc/sysdeps.hpp b/sysdeps/petra/include/mlibc/sysdeps.hpp
 new file mode 100644
-index 00000000..c828d0a9
+index 00000000..5681c78f
 --- /dev/null
 +++ b/sysdeps/petra/include/mlibc/sysdeps.hpp
-@@ -0,0 +1,56 @@
+@@ -0,0 +1,69 @@
 +#pragma once
 +
 +#include <mlibc/sysdep-signatures.hpp>
@@ -1456,6 +1456,19 @@ index 00000000..c828d0a9
 +    Kill,
 +    Sigaction,
 +    Sigprocmask,
++    GetUid,
++    GetEuid,
++    GetGid,
++    GetEgid,
++    SetUid,
++    SetGid,
++    SetSid,
++    GetGroups,
++    GetRlimit,
++    SetRlimit,
++    Access,
++    Faccessat,
++    Umask,
 +    Chdir,
 +    GetCwd,
 +    Sleep

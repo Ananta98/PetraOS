@@ -1,8 +1,18 @@
 general:
-  patch_author: "PetraOS"
-  patch_email: ""
-  patch_dir: "@SOURCE_ROOT@/packages"
+  patch_author: "Ananta"
+  patch_email: "kusumaananta042@gmail.com"
 
 imports:
   - file: packages/mlibc/mlibc.yml
+  - file: packages/autoconf/autoconf.yml
+  - file: packages/automake/automake.yml
+  - file: packages/libtool/libtool.yml
+  - file: packages/binutils/binutils.yml
+  - file: packages/gcc/gcc.yml
+  - file: packages/ncurses/ncurses.yml
+  - file: packages/readline/readline.yml
   - file: packages/bash/bash.yml
+  - file: packages/gnulib/gnulib.yml
+  - file: packages/coreutils/coreutils.yml
+  - file: packages/tzdata/tzdata.yml
+  - file: packages/pkg-config/pkg-config.yml

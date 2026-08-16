@@ -1,0 +1,35 @@
+sources:
+  - name: readline
+    subdir: sources
+    git: 'https://git.savannah.gnu.org/git/readline.git'
+    tag: 'readline-8.1'
+    version: '8.1'
+    patch_path_strip: 1
+    tools_required:
+      - host-autoconf-v2.69
+      - host-automake-v1.16
+    regenerate:
+      - args: ['cp',
+               '@BUILD_ROOT@/tools/host-automake-v1.16/share/automake-1.16/config.sub',
+               '@THIS_SOURCE_DIR@/support/']
+
+packages:
+  - name: readline
+    architecture: x86_64
+    from_source: readline
+    tools_required:
+      - host-gcc
+    pkgs_required:
+      - mlibc
+      - ncurses
+    configure:
+      - args:
+          - '@THIS_SOURCE_DIR@/configure'
+          - '--host=x86_64-petra'
+          - '--prefix=/usr'
+          - '--disable-static'
+          - '--enable-multibyte'
+    build:
+      - args: ['make', '-j@PARALLELISM@']
+    install:
+      - args: ['make', 'DESTDIR=@SYSROOT_DIR@', 'install']

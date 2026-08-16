@@ -1,7 +1,10 @@
 sources:
   - name: bash
-    url: https://ftp.gnu.org/gnu/bash/bash-5.2.tar.gz
+    subdir: sources
+    url: https://ftpmirror.gnu.org/gnu/bash/bash-5.2.tar.gz
     format: tar.gz
+    extract_path: bash-5.2
+    patch_path_strip: 1
 
 packages:
   - name: bash
@@ -12,13 +15,37 @@ packages:
     configure:
       - args:
           - '@THIS_SOURCE_DIR@/configure'
-          - --host=x86_64-linux-gnu
+          - --host=x86_64-petra
+          - --build=x86_64-linux-gnu
           - --prefix=/usr
           - --without-bash-malloc
           - --disable-nls
           - CC=x86_64-linux-gnu-gcc
-          - CFLAGS=--sysroot=@SYSROOT_DIR@ -O2
-          - LDFLAGS=--sysroot=@SYSROOT_DIR@
+          - AR=x86_64-linux-gnu-ar
+          - RANLIB=x86_64-linux-gnu-ranlib
+          - CC_FOR_BUILD=gcc
+          - CFLAGS=--sysroot=@SYSROOT_DIR@ -B@SYSROOT_DIR@/usr/lib -L@SYSROOT_DIR@/usr/lib -O2
+          - CFLAGS_FOR_BUILD=-O2
+          - CPPFLAGS_FOR_BUILD=
+          - LDFLAGS=--sysroot=@SYSROOT_DIR@ -B@SYSROOT_DIR@/usr/lib -L@SYSROOT_DIR@/usr/lib -static
+          - LDFLAGS_FOR_BUILD=
+          - ac_cv_func_getrandom=no
+          - ac_cv_func_arc4random=no
+          - ac_cv_func_getentropy=yes
+          - ac_cv_func_strtoimax=yes
+          - ac_cv_func_strtoumax=yes
+          - bash_cv_func_strtoimax=no
+          - bash_cv_func_strtoumax=no
+          - bash_cv_getenv_redef=no
+          - bash_cv_job_control_missing=present
+          - bash_cv_sys_named_pipes=present
+          - bash_cv_func_sigsetjmp=present
+          - bash_cv_printf_a_format=yes
+          - bash_cv_getcwd_malloc=yes
+          - bash_cv_ulimit_maxfds=yes
+          - bash_cv_must_reinstall_sighandlers=no
+          - bash_cv_func_ctype_nonascii=yes
+          - bash_cv_wexitstatus_offset=8
     build:
       - args:
           - make
@@ -29,7 +56,22 @@ packages:
           - DESTDIR=@SYSROOT_DIR@
           - install
       - args:
+          - mkdir
+          - -p
+          - '@SYSROOT_DIR@/bin'
+      - args:
           - ln
           - -sf
           - /usr/bin/bash
           - '@SYSROOT_DIR@/usr/bin/sh'
+      - args:
+          - ln
+          - -sf
+          - /usr/bin/bash
+          - '@SYSROOT_DIR@/bin/bash'
+      - args:
+          - ln
+          - -sf
+          - /usr/bin/bash
+          - '@SYSROOT_DIR@/bin/sh'
+

@@ -1,0 +1,25 @@
+From 4b8f92317d8597c832896bee57265cfb2e27a3ae Mon Sep 17 00:00:00 2001
+From: Ananta <kusumaananta042@gmail.com>
+Date: Sat, 15 Aug 2026 21:55:00 +0700
+Subject: [PATCH] feat(petra): add PetraOS support to GNU Automake 1.16
+
+Signed-off-by: Ananta <kusumaananta042@gmail.com>
+---
+ lib/config.sub | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/lib/config.sub b/lib/config.sub
+index d74fb6dea..d60828765 100755
+--- a/lib/config.sub
++++ b/lib/config.sub
+@@ -1723,7 +1723,7 @@ case $os in
+ 	     | hpux* | unos* | osf* | luna* | dgux* | auroraux* | solaris* \
+ 	     | sym* |  plan9* | psp* | sim* | xray* | os68k* | v88r* \
+ 	     | hiux* | abug | nacl* | netware* | windows* \
+-	     | os9* | macos* | osx* | ios* \
++	     | os9* | macos* | osx* | ios* | petra* \
+ 	     | mpw* | magic* | mmixware* | mon960* | lnews* \
+ 	     | amigaos* | amigados* | msdos* | newsos* | unicos* | aof* \
+ 	     | aos* | aros* | cloudabi* | sortix* | twizzler* \
+-- 
+2.43.0

@@ -1,0 +1,117 @@
+sources:
+  - name: gcc
+    subdir: sources
+    git: 'git://gcc.gnu.org/git/gcc.git'
+    tag: 'releases/gcc-12.1.0'
+    patch_path_strip: 1
+    version: '12.1.0'
+    tools_required:
+      - host-autoconf-v2.69
+      - host-automake-v1.16
+    regenerate:
+      - args: ['./contrib/download_prerequisites']
+        workdir: '@THIS_SOURCE_DIR@'
+      - args: ['cp',
+               '@BUILD_ROOT@/tools/host-automake-v1.16/share/automake-1.16/config.sub',
+               '@THIS_SOURCE_DIR@/']
+      - args: ['cp',
+               '@BUILD_ROOT@/tools/host-automake-v1.16/share/automake-1.16/config.sub',
+               '@THIS_SOURCE_DIR@/gmp-6.2.1/configfsf.sub']
+      - args: ['cp',
+               '@BUILD_ROOT@/tools/host-automake-v1.16/share/automake-1.16/config.sub',
+               '@THIS_SOURCE_DIR@/isl-0.24/config.sub']
+      - args: ['cp', '-f',
+               '@BUILD_ROOT@/tools/host-automake-v1.16/share/automake-1.16/config.sub',
+               '@THIS_SOURCE_DIR@/mpc-1.2.1/build-aux/config.sub']
+      - args: ['cp',
+               '@BUILD_ROOT@/tools/host-automake-v1.16/share/automake-1.16/config.sub',
+               '@THIS_SOURCE_DIR@/mpfr-4.1.0/config.sub']
+      - args: ['autoconf']
+        workdir: '@THIS_SOURCE_DIR@/gcc'
+      - args: ['autoconf']
+        workdir: '@THIS_SOURCE_DIR@/libstdc++-v3'
+
+tools:
+  - name: host-gcc
+    architecture: x86_64
+    from_source: gcc
+    tools_required:
+      - tool: host-binutils
+        recursive: true
+    configure:
+      - args:
+          - '@THIS_SOURCE_DIR@/configure'
+          - '--prefix=@PREFIX@'
+          - '--target=x86_64-petra'
+          - '--with-sysroot=@SYSROOT_DIR@'
+          - '--enable-languages=c,c++'
+          - '--disable-multilib'
+          - '--enable-initfini-array'
+          - 'CFLAGS=-O2 -pipe'
+          - 'CXXFLAGS=-O2 -pipe'
+    stages:
+      - name: compiler
+        pkgs_required:
+          - mlibc-headers
+        compile:
+          - args: ['make', '-j@PARALLELISM@', 'all-gcc']
+        install:
+          - args: ['make', 'install-gcc']
+          - args: ['mkdir', '-p', '@PREFIX@/x86_64-petra/bin']
+          - args: ['ln', '-sf', '../../../host-binutils/x86_64-petra/bin/as',
+                   '@PREFIX@/x86_64-petra/bin/as']
+          - args: ['ln', '-sf', '../../../host-binutils/x86_64-petra/bin/ld',
+                   '@PREFIX@/x86_64-petra/bin/ld']
+
+      - name: libgcc
+        tools_required:
+          - tool: host-gcc
+            stage_dependencies: [compiler]
+        pkgs_required:
+          - mlibc
+        compile:
+          - args: ['make', '-j@PARALLELISM@', 'all-target-libgcc']
+        install:
+          - args: ['make', 'install-strip-target-libgcc']
+
+      - name: libstdc++
+        tools_required:
+          - tool: host-gcc
+            stage_dependencies: [libgcc]
+        pkgs_required:
+          - mlibc
+        compile:
+          - args: ['make', '-j@PARALLELISM@', 'all-target-libstdc++-v3']
+        install:
+          - args: ['make', 'install-strip-target-libstdc++-v3']
+
+packages:
+  - name: gcc
+    architecture: x86_64
+    from_source: gcc
+    tools_required:
+      - host-gcc
+    pkgs_required:
+      - mlibc
+      - binutils
+    configure:
+      - args:
+          - '@THIS_SOURCE_DIR@/configure'
+          - '--host=x86_64-petra'
+          - '--prefix=/usr'
+          - '--target=x86_64-petra'
+          - '--with-sysroot=/'
+          - '--with-build-sysroot=@SYSROOT_DIR@'
+          - '--enable-languages=c,c++'
+          - '--enable-initfini-array'
+          - '--disable-multilib'
+          - '--disable-nls'
+          - 'CFLAGS=-O2 -pipe'
+          - 'CXXFLAGS=-O2 -pipe'
+    build:
+      - args: ['make', '-j@PARALLELISM@', 'all-gcc', 'all-target-libgcc']
+    install:
+      - args: ['make', 'DESTDIR=@SYSROOT_DIR@', 'install-strip-gcc', 'install-strip-target-libgcc']
+      - args: ['sh', '-c', 'cp -rv @BUILD_ROOT@/tools/host-gcc/x86_64-petra/lib/* @SYSROOT_DIR@/usr/lib/ || true']
+      - args: ['sh', '-c', 'cp -rv @BUILD_ROOT@/tools/host-gcc/x86_64-petra/include/* @SYSROOT_DIR@/usr/include/ || true']
+      - args: ['ln', '-sf', '/usr/bin/gcc', '@SYSROOT_DIR@/usr/bin/cc']

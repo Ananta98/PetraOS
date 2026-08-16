@@ -1,5 +1,6 @@
 sources:
   - name: mlibc
+    subdir: sources
     git: https://github.com/managarm/mlibc.git
     branch: master
 

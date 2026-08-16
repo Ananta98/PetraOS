@@ -1,0 +1,18 @@
+sources:
+  - name: autoconf-v2.69
+    subdir: sources
+    url: 'https://ftp.gnu.org/gnu/autoconf/autoconf-2.69.tar.xz'
+    format: 'tar.xz'
+    extract_path: 'autoconf-2.69'
+    version: '2.69'
+
+tools:
+  - name: host-autoconf-v2.69
+    architecture: x86_64
+    from_source: autoconf-v2.69
+    configure:
+      - args: ['@THIS_SOURCE_DIR@/configure', '--prefix=@PREFIX@']
+    compile:
+      - args: ['make', '-j@PARALLELISM@']
+    install:
+      - args: ['make', 'install']

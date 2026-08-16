@@ -1,0 +1,52 @@
+sources:
+  - name: libtool
+    subdir: sources
+    git: 'https://git.savannah.gnu.org/git/libtool.git'
+    tag: 'v2.4.7'
+    version: '2.4.7'
+    patch_path_strip: 1
+    sources_required: ['gnulib']
+    tools_required:
+      - host-autoconf-v2.69
+      - host-automake-v1.16
+    regenerate:
+      - args: ['rm', '-rf', 'gnulib']
+      - args: ['cp', '-r', '@SOURCE_ROOT@/sources/gnulib', './']
+      - args: ['./bootstrap']
+
+tools:
+  - name: host-libtool
+    architecture: x86_64
+    exports_aclocal: true
+    from_source: libtool
+    tools_required:
+      - host-autoconf-v2.69
+      - host-automake-v1.16
+    configure:
+      - args:
+          - '@THIS_SOURCE_DIR@/configure'
+          - '--prefix=@PREFIX@'
+    compile:
+      - args: ['make', '-j@PARALLELISM@']
+    install:
+      - args: ['make', 'install-strip']
+
+packages:
+  - name: libtool
+    architecture: x86_64
+    from_source: libtool
+    tools_required:
+      - host-gcc
+      - host-autoconf-v2.69
+      - host-automake-v1.16
+    pkgs_required:
+      - mlibc
+    configure:
+      - args:
+          - '@THIS_SOURCE_DIR@/configure'
+          - '--host=x86_64-petra'
+          - '--prefix=/usr'
+    build:
+      - args: ['make', '-j@PARALLELISM@']
+    install:
+      - args: ['make', 'DESTDIR=@SYSROOT_DIR@', 'install-strip']

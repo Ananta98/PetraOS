@@ -1,0 +1,55 @@
+sources:
+  - name: automake-v1.16
+    subdir: sources
+    git: 'https://git.savannah.gnu.org/git/automake.git'
+    tag: 'v1.16.5'
+    version: '1.16.5'
+    patch_path_strip: 1
+    tools_required:
+      - host-autoconf-v2.69
+    regenerate:
+      - args: ['./bootstrap']
+      - args: |
+          set -e
+          git clone https://github.com/autoconf-archive/autoconf-archive.git --branch=v2021.02.19 --depth=1
+
+tools:
+  - name: host-automake-v1.16
+    architecture: x86_64
+    from_source: automake-v1.16
+    tools_required:
+      - host-autoconf-v2.69
+    configure:
+      - args:
+          - '@THIS_SOURCE_DIR@/configure'
+          - '--prefix=@PREFIX@'
+    compile:
+      - args: |
+          set -e
+          export PATH="`pwd`/bin:$PATH"
+          make bin/aclocal-1.16 bin/automake-1.16 -j@PARALLELISM@
+          make -j@PARALLELISM@
+    install:
+      - args: ['make', 'install-strip']
+      - args: ['ln', '-sf', '@PREFIX@/share/aclocal-1.16', '@PREFIX@/share/aclocal']
+      - args: ['cp', '-r', '@THIS_SOURCE_DIR@/autoconf-archive/m4/.', '@PREFIX@/share/aclocal-1.16/']
+
+packages:
+  - name: automake
+    architecture: x86_64
+    from_source: automake-v1.16
+    tools_required:
+      - host-gcc
+      - host-autoconf-v2.69
+      - host-automake-v1.16
+    pkgs_required:
+      - mlibc
+    configure:
+      - args:
+          - '@THIS_SOURCE_DIR@/configure'
+          - '--host=x86_64-petra'
+          - '--prefix=/usr'
+    build:
+      - args: ['make', '-j@PARALLELISM@']
+    install:
+      - args: ['make', 'DESTDIR=@SYSROOT_DIR@', 'install-strip']

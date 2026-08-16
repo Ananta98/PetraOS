@@ -1,0 +1,76 @@
+sources:
+  - name: tzcode
+    subdir: sources
+    url: 'https://data.iana.org/time-zones/releases/tzcode2022a.tar.gz'
+    format: 'tar.gz'
+    version: '2022a'
+
+  - name: tzdata
+    subdir: sources
+    sources_required: ['tzcode']
+    url: 'https://data.iana.org/time-zones/releases/tzdata2022a.tar.gz'
+    format: 'tar.gz'
+    version: '2022a'
+    regenerate:  
+      - args: ['cp', '-r', '@THIS_SOURCE_DIR@/../tzcode/.', '@THIS_SOURCE_DIR@/']
+
+tools:
+  - name: host-zic
+    architecture: x86_64
+    from_source: tzdata
+    configure:
+      - args: ['cp', '-r', '@THIS_SOURCE_DIR@/.', '@THIS_BUILD_DIR@']
+    compile:
+      - args: ['make', 'zic']
+    install:
+      - args: ['mkdir', '-p', '@PREFIX@/bin']
+      - args: ['cp', 'zic', '@PREFIX@/bin/']
+
+packages:
+  - name: tzdata
+    architecture: x86_64
+    from_source: tzdata
+    tools_required:
+      - host-zic
+      - host-gcc
+    pkgs_required:
+      - mlibc
+    configure:
+      - args: ['cp', '-r', '@THIS_SOURCE_DIR@/.', '@THIS_BUILD_DIR@/']
+    build:
+      - args: ['make', 'CC=x86_64-petra-gcc', 'AR=x86_64-petra-ar']
+      - args: ['make', 'install', 'DESTDIR=@SYSROOT_DIR@', 'ZIC=zic']
+      - args: ['mkdir', '-p', '@SYSROOT_DIR@/etc']
+      - args: ['mkdir', '-p', '@SYSROOT_DIR@/usr/share/zoneinfo/posix']
+      - args: ['mkdir', '-p', '@SYSROOT_DIR@/usr/share/zoneinfo/right']
+      - args: |
+          set -e
+          zic -L /dev/null -d "@SYSROOT_DIR@"/usr/share/zoneinfo "@THIS_BUILD_DIR@"/etcetera
+          zic -L /dev/null -d "@SYSROOT_DIR@"/usr/share/zoneinfo/posix "@THIS_BUILD_DIR@"/etcetera
+          zic -L "@THIS_SOURCE_DIR@"/leapseconds -d "@SYSROOT_DIR@"/usr/share/zoneinfo/right "@THIS_BUILD_DIR@"/etcetera
+          zic -L /dev/null -d "@SYSROOT_DIR@"/usr/share/zoneinfo "@THIS_BUILD_DIR@"/southamerica
+          zic -L /dev/null -d "@SYSROOT_DIR@"/usr/share/zoneinfo/posix "@THIS_BUILD_DIR@"/southamerica
+          zic -L "@THIS_SOURCE_DIR@"/leapseconds -d "@SYSROOT_DIR@"/usr/share/zoneinfo/right "@THIS_BUILD_DIR@"/southamerica
+          zic -L /dev/null -d "@SYSROOT_DIR@"/usr/share/zoneinfo "@THIS_BUILD_DIR@"/northamerica
+          zic -L /dev/null -d "@SYSROOT_DIR@"/usr/share/zoneinfo/posix "@THIS_BUILD_DIR@"/northamerica
+          zic -L "@THIS_SOURCE_DIR@"/leapseconds -d "@SYSROOT_DIR@"/usr/share/zoneinfo/right "@THIS_BUILD_DIR@"/northamerica
+          zic -L /dev/null -d "@SYSROOT_DIR@"/usr/share/zoneinfo "@THIS_BUILD_DIR@"/europe
+          zic -L /dev/null -d "@SYSROOT_DIR@"/usr/share/zoneinfo/posix "@THIS_BUILD_DIR@"/europe
+          zic -L "@THIS_SOURCE_DIR@"/leapseconds -d "@SYSROOT_DIR@"/usr/share/zoneinfo/right "@THIS_BUILD_DIR@"/europe
+          zic -L /dev/null -d "@SYSROOT_DIR@"/usr/share/zoneinfo "@THIS_BUILD_DIR@"/africa
+          zic -L /dev/null -d "@SYSROOT_DIR@"/usr/share/zoneinfo/posix "@THIS_BUILD_DIR@"/africa
+          zic -L "@THIS_SOURCE_DIR@"/leapseconds -d "@SYSROOT_DIR@"/usr/share/zoneinfo/right "@THIS_BUILD_DIR@"/africa
+          zic -L /dev/null -d "@SYSROOT_DIR@"/usr/share/zoneinfo "@THIS_BUILD_DIR@"/antarctica
+          zic -L /dev/null -d "@SYSROOT_DIR@"/usr/share/zoneinfo/posix "@THIS_BUILD_DIR@"/antarctica
+          zic -L "@THIS_SOURCE_DIR@"/leapseconds -d "@SYSROOT_DIR@"/usr/share/zoneinfo/right "@THIS_BUILD_DIR@"/antarctica
+          zic -L /dev/null -d "@SYSROOT_DIR@"/usr/share/zoneinfo "@THIS_BUILD_DIR@"/asia
+          zic -L /dev/null -d "@SYSROOT_DIR@"/usr/share/zoneinfo/posix "@THIS_BUILD_DIR@"/asia
+          zic -L "@THIS_SOURCE_DIR@"/leapseconds -d "@SYSROOT_DIR@"/usr/share/zoneinfo/right "@THIS_BUILD_DIR@"/asia
+          zic -L /dev/null -d "@SYSROOT_DIR@"/usr/share/zoneinfo "@THIS_BUILD_DIR@"/australasia
+          zic -L /dev/null -d "@SYSROOT_DIR@"/usr/share/zoneinfo/posix "@THIS_BUILD_DIR@"/australasia
+          zic -L "@THIS_SOURCE_DIR@"/leapseconds -d "@SYSROOT_DIR@"/usr/share/zoneinfo/right "@THIS_BUILD_DIR@"/australasia
+          zic -L /dev/null -d "@SYSROOT_DIR@"/usr/share/zoneinfo "@THIS_BUILD_DIR@"/backward
+          zic -L /dev/null -d "@SYSROOT_DIR@"/usr/share/zoneinfo/posix "@THIS_BUILD_DIR@"/backward
+          zic -L "@THIS_SOURCE_DIR@"/leapseconds -d "@SYSROOT_DIR@"/usr/share/zoneinfo/right "@THIS_BUILD_DIR@"/backward
+      - args: ['zic', '-d', '@SYSROOT_DIR@/usr/share/zoneinfo', '-p', 'America/New_York']
+      - args: ['ln', '-sf', '/usr/share/zoneinfo/UTC', '@SYSROOT_DIR@/etc/localtime']

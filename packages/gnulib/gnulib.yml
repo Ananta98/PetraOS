@@ -1,0 +1,7 @@
+sources:
+  - name: gnulib
+    subdir: sources
+    git: 'https://git.savannah.gnu.org/git/gnulib.git'
+    branch: 'master'
+    rolling_version: true
+    version: '0.0pl@ROLLING_ID@'

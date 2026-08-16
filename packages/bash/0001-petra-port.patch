@@ -1,0 +1,35 @@
+From e9f191b5c464c208c90353c7a23c6f85e4952673 Mon Sep 17 00:00:00 2001
+From: Ananta <kusumaananta042@gmail.com>
+Date: Sat, 15 Aug 2026 21:28:00 +0700
+Subject: [PATCH] feat(petra): add PetraOS support to GNU Bash 5.2
+
+---
+ lib/sh/random.c    | 4 ++++
+ support/config.sub | 1 +
+ 2 files changed, 5 insertions(+)
+
+--- a/lib/sh/random.c
++++ b/lib/sh/random.c
+@@ -26,6 +26,10 @@
+ #  include <sys/random.h>
+ #endif
+ 
++#ifndef GRND_NONBLOCK
++#  define GRND_NONBLOCK 0x0001
++#endif
++
+ #if defined (HAVE_UNISTD_H)
+ #  include <unistd.h>
+ #endif
+--- a/support/config.sub
++++ b/support/config.sub
+@@ -1754,6 +1754,7 @@ case $os in
+ 	     | onefs* | tirtos* | phoenix* | fuchsia* | redox* | bme* \
+ 	     | midnightbsd* | amdhsa* | unleashed* | emscripten* | wasi* \
+ 	     | nsk* | powerunix* | genode* | zvmoe* | qnx* | emx* | zephyr* \
++	     | petra* \
+ 	     | fiwix* )
+ 		;;
+ 	# This one is extra strict with allowed versions
+-- 
+2.43.0

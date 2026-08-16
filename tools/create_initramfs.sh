@@ -7,14 +7,20 @@
 
 set -euo pipefail
 
-ROOT_DIR="${1:-initramfs_root}"
-OUTPUT_CPIO="${2:-initramfs.cpio}"
+ROOT_DIR="${1:-build/initramfs_root}"
+OUTPUT_CPIO="${2:-build/initramfs.cpio}"
 
 # Ensure source root directory exists
 if [ ! -d "${ROOT_DIR}" ]; then
     echo "[INFO] Creating directory tree '${ROOT_DIR}'..."
     mkdir -p "${ROOT_DIR}/sbin" "${ROOT_DIR}/bin" "${ROOT_DIR}/etc"
 fi
+
+# Ensure output directory exists
+OUTPUT_DIR="$(dirname "${OUTPUT_CPIO}")"
+mkdir -p "${OUTPUT_DIR}"
+
+OUTPUT_CPIO_ABS="$(cd "${OUTPUT_DIR}" && pwd)/$(basename "${OUTPUT_CPIO}")"
 
 echo "[INFO] Packaging '${ROOT_DIR}' into '${OUTPUT_CPIO}'..."
 
@@ -25,7 +31,7 @@ fi
 
 (
     cd "${ROOT_DIR}"
-    find . -mindepth 1 | cpio -o -H newc -R 0:0 > "../${OUTPUT_CPIO}"
+    find . -mindepth 1 | cpio -o -H newc -R 0:0 > "${OUTPUT_CPIO_ABS}"
 )
 
 echo "✔ [INFO] Generated ${OUTPUT_CPIO} ($(wc -c < "${OUTPUT_CPIO}") bytes)"

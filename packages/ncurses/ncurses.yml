@@ -1,0 +1,65 @@
+sources:
+  - name: ncurses
+    subdir: sources
+    git: 'https://github.com/ThomasDickey/ncurses-snapshots.git'
+    tag: 'v6_3'
+    version: '6.3'
+    patch_path_strip: 1
+    tools_required:
+      - host-autoconf-v2.69
+      - host-automake-v1.16
+    regenerate:
+      - args: ['cp',
+               '@BUILD_ROOT@/tools/host-automake-v1.16/share/automake-1.16/config.sub',
+               '@THIS_SOURCE_DIR@/']
+
+tools:
+  - name: host-tic
+    architecture: x86_64
+    from_source: ncurses
+    configure:
+      - args: ['@THIS_SOURCE_DIR@/configure']
+    compile:
+      - args: ['make', '-C', 'include']
+      - args: ['make', '-C', 'progs', 'tic']
+    install:
+      - args: ['mkdir', '-p', '@PREFIX@/bin']
+      - args: ['cp', 'progs/tic', '@PREFIX@/bin/']
+
+packages:
+  - name: ncurses
+    architecture: x86_64
+    from_source: ncurses
+    tools_required:
+      - host-gcc
+      - host-tic
+    pkgs_required:
+      - mlibc
+    configure:
+      - args:
+          - '@THIS_SOURCE_DIR@/configure'
+          - '--host=x86_64-petra'
+          - '--prefix=/usr'
+          - '--without-ada'
+          - '--enable-pc-files'
+          - '--with-shared'
+          - '--without-normal'
+          - '--with-manpage-format=normal'
+          - '--with-pkg-config-libdir=/usr/lib/pkgconfig'
+          - '--with-termlib'
+          - '--enable-widec'
+        environ:
+          cf_cv_func_nanosleep: 'yes'
+    build:
+      - args: ['make', '-j@PARALLELISM@']
+    install:
+      - args: ['make', 'DESTDIR=@SYSROOT_DIR@', 'install']
+      - args: |
+          for lib in ncurses form panel menu tinfo ; do
+              rm -vf                    @SYSROOT_DIR@/usr/lib/lib${lib}.so
+              echo "INPUT(-l${lib}w)" > @SYSROOT_DIR@/usr/lib/lib${lib}.so
+              ln -sfv ${lib}w.pc        @SYSROOT_DIR@/usr/lib/pkgconfig/${lib}.pc
+          done
+          rm -vf                     @SYSROOT_DIR@/usr/lib/libcursesw.so
+          echo "INPUT(-lncursesw)" > @SYSROOT_DIR@/usr/lib/libcursesw.so
+          ln -sfv libncurses.so      @SYSROOT_DIR@/usr/lib/libcurses.so
