@@ -41,7 +41,7 @@ impl SyscallFrame {
     }
 
     pub fn arg4(&self) -> u64 {
-        if self.r10 != 0 { self.r10 } else { self.rcx }
+        self.r10
     }
 
     pub fn arg5(&self) -> u64 {

@@ -7,9 +7,50 @@ use alloc::sync::Arc;
 /// Maximum symlink traversal depth to prevent infinite circular loops.
 pub const MAX_SYMLINK_DEPTH: usize = 8;
 
-/// Resolve an absolute path to a dentry, traversing mount boundaries and symlinks.
+/// Canonicalize/normalize path relative to a base directory (handling `.` and `..`).
+pub fn normalize_path(base: &str, path: &str) -> alloc::string::String {
+    let mut parts: alloc::vec::Vec<&str> = alloc::vec::Vec::new();
+
+    if !path.starts_with('/') {
+        for segment in base.split('/').filter(|s| !s.is_empty()) {
+            parts.push(segment);
+        }
+    }
+
+    for segment in path.split('/').filter(|s| !s.is_empty()) {
+        if segment == "." {
+            continue;
+        } else if segment == ".." {
+            parts.pop();
+        } else {
+            parts.push(segment);
+        }
+    }
+
+    if parts.is_empty() {
+        alloc::string::String::from("/")
+    } else {
+        let mut result = alloc::string::String::new();
+        for segment in parts {
+            result.push('/');
+            result.push_str(segment);
+        }
+        result
+    }
+}
+
+/// Resolve an absolute or relative path to a dentry, traversing mount boundaries and symlinks.
 pub fn resolve_path(path: &str) -> Result<Arc<Dentry>, VfsError> {
-    resolve_path_symlink(path, 0)
+    if !path.starts_with('/') {
+        let cwd = crate::proc::current_process()
+            .map(|p| p.lock().cwd.clone())
+            .unwrap_or_else(|| alloc::string::String::from("/"));
+        let norm_path = normalize_path(&cwd, path);
+        resolve_path_symlink(&norm_path, 0)
+    } else {
+        let norm_path = normalize_path("/", path);
+        resolve_path_symlink(&norm_path, 0)
+    }
 }
 
 fn resolve_path_symlink(path: &str, depth: usize) -> Result<Arc<Dentry>, VfsError> {
@@ -267,7 +308,7 @@ pub fn rename(old_path: &str, new_path: &str) -> Result<(), VfsError> {
 }
 
 /// Build an absolute path from a dentry by walking up the parent chain.
-fn build_path(dentry: &Dentry) -> alloc::string::String {
+pub fn build_path(dentry: &Dentry) -> alloc::string::String {
     use alloc::vec::Vec;
 
     let mut components = Vec::new();

@@ -309,6 +309,52 @@ impl<P: PageTable> AddrSpace<P> {
         }
     }
 
+    /// Unmap and remove any VMAs or parts of VMAs overlapping [start, end).
+    pub fn unmap_range(&mut self, start: VirtAddr, end: VirtAddr) -> Result<(), AddrSpaceError> {
+        let mut to_remove = alloc::vec::Vec::new();
+        let mut to_add = alloc::vec::Vec::new();
+
+        for (&vma_start, vma) in &self.vm_areas {
+            if vma.start < end && vma.end > start {
+                to_remove.push(vma_start);
+
+                if vma.start < start {
+                    to_add.push(VmArea {
+                        start: vma.start,
+                        end: start,
+                        flags: vma.flags,
+                        kind: vma.kind.clone(),
+                    });
+                }
+
+                if vma.end > end {
+                    to_add.push(VmArea {
+                        start: end,
+                        end: vma.end,
+                        flags: vma.flags,
+                        kind: vma.kind.clone(),
+                    });
+                }
+            }
+        }
+
+        for k in to_remove {
+            self.vm_areas.remove(&k);
+        }
+        for v in to_add {
+            self.vm_areas.insert(v.start, v);
+        }
+
+        for page_virt_u64 in (start.as_u64()..end.as_u64()).step_by(4096) {
+            let page_virt = VirtAddr(page_virt_u64);
+            if let Ok(old_frame) = self.page_table.unmap(page_virt) {
+                crate::mm::PMM.free_page(old_frame);
+            }
+        }
+
+        Ok(())
+    }
+
     /// Unmap a virtual memory area starting at the specified virtual address.
     pub fn unmap_area(&mut self, start: VirtAddr) -> Result<(), AddrSpaceError> {
         let area = self

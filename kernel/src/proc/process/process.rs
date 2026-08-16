@@ -384,6 +384,55 @@ impl Process {
         Ok(child)
     }
 
+    /// Attempt a single non-blocking check for a child process state change (POSIX wait4).
+    ///
+    /// Returns:
+    /// - `Ok(Some((pid, status)))` if a matching child process transitioned to Zombie or Stopped.
+    /// - `Ok(None)` if matching children exist but none have changed state yet.
+    /// - `Err(SyscallError::ECHILD)` if no matching children exist.
+    pub fn try_wait4(
+        &mut self,
+        pid_req: i32,
+        wuntraced: bool,
+    ) -> Result<Option<(ProcessId, i32)>, crate::syscalls::SyscallError> {
+        let mut matching_pids = alloc::vec::Vec::new();
+        for (&child_pid, child_arc) in self.children.iter() {
+            let c_lock = child_arc.lock();
+            let matches = if pid_req == -1 {
+                true
+            } else if pid_req > 0 {
+                child_pid.as_u64() == pid_req as u64
+            } else if pid_req == 0 {
+                c_lock.pgid == self.pgid
+            } else {
+                c_lock.pgid.as_u64() == (-pid_req) as u64
+            };
+            if matches {
+                matching_pids.push((child_pid, c_lock.state, c_lock.exit_code));
+            }
+        }
+
+        if matching_pids.is_empty() {
+            return Err(crate::syscalls::SyscallError::ECHILD);
+        }
+
+        for (child_pid, state, exit_code) in matching_pids {
+            if state == ProcessState::Zombie {
+                let code = exit_code.unwrap_or(0);
+                let status = (code & 0xFF) << 8;
+                self.children.remove(&child_pid);
+                unregister_process(child_pid);
+                return Ok(Some((child_pid, status)));
+            } else if state == ProcessState::Stopped && wuntraced {
+                let sig = 19; // SIGSTOP
+                let status = (sig << 8) | 0x7F;
+                return Ok(Some((child_pid, status)));
+            }
+        }
+
+        Ok(None)
+    }
+
     /// Wait for a child process state change (POSIX wait4).
     pub fn wait4(
         &mut self,
@@ -393,59 +442,22 @@ impl Process {
         let wnohang = (options & 1) != 0;
         let wuntraced = (options & 2) != 0;
 
-        loop {
-            // 1. Check if there are any children matching the filter
-            let mut matching_pids = alloc::vec::Vec::new();
-            for (&child_pid, child_arc) in self.children.iter() {
-                let c_lock = child_arc.lock();
-                let matches = if pid_req == -1 {
-                    true
-                } else if pid_req > 0 {
-                    child_pid.as_u64() == pid_req as u64
-                } else if pid_req == 0 {
-                    c_lock.pgid == self.pgid
-                } else {
-                    c_lock.pgid.as_u64() == (-pid_req) as u64
-                };
-                if matches {
-                    matching_pids.push((child_pid, c_lock.state, c_lock.exit_code));
-                }
-            }
-
-            if matching_pids.is_empty() {
-                return Err(crate::syscalls::SyscallError::ECHILD);
-            }
-
-            // 2. Check for exited (Zombie) or stopped children
-            for (child_pid, state, exit_code) in matching_pids {
-                if state == ProcessState::Zombie {
-                    let code = exit_code.unwrap_or(0);
-                    let status = (code & 0xFF) << 8;
-                    self.children.remove(&child_pid);
-                    unregister_process(child_pid);
-                    return Ok((child_pid, status));
-                } else if state == ProcessState::Stopped && wuntraced {
-                    let sig = 19; // SIGSTOP
-                    let status = (sig << 8) | 0x7F;
-                    return Ok((child_pid, status));
-                }
-            }
-
-            // 3. Non-blocking option: return 0 if no child has changed state yet
-            if wnohang {
-                return Ok((ProcessId(0), 0));
-            }
-
-            // 4. Blocking wait: yield CPU
-            Thread::yield_cpu();
+        if let Some(res) = self.try_wait4(pid_req, wuntraced)? {
+            return Ok(res);
         }
+
+        if wnohang {
+            return Ok((ProcessId(0), 0));
+        }
+
+        Err(crate::syscalls::SyscallError::ECHILD)
     }
 
     /// Wait for a child process to exit.
     pub fn wait(&mut self, pid: ProcessId) -> Result<i32, &'static str> {
-        match self.wait4(pid.as_u64() as i32, 0) {
-            Ok((_, status)) => Ok((status >> 8) & 0xFF),
-            Err(_) => Err("Child not found or wait failed"),
+        match self.try_wait4(pid.as_u64() as i32, false) {
+            Ok(Some((_, status))) => Ok((status >> 8) & 0xFF),
+            _ => Err("Child not found or wait failed"),
         }
     }
 

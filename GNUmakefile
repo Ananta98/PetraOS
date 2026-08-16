@@ -97,7 +97,7 @@ xbstrap-fetch: xbstrap-init
 	(cd $(BUILD_DIR_XBSTRAP) && $(XBSTRAP) fetch --all)
 
 .PHONY: userspace
-userspace: xbstrap-init mlibc bash sync-initramfs
+userspace: xbstrap-init mlibc bash coreutils sync-initramfs
 
 .PHONY: userspace-all
 userspace-all: xbstrap-init xbstrap-fetch mlibc ncurses readline bash automake libtool binutils gcc coreutils tzdata pkg-config sync-initramfs
@@ -156,6 +156,9 @@ run-x86_64: $(OVMF_DIR) $(IMAGE_NAME).iso
 		-M q35 \
 		-smp 4 \
 		-drive if=pflash,unit=0,format=raw,file=$(OVMF_DIR)/ovmf-code-$(KARCH).fd,readonly=on \
+		-device qemu-xhci \
+		-device usb-kbd \
+		-device usb-mouse \
 		-cdrom $(IMAGE_NAME).iso \
 		$(QEMUFLAGS)
 

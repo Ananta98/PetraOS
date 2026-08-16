@@ -12,7 +12,7 @@ pub const COMMAND_PORT: u16 = 0x64;
 
 // 8042 Status Register bits
 pub const STATUS_OUTPUT_BUFFER_FULL: u8 = 1 << 0; // Bit 0: Output buffer full (can read from port 0x60)
-pub const STATUS_INPUT_BUFFER_FULL: u8 = 1 << 1;  // Bit 1: Input buffer full (cannot write to port 0x60/0x64)
+pub const STATUS_INPUT_BUFFER_FULL: u8 = 1 << 1; // Bit 1: Input buffer full (cannot write to port 0x60/0x64)
 
 // 8042 Controller Commands
 pub const CMD_READ_CONFIG_BYTE: u8 = 0x20;

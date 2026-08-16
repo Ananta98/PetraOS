@@ -1,5 +1,6 @@
 use super::{SyscallError, SyscallResult, is_user_ptr_valid, read_user_string};
 use crate::arch::syscall::syscall::SyscallFrame;
+use crate::mm::vmm::paging::PageTable;
 use crate::proc::ProcessId;
 
 /// `sys_yield` (SYS_YIELD = 24)
@@ -219,7 +220,9 @@ pub fn sys_prlimit64(frame: &mut SyscallFrame) -> SyscallResult {
     let new_limit_ptr = frame.arg3() as *const RLimit64;
     let old_limit_ptr = frame.arg4() as *mut RLimit64;
 
-    if !new_limit_ptr.is_null() && !is_user_ptr_valid(new_limit_ptr as u64, core::mem::size_of::<RLimit64>()) {
+    if !new_limit_ptr.is_null()
+        && !is_user_ptr_valid(new_limit_ptr as u64, core::mem::size_of::<RLimit64>())
+    {
         return Err(SyscallError::EFAULT);
     }
 
@@ -241,7 +244,8 @@ pub fn sys_prlimit64(frame: &mut SyscallFrame) -> SyscallResult {
 /// Fork the current running process and thread context.
 pub fn sys_fork(frame: &mut SyscallFrame) -> SyscallResult {
     let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
-    let child_arc = crate::proc::Process::fork(proc_arc, frame).map_err(|_| SyscallError::EAGAIN)?;
+    let child_arc =
+        crate::proc::Process::fork(proc_arc, frame).map_err(|_| SyscallError::EAGAIN)?;
     let child_pid = child_arc.lock().pid.as_u64();
     Ok(child_pid as usize)
 }
@@ -267,6 +271,20 @@ pub fn sys_execve(frame: &mut SyscallFrame) -> SyscallResult {
     let (entry_point, stack_top) = proc
         .execute(&path, 0, argv_ptr, envp_ptr)
         .map_err(|_| SyscallError::ENOENT)?;
+
+    let new_cr3 = proc.address_space.lock().page_table().root().as_u64();
+
+    // SAFETY: Switching CPU page directory to the newly executed program's address space.
+    unsafe {
+        core::arch::asm!("mov cr3, {}", in(reg) new_cr3);
+    }
+
+    if let Some(thread_arc) = crate::proc::current_thread() {
+        let mut t = thread_arc.lock();
+        t.context.cr3 = new_cr3 as usize;
+        t.context.fs_base = 0;
+    }
+    crate::arch::cpu::msr::write_fs_base(0);
 
     frame.rip = entry_point;
     frame.rsp = stack_top;
@@ -303,10 +321,27 @@ pub fn sys_wait4(frame: &mut SyscallFrame) -> SyscallResult {
     let options = frame.arg3() as i32;
     let rusage_ptr = frame.arg4() as *mut RUsage;
 
-    let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
-    let mut proc = proc_arc.lock();
+    let wnohang = (options & 1) != 0;
+    let wuntraced = (options & 2) != 0;
 
-    let (child_pid, status) = proc.wait4(pid_raw, options)?;
+    let (child_pid, status) = loop {
+        let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
+        let mut proc = proc_arc.lock();
+
+        match proc.try_wait4(pid_raw, wuntraced)? {
+            Some(res) => {
+                drop(proc);
+                break res;
+            }
+            None => {
+                drop(proc);
+                if wnohang {
+                    break (crate::proc::ProcessId(0), 0);
+                }
+                crate::proc::thread::Thread::yield_cpu();
+            }
+        }
+    };
 
     if !wstatus.is_null() && is_user_ptr_valid(wstatus as u64, core::mem::size_of::<i32>()) {
         // SAFETY: User pointer validated within Ring 3 address bounds.
@@ -315,7 +350,8 @@ pub fn sys_wait4(frame: &mut SyscallFrame) -> SyscallResult {
         }
     }
 
-    if !rusage_ptr.is_null() && is_user_ptr_valid(rusage_ptr as u64, core::mem::size_of::<RUsage>()) {
+    if !rusage_ptr.is_null() && is_user_ptr_valid(rusage_ptr as u64, core::mem::size_of::<RUsage>())
+    {
         // SAFETY: User pointer validated within Ring 3 address bounds.
         unsafe {
             core::ptr::write_unaligned(rusage_ptr, RUsage::default());
@@ -330,7 +366,7 @@ pub fn sys_wait4(frame: &mut SyscallFrame) -> SyscallResult {
 pub fn sys_exit(frame: &mut SyscallFrame) -> SyscallResult {
     let code = frame.arg1() as i32;
     log::info!("sys_exit called with status code {}", code);
-    do_exit(code);
+    do_exit(code)
 }
 
 /// `sys_exit_group` (SYS_EXIT_GROUP = 231)
@@ -338,7 +374,7 @@ pub fn sys_exit(frame: &mut SyscallFrame) -> SyscallResult {
 pub fn sys_exit_group(frame: &mut SyscallFrame) -> SyscallResult {
     let code = frame.arg1() as i32;
     log::info!("sys_exit_group called with status code {}", code);
-    do_exit(code);
+    do_exit(code)
 }
 
 /// Common exit path shared by `sys_exit` and `sys_exit_group`.
@@ -348,14 +384,28 @@ pub fn sys_exit_group(frame: &mut SyscallFrame) -> SyscallResult {
 /// it falls into the idle loop. Either path prevents `iretq` from firing into a
 /// dead user-space context.
 fn do_exit(code: i32) -> ! {
-    if let Some(proc_arc) = crate::proc::current_process() {
-        proc_arc.lock().exit(code);
-    }
+    let ppid_opt = if let Some(proc_arc) = crate::proc::current_process() {
+        let mut proc = proc_arc.lock();
+        proc.exit(code);
+        proc.ppid
+    } else {
+        crate::proc::ProcessId(0)
+    };
+
     if let Some(thread_arc) = crate::proc::current_thread() {
         let mut t = thread_arc.lock();
         t.state = crate::proc::ThreadState::Zombie;
         t.exit_code = Some(code as u32);
     }
-    crate::sched::schedule(false);
-    crate::arch::idle()
+
+    if ppid_opt.as_u64() > 0 {
+        if let Some(parent_arc) = crate::proc::find_process(ppid_opt) {
+            let mut parent = parent_arc.lock();
+            let _ = parent.send_signal(crate::ipc::signal::SIGCHLD);
+        }
+    }
+
+    loop {
+        crate::sched::schedule(false);
+    }
 }

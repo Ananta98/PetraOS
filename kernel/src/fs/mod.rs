@@ -13,7 +13,8 @@ pub use fd::FdTable;
 pub use vfs::dentry::Dentry;
 pub use vfs::mount::{MOUNT_TABLE, Mount};
 pub use vfs::path::{
-    create_file, mkdir, open_file, read_file, readlink, rename, resolve_path, rmdir, stat, symlink, unlink,
+    build_path, create_file, mkdir, normalize_path, open_file, read_file, readlink, rename,
+    resolve_path, rmdir, stat, symlink, unlink,
 };
 pub use vfs::types::{
     File, FileOps, FileSystem, Inode, InodeOps, InodeType, O_CREAT, O_RDONLY, O_RDWR, O_WRONLY,

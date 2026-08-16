@@ -148,8 +148,28 @@ impl<'a> Elf<'a> {
         Ok(None)
     }
 
+    /// Retrieve the interpreter path if this ELF binary requests PT_INTERP.
+    pub fn interpreter_path(&self) -> Result<Option<&'a str>, &'static str> {
+        let ph_slice = self.program_headers()?;
+        for phdr in ph_slice {
+            if phdr.p_type == PT_INTERP {
+                let offset = phdr.p_offset as usize;
+                let filesz = phdr.p_filesz as usize;
+                if offset + filesz > self.data.len() {
+                    return Err("PT_INTERP string out of bounds");
+                }
+                let raw_bytes = &self.data[offset..offset + filesz];
+                let len = raw_bytes.iter().position(|&b| b == 0).unwrap_or(filesz);
+                let path = core::str::from_utf8(&raw_bytes[..len])
+                    .map_err(|_| "Invalid UTF-8 in PT_INTERP")?;
+                return Ok(Some(path));
+            }
+        }
+        Ok(None)
+    }
+
     /// Maps the loadable segments, creates the user address space, allocates a user stack,
-    /// sets up System V AMD64 ABI argc/argv/envp parameters, and returns loaded image information.
+    /// sets up System V AMD64 ABI argc/argv/envp/auxv parameters, and returns loaded image information.
     pub fn load_with_cmdline(
         &self,
         cmdline: Option<&crate::proc::process::CommandLine>,
@@ -157,7 +177,71 @@ impl<'a> Elf<'a> {
         let page_table = ArchPageTable::new().map_err(|_| "Failed to create PML4 page table")?;
         let mut addr_space = AddrSpace::new(page_table);
 
-        self.load_segments(&mut addr_space)?;
+        self.load_segments(&mut addr_space, 0)?;
+
+        let mut entry_point = self.entry_point();
+        let mut at_base = 0;
+
+        if let Some(interp_path) = self.interpreter_path()? {
+            let interp_bytes = match crate::fs::read_file(interp_path) {
+                Ok(data) => data,
+                Err(_) => {
+                    let alt_path = if interp_path.starts_with("/usr/lib/") {
+                        alloc::format!("/lib/{}", &interp_path[9..])
+                    } else if interp_path.starts_with("/lib/") {
+                        alloc::format!("/usr/lib/{}", &interp_path[5..])
+                    } else {
+                        alloc::string::String::from("/lib/ld.so")
+                    };
+                    crate::fs::read_file(&alt_path)
+                        .map_err(|_| "Failed to read dynamic interpreter from VFS")?
+                }
+            };
+
+            let interp_elf = Elf::new(&interp_bytes)?;
+            const INTERP_BASE: u64 = 0x7F00_0000_0000;
+            interp_elf.load_segments(&mut addr_space, INTERP_BASE)?;
+            entry_point = VirtAddr(INTERP_BASE + interp_elf.entry_point().as_u64());
+            at_base = INTERP_BASE;
+        }
+
+        let phdr_addr = {
+            let mut addr = None;
+            let ph_slice = self.program_headers()?;
+            for phdr in ph_slice {
+                if phdr.p_type == PT_PHDR {
+                    addr = Some(phdr.p_vaddr);
+                    break;
+                }
+            }
+            if let Some(a) = addr {
+                a
+            } else {
+                let mut load_base = 0x400000;
+                for phdr in ph_slice {
+                    if phdr.p_type == PT_LOAD && phdr.p_offset == 0 {
+                        load_base = phdr.p_vaddr;
+                        break;
+                    }
+                }
+                load_base + self.header.e_phoff
+            }
+        };
+
+        let auxv = alloc::vec![
+            (AT_PHDR, phdr_addr),
+            (AT_PHENT, self.header.e_phentsize as u64),
+            (AT_PHNUM, self.header.e_phnum as u64),
+            (AT_PAGESZ, 4096),
+            (AT_BASE, at_base),
+            (AT_FLAGS, 0),
+            (AT_ENTRY, self.entry_point().as_u64()),
+            (AT_UID, 0),
+            (AT_EUID, 0),
+            (AT_GID, 0),
+            (AT_EGID, 0),
+            (AT_SECURE, 0),
+        ];
 
         let stack_size = 256 * 1024; // 256 KiB stack
         let stack_top = VirtAddr(0x7FFF_FFFF_0000);
@@ -169,13 +253,13 @@ impl<'a> Elf<'a> {
             .map_err(|_| "Failed to map user stack VMA")?;
 
         let initial_sp = if let Some(cmd) = cmdline {
-            Self::setup_user_stack(&mut addr_space, stack_top, cmd)?
+            Self::setup_user_stack(&mut addr_space, stack_top, cmd, &auxv)?
         } else {
             stack_top
         };
 
         Ok(LoadedElf {
-            entry_point: self.entry_point(),
+            entry_point,
             stack_pointer: initial_sp,
             addr_space,
         })
@@ -187,11 +271,12 @@ impl<'a> Elf<'a> {
         self.load_with_cmdline(None)
     }
 
-    /// Setup the System V AMD64 ABI user stack frame with argc, argv, envp, and string tables.
+    /// Setup the System V AMD64 ABI user stack frame with argc, argv, envp, auxv, and string tables.
     fn setup_user_stack(
         addr_space: &mut AddrSpace<ArchPageTable>,
         stack_top: VirtAddr,
         cmdline: &crate::proc::process::CommandLine,
+        auxv: &[(u64, u64)],
     ) -> Result<VirtAddr, &'static str> {
         let hhdm = crate::mm::hhdm_offset();
         let mut cur_sp = stack_top.as_u64();
@@ -222,7 +307,14 @@ impl<'a> Elf<'a> {
             Ok(target_vaddr)
         };
 
-        // 1. Push environment strings (null-terminated)
+        // 1. Push 16 bytes of random entropy for AT_RANDOM (stack canary)
+        let random_entropy = [
+            0x4b, 0x1f, 0x93, 0x7c, 0xa2, 0x5e, 0x08, 0xd4,
+            0x39, 0xf1, 0x60, 0xbb, 0x8d, 0x24, 0xee, 0x57,
+        ];
+        let random_vaddr = write_user_bytes(&mut cur_sp, &random_entropy)?;
+
+        // 2. Push environment strings (null-terminated)
         let mut env_ptrs = alloc::vec::Vec::with_capacity(cmdline.env.len());
         for env_str in &cmdline.env {
             let mut str_bytes = alloc::vec::Vec::with_capacity(env_str.len() + 1);
@@ -232,7 +324,7 @@ impl<'a> Elf<'a> {
             env_ptrs.push(str_vaddr);
         }
 
-        // 2. Push argument strings (null-terminated)
+        // 3. Push argument strings (null-terminated)
         let mut arg_ptrs = alloc::vec::Vec::with_capacity(cmdline.args.len());
         for arg_str in &cmdline.args {
             let mut str_bytes = alloc::vec::Vec::with_capacity(arg_str.len() + 1);
@@ -242,12 +334,22 @@ impl<'a> Elf<'a> {
             arg_ptrs.push(str_vaddr);
         }
 
-        // 3. Align cur_sp to 8 bytes
+        let execfn_vaddr = arg_ptrs.first().copied().unwrap_or(0);
+
+        // 4. Align cur_sp to 8 bytes
         cur_sp &= !7;
 
+        // Build complete auxiliary vector table including dynamic entries
+        let mut full_auxv = alloc::vec::Vec::with_capacity(auxv.len() + 3);
+        full_auxv.extend_from_slice(auxv);
+        full_auxv.push((AT_RANDOM, random_vaddr));
+        if execfn_vaddr != 0 {
+            full_auxv.push((AT_EXECFN, execfn_vaddr));
+        }
+
         // Calculate total table entries:
-        // argc (1) + argv pointers (N) + NULL (1) + envp pointers (M) + NULL (1) + auxv (2)
-        let total_entries = 1 + arg_ptrs.len() + 1 + env_ptrs.len() + 1 + 2;
+        // argc (1) + argv pointers (N) + NULL (1) + envp pointers (M) + NULL (1) + auxv (K * 2) + AT_NULL (2)
+        let total_entries = 1 + arg_ptrs.len() + 1 + env_ptrs.len() + 1 + full_auxv.len() * 2 + 2;
         let total_table_bytes = total_entries * 8;
 
         // System V AMD64 ABI requires RSP to be 16-byte aligned at process entry
@@ -262,23 +364,29 @@ impl<'a> Elf<'a> {
             Ok(())
         };
 
-        // 4. Push aux vector AT_NULL (0, 0)
+        // 5. Push aux vector AT_NULL (0, 0)
         write_u64(&mut cur_sp, 0)?; // AT_NULL a_val
         write_u64(&mut cur_sp, 0)?; // AT_NULL a_type
 
-        // 5. Push envp array (NULL-terminated)
+        // 6. Push auxiliary vectors
+        for &(key, val) in full_auxv.iter().rev() {
+            write_u64(&mut cur_sp, val)?;
+            write_u64(&mut cur_sp, key)?;
+        }
+
+        // 7. Push envp array (NULL-terminated)
         write_u64(&mut cur_sp, 0)?;
         for &ptr in env_ptrs.iter().rev() {
             write_u64(&mut cur_sp, ptr)?;
         }
 
-        // 6. Push argv array (NULL-terminated)
+        // 8. Push argv array (NULL-terminated)
         write_u64(&mut cur_sp, 0)?;
         for &ptr in arg_ptrs.iter().rev() {
             write_u64(&mut cur_sp, ptr)?;
         }
 
-        // 7. Push argc
+        // 9. Push argc
         write_u64(&mut cur_sp, arg_ptrs.len() as u64)?;
 
         Ok(VirtAddr(cur_sp))
@@ -304,12 +412,16 @@ impl<'a> Elf<'a> {
         Ok(())
     }
 
-    /// Load and map all PT_LOAD segments.
-    fn load_segments(&self, addr_space: &mut AddrSpace<ArchPageTable>) -> Result<(), &'static str> {
+    /// Load and map all PT_LOAD segments with an optional base virtual offset.
+    pub fn load_segments(
+        &self,
+        addr_space: &mut AddrSpace<ArchPageTable>,
+        base_offset: u64,
+    ) -> Result<(), &'static str> {
         let ph_slice = self.program_headers()?;
         for phdr in ph_slice {
             if phdr.p_type == PT_LOAD {
-                self.load_segment(addr_space, phdr)?;
+                self.load_segment(addr_space, phdr, base_offset)?;
             }
         }
         Ok(())
@@ -320,11 +432,13 @@ impl<'a> Elf<'a> {
         &self,
         addr_space: &mut AddrSpace<ArchPageTable>,
         phdr: &Elf64Phdr,
+        base_offset: u64,
     ) -> Result<(), &'static str> {
-        let start_vaddr = VirtAddr(phdr.p_vaddr);
+        let vaddr = base_offset + phdr.p_vaddr;
+        let start_vaddr = VirtAddr(vaddr);
         let end_vaddr = start_vaddr + phdr.p_memsz as usize;
 
-        let aligned_start = VirtAddr(phdr.p_vaddr & !4095);
+        let aligned_start = VirtAddr(vaddr & !4095);
         let aligned_end = VirtAddr((end_vaddr.as_u64() + 4095) & !4095);
         let aligned_size = (aligned_end - aligned_start) as usize;
 

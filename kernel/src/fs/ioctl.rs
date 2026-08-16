@@ -4,10 +4,17 @@ use crate::fs::vfs::types::VfsError;
 
 pub const TCGETS: u64 = 0x5401;
 pub const TCSETS: u64 = 0x5402;
-pub const TIOCGWINSZ: u64 = 0x5413;
-pub const TIOCSWINSZ: u64 = 0x5414;
+pub const TCSETSW: u64 = 0x5403;
+pub const TCSETSF: u64 = 0x5404;
+pub const TCGETA: u64 = 0x5405;
+pub const TCSETA: u64 = 0x5406;
+pub const TCSETAW: u64 = 0x5407;
+pub const TCSETAF: u64 = 0x5408;
+pub const TIOCSCTTY: u64 = 0x540E;
 pub const TIOCGPGRP: u64 = 0x540F;
 pub const TIOCSPGRP: u64 = 0x5410;
+pub const TIOCGWINSZ: u64 = 0x5413;
+pub const TIOCSWINSZ: u64 = 0x5414;
 
 pub const FBIOGET_VSCREENINFO: u64 = 0x4600;
 pub const FBIOPUT_VSCREENINFO: u64 = 0x4601;
@@ -151,13 +158,32 @@ pub fn do_ioctl(fd: i32, cmd: u64, arg: usize) -> Result<usize, VfsError> {
                 if !crate::syscalls::is_user_ptr_valid(arg_ptr as u64, core::mem::size_of::<Termios>()) {
                     return Err(VfsError::InvalidInput);
                 }
+                let mut c_cc = [0u8; 19];
+                c_cc[0] = 3;   // VINTR (^C)
+                c_cc[1] = 28;  // VQUIT (^\)
+                c_cc[2] = 127; // VERASE (DEL/Backspace)
+                c_cc[3] = 21;  // VKILL (^U)
+                c_cc[4] = 4;   // VEOF (^D)
+                c_cc[5] = 0;   // VTIME
+                c_cc[6] = 1;   // VMIN
+                c_cc[7] = 0;   // VSWTC
+                c_cc[8] = 17;  // VSTART (^Q)
+                c_cc[9] = 19;  // VSTOP (^S)
+                c_cc[10] = 26; // VSUSP (^Z)
+                c_cc[11] = 0;  // VEOL
+                c_cc[12] = 18; // VREPRINT (^R)
+                c_cc[13] = 15; // VDISCARD (^O)
+                c_cc[14] = 23; // VWERASE (^W)
+                c_cc[15] = 22; // VLNEXT (^V)
+                c_cc[16] = 0;  // VEOL2
+
                 let term = Termios {
                     c_iflag: 0x0500, // ICRNL | IXON
                     c_oflag: 0x0005, // OPOST | ONLCR
                     c_cflag: 0x00bf, // B38400 | CS8 | CREAD | HUPCL
                     c_lflag: 0x8a3b, // ISIG | ICANON | ECHO | ECHOE | ECHOK | ECHOCTL | ECHOKE
                     c_line: 0,
-                    c_cc: [0; 19],
+                    c_cc,
                     c_ispeed: 38400,
                     c_ospeed: 38400,
                 };
@@ -197,7 +223,16 @@ pub fn do_ioctl(fd: i32, cmd: u64, arg: usize) -> Result<usize, VfsError> {
             }
             Ok(0)
         }
-        TCSETS | TIOCSWINSZ | TIOCSPGRP => Ok(0),
+        TCSETS
+        | TCSETSW
+        | TCSETSF
+        | TCGETA
+        | TCSETA
+        | TCSETAW
+        | TCSETAF
+        | TIOCSCTTY
+        | TIOCSWINSZ
+        | TIOCSPGRP => Ok(0),
         TIOCGPGRP => {
             if !arg_ptr.is_null() {
                 if !crate::syscalls::is_user_ptr_valid(arg_ptr as u64, core::mem::size_of::<i32>()) {

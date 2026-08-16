@@ -428,19 +428,40 @@ pub fn sys_fcntl(frame: &mut SyscallFrame) -> SyscallResult {
     }
 }
 
+fn resolve_at_path(dfd: i32, path: &str) -> Result<alloc::string::String, SyscallError> {
+    if path.starts_with('/') {
+        Ok(crate::fs::normalize_path("/", path))
+    } else if dfd == -100 || dfd as u32 == 0xffffff9c {
+        let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
+        let proc = proc_arc.lock();
+        Ok(crate::fs::normalize_path(&proc.cwd, path))
+    } else if dfd >= 0 {
+        let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
+        let proc = proc_arc.lock();
+        let file = proc.fd_table.get(dfd)?;
+        let dir_path = crate::fs::build_path(&file.dentry);
+        Ok(crate::fs::normalize_path(&dir_path, path))
+    } else {
+        let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
+        let proc = proc_arc.lock();
+        Ok(crate::fs::normalize_path(&proc.cwd, path))
+    }
+}
+
 /// `sys_openat` (SYS_OPENAT = 257)
 /// Open a file relative to directory descriptor.
 pub fn sys_openat(frame: &mut SyscallFrame) -> SyscallResult {
-    let _dfd = frame.arg1() as i32;
+    let dfd = frame.arg1() as i32;
     let path_ptr = frame.arg2() as *const u8;
     let flags = frame.arg3() as u32;
 
     let path = unsafe { read_user_string(path_ptr, 256)? };
+    let full_path = resolve_at_path(dfd, &path)?;
 
-    let dentry = match crate::fs::resolve_path(&path) {
+    let dentry = match crate::fs::resolve_path(&full_path) {
         Ok(d) => d,
         Err(crate::fs::vfs::types::VfsError::NotFound) if (flags & O_CREAT) != 0 => {
-            crate::fs::create_file(&path)?
+            crate::fs::create_file(&full_path)?
         }
         Err(err) => return Err(SyscallError::from(err)),
     };
@@ -487,7 +508,7 @@ pub fn sys_umask(frame: &mut SyscallFrame) -> SyscallResult {
 /// `sys_newfstatat` (SYS_NEWFSTATAT = 262)
 /// Get file status relative to directory descriptor.
 pub fn sys_newfstatat(frame: &mut SyscallFrame) -> SyscallResult {
-    let _dfd = frame.arg1() as i32;
+    let dfd = frame.arg1() as i32;
     let path_ptr = frame.arg2() as *const u8;
     let statbuf = frame.arg3() as *mut LinuxStat;
 
@@ -496,7 +517,8 @@ pub fn sys_newfstatat(frame: &mut SyscallFrame) -> SyscallResult {
     }
 
     let path = unsafe { read_user_string(path_ptr, 256)? };
-    let vfs_stat = crate::fs::stat(&path)?;
+    let full_path = resolve_at_path(dfd, &path)?;
+    let vfs_stat = crate::fs::stat(&full_path)?;
 
     let linux_stat = copy_to_linux_stat(&vfs_stat);
     // SAFETY: Writing stat struct to user statbuf after validation.
@@ -510,7 +532,7 @@ pub fn sys_newfstatat(frame: &mut SyscallFrame) -> SyscallResult {
 /// `sys_faccessat` (SYS_FACCESSAT = 269)
 /// Check user's permissions for a file relative to a directory file descriptor.
 pub fn sys_faccessat(frame: &mut SyscallFrame) -> SyscallResult {
-    let _dfd = frame.arg1() as i32;
+    let dfd = frame.arg1() as i32;
     let path_ptr = frame.arg2() as *const u8;
     let mode = frame.arg3() as i32;
     let _flags = frame.arg4() as i32;
@@ -520,7 +542,8 @@ pub fn sys_faccessat(frame: &mut SyscallFrame) -> SyscallResult {
     }
 
     let path = unsafe { read_user_string(path_ptr, 256)? };
-    let _dentry = crate::fs::resolve_path(&path)?;
+    let full_path = resolve_at_path(dfd, &path)?;
+    let _dentry = crate::fs::resolve_path(&full_path)?;
 
     Ok(0)
 }

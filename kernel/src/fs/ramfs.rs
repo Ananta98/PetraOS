@@ -195,7 +195,28 @@ impl InodeOps for RamDirInode {
     }
 
     fn open(&self) -> Result<Arc<dyn FileOps>, VfsError> {
-        Err(VfsError::NotFile)
+        Ok(Arc::new(RamDirFileOps))
+    }
+}
+
+pub struct RamDirFileOps;
+
+impl FileOps for RamDirFileOps {
+    fn read(&self, _offset: usize, _buf: &mut [u8]) -> Result<usize, VfsError> {
+        Err(VfsError::IsDirectory)
+    }
+
+    fn write(&self, _offset: usize, _buf: &[u8]) -> Result<usize, VfsError> {
+        Err(VfsError::IsDirectory)
+    }
+
+    fn stat(&self) -> Result<crate::fs::vfs::types::Stat, VfsError> {
+        Ok(crate::fs::vfs::types::Stat {
+            size: 0,
+            mode: 0o040755,
+            nlink: 2,
+            ..Default::default()
+        })
     }
 }
 

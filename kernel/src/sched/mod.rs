@@ -80,6 +80,10 @@ pub fn schedule(yielding: bool) {
 
             // SAFETY: Switching CPU context between valid thread stack pointers.
             unsafe { switch_context(prev_rsp_ptr, next_rsp) };
+
+            if saved_flags {
+                crate::arch::enable_interrupts();
+            }
         }
         (None, Some(next)) => {
             // First ever thread switch (from kmain)

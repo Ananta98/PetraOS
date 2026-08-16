@@ -1,8 +1,7 @@
 use super::{SyscallError, SyscallResult};
 use crate::arch::syscall::syscall::SyscallFrame;
 use crate::mm::vmm::vma::VmAreaKind;
-use crate::mm::{MapFlags, VirtAddr};
-use alloc::sync::Arc;
+use crate::mm::{MapFlags, PageTable, VirtAddr};
 
 /// `sys_brk` (SYS_BRK = 12)
 /// Change data segment size (heap break pointer).
@@ -45,7 +44,7 @@ pub fn sys_brk(frame: &mut SyscallFrame) -> SyscallResult {
 pub fn sys_mmap(frame: &mut SyscallFrame) -> SyscallResult {
     let addr = frame.arg1() as u64;
     let len = frame.arg2() as usize;
-    let _prot = frame.arg3() as i32;
+    let prot = frame.arg3() as i32;
     let _flags = frame.arg4() as i32;
     let fd = frame.arg5() as i32;
     let offset = frame.arg6() as u64;
@@ -59,14 +58,28 @@ pub fn sys_mmap(frame: &mut SyscallFrame) -> SyscallResult {
 
     let aligned_len = (len + 4095) & !4095;
     let target_vaddr = if addr != 0 {
-        addr & !4095
+        let vaddr = addr & !4095;
+        // POSIX MAP_FIXED replacement: unmap any existing overlapping range
+        let mut addr_space = proc.address_space.lock();
+        let _ = addr_space.unmap_range(VirtAddr(vaddr), VirtAddr(vaddr + aligned_len as u64));
+        drop(addr_space);
+        vaddr
     } else {
         let vaddr = proc.mmap_bump;
         proc.mmap_bump += aligned_len as u64;
         vaddr
     };
 
-    let map_flags = MapFlags::READ | MapFlags::WRITE | MapFlags::USER;
+    let mut map_flags = MapFlags::USER;
+    if (prot & 1) != 0 || prot == 0 {
+        map_flags |= MapFlags::READ;
+    }
+    if (prot & 2) != 0 {
+        map_flags |= MapFlags::WRITE;
+    }
+    if (prot & 4) != 0 {
+        map_flags |= MapFlags::EXECUTE;
+    }
 
     let kind = if fd >= 0 {
         if let Ok(file) = proc.fd_table.get(fd) {
@@ -109,11 +122,15 @@ pub fn sys_munmap(frame: &mut SyscallFrame) -> SyscallResult {
         return Err(SyscallError::EINVAL);
     }
 
+    let aligned_len = (len + 4095) & !4095;
     let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
     let proc = proc_arc.lock();
 
     let mut addr_space = proc.address_space.lock();
-    if addr_space.unmap_area(VirtAddr(addr)).is_err() {
+    if addr_space
+        .unmap_range(VirtAddr(addr), VirtAddr(addr + aligned_len as u64))
+        .is_err()
+    {
         return Err(SyscallError::EINVAL);
     }
 
@@ -125,9 +142,31 @@ pub fn sys_munmap(frame: &mut SyscallFrame) -> SyscallResult {
 pub fn sys_mprotect(frame: &mut SyscallFrame) -> SyscallResult {
     let addr = frame.arg1() as u64;
     let len = frame.arg2() as usize;
+    let prot = frame.arg3() as i32;
 
     if addr == 0 || len == 0 {
         return Err(SyscallError::EINVAL);
+    }
+
+    let aligned_len = (len + 4095) & !4095;
+    let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
+    let proc = proc_arc.lock();
+
+    let mut flags = MapFlags::USER;
+    if (prot & 1) != 0 {
+        flags |= MapFlags::READ;
+    }
+    if (prot & 2) != 0 {
+        flags |= MapFlags::WRITE;
+    }
+    if (prot & 4) != 0 {
+        flags |= MapFlags::EXECUTE;
+    }
+
+    let mut addr_space = proc.address_space.lock();
+    for page_virt_u64 in (addr..addr + aligned_len as u64).step_by(4096) {
+        let page_virt = VirtAddr(page_virt_u64);
+        let _ = addr_space.page_table_mut().remap(page_virt, flags);
     }
 
     Ok(0)

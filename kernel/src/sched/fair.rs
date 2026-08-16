@@ -180,7 +180,27 @@ impl Scheduler {
     /// Voluntarily yield the CPU for `cpu_id`.
     pub fn yield_current(&mut self, cpu_id: u32) {
         if let Some(thread) = self.current_threads[cpu_id as usize].take() {
-            self.add_thread(thread);
+            let mut t_lock = thread.lock();
+            let weight = if t_lock.weight > 0 {
+                t_lock.weight
+            } else {
+                NICE_0_WEIGHT
+            };
+            let slice_ns = if t_lock.slice_ns > 0 {
+                t_lock.slice_ns
+            } else {
+                BASE_SLICE_NS
+            };
+            let vslice = (slice_ns * NICE_0_WEIGHT as u64) / weight as u64;
+
+            // Advance vruntime and virtual deadline so other queued threads run first
+            t_lock.vruntime = t_lock.vruntime.max(self.min_vruntime).saturating_add(vslice);
+            t_lock.vdeadline = t_lock.vruntime.saturating_add(vslice);
+            t_lock.state = ThreadState::Ready;
+            let tid = t_lock.tid;
+            drop(t_lock);
+
+            self.run_queue.insert(tid, thread);
         }
     }
 
