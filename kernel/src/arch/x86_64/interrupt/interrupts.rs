@@ -1,10 +1,10 @@
-use crate::arch::{halt, read_cr2, without_interrupts};
 use crate::arch::idt::{InterruptDescriptorTable, InterruptStackFrame};
 use crate::arch::lapic_timer;
+use crate::arch::{halt, read_cr2, without_interrupts};
 use crate::ipc::signal::SIGSEGV;
 use crate::sched::SCHEDULER;
-use x86_64::structures::idt::PageFaultErrorCode;
 use x86_64::VirtAddr;
+use x86_64::structures::idt::PageFaultErrorCode;
 
 pub const KEYBOARD_VECTOR: u8 = 33;
 
@@ -125,7 +125,10 @@ fn kill_user_process(sig: u8) -> ! {
 
 extern "x86-interrupt" fn invalid_opcode_handler(stack_frame: &mut InterruptStackFrame) {
     if (stack_frame.code_segment & 3) == 3 {
-        log::warn!("User process invalid opcode (#UD) at RIP {:#x}", stack_frame.instruction_pointer);
+        log::warn!(
+            "User process invalid opcode (#UD) at RIP {:#x}",
+            stack_frame.instruction_pointer
+        );
         kill_user_process(crate::ipc::signal::SIGILL);
     }
     log::error!("EXCEPTION: INVALID OPCODE (#UD)\n{}", stack_frame);
@@ -141,7 +144,11 @@ extern "x86-interrupt" fn double_fault_handler(
     stack_frame: &mut InterruptStackFrame,
     error_code: u64,
 ) {
-    log::error!("EXCEPTION: DOUBLE FAULT (#DF, Error Code: {:#x})\n{}", error_code, stack_frame);
+    log::error!(
+        "EXCEPTION: DOUBLE FAULT (#DF, Error Code: {:#x})\n{}",
+        error_code,
+        stack_frame
+    );
     halt()
 }
 
@@ -149,7 +156,11 @@ extern "x86-interrupt" fn invalid_tss_handler(
     stack_frame: &mut InterruptStackFrame,
     error_code: u64,
 ) {
-    log::error!("EXCEPTION: INVALID TSS (#TS, Error Code: {:#x})\n{}", error_code, stack_frame);
+    log::error!(
+        "EXCEPTION: INVALID TSS (#TS, Error Code: {:#x})\n{}",
+        error_code,
+        stack_frame
+    );
     halt();
 }
 
@@ -157,7 +168,11 @@ extern "x86-interrupt" fn segment_not_present_handler(
     stack_frame: &mut InterruptStackFrame,
     error_code: u64,
 ) {
-    log::error!("EXCEPTION: SEGMENT NOT PRESENT (#NP, Error Code: {:#x})\n{}", error_code, stack_frame);
+    log::error!(
+        "EXCEPTION: SEGMENT NOT PRESENT (#NP, Error Code: {:#x})\n{}",
+        error_code,
+        stack_frame
+    );
     halt();
 }
 
@@ -165,7 +180,11 @@ extern "x86-interrupt" fn stack_segment_fault_handler(
     stack_frame: &mut InterruptStackFrame,
     error_code: u64,
 ) {
-    log::error!("EXCEPTION: STACK SEGMENT FAULT (#SS, Error Code: {:#x})\n{}", error_code, stack_frame);
+    log::error!(
+        "EXCEPTION: STACK SEGMENT FAULT (#SS, Error Code: {:#x})\n{}",
+        error_code,
+        stack_frame
+    );
     halt();
 }
 
@@ -190,7 +209,10 @@ extern "x86-interrupt" fn general_protection_fault_handler(
 }
 
 extern "x86-interrupt" fn x87_floating_point_handler(stack_frame: &mut InterruptStackFrame) {
-    log::error!("EXCEPTION: x87 FPU FLOATING POINT ERROR (#MF)\n{}", stack_frame);
+    log::error!(
+        "EXCEPTION: x87 FPU FLOATING POINT ERROR (#MF)\n{}",
+        stack_frame
+    );
     halt();
 }
 
@@ -198,7 +220,11 @@ extern "x86-interrupt" fn alignment_check_handler(
     stack_frame: &mut InterruptStackFrame,
     error_code: u64,
 ) {
-    log::error!("EXCEPTION: ALIGNMENT CHECK (#AC, Error Code: {:#x})\n{}", error_code, stack_frame);
+    log::error!(
+        "EXCEPTION: ALIGNMENT CHECK (#AC, Error Code: {:#x})\n{}",
+        error_code,
+        stack_frame
+    );
     halt();
 }
 
@@ -208,7 +234,10 @@ extern "x86-interrupt" fn machine_check_handler(stack_frame: &mut InterruptStack
 }
 
 extern "x86-interrupt" fn simd_floating_point_handler(stack_frame: &mut InterruptStackFrame) {
-    log::error!("EXCEPTION: SIMD FLOATING POINT EXCEPTION (#XM)\n{}", stack_frame);
+    log::error!(
+        "EXCEPTION: SIMD FLOATING POINT EXCEPTION (#XM)\n{}",
+        stack_frame
+    );
     halt();
 }
 
@@ -221,7 +250,11 @@ extern "x86-interrupt" fn control_protection_handler(
     stack_frame: &mut InterruptStackFrame,
     error_code: u64,
 ) {
-    log::error!("EXCEPTION: CONTROL PROTECTION EXCEPTION (#CP, Error Code: {:#x})\n{}", error_code, stack_frame);
+    log::error!(
+        "EXCEPTION: CONTROL PROTECTION EXCEPTION (#CP, Error Code: {:#x})\n{}",
+        error_code,
+        stack_frame
+    );
     halt();
 }
 
@@ -244,10 +277,7 @@ extern "x86-interrupt" fn page_fault_handler(
         if let Some(proc_arc) = thread.process.upgrade() {
             let proc = proc_arc.lock();
             let mut addr_space = proc.address_space.lock();
-            if addr_space
-                .handle_page_fault(fault_virt, fault_code)
-                .is_ok()
-            {
+            if addr_space.handle_page_fault(fault_virt, fault_code).is_ok() {
                 return;
             }
         }
@@ -280,10 +310,8 @@ extern "x86-interrupt" fn timer_handler(_stack_frame: &mut InterruptStackFrame) 
         super::lapic::get_lapic().end_of_interrupt();
     }
 
-    if cpu_id == 0 {
-        crate::sched::SCHEDULER.lock().tick(cpu_id, 10_000_000);
-        crate::sched::schedule(true);
-    }
+    crate::sched::SCHEDULER.lock().tick(cpu_id, 10_000_000);
+    crate::sched::schedule(true);
 }
 
 extern "x86-interrupt" fn spurious_interrupt_handler(_stack_frame: &mut InterruptStackFrame) {
