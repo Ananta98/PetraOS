@@ -2,10 +2,10 @@ pub mod devfs;
 pub mod ext2;
 pub mod fd;
 pub mod initramfs;
-pub mod ioctl;
 pub mod pipe;
 pub mod ramfs;
 pub mod vfs;
+
 
 pub use initramfs::Initramfs;
 

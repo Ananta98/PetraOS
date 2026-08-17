@@ -56,14 +56,16 @@ impl DevFs {
             .mount("/dev", &DevFs)
             .map_err(|_| "Failed to mount devfs at /dev")?;
 
-        // Register console character device
+        // Register console character device (/dev/console, /dev/tty, /dev/tty0)
         let console_ino = dev_mount.superblock.alloc_ino();
         let console_inode = Arc::new(Inode {
             ino: console_ino,
             inode_type: InodeType::CharDevice,
             ops: Arc::new(ConsoleInode),
         });
-        Dentry::add_child(&dev_mount.root_dentry, "console".into(), console_inode);
+        Dentry::add_child(&dev_mount.root_dentry, "console".into(), console_inode.clone());
+        Dentry::add_child(&dev_mount.root_dentry, "tty".into(), console_inode.clone());
+        Dentry::add_child(&dev_mount.root_dentry, "tty0".into(), console_inode);
 
         // Register framebuffer device node /dev/fb0
         let fb_ino = dev_mount.superblock.alloc_ino();

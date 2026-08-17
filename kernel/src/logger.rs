@@ -29,7 +29,7 @@ static LOGGER: Logger = Logger {
 
 impl Log for Logger {
     fn enabled(&self, metadata: &Metadata) -> bool {
-        metadata.level() <= Level::Trace
+        metadata.level() <= Level::Info
     }
 
     fn log(&self, record: &Record) {
@@ -72,7 +72,7 @@ pub fn init() {
         // SAFETY: set_logger is safe or unsafe depending on version; we handle both using an unsafe block.
         #[allow(unused_unsafe)]
         if let Ok(()) = unsafe { log::set_logger(&LOGGER) } {
-            log::set_max_level(log::LevelFilter::Trace);
+            log::set_max_level(log::LevelFilter::Info);
         }
     }
 }

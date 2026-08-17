@@ -1,6 +1,6 @@
 use alloc::sync::Arc;
-use crate::drivers::gpu::framebuffer::fb_console_write_byte;
 use crate::fs::vfs::types::{FileOps, InodeOps, VfsError};
+use crate::tty::tty_write_byte;
 
 pub fn try_read_console_byte() -> Option<u8> {
     // 1. Drain pending scancodes directly from PS/2 controller (port 0x64/0x60)
@@ -52,7 +52,21 @@ impl FileOps for ConsoleFileOps {
 
         // Block until at least one character is available, then drain what is immediately ready.
         while read_bytes < buf.len() {
-            if let Some(ch) = try_read_console_byte() {
+            if let Some(mut ch) = try_read_console_byte() {
+                let termios_guard = crate::tty::CONSOLE_TERMIOS.lock();
+                let is_echo = termios_guard.is_echo();
+                drop(termios_guard);
+
+                // Translate Carriage Return (\r) to Newline (\n)
+                if ch == b'\r' {
+                    ch = b'\n';
+                }
+
+                // If ECHO is enabled, immediately render character to active TTY console
+                if is_echo {
+                    tty_write_byte(ch);
+                }
+
                 buf[read_bytes] = ch;
                 read_bytes += 1;
             } else if read_bytes > 0 {
@@ -68,7 +82,7 @@ impl FileOps for ConsoleFileOps {
 
     fn write(&self, _offset: usize, buf: &[u8]) -> Result<usize, VfsError> {
         for &byte in buf {
-            fb_console_write_byte(byte);
+            tty_write_byte(byte);
         }
         if let Ok(s) = core::str::from_utf8(buf) {
             log::trace!("[CONSOLE] {}", s.trim_end());
@@ -76,3 +90,4 @@ impl FileOps for ConsoleFileOps {
         Ok(buf.len())
     }
 }
+
