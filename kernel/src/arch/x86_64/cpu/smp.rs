@@ -21,15 +21,16 @@ static APS_ONLINE: AtomicU32 = AtomicU32::new(0);
 /// Called directly by the Limine bootloader; no Rust runtime setup is needed
 /// beyond what Limine provides (a valid stack and the `Cpu` pointer).
 unsafe extern "C" fn ap_entry(cpu: &limine::mp::Cpu) -> ! {
+    let lapic_id = cpu.lapic_id as usize;
+
     // ── Per-CPU hardware setup ────────────────────────────────────────────
 
     // Initialise this AP's own GDT and TSS.
     // SAFETY: called once per AP before any other hardware access.
     let tss_addr = gdt::init_per_cpu();
     unsafe {
-        CPU_TSS_POINTERS[cpu.lapic_id as usize] = tss_addr;
+        CPU_TSS_POINTERS[lapic_id] = tss_addr;
         super::enable_sse();
-        super::enable_syscall();
     }
 
     // Load the shared IDT so exception/interrupt handlers are available.
@@ -46,6 +47,12 @@ unsafe extern "C" fn ap_entry(cpu: &limine::mp::Cpu) -> ! {
     map_mmio(lapic_phys, 4096);
     let local_apic = lapic::LocalApic::new(lapic_phys);
     local_apic.enable();
+
+    // Enable fast syscalls with explicit LAPIC ID now that hardware is ready.
+    // SAFETY: MSR configuration for fast system calls on this AP core.
+    unsafe {
+        super::enable_syscall_for_cpu(lapic_id);
+    }
 
     // Calibrate and start the LAPIC timer for this AP.
     let timer = lapic_timer::LapicTimer::calibrate_or_get(&local_apic);

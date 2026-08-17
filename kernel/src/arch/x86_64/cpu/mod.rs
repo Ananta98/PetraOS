@@ -60,8 +60,8 @@ pub unsafe fn enable_sse() {
     }
 }
 
-/// Enable and configure the fast system call (SYSCALL / SYSRET) MSRs on the calling CPU.
-pub unsafe fn enable_syscall() {
+/// Enable and configure the fast system call (SYSCALL / SYSRET) MSRs for a specific CPU core.
+pub unsafe fn enable_syscall_for_cpu(cpu_id: usize) {
     // SAFETY: IA32 MSRs configuration for enabling x86_64 fast syscall handling.
     unsafe {
         // 1. Enable System Call Extensions (SCE) in IA32_EFER
@@ -83,6 +83,7 @@ pub unsafe fn enable_syscall() {
         unsafe extern "C" {
             fn syscall_fast_entry();
         }
+
         let lstar = syscall_fast_entry as *const () as u64;
         LStar::write(VirtAddr::new(lstar));
 
@@ -91,12 +92,20 @@ pub unsafe fn enable_syscall() {
         SFMask::write(fmask);
 
         // 5. Program IA32_KERNEL_GS_BASE: Point to this CPU's CpuLocal
-        let cpu_id = crate::arch::cpu_id() as usize;
         if cpu_id < tss::MAX_CPUS {
             let locals = core::ptr::addr_of_mut!(tss::CPU_LOCALS);
             let cpu_local_ptr = core::ptr::addr_of_mut!((*locals)[cpu_id]) as u64;
             KernelGsBase::write(VirtAddr::new(cpu_local_ptr));
         }
+    }
+}
+
+/// Enable and configure the fast system call (SYSCALL / SYSRET) MSRs on the calling CPU.
+pub unsafe fn enable_syscall() {
+    let cpu_id = crate::arch::cpu_id() as usize;
+    // SAFETY: Delegate to enable_syscall_for_cpu with current CPU ID.
+    unsafe {
+        enable_syscall_for_cpu(cpu_id);
     }
 }
 

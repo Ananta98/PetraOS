@@ -370,7 +370,7 @@ pub fn sys_chdir(frame: &mut SyscallFrame) -> SyscallResult {
 
     let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
     let mut proc = proc_arc.lock();
-    proc.cwd = path;
+    proc.cwd = crate::fs::normalize_path(&proc.cwd, &path);
 
     Ok(0)
 }

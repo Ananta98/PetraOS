@@ -280,8 +280,10 @@ extern "x86-interrupt" fn timer_handler(_stack_frame: &mut InterruptStackFrame) 
         super::lapic::get_lapic().end_of_interrupt();
     }
 
-    crate::sched::SCHEDULER.lock().tick(cpu_id, 10_000_000);
-    crate::sched::schedule(true);
+    if cpu_id == 0 {
+        crate::sched::SCHEDULER.lock().tick(cpu_id, 10_000_000);
+        crate::sched::schedule(true);
+    }
 }
 
 extern "x86-interrupt" fn spurious_interrupt_handler(_stack_frame: &mut InterruptStackFrame) {
