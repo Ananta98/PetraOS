@@ -3,7 +3,7 @@
 //! Provides high-resolution timing, elapsed time measurements, and microsecond/millisecond busy-wait delays.
 
 use crate::arch::acpi::{Rsdp, Sdt};
-use crate::arch::paging;
+use crate::mm::{ensure_mapped, map_mmio};
 use crate::sync::spinlock::Spinlock;
 
 pub const HPET_DEFAULT_PHYS_BASE: u64 = 0xFED0_0000;
@@ -19,6 +19,7 @@ const CONFIG_ENABLE: u64 = 1 << 0; // Overall Enable (starts main counter)
 const CONFIG_LEG_RT: u64 = 1 << 1; // Legacy Replacement Route
 
 /// High Precision Event Timer Hardware Abstraction.
+#[derive(Debug)]
 pub struct Hpet {
     phys_base: u64,
     virt_base: *mut u8,
@@ -54,13 +55,13 @@ impl Hpet {
         unsafe { self.read_reg(REG_COUNTER) }
     }
 
-    /// Returns clock tick period in femtoseconds ($10^{-15}$ s).
+    /// Returns clock tick period in femtoseconds (10^-15 s).
     #[inline]
     pub fn period_fs(&self) -> u64 {
         self.counter_clk_period_fs
     }
 
-    /// Convert tick count into elapsed nanoseconds ($1\text{ ns} = 1,000,000\text{ fs}$).
+    /// Convert tick count into elapsed nanoseconds (1 ns = 1,000,000 fs).
     #[inline]
     pub fn ticks_to_ns(&self, ticks: u64) -> u64 {
         (ticks as u128 * self.counter_clk_period_fs as u128 / 1_000_000) as u64
@@ -83,7 +84,7 @@ pub fn parse_hpet_base() -> Option<u64> {
     let hhdm = crate::mm::hhdm_offset();
     let rsdp_addr = (rsdp_phys + hhdm) as *const u8;
 
-    paging::utils::ensure_mapped(rsdp_phys, 36);
+    ensure_mapped(rsdp_phys, 36);
     let rsdp = Rsdp::new(rsdp_addr);
     let use_64bit = rsdp.revision() >= 2;
     let parent_table_phys = if use_64bit {
@@ -120,7 +121,7 @@ pub fn init() {
     let phys_base = parse_hpet_base().unwrap_or(HPET_DEFAULT_PHYS_BASE);
 
     // Map HPET MMIO page
-    paging::map_mmio(phys_base, 4096);
+    map_mmio(phys_base, 4096);
     let hhdm = crate::mm::hhdm_offset();
     let virt_base = (phys_base + hhdm) as *mut u8;
 

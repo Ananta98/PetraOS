@@ -1,53 +1,10 @@
-use crate::mm::types::{PhysAddr, VirtAddr};
-
-bitflags::bitflags! {
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    pub struct MapFlags: u64 {
-        const READ     = 1 << 0;
-        const WRITE    = 1 << 1;
-        const EXECUTE  = 1 << 2;
-        const USER     = 1 << 3;
-        const NO_CACHE = 1 << 4;
-        const COW      = 1 << 5;
-    }
-}
-
-bitflags::bitflags! {
-    /// Architecture-agnostic representation of memory access type during a page fault.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    pub struct PageFaultAccess: u32 {
-        const PRESENT = 1 << 0;  // Fault caused by protection violation (page is present)
-        const WRITE   = 1 << 1;  // Fault caused by a write access
-        const USER    = 1 << 2;  // Fault caused by user-mode instruction/access
-        const EXECUTE = 1 << 3;  // Fault caused by instruction fetch
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PageFaultError {
-    UnmappedAccess,        // Virtual address is not within any registered VMA
-    ProtectionViolation,   // VMA flags disallow the requested access mode
-    FrameAllocationFailed, // Physical memory allocator ran out of pages
-    PagingError(MapError), // Failure while updating page tables
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MapError {
-    FrameAllocationFailed,
-    AlreadyMapped,
-    NotMapped,
-    InvalidAddress,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum UnmapError {
-    NotMapped,
-    InvalidAddress,
-}
+use x86_64::structures::paging::mapper::{FlagUpdateError, MapToError, UnmapError};
+use x86_64::structures::paging::{PageTableFlags, Size4KiB};
+use x86_64::{PhysAddr, VirtAddr};
 
 pub trait PageTable: Send + Sync {
     /// Create a new page table by allocating a root directory and copying kernel-space mappings.
-    fn new() -> Result<Self, MapError>
+    fn new() -> Result<Self, MapToError<Size4KiB>>
     where
         Self: Sized;
 
@@ -63,7 +20,12 @@ pub trait PageTable: Send + Sync {
     fn root(&self) -> PhysAddr;
 
     /// Map a virtual page to a physical frame.
-    fn map(&mut self, page: VirtAddr, frame: PhysAddr, flags: MapFlags) -> Result<(), MapError>;
+    fn map(
+        &mut self,
+        page: VirtAddr,
+        frame: PhysAddr,
+        flags: PageTableFlags,
+    ) -> Result<(), MapToError<Size4KiB>>;
 
     /// Map a contiguous range of virtual pages to physical frames.
     fn map_range(
@@ -71,8 +33,8 @@ pub trait PageTable: Send + Sync {
         page: VirtAddr,
         frame: PhysAddr,
         size: usize,
-        flags: MapFlags,
-    ) -> Result<(), MapError>;
+        flags: PageTableFlags,
+    ) -> Result<(), MapToError<Size4KiB>>;
 
     /// Unmap a virtual page.
     fn unmap(&mut self, page: VirtAddr) -> Result<PhysAddr, UnmapError>;
@@ -81,17 +43,21 @@ pub trait PageTable: Send + Sync {
     fn unmap_range(&mut self, page: VirtAddr, size: usize) -> Result<(), UnmapError>;
 
     /// Remap a virtual page with new flags.
-    fn remap(&mut self, page: VirtAddr, flags: MapFlags) -> Result<(), MapError>;
+    fn remap(&mut self, page: VirtAddr, flags: PageTableFlags) -> Result<(), FlagUpdateError>;
 
     /// Remap a contiguous range of virtual pages with new flags.
-    fn remap_range(&mut self, page: VirtAddr, size: usize, flags: MapFlags)
-    -> Result<(), MapError>;
+    fn remap_range(
+        &mut self,
+        page: VirtAddr,
+        size: usize,
+        flags: PageTableFlags,
+    ) -> Result<(), FlagUpdateError>;
 
     /// Translate a virtual address to its corresponding physical address.
     fn translate(&self, virt: VirtAddr) -> Option<PhysAddr>;
 
     /// Retrieve physical frame address and raw page entry flags for a virtual address.
-    fn get_entry(&self, virt: VirtAddr) -> Option<(PhysAddr, u64)>;
+    fn get_entry(&self, virt: VirtAddr) -> Option<(PhysAddr, PageTableFlags)>;
 
     /// Activate this page table by loading it into the MMU.
     ///

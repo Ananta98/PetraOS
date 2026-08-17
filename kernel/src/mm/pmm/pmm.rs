@@ -1,6 +1,6 @@
 use crate::mm::pmm::buddy::{BuddyAllocator, Page, PageFlags};
-use crate::mm::types::PhysAddr;
 use crate::sync::spinlock::Spinlock;
+use x86_64::PhysAddr;
 
 pub struct PhysicalMemoryManagement {
     allocator: Spinlock<Option<BuddyAllocator>>,
@@ -157,7 +157,7 @@ impl PhysicalMemoryManagement {
     /// Free a block of physical memory of size 2^order pages.
     pub fn free_pages(&self, paddr: PhysAddr, order: usize) {
         assert!(
-            paddr.is_aligned(4096),
+            paddr.is_aligned(4096u64),
             "pmm::free_pages: address is not page-aligned"
         );
         let mut guard = self.allocator.lock();

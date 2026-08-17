@@ -6,9 +6,9 @@
 
 use crate::arch::enable_interrupts;
 use crate::arch::idle;
-use crate::arch::paging;
 use crate::arch::tss::*;
 use crate::arch::{gdt, interrupts, lapic, lapic_timer};
+use crate::mm::map_mmio;
 use core::sync::atomic::{AtomicU32, Ordering};
 
 /// Count of APs that have fully completed initialisation.
@@ -43,7 +43,7 @@ unsafe extern "C" fn ap_entry(cpu: &limine::mp::Cpu) -> ! {
         .map(|m| m.local_apic_address)
         .unwrap_or(0xFEE0_0000);
 
-    paging::map_mmio(lapic_phys, 4096);
+    map_mmio(lapic_phys, 4096);
     let local_apic = lapic::LocalApic::new(lapic_phys);
     local_apic.enable();
 

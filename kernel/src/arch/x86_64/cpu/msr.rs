@@ -1,5 +1,8 @@
 //! Model-Specific Registers (MSRs) helper functions for x86_64.
 
+use x86_64::registers::model_specific::{FsBase, GsBase, Msr};
+use x86_64::VirtAddr;
+
 pub const IA32_EFER: u32 = 0xC000_0080;
 pub const IA32_STAR: u32 = 0xC000_0081;
 pub const IA32_LSTAR: u32 = 0xC000_0082;
@@ -14,19 +17,8 @@ pub const IA32_KERNEL_GS_BASE: u32 = 0xC000_0102;
 /// The caller must ensure that `msr` is a valid MSR register on the CPU.
 #[inline(always)]
 pub unsafe fn rdmsr(msr: u32) -> u64 {
-    let low: u32;
-    let high: u32;
-    // SAFETY: rdmsr reads the MSR specified by ECX into EDX:EAX.
-    unsafe {
-        core::arch::asm!(
-            "rdmsr",
-            in("ecx") msr,
-            out("eax") low,
-            out("edx") high,
-            options(nomem, nostack, preserves_flags)
-        );
-    }
-    ((high as u64) << 32) | (low as u64)
+    // SAFETY: Delegated to x86_64 Msr wrapper under caller's safety contract.
+    unsafe { Msr::new(msr).read() }
 }
 
 /// Write a 64-bit value to an MSR.
@@ -35,44 +27,33 @@ pub unsafe fn rdmsr(msr: u32) -> u64 {
 /// The caller must ensure that `msr` is a valid MSR register on the CPU and `val` contains valid bits.
 #[inline(always)]
 pub unsafe fn wrmsr(msr: u32, val: u64) {
-    let low = val as u32;
-    let high = (val >> 32) as u32;
-    // SAFETY: wrmsr writes the value in EDX:EAX into the MSR specified by ECX.
+    // SAFETY: Delegated to x86_64 Msr wrapper under caller's safety contract.
     unsafe {
-        core::arch::asm!(
-            "wrmsr",
-            in("ecx") msr,
-            in("eax") low,
-            in("edx") high,
-            options(nomem, nostack, preserves_flags)
-        );
+        let mut m = Msr::new(msr);
+        m.write(val);
     }
 }
 
 /// Read the current FS base address.
 #[inline(always)]
 pub fn read_fs_base() -> u64 {
-    // SAFETY: IA32_FS_BASE is supported in 64-bit mode.
-    unsafe { rdmsr(IA32_FS_BASE) }
+    FsBase::read().as_u64()
 }
 
 /// Write the current FS base address.
 #[inline(always)]
 pub fn write_fs_base(base: u64) {
-    // SAFETY: IA32_FS_BASE is supported in 64-bit mode.
-    unsafe { wrmsr(IA32_FS_BASE, base) }
+    FsBase::write(VirtAddr::new(base));
 }
 
 /// Read the current GS base address.
 #[inline(always)]
 pub fn read_gs_base() -> u64 {
-    // SAFETY: IA32_GS_BASE is supported in 64-bit mode.
-    unsafe { rdmsr(IA32_GS_BASE) }
+    GsBase::read().as_u64()
 }
 
 /// Write the current GS base address.
 #[inline(always)]
 pub fn write_gs_base(base: u64) {
-    // SAFETY: IA32_GS_BASE is supported in 64-bit mode.
-    unsafe { wrmsr(IA32_GS_BASE, base) }
+    GsBase::write(VirtAddr::new(base));
 }

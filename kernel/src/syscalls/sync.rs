@@ -5,9 +5,9 @@
 
 use super::{is_user_ptr_valid, SyscallError, SyscallResult};
 use crate::arch::syscall::syscall::SyscallFrame;
-use crate::mm::types::VirtAddr;
 use crate::mm::PageTable;
 use crate::proc::thread::ThreadState;
+use x86_64::VirtAddr;
 use crate::sync::futex::{
     FutexKey, FUTEX_BITSET_MATCH_ANY, FUTEX_CLOCK_REALTIME, FUTEX_CMD_MASK, FUTEX_CMP_REQUEUE,
     FUTEX_CMP_REQUEUE_PI, FUTEX_FD, FUTEX_LOCK_PI, FUTEX_MANAGER, FUTEX_PRIVATE_FLAG,
@@ -50,7 +50,7 @@ fn resolve_futex_key(
         }
     } else {
         let addr_space = proc.address_space.lock();
-        if let Some(paddr) = addr_space.page_table().translate(VirtAddr(vaddr)) {
+        if let Some(paddr) = addr_space.page_table().translate(VirtAddr::new(vaddr)) {
             FutexKey::Shared {
                 paddr: paddr.as_u64() + (vaddr & 0xFFF),
             }

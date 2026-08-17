@@ -1,6 +1,7 @@
-use super::address::PhysAddr;
 use alloc::sync::Arc;
+use x86_64::PhysAddr;
 
+/// Backing store kind for a Virtual Memory Area (VMA).
 #[derive(Clone)]
 pub enum VmAreaKind {
     Anonymous,

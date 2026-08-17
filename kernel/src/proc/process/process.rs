@@ -1,16 +1,18 @@
 use super::cmdline::CommandLine;
 use super::pid::{ProcessId, next_pid};
 use super::process_table::{register_process, unregister_process};
-use crate::arch::paging::ArchPageTable;
+use crate::arch::userspace;
 use crate::fs::FdTable;
 use crate::ipc::signal::{MAX_SIGNALS, PendingSignals, SigAction};
+use crate::mm::ArchPageTable;
 use crate::mm::PageTable;
 use crate::mm::vmm::AddrSpace;
 use crate::proc::thread::{Thread, ThreadId, ThreadState};
 use crate::sync::spinlock::Spinlock;
 use alloc::collections::BTreeMap;
-
 use alloc::sync::Arc;
+use x86_64::VirtAddr;
+use x86_64::structures::paging::PageTableFlags;
 
 /// State of a process.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -121,9 +123,9 @@ impl Process {
             egid: 0,
             umask: 0o022,
             fd_table: Arc::new(crate::fs::FdTable::new()),
-            heap_start: crate::arch::userspace::USER_HEAP_VBASE,
-            heap_brk: crate::arch::userspace::USER_HEAP_VBASE,
-            mmap_bump: crate::arch::userspace::USER_MMAP_VBASE,
+            heap_start: userspace::USER_HEAP_VBASE,
+            heap_brk: userspace::USER_HEAP_VBASE,
+            mmap_bump: userspace::USER_MMAP_VBASE,
         }
     }
 
@@ -206,9 +208,9 @@ impl Process {
                 Ok(loaded_elf) => {
                     self.address_space = Arc::new(Spinlock::new(loaded_elf.addr_space));
                     self.cmdline = cmdline;
-                    self.heap_start = crate::arch::userspace::USER_HEAP_VBASE;
-                    self.heap_brk = crate::arch::userspace::USER_HEAP_VBASE;
-                    self.mmap_bump = crate::arch::userspace::USER_MMAP_VBASE;
+                    self.heap_start = userspace::USER_HEAP_VBASE;
+                    self.heap_brk = userspace::USER_HEAP_VBASE;
+                    self.mmap_bump = userspace::USER_MMAP_VBASE;
                     self.state = ProcessState::Running;
                     return Ok((
                         loaded_elf.entry_point.as_u64(),
@@ -228,11 +230,9 @@ impl Process {
         let mut addr_space_guard = self.address_space.lock();
         let addr_space = &mut *addr_space_guard;
 
-        let code_vaddr = crate::mm::VirtAddr(crate::arch::userspace::USER_CODE_VBASE);
-        let code_flags = crate::mm::MapFlags::READ
-            | crate::mm::MapFlags::WRITE
-            | crate::mm::MapFlags::EXECUTE
-            | crate::mm::MapFlags::USER;
+        let code_vaddr = VirtAddr::new(userspace::USER_CODE_VBASE);
+        let code_flags =
+            PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::USER_ACCESSIBLE;
 
         addr_space
             .map_area(
@@ -249,7 +249,7 @@ impl Process {
             .ok_or("Failed to translate user code virtual page")?;
 
         let hhdm = crate::mm::hhdm_offset();
-        let code_ptr = code_phys.as_ptr::<u8>(hhdm);
+        let code_ptr = (code_phys.as_u64() + hhdm) as *mut u8;
         let copy_len = core::cmp::min(binary_data.len(), 4096);
 
         // SAFETY: Copying binary content into physical frame.
@@ -257,9 +257,9 @@ impl Process {
             core::ptr::copy_nonoverlapping(binary_data.as_ptr(), code_ptr, copy_len);
         }
 
-        let stack_vaddr = crate::mm::VirtAddr(crate::arch::userspace::USER_STACK_VTOP - 4096);
+        let stack_vaddr = VirtAddr::new(userspace::USER_STACK_VTOP - 4096);
         let stack_flags =
-            crate::mm::MapFlags::READ | crate::mm::MapFlags::WRITE | crate::mm::MapFlags::USER;
+            PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::USER_ACCESSIBLE;
 
         addr_space
             .map_area(
@@ -273,15 +273,12 @@ impl Process {
         drop(addr_space_guard);
 
         self.cmdline = cmdline;
-        self.heap_start = crate::arch::userspace::USER_HEAP_VBASE;
-        self.heap_brk = crate::arch::userspace::USER_HEAP_VBASE;
-        self.mmap_bump = crate::arch::userspace::USER_MMAP_VBASE;
+        self.heap_start = userspace::USER_HEAP_VBASE;
+        self.heap_brk = userspace::USER_HEAP_VBASE;
+        self.mmap_bump = userspace::USER_MMAP_VBASE;
         self.state = ProcessState::Running;
 
-        Ok((
-            crate::arch::userspace::USER_CODE_VBASE,
-            crate::arch::userspace::USER_STACK_VTOP,
-        ))
+        Ok((userspace::USER_CODE_VBASE, userspace::USER_STACK_VTOP))
     }
 
     /// Fork a child process duplicating this process (POSIX fork).

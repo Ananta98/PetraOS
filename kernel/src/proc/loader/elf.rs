@@ -1,7 +1,9 @@
 use super::header::*;
-use crate::arch::paging::ArchPageTable;
+use crate::mm::ArchPageTable;
 use crate::mm::PageTable;
-use crate::mm::{AddrSpace, MapFlags, VirtAddr, VmAreaKind};
+use crate::mm::{AddrSpace, VmAreaKind};
+use x86_64::structures::paging::PageTableFlags;
+use x86_64::VirtAddr;
 
 /// A loaded ELF executable's resources.
 pub struct LoadedElf {
@@ -33,7 +35,7 @@ impl<'a> Elf<'a> {
 
     /// Retrieve the entry point virtual address from the ELF header.
     pub fn entry_point(&self) -> VirtAddr {
-        VirtAddr(self.header.e_entry)
+        VirtAddr::new(self.header.e_entry)
     }
 
     /// Retrieve the list of program headers.
@@ -61,6 +63,7 @@ impl<'a> Elf<'a> {
                 ph_num,
             )
         };
+
         Ok(ph_slice)
     }
 
@@ -89,62 +92,54 @@ impl<'a> Elf<'a> {
                 sh_num,
             )
         };
+
         Ok(sh_slice)
     }
 
-    /// Retrieve the header of the section header string table.
-    pub fn shstrtab_header(&self) -> Result<&'a Elf64Shdr, &'static str> {
-        let sh_num = self.header.e_shnum as usize;
-        let sh_str_ndx = self.header.e_shstrndx as usize;
-        if sh_str_ndx >= sh_num {
-            return Err("Invalid shstrndx in ELF header");
+    /// Retrieve the section header string table.
+    pub fn shstrtab(&self) -> Result<&'a str, &'static str> {
+        let shstrndx = self.header.e_shstrndx as usize;
+        let sh_slice = self.section_headers()?;
+
+        if shstrndx >= sh_slice.len() {
+            return Err("Invalid shstrndx");
         }
-        let sections = self.section_headers()?;
-        Ok(&sections[sh_str_ndx])
+
+        let shstr_hdr = &sh_slice[shstrndx];
+        let offset = shstr_hdr.sh_offset as usize;
+        let size = shstr_hdr.sh_size as usize;
+
+        if offset + size > self.data.len() {
+            return Err("shstrtab out of bounds");
+        }
+
+        let raw_strtab = &self.data[offset..offset + size];
+        core::str::from_utf8(raw_strtab).map_err(|_| "Invalid UTF-8 in shstrtab")
     }
 
-    /// Extract a null-terminated UTF-8 string from a string table section.
-    pub fn get_string(
-        &self,
-        table_shdr: &Elf64Shdr,
-        offset: usize,
-    ) -> Result<&'a str, &'static str> {
-        if table_shdr.sh_type != SHT_STRTAB {
-            return Err("Section is not a string table");
-        }
-        let table_offset = table_shdr.sh_offset as usize;
-        let table_size = table_shdr.sh_size as usize;
-        if offset >= table_size {
-            return Err("String offset out of bounds");
-        }
-        if table_offset + table_size > self.data.len() {
-            return Err("String table data out of bounds");
-        }
+    /// Find a section by its name.
+    pub fn find_section(&self, name: &str) -> Result<Option<(&'a Elf64Shdr, &'a [u8])>, &'static str> {
+        let shstrtab_data = self.shstrtab()?;
+        let sh_slice = self.section_headers()?;
 
-        let start = table_offset + offset;
-        let mut end = start;
-        while end < table_offset + table_size && self.data[end] != 0 {
-            end += 1;
-        }
+        for shdr in sh_slice {
+            let name_offset = shdr.sh_name as usize;
+            if name_offset < shstrtab_data.len() {
+                let section_name = shstrtab_data[name_offset..]
+                    .split('\0')
+                    .next()
+                    .unwrap_or("");
 
-        let slice = &self.data[start..end];
-        core::str::from_utf8(slice).map_err(|_| "Invalid UTF-8 string in table")
-    }
-
-    /// Get the name of a section header.
-    pub fn section_name(&self, shdr: &Elf64Shdr) -> Result<&'a str, &'static str> {
-        let shstrtab = self.shstrtab_header()?;
-        self.get_string(shstrtab, shdr.sh_name as usize)
-    }
-
-    /// Search for a section header by name.
-    pub fn find_section(&self, name: &str) -> Result<Option<&'a Elf64Shdr>, &'static str> {
-        let sections = self.section_headers()?;
-        for shdr in sections {
-            if self.section_name(shdr)? == name {
-                return Ok(Some(shdr));
+                if section_name == name {
+                    let offset = shdr.sh_offset as usize;
+                    let size = shdr.sh_size as usize;
+                    if offset + size <= self.data.len() {
+                        return Ok(Some((shdr, &self.data[offset..offset + size])));
+                    }
+                }
             }
         }
+
         Ok(None)
     }
 
@@ -201,7 +196,7 @@ impl<'a> Elf<'a> {
             let interp_elf = Elf::new(&interp_bytes)?;
             const INTERP_BASE: u64 = 0x7F00_0000_0000;
             interp_elf.load_segments(&mut addr_space, INTERP_BASE)?;
-            entry_point = VirtAddr(INTERP_BASE + interp_elf.entry_point().as_u64());
+            entry_point = VirtAddr::new(INTERP_BASE + interp_elf.entry_point().as_u64());
             at_base = INTERP_BASE;
         }
 
@@ -244,9 +239,11 @@ impl<'a> Elf<'a> {
         ];
 
         let stack_size = 256 * 1024; // 256 KiB stack
-        let stack_top = VirtAddr(0x7FFF_FFFF_0000);
-        let stack_start = stack_top - stack_size;
-        let stack_flags = MapFlags::USER | MapFlags::READ | MapFlags::WRITE;
+        let stack_top = VirtAddr::new(0x7FFF_FFFF_0000);
+        let stack_start = stack_top - stack_size as u64;
+        let stack_flags = PageTableFlags::PRESENT
+            | PageTableFlags::WRITABLE
+            | PageTableFlags::USER_ACCESSIBLE;
 
         addr_space
             .map_area(stack_start, stack_size, stack_flags, VmAreaKind::Anonymous)
@@ -295,11 +292,11 @@ impl<'a> Elf<'a> {
 
                 let phys = addr_space
                     .page_table()
-                    .translate(VirtAddr(page_v))
+                    .translate(VirtAddr::new(page_v))
                     .ok_or("Failed to translate user stack page")?;
 
                 unsafe {
-                    let dest = phys.as_ptr::<u8>(hhdm).add(page_off);
+                    let dest = ((phys.as_u64() + hhdm) as *mut u8).add(page_off);
                     core::ptr::copy_nonoverlapping(bytes[written..].as_ptr(), dest, chunk_len);
                 }
                 written += chunk_len;
@@ -389,7 +386,7 @@ impl<'a> Elf<'a> {
         // 9. Push argc
         write_u64(&mut cur_sp, arg_ptrs.len() as u64)?;
 
-        Ok(VirtAddr(cur_sp))
+        Ok(VirtAddr::new(cur_sp))
     }
 
     /// Validate the header's identity, endianness, machine and type.
@@ -435,26 +432,23 @@ impl<'a> Elf<'a> {
         base_offset: u64,
     ) -> Result<(), &'static str> {
         let vaddr = base_offset + phdr.p_vaddr;
-        let start_vaddr = VirtAddr(vaddr);
-        let end_vaddr = start_vaddr + phdr.p_memsz as usize;
+        let start_vaddr = VirtAddr::new(vaddr);
+        let end_vaddr = start_vaddr + phdr.p_memsz;
 
-        let aligned_start = VirtAddr(vaddr & !4095);
-        let aligned_end = VirtAddr((end_vaddr.as_u64() + 4095) & !4095);
+        let aligned_start = VirtAddr::new(vaddr & !4095);
+        let aligned_end = VirtAddr::new((end_vaddr.as_u64() + 4095) & !4095);
         let aligned_size = (aligned_end - aligned_start) as usize;
 
         if aligned_size == 0 {
             return Ok(());
         }
 
-        let mut flags = MapFlags::USER;
-        if (phdr.p_flags & 4) != 0 {
-            flags |= MapFlags::READ;
-        }
+        let mut flags = PageTableFlags::PRESENT | PageTableFlags::USER_ACCESSIBLE;
         if (phdr.p_flags & 2) != 0 {
-            flags |= MapFlags::WRITE;
+            flags |= PageTableFlags::WRITABLE;
         }
-        if (phdr.p_flags & 1) != 0 {
-            flags |= MapFlags::EXECUTE;
+        if (phdr.p_flags & 1) == 0 {
+            flags |= PageTableFlags::NO_EXECUTE;
         }
 
         addr_space
@@ -471,7 +465,7 @@ impl<'a> Elf<'a> {
 
             let hhdm = crate::mm::hhdm_offset();
             for page_virt_u64 in (aligned_start.as_u64()..aligned_end.as_u64()).step_by(4096) {
-                let page_virt = VirtAddr(page_virt_u64);
+                let page_virt = VirtAddr::new(page_virt_u64);
                 let phys_addr = addr_space
                     .page_table()
                     .translate(page_virt)
@@ -491,13 +485,13 @@ impl<'a> Elf<'a> {
                     let dest_offset = (intersect_start - page_start) as usize;
 
                     let src_slice = &self.data[file_src_offset..file_src_offset + copy_len];
-                    let dest_ptr = phys_addr.as_ptr::<u8>(hhdm);
+                    let dest_ptr = ((phys_addr.as_u64() + hhdm) as *mut u8).wrapping_add(dest_offset);
 
                     // SAFETY: Copying within bounds of checked src_slice and allocated physical frame.
                     unsafe {
                         core::ptr::copy_nonoverlapping(
                             src_slice.as_ptr(),
-                            dest_ptr.add(dest_offset),
+                            dest_ptr,
                             copy_len,
                         );
                     }

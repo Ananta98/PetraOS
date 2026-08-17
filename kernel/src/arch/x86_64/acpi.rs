@@ -3,7 +3,7 @@
 //! Parses the RSDP → RSDT/XSDT → MADT chain to locate the Local APIC base
 //! address, I/O APIC entries, and Interrupt Source Override entries needed
 //! for interrupt controller initialization.
-use super::paging::ensure_mapped;
+use crate::mm::ensure_mapped;
 
 /// Standard ACPI System Description Table header (36 bytes).
 #[derive(Debug, Clone, Copy)]

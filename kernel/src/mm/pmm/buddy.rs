@@ -1,5 +1,5 @@
 use crate::mm::alloc::freelist::{IntrusiveList, IntrusiveNode};
-use crate::mm::types::PhysAddr;
+use x86_64::PhysAddr;
 
 pub const MAX_ORDER: usize = 16;
 
@@ -55,7 +55,7 @@ impl BuddyAllocator {
     }
 
     pub fn get_page_paddr(&self, index: usize) -> PhysAddr {
-        PhysAddr((index * 4096) as u64)
+        PhysAddr::new((index * 4096) as u64)
     }
 
     pub fn is_usable(&self, index: usize) -> bool {
@@ -116,7 +116,7 @@ impl BuddyAllocator {
 
     /// Prepend a free block to the free list of the given order.
     unsafe fn insert_block(&mut self, paddr: PhysAddr, order: usize) {
-        let block_node = paddr.as_ptr::<IntrusiveNode>(self.hhdm_offset);
+        let block_node = (paddr.as_u64() + self.hhdm_offset) as *mut IntrusiveNode;
         unsafe {
             self.free_lists[order].push_front(block_node);
         }
@@ -147,7 +147,7 @@ impl BuddyAllocator {
             self.remove_block(block_node, target_order);
         }
 
-        let paddr = PhysAddr::from_ptr(block_node, self.hhdm_offset);
+        let paddr = PhysAddr::new(block_node as u64 - self.hhdm_offset);
         let page_idx = self.get_page_index(paddr);
 
         // Clear the metadata: the block is no longer free
@@ -160,7 +160,7 @@ impl BuddyAllocator {
             cur_order -= 1;
 
             // Compute the starting address of the buddy block (second half)
-            let buddy_paddr = PhysAddr(paddr.as_u64() + ((1 << cur_order) * 4096) as u64);
+            let buddy_paddr = paddr + ((1 << cur_order) * 4096u64);
             let buddy_idx = self.get_page_index(buddy_paddr);
 
             if buddy_idx < self.page_map.len() {
@@ -184,7 +184,6 @@ impl BuddyAllocator {
         }
 
         self.free_pages = self.free_pages.saturating_sub(1 << order);
-
 
         Some(paddr)
     }
@@ -218,7 +217,7 @@ impl BuddyAllocator {
             {
                 // Remove the buddy from its current free list
                 let buddy_paddr = self.get_page_paddr(buddy_idx);
-                let buddy_node = buddy_paddr.as_ptr::<IntrusiveNode>(self.hhdm_offset);
+                let buddy_node = (buddy_paddr.as_u64() + self.hhdm_offset) as *mut IntrusiveNode;
                 unsafe {
                     self.remove_block(buddy_node, order);
                 }
@@ -261,7 +260,7 @@ impl BuddyAllocator {
                 order += 1;
             }
 
-            let paddr = PhysAddr((cur * 4096) as u64);
+            let paddr = PhysAddr::new((cur * 4096) as u64);
             unsafe {
                 self.free_block_internal(paddr, order);
             }

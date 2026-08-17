@@ -1,7 +1,8 @@
 use super::{SyscallError, SyscallResult};
 use crate::arch::syscall::syscall::SyscallFrame;
-use crate::mm::vmm::vma::VmAreaKind;
-use crate::mm::{MapFlags, PageTable, VirtAddr};
+use crate::mm::{PageTable, VmAreaKind};
+use x86_64::structures::paging::PageTableFlags;
+use x86_64::VirtAddr;
 
 /// `sys_brk` (SYS_BRK = 12)
 /// Change data segment size (heap break pointer).
@@ -23,11 +24,13 @@ pub fn sys_brk(frame: &mut SyscallFrame) -> SyscallResult {
 
         if page_end > page_start {
             let size = (page_end - page_start) as usize;
-            let flags = MapFlags::READ | MapFlags::WRITE | MapFlags::USER;
+            let flags = PageTableFlags::PRESENT
+                | PageTableFlags::WRITABLE
+                | PageTableFlags::USER_ACCESSIBLE;
 
             let mut addr_space = proc.address_space.lock();
             let _ = addr_space.map_area(
-                VirtAddr(page_start),
+                VirtAddr::new(page_start),
                 size,
                 flags,
                 VmAreaKind::Anonymous,
@@ -61,7 +64,10 @@ pub fn sys_mmap(frame: &mut SyscallFrame) -> SyscallResult {
         let vaddr = addr & !4095;
         // POSIX MAP_FIXED replacement: unmap any existing overlapping range
         let mut addr_space = proc.address_space.lock();
-        let _ = addr_space.unmap_range(VirtAddr(vaddr), VirtAddr(vaddr + aligned_len as u64));
+        let _ = addr_space.unmap_range(
+            VirtAddr::new(vaddr),
+            VirtAddr::new(vaddr + aligned_len as u64),
+        );
         drop(addr_space);
         vaddr
     } else {
@@ -70,15 +76,12 @@ pub fn sys_mmap(frame: &mut SyscallFrame) -> SyscallResult {
         vaddr
     };
 
-    let mut map_flags = MapFlags::USER;
-    if (prot & 1) != 0 || prot == 0 {
-        map_flags |= MapFlags::READ;
-    }
+    let mut map_flags = PageTableFlags::PRESENT | PageTableFlags::USER_ACCESSIBLE;
     if (prot & 2) != 0 {
-        map_flags |= MapFlags::WRITE;
+        map_flags |= PageTableFlags::WRITABLE;
     }
-    if (prot & 4) != 0 {
-        map_flags |= MapFlags::EXECUTE;
+    if (prot & 4) == 0 {
+        map_flags |= PageTableFlags::NO_EXECUTE;
     }
 
     let kind = if fd >= 0 {
@@ -99,7 +102,7 @@ pub fn sys_mmap(frame: &mut SyscallFrame) -> SyscallResult {
     let mut addr_space = proc.address_space.lock();
     if addr_space
         .map_area(
-            VirtAddr(target_vaddr),
+            VirtAddr::new(target_vaddr),
             aligned_len,
             map_flags,
             kind,
@@ -118,7 +121,7 @@ pub fn sys_munmap(frame: &mut SyscallFrame) -> SyscallResult {
     let addr = frame.arg1() as u64;
     let len = frame.arg2() as usize;
 
-    if addr == 0 || !VirtAddr(addr).is_aligned(4096) || len == 0 {
+    if addr == 0 || !VirtAddr::new(addr).is_aligned(4096u64) || len == 0 {
         return Err(SyscallError::EINVAL);
     }
 
@@ -128,7 +131,10 @@ pub fn sys_munmap(frame: &mut SyscallFrame) -> SyscallResult {
 
     let mut addr_space = proc.address_space.lock();
     if addr_space
-        .unmap_range(VirtAddr(addr), VirtAddr(addr + aligned_len as u64))
+        .unmap_range(
+            VirtAddr::new(addr),
+            VirtAddr::new(addr + aligned_len as u64),
+        )
         .is_err()
     {
         return Err(SyscallError::EINVAL);
@@ -150,22 +156,19 @@ pub fn sys_mprotect(frame: &mut SyscallFrame) -> SyscallResult {
 
     let aligned_len = (len + 4095) & !4095;
     let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
-    let proc = proc_arc.lock();
+    let mut proc = proc_arc.lock();
 
-    let mut flags = MapFlags::USER;
-    if (prot & 1) != 0 {
-        flags |= MapFlags::READ;
-    }
+    let mut flags = PageTableFlags::PRESENT | PageTableFlags::USER_ACCESSIBLE;
     if (prot & 2) != 0 {
-        flags |= MapFlags::WRITE;
+        flags |= PageTableFlags::WRITABLE;
     }
-    if (prot & 4) != 0 {
-        flags |= MapFlags::EXECUTE;
+    if (prot & 4) == 0 {
+        flags |= PageTableFlags::NO_EXECUTE;
     }
 
     let mut addr_space = proc.address_space.lock();
     for page_virt_u64 in (addr..addr + aligned_len as u64).step_by(4096) {
-        let page_virt = VirtAddr(page_virt_u64);
+        let page_virt = VirtAddr::new(page_virt_u64);
         let _ = addr_space.page_table_mut().remap(page_virt, flags);
     }
 

@@ -8,28 +8,29 @@ pub mod timer;
 
 pub use cpu::gdt;
 pub use cpu::ports;
+pub use cpu::rdtsc;
 pub use cpu::tss;
 pub use cpu::userspace;
+pub use cpu::{active_address_space_root, read_cr2, set_address_space_root};
 pub use interrupt::idt;
-
 pub use interrupt::interrupts;
 pub use interrupt::lapic;
+pub use paging::ArchPageTable;
 pub use timer::lapic_timer;
 
+use x86_64::instructions::hlt;
+use x86_64::instructions::interrupts as x86_interrupts;
+
 /// Enable interrupts on the calling CPU.
+#[inline(always)]
 pub fn enable_interrupts() {
-    // SAFETY: Enabling interrupts via 'sti' is a standard CPU control operation.
-    unsafe {
-        core::arch::asm!("sti", options(nomem, nostack));
-    }
+    x86_interrupts::enable();
 }
 
 /// Halt CPU until the next interrupt.
+#[inline(always)]
 pub fn halt() {
-    // SAFETY: Halting the CPU via 'hlt' until an interrupt arrives is a safe low-power state.
-    unsafe {
-        core::arch::asm!("hlt", options(nomem, nostack));
-    }
+    hlt();
 }
 
 pub fn idle() -> ! {
@@ -39,51 +40,32 @@ pub fn idle() -> ! {
 }
 
 /// Disable interrupts on the calling CPU and return the previous interrupt flag state.
+#[inline(always)]
 pub fn disable_interrupts() -> bool {
-    let flags: u64;
-    // SAFETY: pushfq/pop reads RFLAGS and cli clears IF without corrupting memory.
-    unsafe {
-        core::arch::asm!(
-            "pushfq",
-            "pop {}",
-            "cli",
-            out(reg) flags,
-            options(nomem)
-        );
-    }
-    (flags & (1 << 9)) != 0
+    let was_enabled = interrupts_enabled();
+    x86_interrupts::disable();
+    was_enabled
 }
 
 /// Check if interrupts are currently enabled on the calling CPU.
 #[inline(always)]
 pub fn interrupts_enabled() -> bool {
-    let flags: u64;
-    // SAFETY: pushfq/pop reads RFLAGS without modifying state or corrupting memory.
-    unsafe {
-        core::arch::asm!(
-            "pushfq",
-            "pop {}",
-            out(reg) flags,
-            options(nomem)
-        );
-    }
-    (flags & (1 << 9)) != 0
+    x86_interrupts::are_enabled()
 }
 
 /// Execute a closure with interrupts disabled, restoring the previous interrupt state afterwards.
 #[inline(always)]
 pub fn without_interrupts<R>(func: impl FnOnce() -> R) -> R {
-    let enabled = disable_interrupts();
-    let result = func();
-    if enabled {
-        enable_interrupts();
-    }
-    result
+    x86_interrupts::without_interrupts(func)
 }
 
 /// Get the Local APIC ID of the calling CPU core (defaults to 0 if APIC not yet initialized).
 pub fn cpu_id() -> u32 {
-    unsafe { interrupt::lapic::try_get_lapic().map(|l| l.id()).unwrap_or(0) }
+    unsafe {
+        interrupt::lapic::try_get_lapic()
+            .map(|l| l.id())
+            .unwrap_or(0)
+    }
 }
 
 /// Initialize execution stack for a new thread context.

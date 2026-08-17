@@ -276,7 +276,7 @@ pub fn sys_execve(frame: &mut SyscallFrame) -> SyscallResult {
 
     // SAFETY: Switching CPU page directory to the newly executed program's address space.
     unsafe {
-        core::arch::asm!("mov cr3, {}", in(reg) new_cr3);
+        crate::arch::set_address_space_root(new_cr3);
     }
 
     if let Some(thread_arc) = crate::proc::current_thread() {

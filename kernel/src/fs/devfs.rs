@@ -65,38 +65,7 @@ fn try_read_console_byte() -> Option<u8> {
     None
 }
 
-#[inline]
-fn rdtsc() -> u64 {
-    let lo: u32;
-    let hi: u32;
-    // SAFETY: Reading CPU time-stamp counter on x86_64 architecture.
-    unsafe {
-        core::arch::asm!(
-            "rdtsc",
-            out("eax") lo,
-            out("edx") hi,
-            options(nomem, nostack, preserves_flags)
-        );
-    }
-    ((hi as u64) << 32) | (lo as u64)
-}
 
-static URANDOM_STATE: core::sync::atomic::AtomicU64 =
-    core::sync::atomic::AtomicU64::new(0x853c_49e6_748f_ea9b);
-
-fn next_random_u64() -> u64 {
-    let tsc = rdtsc();
-    let mut state = URANDOM_STATE.load(core::sync::atomic::Ordering::Relaxed);
-    if state == 0 {
-        state = tsc | 1;
-    }
-    state ^= state << 13;
-    state ^= state >> 7;
-    state ^= state << 17;
-    state = state.wrapping_add(tsc);
-    URANDOM_STATE.store(state, core::sync::atomic::Ordering::Relaxed);
-    state
-}
 
 /// Inode for the `/dev/console` device.
 pub struct ConsoleInode;
@@ -204,26 +173,11 @@ pub struct UrandomFileOps;
 
 impl FileOps for UrandomFileOps {
     fn read(&self, _offset: usize, buf: &mut [u8]) -> Result<usize, VfsError> {
-        let mut chunks = buf.chunks_exact_mut(8);
-        for chunk in chunks.by_ref() {
-            let rand_val = next_random_u64();
-            chunk.copy_from_slice(&rand_val.to_ne_bytes());
-        }
-        let remainder = chunks.into_remainder();
-        if !remainder.is_empty() {
-            let rand_val = next_random_u64();
-            let bytes = rand_val.to_ne_bytes();
-            remainder.copy_from_slice(&bytes[..remainder.len()]);
-        }
+        crate::arch::cpu::rdtsc::fill_random_bytes(buf);
         Ok(buf.len())
     }
 
     fn write(&self, _offset: usize, buf: &[u8]) -> Result<usize, VfsError> {
-        let mut seed_xor = 0u64;
-        for &b in buf.iter().take(8) {
-            seed_xor = (seed_xor << 8) | (b as u64);
-        }
-        URANDOM_STATE.fetch_xor(seed_xor, core::sync::atomic::Ordering::Relaxed);
         Ok(buf.len())
     }
 }

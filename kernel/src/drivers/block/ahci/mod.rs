@@ -2,7 +2,7 @@ pub mod fis;
 pub mod hba;
 pub mod port;
 
-use crate::arch::paging;
+use crate::mm::map_mmio;
 use crate::device::{BlockDevice, Device, DeviceType, DriverError};
 use crate::drivers::bus::pci::PciBus;
 use crate::drivers::pci::config;
@@ -423,7 +423,7 @@ impl Device for AhciDriver {
         }
 
         let phys_addr = bar5 & 0xFFFFFFF0;
-        paging::map_mmio(phys_addr as u64, core::mem::size_of::<HbaMem>());
+        map_mmio(phys_addr as u64, core::mem::size_of::<HbaMem>());
 
         let hhdm = crate::mm::hhdm_offset();
         self.hba_base = (phys_addr as u64 + hhdm) as *mut HbaMem;

@@ -1,16 +1,18 @@
-use crate::mm::types::{PhysAddr, VirtAddr};
-pub use crate::mm::types::VmAreaKind;
-use crate::mm::vmm::paging::{
-    MapError, MapFlags, PageFaultAccess, PageFaultError, PageTable, UnmapError,
-};
+use crate::mm::vmm::paging::PageTable;
+use crate::mm::vmm::types::VmAreaKind;
 use alloc::collections::BTreeMap;
+use x86_64::structures::idt::PageFaultErrorCode;
+use x86_64::structures::paging::mapper::{FlagUpdateError, MapToError, UnmapError};
+use x86_64::structures::paging::{PageTableFlags, Size4KiB};
+use x86_64::{PhysAddr, VirtAddr};
 
+pub const COW_FLAG: PageTableFlags = PageTableFlags::BIT_9;
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct VmArea {
     pub start: VirtAddr,
     pub end: VirtAddr,
-    pub flags: MapFlags,
+    pub flags: PageTableFlags,
     pub kind: VmAreaKind,
 }
 
@@ -28,13 +30,23 @@ impl VmArea {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug)]
 pub enum AddrSpaceError {
     InvalidRange,
     OverlappingArea,
     NoFreeSlots,
-    PagingError(MapError),
+    PagingError(MapToError<Size4KiB>),
     UnmapError(UnmapError),
+    FlagUpdateError(FlagUpdateError),
+}
+
+#[derive(Debug)]
+pub enum PageFaultError {
+    UnmappedAccess,        // Virtual address is not within any registered VMA
+    ProtectionViolation,   // VMA flags disallow the requested access mode
+    FrameAllocationFailed, // Physical memory allocator ran out of pages
+    PagingError(MapToError<Size4KiB>), // Failure while updating page tables
+    RemapError(FlagUpdateError),
 }
 
 /// Architecture-independent Virtual Memory Address Space representation.
@@ -74,7 +86,7 @@ impl<P: PageTable> AddrSpace<P> {
             let num_pages = size / 4096;
 
             'pages: for i in 0..num_pages {
-                let page_virt = area.start + (i * 4096);
+                let page_virt = area.start + (i as u64 * 4096);
                 let parent_phys = match self.page_table.translate(page_virt) {
                     Some(p) => p,
                     None => continue 'pages,
@@ -82,9 +94,9 @@ impl<P: PageTable> AddrSpace<P> {
 
                 match &area.kind {
                     VmAreaKind::Anonymous | VmAreaKind::File { .. } => {
-                        if area.flags.contains(MapFlags::WRITE) {
+                        if area.flags.contains(PageTableFlags::WRITABLE) {
                             // COW: mark parent PTE read-only + COW first.
-                            let cow_flags = (area.flags & !MapFlags::WRITE) | MapFlags::COW;
+                            let cow_flags = (area.flags & !PageTableFlags::WRITABLE) | COW_FLAG;
                             if let Err(err) = self.page_table.remap(page_virt, cow_flags) {
                                 Self::rollback_clone(
                                     &mut self.page_table,
@@ -92,7 +104,7 @@ impl<P: PageTable> AddrSpace<P> {
                                     &child_maps,
                                     &self.vm_areas,
                                 );
-                                return Err(AddrSpaceError::PagingError(err));
+                                return Err(AddrSpaceError::FlagUpdateError(err));
                             }
                             // Map the same frame into the child under COW flags.
                             if let Err(err) = new_page_table.map(page_virt, parent_phys, cow_flags) {
@@ -199,14 +211,14 @@ impl<P: PageTable> AddrSpace<P> {
         &mut self,
         start: VirtAddr,
         size: usize,
-        flags: MapFlags,
+        flags: PageTableFlags,
         kind: VmAreaKind,
     ) -> Result<(), AddrSpaceError> {
-        if size == 0 || !start.is_aligned(4096) || size % 4096 != 0 {
+        if size == 0 || !start.is_aligned(4096u64) || size % 4096 != 0 {
             return Err(AddrSpaceError::InvalidRange);
         }
 
-        let end = start + size;
+        let end = start + size as u64;
 
         // Optimized O(log N) overlap check
         if self.check_overlap(start, end) {
@@ -218,24 +230,24 @@ impl<P: PageTable> AddrSpace<P> {
         let hhdm = crate::mm::hhdm_offset();
 
         for i in 0..num_pages {
-            let page_virt = start + (i * 4096);
+            let page_virt = start + (i as u64 * 4096);
             let frame_phys = match &kind {
                 VmAreaKind::Anonymous => {
                     let frame = match crate::mm::PMM.alloc_page() {
                         Some(f) => f,
                         None => {
                             self.rollback_mapping(start, mapped_pages, &kind);
-                            return Err(AddrSpaceError::PagingError(MapError::FrameAllocationFailed));
+                            return Err(AddrSpaceError::PagingError(MapToError::FrameAllocationFailed));
                         }
                     };
-                    let dest_ptr = frame.as_ptr::<u8>(hhdm);
+                    let dest_ptr = (frame.as_u64() + hhdm) as *mut u8;
                     // SAFETY: Zeroing newly allocated anonymous physical frame.
                     unsafe {
                         core::ptr::write_bytes(dest_ptr, 0, 4096);
                     }
                     frame
                 }
-                VmAreaKind::Device { phys_start } => *phys_start + (i * 4096),
+                VmAreaKind::Device { phys_start } => *phys_start + (i as u64 * 4096),
                 VmAreaKind::File {
                     file,
                     offset,
@@ -245,10 +257,10 @@ impl<P: PageTable> AddrSpace<P> {
                         Some(f) => f,
                         None => {
                             self.rollback_mapping(start, mapped_pages, &kind);
-                            return Err(AddrSpaceError::PagingError(MapError::FrameAllocationFailed));
+                            return Err(AddrSpaceError::PagingError(MapToError::FrameAllocationFailed));
                         }
                     };
-                    let dest_ptr = frame.as_ptr::<u8>(hhdm);
+                    let dest_ptr = (frame.as_u64() + hhdm) as *mut u8;
 
                     let page_file_offset = offset + (i * 4096);
                     let bytes_written = if page_file_offset < *file_size {
@@ -270,7 +282,6 @@ impl<P: PageTable> AddrSpace<P> {
                     }
                     frame
                 }
-
             };
 
             match self.page_table.map(page_virt, frame_phys, flags) {
@@ -300,7 +311,7 @@ impl<P: PageTable> AddrSpace<P> {
 
     fn rollback_mapping(&mut self, start: VirtAddr, mapped_pages: usize, kind: &VmAreaKind) {
         for j in 0..mapped_pages {
-            let rollback_virt = start + (j * 4096);
+            let rollback_virt = start + (j as u64 * 4096);
             if let Ok(frame) = self.page_table.unmap(rollback_virt) {
                 if matches!(kind, VmAreaKind::Anonymous | VmAreaKind::File { .. }) {
                     crate::mm::PMM.free_page(frame);
@@ -346,7 +357,7 @@ impl<P: PageTable> AddrSpace<P> {
         }
 
         for page_virt_u64 in (start.as_u64()..end.as_u64()).step_by(4096) {
-            let page_virt = VirtAddr(page_virt_u64);
+            let page_virt = VirtAddr::new(page_virt_u64);
             if let Ok(old_frame) = self.page_table.unmap(page_virt) {
                 crate::mm::PMM.free_page(old_frame);
             }
@@ -366,14 +377,14 @@ impl<P: PageTable> AddrSpace<P> {
         let num_pages = size / 4096;
 
         for i in 0..num_pages {
-            let page_virt = area.start + (i * 4096);
+            let page_virt = area.start + (i as u64 * 4096);
             match self.page_table.unmap(page_virt) {
                 Ok(frame) => {
                     if matches!(area.kind, VmAreaKind::Anonymous | VmAreaKind::File { .. }) {
                         crate::mm::PMM.free_page(frame);
                     }
                 }
-                Err(UnmapError::NotMapped) => {}
+                Err(UnmapError::PageNotMapped) => {}
                 Err(err) => {
                     self.vm_areas.insert(start, area);
                     return Err(AddrSpaceError::UnmapError(err));
@@ -391,7 +402,7 @@ impl<P: PageTable> AddrSpace<P> {
     pub fn handle_page_fault(
         &mut self,
         fault_addr: VirtAddr,
-        access: PageFaultAccess,
+        access: PageFaultErrorCode,
     ) -> Result<(), PageFaultError> {
         // 1. Locate VMA covering fault_addr in O(log N)
         let area = match self.find_vma(fault_addr) {
@@ -400,23 +411,29 @@ impl<P: PageTable> AddrSpace<P> {
         };
 
         // 2. Validate access permissions
-        if access.contains(PageFaultAccess::WRITE) && !area.flags.contains(MapFlags::WRITE) {
+        if access.contains(PageFaultErrorCode::CAUSED_BY_WRITE)
+            && !area.flags.contains(PageTableFlags::WRITABLE)
+        {
             return Err(PageFaultError::ProtectionViolation);
         }
-        if access.contains(PageFaultAccess::EXECUTE) && !area.flags.contains(MapFlags::EXECUTE) {
+        if access.contains(PageFaultErrorCode::INSTRUCTION_FETCH)
+            && area.flags.contains(PageTableFlags::NO_EXECUTE)
+        {
             return Err(PageFaultError::ProtectionViolation);
         }
-        if access.contains(PageFaultAccess::USER) && !area.flags.contains(MapFlags::USER) {
+        if access.contains(PageFaultErrorCode::USER_MODE)
+            && !area.flags.contains(PageTableFlags::USER_ACCESSIBLE)
+        {
             return Err(PageFaultError::ProtectionViolation);
         }
 
-        let page_virt = VirtAddr(fault_addr.as_u64() & !4095);
+        let page_virt = VirtAddr::new(fault_addr.as_u64() & !4095);
 
         // 3. Check if page is present in page table for COW resolution
         if let Some((parent_phys, entry_flags)) = self.page_table.get_entry(page_virt) {
-            let is_cow_entry = (entry_flags & crate::arch::paging::flags::PAGE_COW) != 0;
-            if access.contains(PageFaultAccess::WRITE)
-                && (is_cow_entry || area.flags.contains(MapFlags::WRITE))
+            let is_cow_entry = entry_flags.contains(COW_FLAG);
+            if access.contains(PageFaultErrorCode::CAUSED_BY_WRITE)
+                && (is_cow_entry || area.flags.contains(PageTableFlags::WRITABLE))
             {
                 let ref_count = crate::mm::PMM.get_ref(parent_phys);
                 if ref_count > 1 {
@@ -427,8 +444,8 @@ impl<P: PageTable> AddrSpace<P> {
 
                     let hhdm = crate::mm::hhdm_offset();
                     unsafe {
-                        let src = parent_phys.as_ptr::<u8>(hhdm);
-                        let dest = new_frame.as_ptr::<u8>(hhdm);
+                        let src = (parent_phys.as_u64() + hhdm) as *const u8;
+                        let dest = (new_frame.as_u64() + hhdm) as *mut u8;
                         core::ptr::copy_nonoverlapping(src, dest, 4096);
                     }
 
@@ -444,12 +461,12 @@ impl<P: PageTable> AddrSpace<P> {
                     // Sole reference remaining: upgrade page flags to Writable (clearing COW)
                     self.page_table
                         .remap(page_virt, area.flags)
-                        .map_err(PageFaultError::PagingError)?;
+                        .map_err(PageFaultError::RemapError)?;
                 }
                 return Ok(());
             }
 
-            if access.contains(PageFaultAccess::PRESENT) {
+            if access.contains(PageFaultErrorCode::PROTECTION_VIOLATION) {
                 return Err(PageFaultError::ProtectionViolation);
             }
             return Ok(()); // Spurious fault
@@ -462,7 +479,7 @@ impl<P: PageTable> AddrSpace<P> {
                 let frame = crate::mm::PMM
                     .alloc_page()
                     .ok_or(PageFaultError::FrameAllocationFailed)?;
-                let dest_ptr = frame.as_ptr::<u8>(hhdm);
+                let dest_ptr = (frame.as_u64() + hhdm) as *mut u8;
                 // SAFETY: Zeroing newly allocated anonymous physical frame.
                 unsafe {
                     core::ptr::write_bytes(dest_ptr, 0, 4096);
@@ -470,7 +487,7 @@ impl<P: PageTable> AddrSpace<P> {
                 frame
             }
             VmAreaKind::Device { phys_start } => {
-                let page_offset = (page_virt - area.start) as usize;
+                let page_offset = page_virt - area.start;
                 *phys_start + page_offset
             }
             VmAreaKind::File {
@@ -481,7 +498,7 @@ impl<P: PageTable> AddrSpace<P> {
                 let frame = crate::mm::PMM
                     .alloc_page()
                     .ok_or(PageFaultError::FrameAllocationFailed)?;
-                let dest_ptr = frame.as_ptr::<u8>(hhdm);
+                let dest_ptr = (frame.as_u64() + hhdm) as *mut u8;
 
                 let page_file_offset = offset + (page_virt - area.start) as usize;
                 let bytes_written = if page_file_offset < *file_size {

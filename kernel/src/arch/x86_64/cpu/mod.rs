@@ -2,38 +2,61 @@ pub mod context;
 pub mod gdt;
 pub mod msr;
 pub mod ports;
+pub mod rdtsc;
 pub mod smp;
 pub mod stack;
 pub mod tss;
 pub mod userspace;
 
-use core::arch::asm;
+use x86_64::registers::control::{Cr0, Cr0Flags, Cr2, Cr3, Cr3Flags, Cr4, Cr4Flags};
+use x86_64::registers::model_specific::{Efer, EferFlags, KernelGsBase, LStar, SFMask, Star};
+use x86_64::registers::rflags::RFlags;
+use x86_64::structures::paging::PhysFrame;
+use x86_64::{PhysAddr, VirtAddr};
+
+/// Sets the active page table physical root address (CR3).
+///
+/// # Safety
+/// The caller must ensure `root` points to a valid root page table (PML4) physical address.
+#[inline(always)]
+pub unsafe fn set_address_space_root(root: u64) {
+    let frame = PhysFrame::containing_address(PhysAddr::new(root));
+    unsafe {
+        Cr3::write(frame, Cr3Flags::empty());
+    }
+}
+
+/// Returns the current active page table physical root address (CR3).
+#[inline(always)]
+pub fn active_address_space_root() -> u64 {
+    Cr3::read().0.start_address().as_u64()
+}
+
+/// Returns the linear address that caused the latest page fault (CR2).
+#[inline(always)]
+pub fn read_cr2() -> u64 {
+    Cr2::read_raw()
+}
 
 /// Enable FPU and SSE/SSE2 instructions for user and kernel space.
 ///
 /// Clears CR0.EM, sets CR0.MP, CR0.NE, clears CR0.TS, sets CR4.OSFXSR and CR4.OSXMMEXCPT,
 /// and executes `fninit` to set a clean initial floating point state.
 pub unsafe fn enable_sse() {
-    let mut cr0: u64;
-    let mut cr4: u64;
-
-    // SAFETY: Read and write CR0 to configure FPU/SSE control flags.
+    // SAFETY: Read and write CR0/CR4 to configure FPU/SSE control flags.
     unsafe {
-        asm!("mov {}, cr0", out(reg) cr0, options(nomem, nostack, preserves_flags));
-        cr0 &= !(1 << 2); // Clear CR0.EM (Emulation)
-        cr0 |= 1 << 1;    // Set CR0.MP (Monitor Coprocessor)
-        cr0 |= 1 << 5;    // Set CR0.NE (Numeric Error)
-        cr0 &= !(1 << 3); // Clear CR0.TS (Task Switched)
-        asm!("mov cr0, {}", in(reg) cr0, options(nomem, nostack, preserves_flags));
+        let mut cr0 = Cr0::read();
+        cr0.remove(Cr0Flags::EMULATE_COPROCESSOR);
+        cr0.insert(Cr0Flags::MONITOR_COPROCESSOR | Cr0Flags::NUMERIC_ERROR);
+        cr0.remove(Cr0Flags::TASK_SWITCHED);
+        Cr0::write(cr0);
 
-        // SAFETY: Read and write CR4 to enable OSFXSR and OSXMMEXCPT.
-        asm!("mov {}, cr4", out(reg) cr4, options(nomem, nostack, preserves_flags));
-        cr4 |= 1 << 9;    // Set CR4.OSFXSR (Operating System Support for FXSAVE and FXRSTOR)
-        cr4 |= 1 << 10;   // Set CR4.OSXMMEXCPT (Operating System Support for SIMD Floating-Point Exceptions)
-        asm!("mov cr4, {}", in(reg) cr4, options(nomem, nostack, preserves_flags));
+        let mut cr4 = Cr4::read();
+        cr4.insert(Cr4Flags::OSFXSR | Cr4Flags::OSXMMEXCPT_ENABLE);
+        Cr4::write(cr4);
 
         // SAFETY: Initialize FPU state.
-        asm!("fninit", options(nomem, nostack, preserves_flags));
+        core::arch::asm!("fninit", options(nomem, nostack, preserves_flags));
     }
 }
 
@@ -42,33 +65,37 @@ pub unsafe fn enable_syscall() {
     // SAFETY: IA32 MSRs configuration for enabling x86_64 fast syscall handling.
     unsafe {
         // 1. Enable System Call Extensions (SCE) in IA32_EFER
-        let mut efer = msr::rdmsr(msr::IA32_EFER);
-        efer |= 1; // Bit 0: SCE
-        msr::wrmsr(msr::IA32_EFER, efer);
+        let mut efer = Efer::read();
+        efer.insert(EferFlags::SYSTEM_CALL_EXTENSIONS);
+        Efer::write(efer);
 
         // 2. Program IA32_STAR:
         // Bits 47:32 = Kernel CS (0x08) -> Syscall sets CS=0x08, SS=0x10.
         // Bits 63:48 = User CS/SS base selector (0x10 | 3).
-        let star = ((0x10u64 | 3) << 48) | (0x08u64 << 32);
-        msr::wrmsr(msr::IA32_STAR, star);
+        let _ = Star::write(
+            gdt::USER_CODE_SELECTOR,
+            gdt::USER_DATA_SELECTOR,
+            gdt::KERNEL_CODE_SELECTOR,
+            gdt::KERNEL_DATA_SELECTOR,
+        );
 
         // 3. Program IA32_LSTAR: Target RIP for syscall instruction
         unsafe extern "C" {
             fn syscall_fast_entry();
         }
         let lstar = syscall_fast_entry as *const () as u64;
-        msr::wrmsr(msr::IA32_LSTAR, lstar);
+        LStar::write(VirtAddr::new(lstar));
 
         // 4. Program IA32_FMASK: Mask RFLAGS bits (clear IF, DF, TF, IOPL, NT, AC)
-        let fmask = 0x3F7FD5u64;
-        msr::wrmsr(msr::IA32_FMASK, fmask);
+        let fmask = RFlags::from_bits_truncate(0x3F7FD5);
+        SFMask::write(fmask);
 
         // 5. Program IA32_KERNEL_GS_BASE: Point to this CPU's CpuLocal
         let cpu_id = crate::arch::cpu_id() as usize;
         if cpu_id < tss::MAX_CPUS {
             let locals = core::ptr::addr_of_mut!(tss::CPU_LOCALS);
             let cpu_local_ptr = core::ptr::addr_of_mut!((*locals)[cpu_id]) as u64;
-            msr::wrmsr(msr::IA32_KERNEL_GS_BASE, cpu_local_ptr);
+            KernelGsBase::write(VirtAddr::new(cpu_local_ptr));
         }
     }
 }
@@ -82,5 +109,3 @@ pub fn init() {
         enable_syscall();
     }
 }
-
-

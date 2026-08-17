@@ -1,34 +1,11 @@
-use crate::mm::MapFlags;
+use x86_64::registers::model_specific::{Efer, EferFlags};
 
-pub const PAGE_PRESENT: u64 = 1 << 0;
-pub const PAGE_WRITABLE: u64 = 1 << 1;
-pub const PAGE_USER: u64 = 1 << 2;
-pub const PAGE_PWT: u64 = 1 << 3; // Write-Through
-pub const PAGE_PCD: u64 = 1 << 4; // Cache-Disable
-pub const PAGE_ACCESSED: u64 = 1 << 5;
-pub const PAGE_DIRTY: u64 = 1 << 6;
-pub const PAGE_HUGE: u64 = 1 << 7;
-pub const PAGE_GLOBAL: u64 = 1 << 8;
-pub const PAGE_COW: u64 = 1 << 9; // Copy-On-Write OS-defined flag
-pub const PAGE_NO_EXECUTE: u64 = 1 << 63;
-
-/// Convert generic architecture-independent `MapFlags` to x86_64 page table entry raw flags.
-pub fn translate_flags(flags: MapFlags) -> u64 {
-    let mut entry_flags = PAGE_PRESENT; // Present (bit 0) is set for valid mappings
-    if flags.contains(MapFlags::WRITE) && !flags.contains(MapFlags::COW) {
-        entry_flags |= PAGE_WRITABLE;
+/// Enable the No-Execute (NXE) bit in EFER MSR.
+pub unsafe fn enable_nxe() {
+    let mut efer = Efer::read();
+    efer.insert(EferFlags::NO_EXECUTE_ENABLE);
+    // SAFETY: Enabling NXE bit in EFER is standard for x86_64 paging.
+    unsafe {
+        Efer::write(efer);
     }
-    if flags.contains(MapFlags::COW) {
-        entry_flags |= PAGE_COW;
-    }
-    if flags.contains(MapFlags::USER) {
-        entry_flags |= PAGE_USER;
-    }
-    if flags.contains(MapFlags::NO_CACHE) {
-        entry_flags |= PAGE_PCD;
-    }
-    if !flags.contains(MapFlags::EXECUTE) {
-        entry_flags |= PAGE_NO_EXECUTE;
-    }
-    entry_flags
 }

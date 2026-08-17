@@ -1,42 +1,59 @@
-use super::flags::*;
-use super::index::*;
-use super::utils::*;
-use crate::mm::{MapError, MapFlags, PageTable, UnmapError};
-use crate::mm::{PhysAddr, VirtAddr};
+use super::flags::enable_nxe;
+use super::frame::KernelFrameAllocator;
+use crate::arch::{active_address_space_root, set_address_space_root};
+use crate::mm::hhdm_offset;
+use crate::mm::pmm::PMM;
+use crate::mm::vmm::PageTable;
+use x86_64::structures::paging::mapper::{
+    FlagUpdateError, MapToError, Mapper, Translate, TranslateResult, UnmapError,
+};
+use x86_64::structures::paging::{
+    OffsetPageTable, Page, PageTable as X86PageTable, PageTableFlags, PhysFrame, Size4KiB,
+};
+use x86_64::{PhysAddr, VirtAddr};
 
+/// Architecture-specific x86_64 Page Table Implementation utilizing `OffsetPageTable`.
 pub struct ArchPageTable {
     pml4_phys: PhysAddr,
     is_owned: bool,
 }
 
-// SAFETY: PhysAddr is Send and Sync, and we perform thread-safe memory table accesses.
 unsafe impl Send for ArchPageTable {}
 unsafe impl Sync for ArchPageTable {}
 
+impl ArchPageTable {
+    /// Creates an `OffsetPageTable` mapper instance targeting this PML4 root directory.
+    unsafe fn get_offset_page_table(&self) -> OffsetPageTable<'static> {
+        let hhdm = hhdm_offset();
+        let pml4_ptr = (self.pml4_phys.as_u64() + hhdm) as *mut X86PageTable;
+        // SAFETY: pml4_ptr is a valid PML4 pointer mapped at HHDM offset.
+        unsafe { OffsetPageTable::new(&mut *pml4_ptr, VirtAddr::new(hhdm)) }
+    }
+}
+
 fn free_table_recursive(paddr: PhysAddr, level: usize, hhdm: u64) {
     if level == 1 {
-        crate::mm::PMM.free_page(paddr);
+        PMM.free_page(paddr);
         return;
     }
 
-    let table = paddr.as_ptr::<u64>(hhdm);
+    let table_ptr = (paddr.as_u64() + hhdm) as *mut X86PageTable;
+    let table = unsafe { &*table_ptr };
     let limit = if level == 4 { 256 } else { 512 };
 
     for i in 0..limit {
-        let entry = unsafe { *table.add(i) };
-        if (entry & PAGE_PRESENT) != 0 {
-            let child_phys = PhysAddr(entry & 0x000F_FFFF_FFFF_F000);
-            if level > 1 && (entry & PAGE_HUGE) != 0 {
-                // Huge page leaf (2 MB at level 2, 1 GB at level 3): free the backing frame.
-                // Do not recurse — there are no sub-tables here.
-                crate::mm::PMM.free_page(child_phys);
+        let entry = &table[i];
+        if entry.flags().contains(PageTableFlags::PRESENT) {
+            let child_phys = entry.addr();
+            if level > 1 && entry.flags().contains(PageTableFlags::HUGE_PAGE) {
+                PMM.free_page(child_phys);
                 continue;
             }
             free_table_recursive(child_phys, level - 1, hhdm);
         }
     }
 
-    crate::mm::PMM.free_page(paddr);
+    PMM.free_page(paddr);
 }
 
 impl Drop for ArchPageTable {
@@ -49,28 +66,27 @@ impl Drop for ArchPageTable {
 }
 
 impl PageTable for ArchPageTable {
-    fn new() -> Result<Self, MapError> {
+    fn new() -> Result<Self, MapToError<Size4KiB>> {
         // SAFETY: Toggling EFER.NXE is valid on x86_64 architecture.
         unsafe {
             enable_nxe();
         }
 
         // Allocate a page for the PML4
-        let pml4_phys = crate::mm::PMM
-            .alloc_page()
-            .ok_or(MapError::FrameAllocationFailed)?;
+        let pml4_phys = PMM.alloc_page().ok_or(MapToError::FrameAllocationFailed)?;
         let hhdm = hhdm_offset();
-        let new_pml4 = pml4_phys.as_ptr::<u64>(hhdm);
+        let new_pml4_ptr = (pml4_phys.as_u64() + hhdm) as *mut X86PageTable;
 
-        // Zero all 512 PML4 entries (512 × 8 bytes = 4096 bytes), then copy the higher-half
-        // kernel entries (256..512) from the active page table to share kernel mappings.
+        // Zero all PML4 entries, then copy the higher-half kernel entries (256..512)
         unsafe {
-            // SAFETY: write_bytes count is in units of T (u64), so 512 zeroes 4096 bytes exactly.
-            core::ptr::write_bytes(new_pml4, 0, 512);
+            let new_pml4 = &mut *new_pml4_ptr;
+            new_pml4.zero();
 
-            let active_phys = active_cr3();
-            let active_pml4 = active_phys.as_ptr::<u64>(hhdm);
-            core::ptr::copy_nonoverlapping(active_pml4.add(256), new_pml4.add(256), 256);
+            let active_phys = active_address_space_root();
+            let active_pml4 = &*((active_phys + hhdm) as *const X86PageTable);
+            for i in 256..512 {
+                new_pml4[i] = active_pml4[i].clone();
+            }
         }
 
         Ok(Self {
@@ -94,87 +110,41 @@ impl PageTable for ArchPageTable {
         self.pml4_phys
     }
 
-    fn map(&mut self, page: VirtAddr, frame: PhysAddr, flags: MapFlags) -> Result<(), MapError> {
-        if !page.is_aligned(4096) || !frame.is_aligned(4096) {
-            return Err(MapError::InvalidAddress);
+    fn map(
+        &mut self,
+        page: VirtAddr,
+        frame: PhysAddr,
+        flags: PageTableFlags,
+    ) -> Result<(), MapToError<Size4KiB>> {
+        if !page.is_aligned(4096u64) || !frame.is_aligned(4096u64) {
+            return Err(MapToError::FrameAllocationFailed);
         }
 
-        let hhdm = hhdm_offset();
-        let l4_idx = pml4_index(page);
-        let l3_idx = pdpt_index(page);
-        let l2_idx = pd_index(page);
-        let l1_idx = pt_index(page);
+        let target_page = Page::<Size4KiB>::from_start_address(page)
+            .map_err(|_| MapToError::FrameAllocationFailed)?;
+        let target_frame = PhysFrame::<Size4KiB>::from_start_address(frame)
+            .map_err(|_| MapToError::FrameAllocationFailed)?;
 
-        // Walk levels from PML4 down to PT
-        let pml4 = self.pml4_phys.as_ptr::<u64>(hhdm);
-        let pml4_entry = unsafe { *pml4.add(l4_idx) };
-        let pdpt_phys = if (pml4_entry & PAGE_PRESENT) == 0 {
-            let new_frame = crate::mm::PMM
-                .alloc_page()
-                .ok_or(MapError::FrameAllocationFailed)?;
-            let ptr = new_frame.as_ptr::<u8>(hhdm);
-            unsafe {
-                core::ptr::write_bytes(ptr, 0, 4096);
-            }
-            let new_entry = new_frame.as_u64() | PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER;
-            unsafe {
-                *pml4.add(l4_idx) = new_entry;
-            }
-            new_frame
-        } else {
-            PhysAddr(pml4_entry & 0x000F_FFFF_FFFF_F000)
-        };
+        let mut mapper = unsafe { self.get_offset_page_table() };
+        let mut frame_allocator = KernelFrameAllocator;
 
-        let pdpt = pdpt_phys.as_ptr::<u64>(hhdm);
-        let pdpt_entry = unsafe { *pdpt.add(l3_idx) };
-        let pd_phys = if (pdpt_entry & PAGE_PRESENT) == 0 {
-            let new_frame = crate::mm::PMM
-                .alloc_page()
-                .ok_or(MapError::FrameAllocationFailed)?;
-            let ptr = new_frame.as_ptr::<u8>(hhdm);
-            unsafe {
-                core::ptr::write_bytes(ptr, 0, 4096);
-            }
-            let new_entry = new_frame.as_u64() | PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER;
-            unsafe {
-                *pdpt.add(l3_idx) = new_entry;
-            }
-            new_frame
-        } else {
-            PhysAddr(pdpt_entry & 0x000F_FFFF_FFFF_F000)
-        };
+        // All intermediate directory levels (PML4, PDPT, PD) are created with full permissions
+        // so that individual page permissions are governed by the leaf PTE.
+        let parent_table_flags = PageTableFlags::PRESENT
+            | PageTableFlags::WRITABLE
+            | PageTableFlags::USER_ACCESSIBLE;
 
-        let pd = pd_phys.as_ptr::<u64>(hhdm);
-        let pd_entry = unsafe { *pd.add(l2_idx) };
-        let pt_phys = if (pd_entry & PAGE_PRESENT) == 0 {
-            let new_frame = crate::mm::PMM
-                .alloc_page()
-                .ok_or(MapError::FrameAllocationFailed)?;
-            let ptr = new_frame.as_ptr::<u8>(hhdm);
-            unsafe {
-                core::ptr::write_bytes(ptr, 0, 4096);
-            }
-            let new_entry = new_frame.as_u64() | PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER;
-            unsafe {
-                *pd.add(l2_idx) = new_entry;
-            }
-            new_frame
-        } else {
-            PhysAddr(pd_entry & 0x000F_FFFF_FFFF_F000)
-        };
-
-        let pt = pt_phys.as_ptr::<u64>(hhdm);
-        let pt_entry = unsafe { *pt.add(l1_idx) };
-        if (pt_entry & PAGE_PRESENT) != 0 {
-            return Err(MapError::AlreadyMapped);
-        }
-
-        let entry_flags = translate_flags(flags);
-        let pt_entry_val = frame.as_u64() | entry_flags;
+        // SAFETY: Updating page tables using standard OffsetPageTable mapper.
         unsafe {
-            *pt.add(l1_idx) = pt_entry_val;
-            // Flush TLB for this virtual address
-            core::arch::asm!("invlpg [{}]", in(reg) page.as_u64(), options(nostack, preserves_flags));
+            mapper
+                .map_to_with_table_flags(
+                    target_page,
+                    target_frame,
+                    flags,
+                    parent_table_flags,
+                    &mut frame_allocator,
+                )?
+                .flush();
         }
 
         Ok(())
@@ -185,13 +155,13 @@ impl PageTable for ArchPageTable {
         page: VirtAddr,
         frame: PhysAddr,
         size: usize,
-        flags: MapFlags,
-    ) -> Result<(), MapError> {
+        flags: PageTableFlags,
+    ) -> Result<(), MapToError<Size4KiB>> {
         let count = (size + 4095) / 4096;
         for i in 0..count {
             self.map(
-                VirtAddr(page.as_u64() + i as u64 * 4096),
-                PhysAddr(frame.as_u64() + i as u64 * 4096),
+                page + (i as u64 * 4096),
+                frame + (i as u64 * 4096),
                 flags,
             )?;
         }
@@ -199,107 +169,41 @@ impl PageTable for ArchPageTable {
     }
 
     fn unmap(&mut self, page: VirtAddr) -> Result<PhysAddr, UnmapError> {
-        if !page.is_aligned(4096) {
-            return Err(UnmapError::InvalidAddress);
+        if !page.is_aligned(4096u64) {
+            return Err(UnmapError::InvalidFrameAddress(PhysAddr::zero()));
         }
 
-        let hhdm = hhdm_offset();
-        let l4_idx = pml4_index(page);
-        let l3_idx = pdpt_index(page);
-        let l2_idx = pd_index(page);
-        let l1_idx = pt_index(page);
+        let target_page = Page::<Size4KiB>::from_start_address(page)
+            .map_err(|_| UnmapError::InvalidFrameAddress(PhysAddr::zero()))?;
 
-        let pml4 = self.pml4_phys.as_ptr::<u64>(hhdm);
-        let pml4_entry = unsafe { *pml4.add(l4_idx) };
-        if (pml4_entry & PAGE_PRESENT) == 0 {
-            return Err(UnmapError::NotMapped);
-        }
+        let mut mapper = unsafe { self.get_offset_page_table() };
+        let (frame, flush) = mapper.unmap(target_page)?;
 
-        let pdpt_phys = PhysAddr(pml4_entry & 0x000F_FFFF_FFFF_F000);
-        let pdpt = pdpt_phys.as_ptr::<u64>(hhdm);
-        let pdpt_entry = unsafe { *pdpt.add(l3_idx) };
-        if (pdpt_entry & PAGE_PRESENT) == 0 {
-            return Err(UnmapError::NotMapped);
-        }
-
-        let pd_phys = PhysAddr(pdpt_entry & 0x000F_FFFF_FFFF_F000);
-        let pd = pd_phys.as_ptr::<u64>(hhdm);
-        let pd_entry = unsafe { *pd.add(l2_idx) };
-        if (pd_entry & PAGE_PRESENT) == 0 {
-            return Err(UnmapError::NotMapped);
-        }
-
-        let pt_phys = PhysAddr(pd_entry & 0x000F_FFFF_FFFF_F000);
-        let pt = pt_phys.as_ptr::<u64>(hhdm);
-        let pt_entry = unsafe { *pt.add(l1_idx) };
-        if (pt_entry & PAGE_PRESENT) == 0 {
-            return Err(UnmapError::NotMapped);
-        }
-
-        let frame_phys = PhysAddr(pt_entry & 0x000F_FFFF_FFFF_F000);
-
-        unsafe {
-            *pt.add(l1_idx) = 0;
-            // Invalidate TLB for this virtual address
-            core::arch::asm!("invlpg [{}]", in(reg) page.as_u64(), options(nostack, preserves_flags));
-        }
-
-        Ok(frame_phys)
+        flush.flush();
+        Ok(frame.start_address())
     }
 
     fn unmap_range(&mut self, page: VirtAddr, size: usize) -> Result<(), UnmapError> {
         let count = (size + 4095) / 4096;
         for i in 0..count {
-            self.unmap(VirtAddr(page.as_u64() + i as u64 * 4096))?;
+            self.unmap(page + (i as u64 * 4096))?;
         }
         Ok(())
     }
 
-    fn remap(&mut self, page: VirtAddr, flags: MapFlags) -> Result<(), MapError> {
-        if !page.is_aligned(4096) {
-            return Err(MapError::InvalidAddress);
+    fn remap(&mut self, page: VirtAddr, flags: PageTableFlags) -> Result<(), FlagUpdateError> {
+        if !page.is_aligned(4096u64) {
+            return Err(FlagUpdateError::PageNotMapped);
         }
 
-        let hhdm = hhdm_offset();
-        let l4_idx = pml4_index(page);
-        let l3_idx = pdpt_index(page);
-        let l2_idx = pd_index(page);
-        let l1_idx = pt_index(page);
+        let target_page = Page::<Size4KiB>::from_start_address(page)
+            .map_err(|_| FlagUpdateError::PageNotMapped)?;
 
-        let pml4 = self.pml4_phys.as_ptr::<u64>(hhdm);
-        let pml4_entry = unsafe { *pml4.add(l4_idx) };
-        if (pml4_entry & PAGE_PRESENT) == 0 {
-            return Err(MapError::NotMapped);
-        }
+        let mut mapper = unsafe { self.get_offset_page_table() };
+        // SAFETY: Updating page table flags with valid flags on mapped page.
+        let flush = unsafe { mapper.update_flags(target_page, flags)? };
 
-        let pdpt_phys = PhysAddr(pml4_entry & 0x000F_FFFF_FFFF_F000);
-        let pdpt = pdpt_phys.as_ptr::<u64>(hhdm);
-        let pdpt_entry = unsafe { *pdpt.add(l3_idx) };
-        if (pdpt_entry & PAGE_PRESENT) == 0 {
-            return Err(MapError::NotMapped);
-        }
-
-        let pd_phys = PhysAddr(pdpt_entry & 0x000F_FFFF_FFFF_F000);
-        let pd = pd_phys.as_ptr::<u64>(hhdm);
-        let pd_entry = unsafe { *pd.add(l2_idx) };
-        if (pd_entry & PAGE_PRESENT) == 0 {
-            return Err(MapError::NotMapped);
-        }
-
-        let pt_phys = PhysAddr(pd_entry & 0x000F_FFFF_FFFF_F000);
-        let pt = pt_phys.as_ptr::<u64>(hhdm);
-        let pt_entry = unsafe { *pt.add(l1_idx) };
-        if (pt_entry & PAGE_PRESENT) == 0 {
-            return Err(MapError::NotMapped);
-        }
-
-        let entry_flags = translate_flags(flags);
-        let pt_entry_val = (pt_entry & 0x000F_FFFF_FFFF_F000) | entry_flags;
-        unsafe {
-            *pt.add(l1_idx) = pt_entry_val;
-            core::arch::asm!("invlpg [{}]", in(reg) page.as_u64(), options(nostack, preserves_flags));
-        }
-
+        flush.flush();
         Ok(())
     }
 
@@ -307,120 +211,40 @@ impl PageTable for ArchPageTable {
         &mut self,
         page: VirtAddr,
         size: usize,
-        flags: MapFlags,
-    ) -> Result<(), MapError> {
+        flags: PageTableFlags,
+    ) -> Result<(), FlagUpdateError> {
         let count = (size + 4095) / 4096;
         for i in 0..count {
-            self.remap(VirtAddr(page.as_u64() + i as u64 * 4096), flags)?;
+            self.remap(page + (i as u64 * 4096), flags)?;
         }
         Ok(())
     }
 
     fn translate(&self, virt: VirtAddr) -> Option<PhysAddr> {
-        let hhdm = hhdm_offset();
-        let l4_idx = pml4_index(virt);
-        let l3_idx = pdpt_index(virt);
-        let l2_idx = pd_index(virt);
-        let l1_idx = pt_index(virt);
-
-        let pml4 = self.pml4_phys.as_ptr::<u64>(hhdm);
-        let pml4_entry = unsafe { *pml4.add(l4_idx) };
-        if (pml4_entry & PAGE_PRESENT) == 0 {
-            return None;
+        let mapper = unsafe { self.get_offset_page_table() };
+        match mapper.translate(virt) {
+            TranslateResult::Mapped { frame, offset, .. } => {
+                Some(frame.start_address() + offset)
+            }
+            _ => None,
         }
-
-        let pdpt_phys = PhysAddr(pml4_entry & 0x000F_FFFF_FFFF_F000);
-        let pdpt = pdpt_phys.as_ptr::<u64>(hhdm);
-        let pdpt_entry = unsafe { *pdpt.add(l3_idx) };
-        if (pdpt_entry & PAGE_PRESENT) == 0 {
-            return None;
-        }
-
-        // Support 1GB huge pages
-        if (pdpt_entry & PAGE_HUGE) != 0 {
-            let offset = virt.as_u64() & 0x3FFF_FFFF;
-            return Some(PhysAddr((pdpt_entry & 0x000F_FFFF_C000_0000) + offset));
-        }
-
-        let pd_phys = PhysAddr(pdpt_entry & 0x000F_FFFF_FFFF_F000);
-        let pd = pd_phys.as_ptr::<u64>(hhdm);
-        let pd_entry = unsafe { *pd.add(l2_idx) };
-        if (pd_entry & PAGE_PRESENT) == 0 {
-            return None;
-        }
-
-        // Support 2MB huge pages
-        if (pd_entry & PAGE_HUGE) != 0 {
-            let offset = virt.as_u64() & 0x1F_FFFF;
-            return Some(PhysAddr((pd_entry & 0x000F_FFFF_FFE0_0000) + offset));
-        }
-
-        let pt_phys = PhysAddr(pd_entry & 0x000F_FFFF_FFFF_F000);
-        let pt = pt_phys.as_ptr::<u64>(hhdm);
-        let pt_entry = unsafe { *pt.add(l1_idx) };
-        if (pt_entry & PAGE_PRESENT) == 0 {
-            return None;
-        }
-
-        let offset = virt.as_u64() & 0xFFF;
-        Some(PhysAddr((pt_entry & 0x000F_FFFF_FFFF_F000) + offset))
     }
 
-    fn get_entry(&self, virt: VirtAddr) -> Option<(PhysAddr, u64)> {
-        let hhdm = hhdm_offset();
-        let l4_idx = pml4_index(virt);
-        let l3_idx = pdpt_index(virt);
-        let l2_idx = pd_index(virt);
-        let l1_idx = pt_index(virt);
-
-        let pml4 = self.pml4_phys.as_ptr::<u64>(hhdm);
-        let pml4_entry = unsafe { *pml4.add(l4_idx) };
-        if (pml4_entry & PAGE_PRESENT) == 0 {
-            return None;
+    fn get_entry(&self, virt: VirtAddr) -> Option<(PhysAddr, PageTableFlags)> {
+        let mapper = unsafe { self.get_offset_page_table() };
+        match mapper.translate(virt) {
+            TranslateResult::Mapped {
+                frame,
+                offset,
+                flags,
+            } => Some((frame.start_address() + offset, flags)),
+            _ => None,
         }
-
-        let pdpt_phys = PhysAddr(pml4_entry & 0x000F_FFFF_FFFF_F000);
-        let pdpt = pdpt_phys.as_ptr::<u64>(hhdm);
-        let pdpt_entry = unsafe { *pdpt.add(l3_idx) };
-        if (pdpt_entry & PAGE_PRESENT) == 0 {
-            return None;
-        }
-
-        if (pdpt_entry & PAGE_HUGE) != 0 {
-            let offset = virt.as_u64() & 0x3FFF_FFFF;
-            let phys = PhysAddr((pdpt_entry & 0x000F_FFFF_C000_0000) + offset);
-            return Some((phys, pdpt_entry));
-        }
-
-        let pd_phys = PhysAddr(pdpt_entry & 0x000F_FFFF_FFFF_F000);
-        let pd = pd_phys.as_ptr::<u64>(hhdm);
-        let pd_entry = unsafe { *pd.add(l2_idx) };
-        if (pd_entry & PAGE_PRESENT) == 0 {
-            return None;
-        }
-
-        if (pd_entry & PAGE_HUGE) != 0 {
-            let offset = virt.as_u64() & 0x1F_FFFF;
-            let phys = PhysAddr((pd_entry & 0x000F_FFFF_FFE0_0000) + offset);
-            return Some((phys, pd_entry));
-        }
-
-        let pt_phys = PhysAddr(pd_entry & 0x000F_FFFF_FFFF_F000);
-        let pt = pt_phys.as_ptr::<u64>(hhdm);
-        let pt_entry = unsafe { *pt.add(l1_idx) };
-        if (pt_entry & PAGE_PRESENT) == 0 {
-            return None;
-        }
-
-        let offset = virt.as_u64() & 0xFFF;
-        let phys = PhysAddr((pt_entry & 0x000F_FFFF_FFFF_F000) + offset);
-        Some((phys, pt_entry))
     }
 
     unsafe fn activate(&self) {
-        // SAFETY: Switch CR3 register to reload the active page tables.
         unsafe {
-            core::arch::asm!("mov cr3, {}", in(reg) self.pml4_phys.as_u64());
+            set_address_space_root(self.pml4_phys.as_u64());
         }
     }
 }

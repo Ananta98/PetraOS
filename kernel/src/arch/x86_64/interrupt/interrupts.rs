@@ -1,6 +1,10 @@
-use crate::arch::halt;
+use crate::arch::{halt, read_cr2, without_interrupts};
 use crate::arch::idt::{InterruptDescriptorTable, InterruptStackFrame};
 use crate::arch::lapic_timer;
+use crate::ipc::signal::SIGSEGV;
+use crate::sched::SCHEDULER;
+use x86_64::structures::idt::PageFaultErrorCode;
+use x86_64::VirtAddr;
 
 pub const KEYBOARD_VECTOR: u8 = 33;
 
@@ -225,14 +229,13 @@ extern "x86-interrupt" fn page_fault_handler(
     stack_frame: &mut InterruptStackFrame,
     error_code: u64,
 ) {
-    let fault_virt = unsafe { super::paging::read_cr2() };
-    let fault_code = super::paging::ArchPageFaultErrorCode::from_raw(error_code);
-    let access_flags = fault_code.to_generic_access();
+    let fault_virt = VirtAddr::new(read_cr2());
+    let fault_code = PageFaultErrorCode::from_bits_truncate(error_code);
 
     let cpu_id = unsafe { super::lapic::get_lapic().id() };
 
-    let current_thread = crate::arch::without_interrupts(|| {
-        let sched = crate::sched::SCHEDULER.lock();
+    let current_thread = without_interrupts(|| {
+        let sched = SCHEDULER.lock();
         sched.current_threads[cpu_id as usize].clone()
     });
 
@@ -242,7 +245,7 @@ extern "x86-interrupt" fn page_fault_handler(
             let proc = proc_arc.lock();
             let mut addr_space = proc.address_space.lock();
             if addr_space
-                .handle_page_fault(fault_virt, access_flags)
+                .handle_page_fault(fault_virt, fault_code)
                 .is_ok()
             {
                 return;
@@ -257,7 +260,7 @@ extern "x86-interrupt" fn page_fault_handler(
             error_code,
             fault_code
         );
-        kill_user_process(crate::ipc::signal::SIGSEGV);
+        kill_user_process(SIGSEGV);
     }
 
     log::error!(

@@ -1,37 +1,13 @@
+use x86_64::structures::tss::TaskStateSegment;
+use x86_64::VirtAddr;
+
 const STACK_SIZE: usize = 4096 * 5; // 20 KiB stack
 
-#[allow(dead_code)]
 #[repr(align(16))]
 struct Stack([u8; STACK_SIZE]);
 
 static mut DOUBLE_FAULT_STACK: Stack = Stack([0; STACK_SIZE]);
 static mut EXCEPTION_STACK: Stack = Stack([0; STACK_SIZE]);
-
-#[derive(Debug, Clone, Copy)]
-#[repr(C, packed)]
-pub struct TaskStateSegment {
-    reserved0: u32,
-    pub rsp: [u64; 3],
-    reserved1: u64,
-    pub ist: [u64; 7],
-    reserved2: u64,
-    reserved3: u16,
-    pub iomap_base: u16,
-}
-
-impl TaskStateSegment {
-    pub const fn new() -> Self {
-        TaskStateSegment {
-            reserved0: 0,
-            rsp: [0; 3],
-            reserved1: 0,
-            ist: [0; 7],
-            reserved2: 0,
-            reserved3: 0,
-            iomap_base: 104, // No IO map
-        }
-    }
-}
 
 pub const MAX_CPUS: usize = 8;
 
@@ -64,12 +40,12 @@ pub fn init() {
         let df_stack_end = df_stack_start + STACK_SIZE as u64;
         // IST1 is index 0
         let tss_mut = &mut *core::ptr::addr_of_mut!(TSS);
-        tss_mut.ist[0] = df_stack_end;
+        tss_mut.interrupt_stack_table[0] = VirtAddr::new(df_stack_end);
 
         let exc_stack_start = core::ptr::addr_of!(EXCEPTION_STACK) as u64;
         let exc_stack_end = exc_stack_start + STACK_SIZE as u64;
         // IST2 is index 1
-        tss_mut.ist[1] = exc_stack_end;
+        tss_mut.interrupt_stack_table[1] = VirtAddr::new(exc_stack_end);
 
         let bsp_tss_addr = core::ptr::addr_of!(TSS) as u64;
         let tss_ptrs = core::ptr::addr_of_mut!(CPU_TSS_POINTERS);
@@ -88,10 +64,10 @@ pub fn set_rsp0(rsp: u64) {
             let tss_addr = (*tss_ptrs)[cpu_id];
             if tss_addr != 0 {
                 let tss_ptr = tss_addr as *mut TaskStateSegment;
-                (*tss_ptr).rsp[0] = rsp;
+                (*tss_ptr).privilege_stack_table[0] = VirtAddr::new(rsp);
             } else {
                 let tss_mut = &mut *core::ptr::addr_of_mut!(TSS);
-                tss_mut.rsp[0] = rsp;
+                tss_mut.privilege_stack_table[0] = VirtAddr::new(rsp);
             }
 
             let locals = core::ptr::addr_of_mut!(CPU_LOCALS);
@@ -99,4 +75,3 @@ pub fn set_rsp0(rsp: u64) {
         }
     }
 }
-

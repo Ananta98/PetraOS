@@ -1,8 +1,8 @@
 use crate::mm::PMM;
 use crate::mm::alloc::freelist::{IntrusiveList, IntrusiveNode};
-use crate::mm::types::PhysAddr;
 use crate::sync::spinlock::Spinlock;
 use core::alloc::{GlobalAlloc, Layout};
+use x86_64::PhysAddr;
 
 struct FreeBlock {
     next: *mut FreeBlock,
@@ -145,7 +145,7 @@ impl KmemCache {
                 } else {
                     self.slabs_partial.remove(slab_node);
                 }
-                let paddr = PhysAddr(page_start as u64 - hhdm_offset);
+                let paddr = PhysAddr::new(page_start as u64 - hhdm_offset);
                 PMM.free_page(paddr);
             } else if was_full {
                 self.slabs_full.remove(slab_node);
@@ -202,7 +202,11 @@ impl SlabAllocator {
 
 unsafe impl GlobalAlloc for SlabAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        let size = if layout.size() == 0 { layout.align().max(8) } else { layout.size() };
+        let size = if layout.size() == 0 {
+            layout.align().max(8)
+        } else {
+            layout.size()
+        };
         let align = layout.align();
 
         let hhdm_offset = crate::mm::hhdm_offset();
@@ -238,7 +242,11 @@ unsafe impl GlobalAlloc for SlabAllocator {
             return;
         }
 
-        let size = if layout.size() == 0 { layout.align().max(8) } else { layout.size() };
+        let size = if layout.size() == 0 {
+            layout.align().max(8)
+        } else {
+            layout.size()
+        };
         let align = layout.align();
 
         let hhdm_offset = crate::mm::hhdm_offset();
@@ -249,7 +257,7 @@ unsafe impl GlobalAlloc for SlabAllocator {
             let pages_needed = core::cmp::max((size + 4095) / 4096, align_pages);
             let order = Self::size_to_order(pages_needed);
 
-            let paddr = PhysAddr(ptr as u64 - hhdm_offset);
+            let paddr = PhysAddr::new(ptr as u64 - hhdm_offset);
             PMM.free_pages(paddr, order);
             return;
         }

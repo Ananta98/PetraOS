@@ -3,13 +3,13 @@ pub mod device;
 pub mod queue;
 pub mod regs;
 
-use crate::arch::paging;
 use crate::device::{BlockDevice, Device, DeviceType, DriverError};
 use crate::drivers::pci::config;
 use crate::drivers::pci::device::PciDevice;
 use crate::mm::pmm::PMM;
-use crate::mm::types::PhysAddr;
+use crate::mm::{ensure_mapped, map_mmio};
 use crate::sync::spinlock::Spinlock;
+use x86_64::PhysAddr;
 
 pub use command::{NvmeCmdBuilder, NvmeIdentifyNamespace};
 pub use device::{NvmeDeviceRef, NvmeModuleDriver};
@@ -24,7 +24,7 @@ pub static NVME_DRIVER: Spinlock<Option<NvmeDriver>> = Spinlock::new(None);
 /// Helper to allocate a physical DMA page and ensure it is mapped in the kernel page table.
 fn alloc_dma_page() -> Result<(PhysAddr, *mut u8), DriverError> {
     let phys = PMM.alloc_page().ok_or(DriverError::InitFailed)?;
-    paging::ensure_mapped(phys.as_u64(), 4096);
+    ensure_mapped(phys.as_u64(), 4096);
     let hhdm = crate::mm::hhdm_offset();
     let virt = (phys.as_u64() + hhdm) as *mut u8;
     Ok((phys, virt))
@@ -151,7 +151,7 @@ impl Device for NvmeDriver {
         );
 
         // 3. Map MMIO registers
-        paging::map_mmio(phys_addr, 16384);
+        map_mmio(phys_addr, 16384);
         let hhdm = crate::mm::hhdm_offset();
         self.regs = (phys_addr + hhdm) as *mut NvmeRegs;
 

@@ -1,15 +1,12 @@
 pub mod alloc;
 pub mod pmm;
-pub mod types;
 pub mod vmm;
 
 pub use pmm::PMM;
-pub use types::{PhysAddr, VirtAddr, VmAreaKind};
-pub use vmm::{
-    AddrSpace, AddrSpaceError, MapError, MapFlags, PageFaultAccess, PageFaultError, PageTable,
-    UnmapError, VmArea,
+pub use vmm::{AddrSpace, AddrSpaceError, COW_FLAG, PageFaultError, PageTable, VmArea, VmAreaKind};
+pub use crate::arch::paging::{
+    ArchPageTable, active_cr3, ensure_mapped, map_mmio, read_cr2,
 };
-
 
 pub fn init() {
     PMM.init();

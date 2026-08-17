@@ -61,11 +61,11 @@ pub fn schedule(yielding: bool) {
 
             // Switch page directory if changing address spaces
             if next_cr3 != 0 {
-                let active_cr3 = unsafe { crate::arch::paging::active_cr3().as_u64() };
+                let active_cr3 = crate::arch::active_address_space_root();
                 if next_cr3 != active_cr3 {
                     // SAFETY: next_cr3 is a valid PML4 physical root address for the target process.
                     unsafe {
-                        core::arch::asm!("mov cr3, {}", in(reg) next_cr3);
+                        crate::arch::set_address_space_root(next_cr3);
                     }
                 }
             }
@@ -99,11 +99,11 @@ pub fn schedule(yielding: bool) {
             drop(sched);
 
             if next_cr3 != 0 {
-                let active_cr3 = unsafe { crate::arch::paging::active_cr3().as_u64() };
+                let active_cr3 = crate::arch::active_address_space_root();
                 if next_cr3 != active_cr3 {
                     // SAFETY: next_cr3 is a valid PML4 physical root address for the target process.
                     unsafe {
-                        core::arch::asm!("mov cr3, {}", in(reg) next_cr3);
+                        crate::arch::set_address_space_root(next_cr3);
                     }
                 }
             }
