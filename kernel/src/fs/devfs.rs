@@ -2,7 +2,7 @@ use alloc::sync::Arc;
 use core::sync::atomic::AtomicU64;
 
 use crate::device::DEVICE_MANAGER;
-use crate::drivers::gpu::framebuffer::{fb_console_write_byte, FRAMEBUFFER};
+use crate::drivers::gpu::framebuffer::{FRAMEBUFFER, fb_console_write_byte};
 use crate::fs::ramfs::RamDirInode;
 use crate::fs::vfs::dentry::Dentry;
 use crate::fs::vfs::mount::MOUNT_TABLE;
@@ -65,8 +65,6 @@ fn try_read_console_byte() -> Option<u8> {
     None
 }
 
-
-
 /// Inode for the `/dev/console` device.
 pub struct ConsoleInode;
 
@@ -108,7 +106,7 @@ impl FileOps for ConsoleFileOps {
             fb_console_write_byte(byte);
         }
         if let Ok(s) = core::str::from_utf8(buf) {
-            log::info!("[CONSOLE] {}", s.trim_end());
+            log::trace!("[CONSOLE] {}", s.trim_end());
         }
         Ok(buf.len())
     }

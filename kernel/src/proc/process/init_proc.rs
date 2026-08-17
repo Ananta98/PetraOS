@@ -32,7 +32,7 @@ pub fn create_init_process() -> Result<(Arc<Spinlock<Process>>, u64, u64), &'sta
     // Default environment variables for user space initialization
     let default_env = vec![
         String::from("PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin"),
-        String::from("TERM=petraos"),
+        String::from("TERM=linux"),
         String::from("HOME=/"),
         String::from("USER=root"),
     ];

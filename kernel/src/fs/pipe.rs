@@ -1,8 +1,9 @@
 //! Anonymous Inter-Process Communication (IPC) Pipe Subsystem.
 
+use crate::fs::File;
 use crate::fs::vfs::dentry::Dentry;
 use crate::fs::vfs::types::{
-    File, FileOps, Inode, InodeOps, InodeType, O_RDONLY, O_WRONLY, Stat, VfsError,
+    FileOps, Inode, InodeOps, InodeType, O_RDONLY, O_WRONLY, Stat, VfsError,
 };
 use crate::sync::spinlock::Spinlock;
 use alloc::collections::VecDeque;
@@ -181,10 +182,7 @@ pub fn create_pipe(nonblocking: bool) -> Result<(Arc<File>, Arc<File>), VfsError
         nonblocking,
     });
 
-    let write_ops = Arc::new(PipeWriteFileOps {
-        pipe,
-        nonblocking,
-    });
+    let write_ops = Arc::new(PipeWriteFileOps { pipe, nonblocking });
 
     let inode = Arc::new(Inode {
         ino,

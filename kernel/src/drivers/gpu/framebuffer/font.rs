@@ -273,7 +273,7 @@ pub fn get_glyph(c: char) -> &'static [u8; 16] {
     if index < FONT_8X16.len() {
         &FONT_8X16[index]
     } else {
-        // Return replacement block for unknown characters
-        &FONT_8X16[0x7F]
+        // Return blank space for unknown characters
+        &FONT_8X16[0x20]
     }
 }

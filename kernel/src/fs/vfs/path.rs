@@ -1,15 +1,18 @@
 use super::dcache::{dcache_evict, dcache_insert, dcache_lookup};
 use super::dentry::Dentry;
+use super::file::File;
 use super::mount::MOUNT_TABLE;
-use super::types::{File, InodeType, VfsError};
+use super::types::{InodeType, VfsError};
+use alloc::string::String;
 use alloc::sync::Arc;
+use alloc::vec::Vec;
 
 /// Maximum symlink traversal depth to prevent infinite circular loops.
 pub const MAX_SYMLINK_DEPTH: usize = 8;
 
 /// Canonicalize/normalize path relative to a base directory (handling `.` and `..`).
 pub fn normalize_path(base: &str, path: &str) -> alloc::string::String {
-    let mut parts: alloc::vec::Vec<&str> = alloc::vec::Vec::new();
+    let mut parts: Vec<&str> = Vec::new();
 
     if !path.starts_with('/') {
         for segment in base.split('/').filter(|s| !s.is_empty()) {
@@ -260,9 +263,7 @@ pub fn read_file(path: &str) -> Result<alloc::vec::Vec<u8>, VfsError> {
 pub fn open_file(path: &str, flags: u32) -> Result<Arc<File>, VfsError> {
     let dentry = match resolve_path(path) {
         Ok(d) => d,
-        Err(VfsError::NotFound) if (flags & super::types::O_CREAT) != 0 => {
-            create_file(path)?
-        }
+        Err(VfsError::NotFound) if (flags & super::types::O_CREAT) != 0 => create_file(path)?,
         Err(err) => return Err(err),
     };
 

@@ -109,13 +109,64 @@ pub fn handle_scancode(scancode: u8) {
         if event.state == KeyState::Pressed {
             if let Some(ch) = event.ascii {
                 KEY_RING_BUFFER.push(ch as u8);
-                log::info!(
+                log::trace!(
                     "[KEYBOARD] Key Press: '{}' (Scancode: {:#04x})",
                     ch,
                     scancode
                 );
             } else {
-                log::info!(
+                match event.code {
+                    KeyCode::Up => {
+                        KEY_RING_BUFFER.push(0x1B);
+                        KEY_RING_BUFFER.push(b'[');
+                        KEY_RING_BUFFER.push(b'A');
+                    }
+                    KeyCode::Down => {
+                        KEY_RING_BUFFER.push(0x1B);
+                        KEY_RING_BUFFER.push(b'[');
+                        KEY_RING_BUFFER.push(b'B');
+                    }
+                    KeyCode::Right => {
+                        KEY_RING_BUFFER.push(0x1B);
+                        KEY_RING_BUFFER.push(b'[');
+                        KEY_RING_BUFFER.push(b'C');
+                    }
+                    KeyCode::Left => {
+                        KEY_RING_BUFFER.push(0x1B);
+                        KEY_RING_BUFFER.push(b'[');
+                        KEY_RING_BUFFER.push(b'D');
+                    }
+                    KeyCode::Home => {
+                        KEY_RING_BUFFER.push(0x1B);
+                        KEY_RING_BUFFER.push(b'[');
+                        KEY_RING_BUFFER.push(b'H');
+                    }
+                    KeyCode::End => {
+                        KEY_RING_BUFFER.push(0x1B);
+                        KEY_RING_BUFFER.push(b'[');
+                        KEY_RING_BUFFER.push(b'F');
+                    }
+                    KeyCode::PageUp => {
+                        KEY_RING_BUFFER.push(0x1B);
+                        KEY_RING_BUFFER.push(b'[');
+                        KEY_RING_BUFFER.push(b'5');
+                        KEY_RING_BUFFER.push(b'~');
+                    }
+                    KeyCode::PageDown => {
+                        KEY_RING_BUFFER.push(0x1B);
+                        KEY_RING_BUFFER.push(b'[');
+                        KEY_RING_BUFFER.push(b'6');
+                        KEY_RING_BUFFER.push(b'~');
+                    }
+                    KeyCode::Insert => {
+                        KEY_RING_BUFFER.push(0x1B);
+                        KEY_RING_BUFFER.push(b'[');
+                        KEY_RING_BUFFER.push(b'2');
+                        KEY_RING_BUFFER.push(b'~');
+                    }
+                    _ => {}
+                }
+                log::trace!(
                     "[KEYBOARD] Special Key Press: {:?} (Scancode: {:#04x})",
                     event.code,
                     scancode

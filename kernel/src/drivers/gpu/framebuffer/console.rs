@@ -16,6 +16,8 @@ enum AnsiState {
     Normal,
     Esc,
     Bracket,
+    Osc,
+    Charset,
 }
 
 /// Text console rendering onto linear framebuffer.
@@ -169,21 +171,38 @@ impl FbConsole {
                     self.handle_char(byte as char);
                 }
             }
-            AnsiState::Esc => {
-                if byte == b'[' {
+            AnsiState::Esc => match byte {
+                b'[' => {
                     self.ansi_state = AnsiState::Bracket;
                     self.ansi_params = [0; 8];
                     self.ansi_param_count = 0;
                     self.ansi_current_param = 0;
                     self.ansi_has_param = false;
                     self.ansi_is_private = false;
-                } else {
+                }
+                b']' => {
+                    self.ansi_state = AnsiState::Osc;
+                }
+                b'(' | b')' => {
+                    self.ansi_state = AnsiState::Charset;
+                }
+                0x1B => {
+                    // Stay in Esc
+                }
+                _ => {
                     self.ansi_state = AnsiState::Normal;
-                    self.handle_char(byte as char);
+                }
+            },
+            AnsiState::Osc => {
+                if byte == 0x07 || byte == 0x1B {
+                    self.ansi_state = AnsiState::Normal;
                 }
             }
+            AnsiState::Charset => {
+                self.ansi_state = AnsiState::Normal;
+            }
             AnsiState::Bracket => {
-                if byte == b'?' {
+                if byte == b'?' || byte == b'>' {
                     self.ansi_is_private = true;
                 } else if byte.is_ascii_digit() {
                     self.ansi_current_param = self
@@ -482,7 +501,8 @@ impl FbConsole {
                 }
             }
             ch => {
-                if (ch as u32) >= 0x20 || ch == '\0' {
+                let code = ch as u32;
+                if (0x20..=0x7E).contains(&code) {
                     let pixel_x = self.cursor_x * FONT_WIDTH;
                     let pixel_y = self.cursor_y * FONT_HEIGHT;
 

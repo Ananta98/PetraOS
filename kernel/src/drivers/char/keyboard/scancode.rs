@@ -615,6 +615,28 @@ impl ScancodeDecoder {
             _ => return None,
         };
 
+        if self.modifiers.ctrl {
+            if ch.is_ascii_alphabetic() {
+                let ctrl_code = (ch.to_ascii_uppercase() as u8 - b'A' + 1) as char;
+                return Some(ctrl_code);
+            }
+            if ch == '[' {
+                return Some('\x1b');
+            }
+            if ch == '\\' {
+                return Some('\x1c');
+            }
+            if ch == ']' {
+                return Some('\x1d');
+            }
+            if ch == '^' {
+                return Some('\x1e');
+            }
+            if ch == '_' {
+                return Some('\x1f');
+            }
+        }
+
         Some(ch)
     }
 }

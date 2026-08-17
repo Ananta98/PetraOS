@@ -1,6 +1,7 @@
 use super::{SyscallError, SyscallResult, is_user_ptr_valid, read_user_string};
 use crate::arch::syscall::syscall::SyscallFrame;
-use crate::fs::vfs::types::{File, InodeType, LinuxStat, O_CREAT, O_RDONLY, O_WRONLY, SeekWhence, Stat};
+use crate::fs::File;
+use crate::fs::vfs::types::{InodeType, LinuxStat, O_CREAT, O_RDONLY, O_WRONLY, SeekWhence, Stat};
 use alloc::sync::Arc;
 
 pub const AT_FDCWD: i32 = -100;

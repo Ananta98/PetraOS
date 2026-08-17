@@ -2,7 +2,7 @@ use super::tid::ThreadId;
 use crate::arch::cpu::context::ThreadContext;
 use crate::arch::cpu::stack::KernelStack;
 use crate::ipc::signal::{PendingSignals, SigSet};
-use crate::ipc::signal::{SIG_BLOCK, SIG_SETMASK, SIG_UNBLOCK};
+use crate::ipc::signal::{SIG_BLOCK, SIG_SETMASK, SIG_UNBLOCK, SIGKILL, SIGSTOP};
 use crate::proc::process::Process;
 use crate::sched::nice::Nice;
 use crate::sync::spinlock::Spinlock;
@@ -136,8 +136,7 @@ impl Thread {
     pub fn update_sigmask(&mut self, how: i32, set: SigSet) -> Result<SigSet, &'static str> {
         let old_mask = self.sig_mask;
         // SIGKILL and SIGSTOP cannot be blocked
-        let unblockable =
-            (1 << (crate::ipc::signal::SIGKILL - 1)) | (1 << (crate::ipc::signal::SIGSTOP - 1));
+        let unblockable = (1 << (SIGKILL - 1)) | (1 << (SIGSTOP - 1));
         let set = set & !unblockable;
 
         match how {
