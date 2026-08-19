@@ -164,6 +164,12 @@ pub fn handle_scancode(scancode: u8) {
                         KEY_RING_BUFFER.push(b'2');
                         KEY_RING_BUFFER.push(b'~');
                     }
+                    KeyCode::Delete => {
+                        KEY_RING_BUFFER.push(0x1B);
+                        KEY_RING_BUFFER.push(b'[');
+                        KEY_RING_BUFFER.push(b'3');
+                        KEY_RING_BUFFER.push(b'~');
+                    }
                     _ => {}
                 }
                 log::trace!(
@@ -172,6 +178,7 @@ pub fn handle_scancode(scancode: u8) {
                     scancode
                 );
             }
+            crate::tty::console::on_input_available();
         }
     }
 }

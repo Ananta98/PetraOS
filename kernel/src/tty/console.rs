@@ -41,7 +41,7 @@ unsafe extern "C" fn flanterm_free(ptr: *mut c_void, size: usize) {
     }
 }
 
-/// OOP Flanterm Terminal Renderer.
+/// Flanterm Terminal Renderer.
 pub struct FlantermContext {
     ctx: *mut flanterm::sys::flanterm_context,
 }
@@ -215,4 +215,14 @@ pub fn init() {
         cols,
         rows
     );
+}
+
+/// Notify console that new input is available in the keyboard ring buffer.
+/// Attempts a non-blocking lock to immediately poll input and render echo to screen.
+pub fn on_input_available() {
+    if let Some(mut guard) = CONSOLE.try_lock() {
+        if let Some(ref mut console) = *guard {
+            console.poll_input();
+        }
+    }
 }

@@ -30,6 +30,7 @@ pub enum SyscallError {
     EINVAL = 22,
     EMFILE = 24,
     ENOTTY = 25,
+    ESPIPE = 29,
     ENOSYS = 38,
     ETIMEDOUT = 110,
 }

@@ -1,4 +1,4 @@
-use super::{is_user_ptr_valid, SyscallError, SyscallResult};
+use super::{SyscallError, SyscallResult, is_user_ptr_valid};
 use crate::arch::syscall::syscall::SyscallFrame;
 
 /// x86_64 Linux ABI compatible utsname structure layout.
@@ -50,7 +50,7 @@ pub fn sys_uname(frame: &mut SyscallFrame) -> SyscallResult {
 
     // SAFETY: Writing UtsName struct to user pointer after bounds validation.
     unsafe {
-        core::ptr::write_unaligned(buf, uts);
+        core::ptr::write_volatile(buf, uts);
     }
 
     Ok(0)

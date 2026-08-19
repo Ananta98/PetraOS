@@ -146,7 +146,7 @@ pub fn sys_getgroups(frame: &mut SyscallFrame) -> SyscallResult {
 
     // SAFETY: Validated user memory pointer bounds.
     unsafe {
-        core::ptr::write_unaligned(list_ptr, gid);
+        core::ptr::write_volatile(list_ptr, gid);
     }
     Ok(1)
 }
@@ -195,7 +195,7 @@ pub fn sys_getrlimit(frame: &mut SyscallFrame) -> SyscallResult {
     let limit = get_default_rlimit(resource);
     // SAFETY: Validated user memory pointer bounds.
     unsafe {
-        core::ptr::write_unaligned(rlim_ptr, limit);
+        core::ptr::write_volatile(rlim_ptr, limit);
     }
     Ok(0)
 }
@@ -233,7 +233,7 @@ pub fn sys_prlimit64(frame: &mut SyscallFrame) -> SyscallResult {
         let limit = get_default_rlimit(resource);
         // SAFETY: Validated user memory pointer bounds.
         unsafe {
-            core::ptr::write_unaligned(old_limit_ptr, limit);
+            core::ptr::write_volatile(old_limit_ptr, limit);
         }
     }
 
@@ -346,7 +346,7 @@ pub fn sys_wait4(frame: &mut SyscallFrame) -> SyscallResult {
     if !wstatus.is_null() && is_user_ptr_valid(wstatus as u64, core::mem::size_of::<i32>()) {
         // SAFETY: User pointer validated within Ring 3 address bounds.
         unsafe {
-            core::ptr::write_unaligned(wstatus, status);
+            core::ptr::write_volatile(wstatus, status);
         }
     }
 
@@ -354,7 +354,7 @@ pub fn sys_wait4(frame: &mut SyscallFrame) -> SyscallResult {
     {
         // SAFETY: User pointer validated within Ring 3 address bounds.
         unsafe {
-            core::ptr::write_unaligned(rusage_ptr, RUsage::default());
+            core::ptr::write_volatile(rusage_ptr, RUsage::default());
         }
     }
 

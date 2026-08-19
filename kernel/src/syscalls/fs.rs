@@ -146,7 +146,7 @@ pub fn sys_stat(frame: &mut SyscallFrame) -> SyscallResult {
     let linux_stat = copy_to_linux_stat(&vfs_stat);
     // SAFETY: Writing stat struct to user statbuf after validation.
     unsafe {
-        core::ptr::write_unaligned(statbuf, linux_stat);
+        core::ptr::write_volatile(statbuf, linux_stat);
     }
 
     Ok(0)
@@ -175,7 +175,7 @@ pub fn sys_fstat(frame: &mut SyscallFrame) -> SyscallResult {
 
     // SAFETY: Writing stat struct to user statbuf after validation.
     unsafe {
-        core::ptr::write_unaligned(statbuf, linux_stat);
+        core::ptr::write_volatile(statbuf, linux_stat);
     }
 
     Ok(0)
@@ -204,7 +204,11 @@ pub fn sys_lseek(frame: &mut SyscallFrame) -> SyscallResult {
     let file = proc.fd_table.get(fd)?;
     drop(proc);
 
-    let new_offset = file.lseek(offset, whence)?;
+    let new_offset = match file.lseek(offset, whence) {
+        Ok(off) => off,
+        Err(crate::fs::vfs::types::VfsError::NotSupported) => return Err(SyscallError::ESPIPE),
+        Err(e) => return Err(e.into()),
+    };
     Ok(new_offset)
 }
 
@@ -289,8 +293,8 @@ pub fn sys_pipe(frame: &mut SyscallFrame) -> SyscallResult {
 
     // SAFETY: User pipefd pointer range validated within Ring 3 address bounds.
     unsafe {
-        core::ptr::write_unaligned(pipefd, r_fd);
-        core::ptr::write_unaligned(pipefd.add(1), w_fd);
+        core::ptr::write_volatile(pipefd, r_fd);
+        core::ptr::write_volatile(pipefd.add(1), w_fd);
     }
 
     Ok(0)
@@ -323,8 +327,8 @@ pub fn sys_pipe2(frame: &mut SyscallFrame) -> SyscallResult {
 
     // SAFETY: User pipefd pointer range validated within Ring 3 address bounds.
     unsafe {
-        core::ptr::write_unaligned(pipefd, r_fd);
-        core::ptr::write_unaligned(pipefd.add(1), w_fd);
+        core::ptr::write_volatile(pipefd, r_fd);
+        core::ptr::write_volatile(pipefd.add(1), w_fd);
     }
 
     Ok(0)
@@ -351,7 +355,7 @@ pub fn sys_getcwd(frame: &mut SyscallFrame) -> SyscallResult {
     // SAFETY: User buffer pointer range validated within Ring 3 address bounds.
     unsafe {
         core::ptr::copy_nonoverlapping(cwd_bytes.as_ptr(), buf, cwd_bytes.len());
-        core::ptr::write_unaligned(buf.add(cwd_bytes.len()), 0);
+        core::ptr::write_volatile(buf.add(cwd_bytes.len()), 0);
     }
 
     Ok(buf as usize)
@@ -524,7 +528,7 @@ pub fn sys_newfstatat(frame: &mut SyscallFrame) -> SyscallResult {
     let linux_stat = copy_to_linux_stat(&vfs_stat);
     // SAFETY: Writing stat struct to user statbuf after validation.
     unsafe {
-        core::ptr::write_unaligned(statbuf, linux_stat);
+        core::ptr::write_volatile(statbuf, linux_stat);
     }
 
     Ok(0)
@@ -667,11 +671,11 @@ pub fn sys_getdents64(frame: &mut SyscallFrame) -> SyscallResult {
         unsafe {
             let dest = dirp.add(written_bytes);
             // Write d_ino (u64 at offset 0)
-            core::ptr::write_unaligned(dest as *mut u64, ino);
+            core::ptr::write_volatile(dest as *mut u64, ino);
             // Write d_off (i64 at offset 8)
-            core::ptr::write_unaligned(dest.add(8) as *mut i64, off);
+            core::ptr::write_volatile(dest.add(8) as *mut i64, off);
             // Write d_reclen (u16 at offset 16)
-            core::ptr::write_unaligned(dest.add(16) as *mut u16, reclen as u16);
+            core::ptr::write_volatile(dest.add(16) as *mut u16, reclen as u16);
             // Write d_type (u8 at offset 18)
             core::ptr::write(dest.add(18), d_type);
             // Write d_name (null-terminated string at offset 19)

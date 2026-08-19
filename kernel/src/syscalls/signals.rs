@@ -78,7 +78,7 @@ pub fn sys_rt_sigaction(frame: &mut SyscallFrame) -> SyscallResult {
     if !oact.is_null() {
         // SAFETY: User pointer validated within Ring 3 address space bounds.
         unsafe {
-            core::ptr::write_unaligned(oact, old_action);
+            core::ptr::write_volatile(oact, old_action);
         }
     }
 
@@ -116,7 +116,7 @@ pub fn sys_rt_sigprocmask(frame: &mut SyscallFrame) -> SyscallResult {
     if !oset_ptr.is_null() {
         // SAFETY: User pointer validated within Ring 3 address space bounds.
         unsafe {
-            core::ptr::write_unaligned(oset_ptr, old_mask);
+            core::ptr::write_volatile(oset_ptr, old_mask);
         }
     }
     Ok(0)

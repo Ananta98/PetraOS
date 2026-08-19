@@ -35,7 +35,7 @@ pub fn sys_arch_prctl(frame: &mut SyscallFrame) -> SyscallResult {
                 .unwrap_or_else(crate::arch::cpu::msr::read_fs_base);
             // SAFETY: Validated user memory pointer.
             unsafe {
-                core::ptr::write_unaligned(addr as *mut u64, fs_base);
+                core::ptr::write_volatile(addr as *mut u64, fs_base);
             }
             Ok(0)
         }
@@ -56,7 +56,7 @@ pub fn sys_arch_prctl(frame: &mut SyscallFrame) -> SyscallResult {
             let gs_base = crate::arch::cpu::msr::read_gs_base();
             // SAFETY: Validated user memory pointer.
             unsafe {
-                core::ptr::write_unaligned(addr as *mut u64, gs_base);
+                core::ptr::write_volatile(addr as *mut u64, gs_base);
             }
             Ok(0)
         }

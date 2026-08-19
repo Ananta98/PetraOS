@@ -33,6 +33,18 @@ impl<T> Spinlock<T> {
         }
         SpinlockGuard { lock: self }
     }
+
+    pub fn try_lock(&self) -> Option<SpinlockGuard<'_, T>> {
+        if self
+            .lock
+            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+            .is_ok()
+        {
+            Some(SpinlockGuard { lock: self })
+        } else {
+            None
+        }
+    }
 }
 
 impl<T> Deref for SpinlockGuard<'_, T> {

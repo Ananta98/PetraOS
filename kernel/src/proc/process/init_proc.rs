@@ -44,7 +44,8 @@ pub fn create_init_process() -> Result<(Arc<Spinlock<Process>>, u64, u64), &'sta
             candidate_path
         );
 
-        let cmdline = CommandLine::new(vec![String::from(*candidate_path)], default_env.clone());
+        let prog_name = candidate_path.rsplit('/').next().unwrap_or(candidate_path);
+        let cmdline = CommandLine::new(vec![String::from(prog_name)], default_env.clone());
 
         if let Ok((entry_point, stack_top)) = proc.execute_cmdline(candidate_path, cmdline) {
             log::info!(
