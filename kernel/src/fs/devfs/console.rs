@@ -1,34 +1,16 @@
+//! Console Character Device (/dev/console, /dev/tty, /dev/tty0)
+//!
+//! Provides the VFS interface for the primary console character device,
+//! routing operations directly to the kernel TTY subsystem and line discipline.
+
+use crate::fs::vfs::types::{FileOps, InodeOps, Stat, VfsError};
+use crate::tty::console::CONSOLE;
+use crate::tty::termios::{
+    FIONREAD, TCGETS, TCSETS, TCSETSF, TCSETSW, TIOCGPGRP, TIOCGWINSZ, TIOCNOTTY, TIOCSCTTY,
+    TIOCSPGRP, TIOCSWINSZ, Termios, WinSize,
+};
+use crate::tty::{tty_read, tty_write};
 use alloc::sync::Arc;
-use crate::fs::vfs::types::{FileOps, InodeOps, VfsError};
-use crate::tty::tty_write_byte;
-
-pub fn try_read_console_byte() -> Option<u8> {
-    // 1. Drain pending scancodes directly from PS/2 controller (port 0x64/0x60)
-    // SAFETY: Reading status port 0x64 has no side effects and reading 0x60 when output buffer is full retrieves hardware scancode.
-    let status = unsafe { crate::arch::ports::Ports::inb(0x64) };
-    if (status & 0x01) != 0 && (status & 0x20) == 0 {
-        let scancode = unsafe { crate::arch::ports::Ports::inb(0x60) };
-        crate::drivers::char::keyboard::handle_scancode(scancode);
-    }
-
-    // 2. Check PS/2 keyboard buffer
-    if let Some(byte) = crate::drivers::char::keyboard::KEY_RING_BUFFER.pop() {
-        return Some(byte);
-    }
-
-    // 3. Check COM1 Serial Port (0x3F8) Line Status Register (0x3FD)
-    // Bit 0 of LSR (0x3FD) is Data Ready (DR)
-    // SAFETY: Reading standard COM1 16550 UART I/O ports.
-    let lsr = unsafe { crate::arch::ports::Ports::inb(0x3FD) };
-    if (lsr & 0x01) != 0 {
-        // Data is ready on COM1 data port 0x3F8
-        let byte = unsafe { crate::arch::ports::Ports::inb(0x3F8) };
-        let byte = if byte == b'\r' { b'\n' } else { byte };
-        return Some(byte);
-    }
-
-    None
-}
 
 /// Inode for the `/dev/console` device.
 pub struct ConsoleInode;
@@ -37,6 +19,14 @@ impl InodeOps for ConsoleInode {
     fn open(&self) -> Result<Arc<dyn FileOps>, VfsError> {
         Ok(Arc::new(ConsoleFileOps))
     }
+
+    fn stat(&self) -> Result<Stat, VfsError> {
+        Ok(Stat {
+            mode: 0o020666, // S_IFCHR | 0666
+            nlink: 1,
+            ..Default::default()
+        })
+    }
 }
 
 /// File operations for the console character device.
@@ -44,50 +34,107 @@ pub struct ConsoleFileOps;
 
 impl FileOps for ConsoleFileOps {
     fn read(&self, _offset: usize, buf: &mut [u8]) -> Result<usize, VfsError> {
-        if buf.is_empty() {
-            return Ok(0);
-        }
-
-        let mut read_bytes = 0;
-
-        // Block until at least one character is available, then drain what is immediately ready.
-        while read_bytes < buf.len() {
-            if let Some(mut ch) = try_read_console_byte() {
-                let termios_guard = crate::tty::CONSOLE_TERMIOS.lock();
-                let is_echo = termios_guard.is_echo();
-                drop(termios_guard);
-
-                // Translate Carriage Return (\r) to Newline (\n)
-                if ch == b'\r' {
-                    ch = b'\n';
-                }
-
-                // If ECHO is enabled, immediately render character to active TTY console
-                if is_echo {
-                    tty_write_byte(ch);
-                }
-
-                buf[read_bytes] = ch;
-                read_bytes += 1;
-            } else if read_bytes > 0 {
-                break;
-            } else {
-                core::hint::spin_loop();
-                crate::sched::schedule(true);
-            }
-        }
-
-        Ok(read_bytes)
+        tty_read(buf)
     }
 
     fn write(&self, _offset: usize, buf: &[u8]) -> Result<usize, VfsError> {
-        for &byte in buf {
-            tty_write_byte(byte);
-        }
-        if let Ok(s) = core::str::from_utf8(buf) {
-            log::trace!("[CONSOLE] {}", s.trim_end());
-        }
+        tty_write(buf);
         Ok(buf.len())
     }
-}
 
+    fn ioctl(&self, cmd: u64, arg: usize) -> Result<usize, VfsError> {
+        let mut guard = CONSOLE.lock();
+        let console = guard.as_mut().ok_or(VfsError::NotFound)?;
+
+        match cmd {
+            TCGETS => {
+                if !crate::syscalls::is_user_ptr_valid(arg as u64, core::mem::size_of::<Termios>())
+                {
+                    return Err(VfsError::InvalidInput);
+                }
+                let t = console.ldisc.termios;
+                // SAFETY: User pointer validated within user space bounds.
+                unsafe {
+                    *(arg as *mut Termios) = t;
+                }
+                Ok(0)
+            }
+            TCSETS | TCSETSW | TCSETSF => {
+                if !crate::syscalls::is_user_ptr_valid(arg as u64, core::mem::size_of::<Termios>())
+                {
+                    return Err(VfsError::InvalidInput);
+                }
+                // SAFETY: User pointer validated within user space bounds.
+                let t = unsafe { *(arg as *const Termios) };
+                console.ldisc.termios = t;
+                Ok(0)
+            }
+            TIOCGWINSZ => {
+                if !crate::syscalls::is_user_ptr_valid(arg as u64, core::mem::size_of::<WinSize>())
+                {
+                    return Err(VfsError::InvalidInput);
+                }
+                let ws = console.ldisc.winsize;
+                // SAFETY: User pointer validated within user space bounds.
+                unsafe {
+                    *(arg as *mut WinSize) = ws;
+                }
+                Ok(0)
+            }
+            TIOCSWINSZ => {
+                if !crate::syscalls::is_user_ptr_valid(arg as u64, core::mem::size_of::<WinSize>())
+                {
+                    return Err(VfsError::InvalidInput);
+                }
+                // SAFETY: User pointer validated within user space bounds.
+                let ws = unsafe { *(arg as *const WinSize) };
+                console.ldisc.winsize = ws;
+                if console.ldisc.foreground_pgid > 0 {
+                    let _ = crate::ipc::signal::send_signal_to_process_group(
+                        console.ldisc.foreground_pgid,
+                        crate::ipc::signal::SIGWINCH,
+                    );
+                }
+                Ok(0)
+            }
+            TIOCGPGRP => {
+                if !crate::syscalls::is_user_ptr_valid(arg as u64, 4) {
+                    return Err(VfsError::InvalidInput);
+                }
+                let pgid = console.ldisc.foreground_pgid;
+                // SAFETY: User pointer validated within user space bounds.
+                unsafe {
+                    *(arg as *mut i32) = pgid;
+                }
+                Ok(0)
+            }
+            TIOCSPGRP => {
+                if !crate::syscalls::is_user_ptr_valid(arg as u64, 4) {
+                    return Err(VfsError::InvalidInput);
+                }
+                // SAFETY: User pointer validated within user space bounds.
+                let pgid = unsafe { *(arg as *const i32) };
+                console.ldisc.foreground_pgid = pgid;
+                Ok(0)
+            }
+            TIOCSCTTY => Ok(0),
+            TIOCNOTTY => Ok(0),
+            FIONREAD => {
+                if !crate::syscalls::is_user_ptr_valid(arg as u64, 4) {
+                    return Err(VfsError::InvalidInput);
+                }
+                let len = console.available_input() as i32;
+                // SAFETY: User pointer validated within user space bounds.
+                unsafe {
+                    *(arg as *mut i32) = len;
+                }
+                Ok(0)
+            }
+            _ => Err(VfsError::NotSupported),
+        }
+    }
+
+    fn isatty(&self) -> bool {
+        true
+    }
+}

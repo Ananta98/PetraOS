@@ -76,6 +76,24 @@ impl DevFs {
         });
         Dentry::add_child(&dev_mount.root_dentry, "fb0".into(), fb_inode);
 
+        // Register pseudo-terminal multiplexer /dev/ptmx
+        let ptmx_ino = dev_mount.superblock.alloc_ino();
+        let ptmx_inode = Arc::new(Inode {
+            ino: ptmx_ino,
+            inode_type: InodeType::CharDevice,
+            ops: Arc::new(crate::tty::pty::PtmxInode),
+        });
+        Dentry::add_child(&dev_mount.root_dentry, "ptmx".into(), ptmx_inode);
+
+        // Create /dev/pts pseudo-terminal slave directory
+        let pts_dir_ino = dev_mount.superblock.alloc_ino();
+        let pts_dir_inode = Arc::new(Inode {
+            ino: pts_dir_ino,
+            inode_type: InodeType::Directory,
+            ops: Arc::new(RamDirInode::new()),
+        });
+        Dentry::add_child(&dev_mount.root_dentry, "pts".into(), pts_dir_inode);
+
         // Register null character device /dev/null
         let null_ino = dev_mount.superblock.alloc_ino();
         let null_inode = Arc::new(Inode {

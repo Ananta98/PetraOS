@@ -230,6 +230,16 @@ pub trait FileOps: Send + Sync {
     fn sync(&self) -> Result<(), VfsError> {
         Ok(())
     }
+
+    /// Perform device-specific control operations (ioctl).
+    fn ioctl(&self, _cmd: u64, _arg: usize) -> Result<usize, VfsError> {
+        Err(VfsError::NotSupported)
+    }
+
+    /// Check if this file descriptor refers to a terminal.
+    fn isatty(&self) -> bool {
+        false
+    }
 }
 
 /// Trait implemented by each filesystem type (ramfs, devfs, procfs, ext2, etc.).

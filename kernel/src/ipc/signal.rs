@@ -146,3 +146,21 @@ impl PendingSignals {
         Some(sig)
     }
 }
+
+/// Send a signal to all processes in a specified process group.
+pub fn send_signal_to_process_group(pgid: i32, sig: u8) -> Result<(), ()> {
+    if pgid <= 0 || sig == 0 || sig > 64 {
+        return Err(());
+    }
+    let target_pgid = crate::proc::ProcessId(pgid as u64);
+    let procs = crate::proc::find_processes_by_pgid(target_pgid);
+    if procs.is_empty() {
+        return Err(());
+    }
+    for proc_arc in procs {
+        let mut proc = proc_arc.lock();
+        let _ = proc.send_signal(sig);
+    }
+    Ok(())
+}
+

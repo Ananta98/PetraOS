@@ -117,10 +117,17 @@ pub fn schedule(yielding: bool) {
             // SAFETY: Switching CPU context to initial thread.
             unsafe { switch_context_to(next_rsp) };
         }
-        (Some(_), None) => {
-            // No runnable threads. Drop scheduler lock then idle permanently.
-            // idle() is divergent (loop { hlt }), so we never return here and
-            // never fall back into the dead syscall frame.
+        (Some(prev), None) => {
+            if yielding {
+                // If yielding and no other thread is ready, continue running the current thread.
+                sched.current_threads[cpu_id as usize] = Some(prev);
+                drop(sched);
+                if saved_flags {
+                    crate::arch::enable_interrupts();
+                }
+                return;
+            }
+            // If blocked/exited and no runnable threads, drop scheduler lock and idle until next interrupt.
             drop(sched);
             if saved_flags {
                 crate::arch::enable_interrupts();
