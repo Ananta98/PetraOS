@@ -1,9 +1,8 @@
-.global syscall_asm_entry
-.global syscall_fast_entry
+.global syscall_entry
 .extern do_syscall
 
-# Fast system call entry handler invoked by the `syscall` instruction
-syscall_fast_entry:
+# System call entry handler invoked by the `syscall` instruction
+syscall_entry:
   # 1. Switch to per-CPU kernel stack
   swapgs
   mov gs:[8], rsp          # save user rsp into CpuLocal.user_rsp_scratch
@@ -46,36 +45,4 @@ syscall_fast_entry:
   pop rax
 
   # 6. Return to user mode via iretq
-  iretq
-
-# Legacy / interrupt-based syscall entry point (int 0x80)
-syscall_asm_entry:
-  # Save the syscall register state into the SyscallFrame layout.
-  push rax
-  push rbp
-  push rdi
-  push rsi
-  push rdx
-  push rcx
-  push r8
-  push r9
-  push r10
-  push r11
-
-  # Pass the frame pointer as the first Rust argument.
-  mov rdi, rsp
-  call do_syscall
-
-  # Restore the register state before returning to user mode.
-  pop r11
-  pop r10
-  pop r9
-  pop r8
-  pop rcx
-  pop rdx
-  pop rsi
-  pop rdi
-  pop rbp
-  pop rax
-
   iretq

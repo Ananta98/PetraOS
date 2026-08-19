@@ -19,10 +19,6 @@ pub(crate) unsafe fn load_idt() {
     idt_ref.load();
 }
 
-unsafe extern "C" {
-    fn syscall_asm_entry();
-}
-
 pub fn init() {
     unsafe {
         // Set up CPU exception handlers
@@ -59,9 +55,6 @@ pub fn init() {
 
         // Keyboard interrupt (vector 33, ISA IRQ 1)
         IDT.entries[KEYBOARD_VECTOR as usize].set_handler_fn(keyboard_handler as *const () as u64);
-
-        // System call interrupt (vector 0x80)
-        IDT.entries[0x80].set_user_handler_fn(syscall_asm_entry as *const () as u64);
 
         // Spurious interrupt (vector 0xFF)
         IDT.entries[0xFF].set_handler_fn(spurious_interrupt_handler as *const () as u64);

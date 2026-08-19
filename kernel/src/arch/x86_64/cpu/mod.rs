@@ -81,10 +81,10 @@ pub unsafe fn enable_syscall_for_cpu(cpu_id: usize) {
 
         // 3. Program IA32_LSTAR: Target RIP for syscall instruction
         unsafe extern "C" {
-            fn syscall_fast_entry();
+            fn syscall_entry();
         }
 
-        let lstar = syscall_fast_entry as *const () as u64;
+        let lstar = syscall_entry as *const () as u64;
         LStar::write(VirtAddr::new(lstar));
 
         // 4. Program IA32_FMASK: Mask RFLAGS bits (clear IF, DF, TF, IOPL, NT, AC)
