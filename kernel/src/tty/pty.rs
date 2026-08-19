@@ -92,14 +92,8 @@ fn register_pts_node(id: u32, pair: Arc<PtyPair>) -> Result<(), VfsError> {
             inode_type: InodeType::CharDevice,
             ops: Arc::new(PtsInode { pair }),
         });
-
-        // Add to /dev/pts directory if exists, otherwise add directly to /dev
-        let pts_dir_opt = mount.root_dentry.children.lock().get("pts").cloned();
-        if let Some(pts_dir) = pts_dir_opt {
-            Dentry::add_child(&pts_dir, pts_name, pts_inode);
-        } else {
-            Dentry::add_child(&mount.root_dentry, format!("pts{}", id), pts_inode);
-        }
+        drop(mt);
+        crate::fs::devfs::register_pts_node(&pts_name, pts_inode);
     }
     Ok(())
 }
@@ -134,20 +128,29 @@ impl FileOps for PtyMasterFileOps {
         if buf.is_empty() {
             return Ok(0);
         }
-        let mut mb = self.pair.master_buffer.lock();
-        if mb.is_empty() {
-            return Ok(0);
-        }
-        let mut count = 0;
-        while count < buf.len() {
-            if let Some(byte) = mb.pop_front() {
-                buf[count] = byte;
-                count += 1;
-            } else {
-                break;
+        loop {
+            let mut mb = self.pair.master_buffer.lock();
+            if !mb.is_empty() {
+                let mut count = 0;
+                while count < buf.len() {
+                    if let Some(byte) = mb.pop_front() {
+                        buf[count] = byte;
+                        count += 1;
+                    } else {
+                        break;
+                    }
+                }
+                return Ok(count);
             }
+            if self.pair.slave_open_count.load(Ordering::SeqCst) == 0 {
+                return Ok(0);
+            }
+            drop(mb);
+            #[cfg(target_arch = "x86_64")]
+            x86_64::instructions::interrupts::enable_and_hlt();
+            #[cfg(not(target_arch = "x86_64"))]
+            crate::proc::thread::Thread::yield_cpu();
         }
-        Ok(count)
     }
 
     fn write(&self, _offset: usize, buf: &[u8]) -> Result<usize, VfsError> {
@@ -277,9 +280,21 @@ impl FileOps for PtySlaveFileOps {
         if buf.is_empty() {
             return Ok(0);
         }
-        let mut ldisc = self.pair.slave_ldisc.lock();
-        let bytes_read = ldisc.read_bytes(buf);
-        Ok(bytes_read)
+        loop {
+            let mut ldisc = self.pair.slave_ldisc.lock();
+            let bytes_read = ldisc.read_bytes(buf);
+            if bytes_read > 0 {
+                return Ok(bytes_read);
+            }
+            if !self.pair.master_open.load(Ordering::SeqCst) {
+                return Ok(0); // Master closed (EOF)
+            }
+            drop(ldisc);
+            #[cfg(target_arch = "x86_64")]
+            x86_64::instructions::interrupts::enable_and_hlt();
+            #[cfg(not(target_arch = "x86_64"))]
+            crate::proc::thread::Thread::yield_cpu();
+        }
     }
 
     fn write(&self, _offset: usize, buf: &[u8]) -> Result<usize, VfsError> {

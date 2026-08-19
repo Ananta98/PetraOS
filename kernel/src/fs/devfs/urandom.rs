@@ -8,6 +8,14 @@ impl InodeOps for UrandomInode {
     fn open(&self) -> Result<Arc<dyn FileOps>, VfsError> {
         Ok(Arc::new(UrandomFileOps))
     }
+
+    fn stat(&self) -> Result<crate::fs::vfs::types::Stat, VfsError> {
+        Ok(crate::fs::vfs::types::Stat {
+            mode: 0o020666, // S_IFCHR | 0666
+            nlink: 1,
+            ..Default::default()
+        })
+    }
 }
 
 /// File operations for `/dev/urandom`.

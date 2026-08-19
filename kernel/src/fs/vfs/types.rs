@@ -28,6 +28,8 @@ pub enum VfsError {
     NotEmpty,
     /// Is a directory.
     IsDirectory,
+    /// Operation interrupted by a signal (EINTR).
+    Interrupted,
 }
 
 /// Open file for reading only.

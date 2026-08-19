@@ -119,6 +119,32 @@ impl RamDirInode {
     }
 }
 
+/// In-memory symbolic link inode.
+pub struct RamSymlinkInode {
+    pub target: String,
+}
+
+impl RamSymlinkInode {
+    pub fn new(target: String) -> Self {
+        Self { target }
+    }
+}
+
+impl InodeOps for RamSymlinkInode {
+    fn readlink(&self) -> Result<String, VfsError> {
+        Ok(self.target.clone())
+    }
+
+    fn stat(&self) -> Result<crate::fs::vfs::types::Stat, VfsError> {
+        Ok(crate::fs::vfs::types::Stat {
+            size: self.target.len() as u64,
+            mode: 0o120777,
+            nlink: 1,
+            ..Default::default()
+        })
+    }
+}
+
 impl InodeOps for RamDirInode {
     fn lookup(&self, name: &str) -> Result<Arc<Inode>, VfsError> {
         let entries = self.entries.read();
@@ -159,6 +185,23 @@ impl InodeOps for RamDirInode {
             ino,
             inode_type: InodeType::File,
             ops: Arc::new(RamFileInode::new()),
+        });
+        entries.insert(name.into(), inode.clone());
+        Ok(inode)
+    }
+
+    fn symlink(&self, name: &str, target: &str) -> Result<Arc<Inode>, VfsError> {
+        let mut entries = self.entries.write();
+        if entries.contains_key(name) {
+            return Err(VfsError::AlreadyExists);
+        }
+        static SYMLINK_INO: AtomicU64 = AtomicU64::new(3000);
+        let ino = SYMLINK_INO.fetch_add(1, Ordering::Relaxed);
+
+        let inode = Arc::new(Inode {
+            ino,
+            inode_type: InodeType::Symlink,
+            ops: Arc::new(RamSymlinkInode::new(target.into())),
         });
         entries.insert(name.into(), inode.clone());
         Ok(inode)

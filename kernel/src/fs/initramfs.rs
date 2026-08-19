@@ -92,7 +92,8 @@ pub fn extract_cpio_archive(data: &[u8]) -> Result<usize, &'static str> {
                 extracted_count += 1;
             }
         } else if entry.is_symlink() {
-            if let Ok(target) = core::str::from_utf8(entry.data()) {
+            if let Ok(raw_target) = core::str::from_utf8(entry.data()) {
+                let target = raw_target.trim_end_matches('\0');
                 if let Err(err) = create_symlink_with_parents(&full_path, target) {
                     log::warn!("[Initramfs] Failed to create symlink '{}' -> '{}': {:?}", full_path, target, err);
                 } else {

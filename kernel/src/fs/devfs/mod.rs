@@ -12,14 +12,90 @@ pub use null::*;
 pub use urandom::*;
 pub use zero::*;
 
+use alloc::collections::BTreeMap;
+use alloc::string::String;
 use alloc::sync::Arc;
+use alloc::vec::Vec;
 use core::sync::atomic::AtomicU64;
 
 use crate::device::DEVICE_MANAGER;
-use crate::fs::ramfs::RamDirInode;
+use crate::fs::ramfs::RamDirFileOps;
 use crate::fs::vfs::dentry::Dentry;
 use crate::fs::vfs::mount::MOUNT_TABLE;
-use crate::fs::vfs::types::{FileSystem, Inode, InodeType, SuperBlock, VfsError};
+use crate::fs::vfs::types::{FileOps, FileSystem, Inode, InodeOps, InodeType, Stat, SuperBlock, VfsError};
+use crate::sync::spinlock::Spinlock;
+
+/// Directory inode for devfs (/dev and /dev/pts) to support lookup, readdir, and stat.
+pub struct DevDirInode {
+    pub entries: Spinlock<BTreeMap<String, Arc<Inode>>>,
+}
+
+impl DevDirInode {
+    pub fn new() -> Self {
+        Self {
+            entries: Spinlock::new(BTreeMap::new()),
+        }
+    }
+
+    pub fn insert(&self, name: &str, inode: Arc<Inode>) {
+        self.entries.lock().insert(name.into(), inode);
+    }
+}
+
+impl InodeOps for DevDirInode {
+    fn lookup(&self, name: &str) -> Result<Arc<Inode>, VfsError> {
+        let entries = self.entries.lock();
+        entries.get(name).cloned().ok_or(VfsError::NotFound)
+    }
+
+    fn readdir(&self) -> Result<Vec<String>, VfsError> {
+        let entries = self.entries.lock();
+        Ok(entries.keys().cloned().collect())
+    }
+
+    fn stat(&self) -> Result<Stat, VfsError> {
+        let entries = self.entries.lock();
+        Ok(Stat {
+            size: entries.len() as u64,
+            mode: 0o040755, // S_IFDIR | 0755
+            nlink: 2,
+            ..Default::default()
+        })
+    }
+
+    fn open(&self) -> Result<Arc<dyn FileOps>, VfsError> {
+        Ok(Arc::new(RamDirFileOps))
+    }
+}
+
+pub static DEV_ROOT_DIR: Spinlock<Option<Arc<DevDirInode>>> = Spinlock::new(None);
+pub static DEV_PTS_DIR: Spinlock<Option<Arc<DevDirInode>>> = Spinlock::new(None);
+
+/// Register a device node dynamically in `/dev`.
+pub fn register_dev_node(name: &str, inode: Arc<Inode>) {
+    if let Some(root_dir) = DEV_ROOT_DIR.lock().as_ref() {
+        root_dir.insert(name, inode.clone());
+    }
+    let mt = MOUNT_TABLE.read();
+    if let Some((mount, _)) = mt.lookup("/dev") {
+        Dentry::add_child(&mount.root_dentry, name.into(), inode);
+    }
+}
+
+/// Register a pseudo-terminal slave device node in `/dev/pts`.
+pub fn register_pts_node(name: &str, inode: Arc<Inode>) {
+    if let Some(pts_dir) = DEV_PTS_DIR.lock().as_ref() {
+        pts_dir.insert(name, inode.clone());
+    }
+    let mt = MOUNT_TABLE.read();
+    if let Some((mount, _)) = mt.lookup("/dev") {
+        if let Some(pts_dentry) = mount.root_dentry.children.lock().get("pts").cloned() {
+            Dentry::add_child(&pts_dentry, name.into(), inode);
+        } else {
+            Dentry::add_child(&mount.root_dentry, name.into(), inode);
+        }
+    }
+}
 
 /// Device filesystem, mounted at `/dev`.
 pub struct DevFs;
@@ -33,10 +109,13 @@ impl FileSystem for DevFs {
         let next_ino = AtomicU64::new(1);
         let ino = next_ino.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
 
+        let root_dir = Arc::new(DevDirInode::new());
+        *DEV_ROOT_DIR.lock() = Some(root_dir.clone());
+
         let root_inode = Arc::new(Inode {
             ino,
             inode_type: InodeType::Directory,
-            ops: Arc::new(RamDirInode::new()),
+            ops: root_dir,
         });
 
         Ok(SuperBlock {
@@ -56,6 +135,16 @@ impl DevFs {
             .mount("/dev", &DevFs)
             .map_err(|_| "Failed to mount devfs at /dev")?;
 
+        let root_dir = DEV_ROOT_DIR
+            .lock()
+            .clone()
+            .ok_or("DevFs root dir uninitialized")?;
+
+        let register_node = |name: &str, inode: Arc<Inode>| {
+            root_dir.insert(name, inode.clone());
+            Dentry::add_child(&dev_mount.root_dentry, name.into(), inode);
+        };
+
         // Register console character device (/dev/console, /dev/tty, /dev/tty0)
         let console_ino = dev_mount.superblock.alloc_ino();
         let console_inode = Arc::new(Inode {
@@ -63,9 +152,9 @@ impl DevFs {
             inode_type: InodeType::CharDevice,
             ops: Arc::new(ConsoleInode),
         });
-        Dentry::add_child(&dev_mount.root_dentry, "console".into(), console_inode.clone());
-        Dentry::add_child(&dev_mount.root_dentry, "tty".into(), console_inode.clone());
-        Dentry::add_child(&dev_mount.root_dentry, "tty0".into(), console_inode);
+        register_node("console", console_inode.clone());
+        register_node("tty", console_inode.clone());
+        register_node("tty0", console_inode);
 
         // Register framebuffer device node /dev/fb0
         let fb_ino = dev_mount.superblock.alloc_ino();
@@ -74,7 +163,7 @@ impl DevFs {
             inode_type: InodeType::CharDevice,
             ops: Arc::new(FbInode),
         });
-        Dentry::add_child(&dev_mount.root_dentry, "fb0".into(), fb_inode);
+        register_node("fb0", fb_inode);
 
         // Register pseudo-terminal multiplexer /dev/ptmx
         let ptmx_ino = dev_mount.superblock.alloc_ino();
@@ -83,16 +172,18 @@ impl DevFs {
             inode_type: InodeType::CharDevice,
             ops: Arc::new(crate::tty::pty::PtmxInode),
         });
-        Dentry::add_child(&dev_mount.root_dentry, "ptmx".into(), ptmx_inode);
+        register_node("ptmx", ptmx_inode);
 
         // Create /dev/pts pseudo-terminal slave directory
+        let pts_dir = Arc::new(DevDirInode::new());
+        *DEV_PTS_DIR.lock() = Some(pts_dir.clone());
         let pts_dir_ino = dev_mount.superblock.alloc_ino();
         let pts_dir_inode = Arc::new(Inode {
             ino: pts_dir_ino,
             inode_type: InodeType::Directory,
-            ops: Arc::new(RamDirInode::new()),
+            ops: pts_dir,
         });
-        Dentry::add_child(&dev_mount.root_dentry, "pts".into(), pts_dir_inode);
+        register_node("pts", pts_dir_inode);
 
         // Register null character device /dev/null
         let null_ino = dev_mount.superblock.alloc_ino();
@@ -101,7 +192,7 @@ impl DevFs {
             inode_type: InodeType::CharDevice,
             ops: Arc::new(NullInode),
         });
-        Dentry::add_child(&dev_mount.root_dentry, "null".into(), null_inode);
+        register_node("null", null_inode);
 
         // Register zero character device /dev/zero
         let zero_ino = dev_mount.superblock.alloc_ino();
@@ -110,7 +201,7 @@ impl DevFs {
             inode_type: InodeType::CharDevice,
             ops: Arc::new(ZeroInode),
         });
-        Dentry::add_child(&dev_mount.root_dentry, "zero".into(), zero_inode);
+        register_node("zero", zero_inode);
 
         // Register urandom character device /dev/urandom
         let urandom_ino = dev_mount.superblock.alloc_ino();
@@ -119,7 +210,7 @@ impl DevFs {
             inode_type: InodeType::CharDevice,
             ops: Arc::new(UrandomInode),
         });
-        Dentry::add_child(&dev_mount.root_dentry, "urandom".into(), urandom_inode);
+        register_node("urandom", urandom_inode);
 
         // Scan DEVICE_MANAGER and dynamically register discovered block devices
         let dm = DEVICE_MANAGER.read();
@@ -143,7 +234,7 @@ impl DevFs {
                         device_name: dev_name,
                     }),
                 });
-                Dentry::add_child(&dev_mount.root_dentry, vfs_name.into(), block_inode);
+                register_node(vfs_name, block_inode);
             }
         }
 

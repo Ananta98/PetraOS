@@ -20,11 +20,36 @@ pub fn init() {
 }
 
 /// Read from the global console input buffer through line discipline.
+/// Blocks until input is available (POSIX terminal blocking semantics).
 pub fn tty_read(buf: &mut [u8]) -> Result<usize, VfsError> {
-    if let Some(ref mut c) = *CONSOLE.lock() {
-        Ok(c.read_input(buf))
-    } else {
-        Err(VfsError::NotFound)
+    if buf.is_empty() {
+        return Ok(0);
+    }
+
+    loop {
+        {
+            let mut guard = CONSOLE.lock();
+            if let Some(ref mut c) = *guard {
+                c.poll_input();
+                let bytes_read = c.ldisc.read_bytes(buf);
+                if bytes_read > 0 {
+                    return Ok(bytes_read);
+                }
+            } else {
+                return Err(VfsError::NotFound);
+            }
+        }
+
+        // Check if there are pending signals interrupting the read
+        if let Some(proc_arc) = crate::proc::current_process() {
+            let proc = proc_arc.lock();
+            if proc.pending_signals.mask != 0 {
+                return Err(VfsError::Interrupted);
+            }
+        }
+
+        // Wait for keyboard interrupt or next timer interrupt
+        crate::proc::thread::Thread::yield_cpu();
     }
 }
 

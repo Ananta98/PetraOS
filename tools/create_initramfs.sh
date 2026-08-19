@@ -31,7 +31,8 @@ fi
 
 (
     cd "${ROOT_DIR}"
-    find . -mindepth 1 | cpio -o -H newc -R 0:0 > "${OUTPUT_CPIO_ABS}"
+    find . -mindepth 1 ! -name 'st*' | sort | cpio -o -H newc -R 0:0 > "${OUTPUT_CPIO_ABS}.tmp"
+    mv "${OUTPUT_CPIO_ABS}.tmp" "${OUTPUT_CPIO_ABS}"
 )
 
 echo "✔ [INFO] Generated ${OUTPUT_CPIO} ($(wc -c < "${OUTPUT_CPIO}") bytes)"

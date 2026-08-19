@@ -70,13 +70,13 @@ fn resolve_path_symlink(path: &str, depth: usize) -> Result<Arc<Dentry>, VfsErro
         return Ok(current);
     }
 
-    let parts = remainder.split('/').filter(|s| !s.is_empty());
+    let parts: Vec<&str> = remainder.split('/').filter(|s| !s.is_empty()).collect();
 
-    for part in parts {
+    for (idx, part) in parts.iter().enumerate() {
         // 1. Check global dcache and local children dentry cache first
         let dentry = if let Some(cached) = dcache_lookup(&current, part) {
             cached
-        } else if let Some(cached_child) = current.children.lock().get(part).cloned() {
+        } else if let Some(cached_child) = current.children.lock().get(*part).cloned() {
             dcache_insert(&current, part, cached_child.clone());
             cached_child
         } else {
@@ -84,7 +84,7 @@ fn resolve_path_symlink(path: &str, depth: usize) -> Result<Arc<Dentry>, VfsErro
                 return Err(VfsError::NotDirectory);
             }
             let child_inode = current.inode.ops.lookup(part)?;
-            let child_dentry = Dentry::add_child(&current, part.into(), child_inode);
+            let child_dentry = Dentry::add_child(&current, (*part).into(), child_inode);
             dcache_insert(&current, part, child_dentry.clone());
             child_dentry
         };
@@ -93,7 +93,19 @@ fn resolve_path_symlink(path: &str, depth: usize) -> Result<Arc<Dentry>, VfsErro
         if dentry.inode.inode_type == InodeType::Symlink {
             if let Ok(target) = dentry.inode.ops.readlink() {
                 drop(mt);
-                return resolve_path_symlink(&target, depth + 1);
+                let current_dir = build_path(&current);
+                let mut target_full = if target.starts_with('/') {
+                    target
+                } else {
+                    let base = current_dir.trim_end_matches('/');
+                    alloc::format!("{}/{}", base, target)
+                };
+                for rem in &parts[idx + 1..] {
+                    target_full.push('/');
+                    target_full.push_str(rem);
+                }
+                let norm = normalize_path("/", &target_full);
+                return resolve_path_symlink(&norm, depth + 1);
             }
         }
 

@@ -63,6 +63,7 @@ impl From<crate::fs::vfs::types::VfsError> for SyscallError {
             VfsError::BadFd => SyscallError::EBADF,
             VfsError::NotEmpty => SyscallError::EINVAL,
             VfsError::IsDirectory => SyscallError::EISDIR,
+            VfsError::Interrupted => SyscallError::EINTR,
         }
     }
 }

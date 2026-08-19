@@ -173,7 +173,7 @@ impl Console {
         buf.len()
     }
 
-    /// Poll keyboard hardware for new characters and feed into line discipline.
+    /// Poll keyboard hardware and serial port for new characters and feed into line discipline.
     pub fn poll_input(&mut self) {
         while let Some(byte) = KEY_RING_BUFFER.pop() {
             let echo = self.ldisc.accept_input_byte(byte);

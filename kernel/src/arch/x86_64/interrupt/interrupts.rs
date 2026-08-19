@@ -283,7 +283,7 @@ extern "x86-interrupt" fn page_fault_handler(
         }
     }
 
-    if (stack_frame.code_segment & 3) == 3 {
+    if (stack_frame.code_segment & 3) == 3 || fault_virt.as_u64() <= crate::syscalls::USER_SPACE_MAX_ADDR {
         log::warn!(
             "User process page fault (SIGSEGV) at {:#x}, Error Code: {:#x} [{:?}]",
             fault_virt.as_u64(),

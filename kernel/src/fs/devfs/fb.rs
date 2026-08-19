@@ -9,6 +9,14 @@ impl InodeOps for FbInode {
     fn open(&self) -> Result<Arc<dyn FileOps>, VfsError> {
         Ok(Arc::new(FbFileOps))
     }
+
+    fn stat(&self) -> Result<crate::fs::vfs::types::Stat, VfsError> {
+        Ok(crate::fs::vfs::types::Stat {
+            mode: 0o020660, // S_IFCHR | 0660
+            nlink: 1,
+            ..Default::default()
+        })
+    }
 }
 
 /// File operations for `/dev/fb0`.

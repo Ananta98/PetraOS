@@ -88,6 +88,12 @@ impl Scheduler {
     /// 2. If no threads are eligible, advance $\text{min\_vruntime}$ to $\min(v_i)$.
     /// 3. Among eligible threads, pick the one with the earliest virtual deadline ($\min(d_i)$).
     pub fn pick_next(&mut self, cpu_id: u32) -> Option<Arc<Spinlock<Thread>>> {
+        // Prevent secondary AP cores from concurrently executing BSP threads on the same stack
+        if cpu_id != 0 {
+            self.current_threads[cpu_id as usize] = None;
+            return None;
+        }
+
         if self.run_queue.is_empty() {
             self.current_threads[cpu_id as usize] = None;
             return None;

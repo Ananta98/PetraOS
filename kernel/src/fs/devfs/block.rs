@@ -13,6 +13,14 @@ impl InodeOps for BlockDeviceInode {
             device_name: self.device_name,
         }))
     }
+
+    fn stat(&self) -> Result<crate::fs::vfs::types::Stat, VfsError> {
+        Ok(crate::fs::vfs::types::Stat {
+            mode: 0o060660, // S_IFBLK | 0660
+            nlink: 1,
+            ..Default::default()
+        })
+    }
 }
 
 pub struct BlockDeviceFileOps {

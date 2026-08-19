@@ -19,6 +19,15 @@ impl<B: SerialBackend> SerialPort<B> {
     pub const fn new(backend: B) -> Self {
         Self { backend }
     }
+
+    /// Try reading a single byte from the serial FIFO if available.
+    pub fn try_read_byte(&self) -> Option<u8> {
+        if (self.backend.read_reg(5) & 1) != 0 {
+            Some(self.backend.read_reg(0))
+        } else {
+            None
+        }
+    }
 }
 
 impl<B: SerialBackend + Send + Sync> Device for SerialPort<B> {
@@ -44,10 +53,11 @@ impl<B: SerialBackend + Send + Sync> Device for SerialPort<B> {
 
 impl<B: SerialBackend + Send + Sync> CharDevice for SerialPort<B> {
     fn read_byte(&mut self) -> Result<u8, DriverError> {
-        while (self.backend.read_reg(5) & 1) == 0 {
-            // Spin waiting for data to receive
+        if let Some(byte) = self.try_read_byte() {
+            Ok(byte)
+        } else {
+            Err(DriverError::ReadFailed)
         }
-        Ok(self.backend.read_reg(0))
     }
 
     fn write_byte(&mut self, byte: u8) -> Result<(), DriverError> {
