@@ -279,10 +279,10 @@ index 00000000..f7dca05d
 +}
 diff --git a/sysdeps/petra/generic/generic.cpp b/sysdeps/petra/generic/generic.cpp
 new file mode 100644
-index 00000000..0c51aeac
+index 00000000..b6059da8
 --- /dev/null
 +++ b/sysdeps/petra/generic/generic.cpp
-@@ -0,0 +1,702 @@
+@@ -0,0 +1,728 @@
 +#include <bits/ensure.h>
 +#include <mlibc/debug.hpp>
 +#include <mlibc/all-sysdeps.hpp>
@@ -983,7 +983,33 @@ index 00000000..0c51aeac
 +    return 0;
 +}
 +
++int Sysdeps<Brk>::operator()(void **out) {
++    int64_t ret = __petra_syscall1(SYSCALL_BRK, 0);
++    if (ret < 0) {
++        return -ret;
++    }
++    *out = (void *)ret;
++    return 0;
++}
++
++int Sysdeps<Fchmodat>::operator()(int fd, const char *pathname, mode_t mode, int flags) {
++    int64_t ret = __petra_syscall4(SYSCALL_FCHMODAT, fd, (int64_t)pathname, mode, flags);
++    if (ret < 0) {
++        return -ret;
++    }
++    return 0;
++}
++
++int Sysdeps<Utimensat>::operator()(int dirfd, const char *pathname, const struct timespec times[2], int flags) {
++    int64_t ret = __petra_syscall4(SYSCALL_UTIMENSAT, dirfd, (int64_t)pathname, (int64_t)times, flags);
++    if (ret < 0) {
++        return -ret;
++    }
++    return 0;
++}
++
 +} // namespace mlibc
++
 +
 diff --git a/sysdeps/petra/include/abi-bits/access.h b/sysdeps/petra/include/abi-bits/access.h
 new file mode 120000
@@ -1491,10 +1517,10 @@ index 00000000..66412d70
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/mlibc/sysdeps.hpp b/sysdeps/petra/include/mlibc/sysdeps.hpp
 new file mode 100644
-index 00000000..71c97380
+index 00000000..045a9709
 --- /dev/null
 +++ b/sysdeps/petra/include/mlibc/sysdeps.hpp
-@@ -0,0 +1,83 @@
+@@ -0,0 +1,86 @@
 +#pragma once
 +
 +#include <mlibc/sysdep-signatures.hpp>
@@ -1567,7 +1593,10 @@ index 00000000..71c97380
 +    Sigpending,
 +    OpenDir,
 +    ReadEntries,
-+    Sysconf
++    Sysconf,
++    Brk,
++    Fchmodat,
++    Utimensat
 +{};
 +
 +template<typename Tag>
@@ -1580,10 +1609,10 @@ index 00000000..71c97380
 +} // namespace mlibc
 diff --git a/sysdeps/petra/include/sys/syscall.h b/sysdeps/petra/include/sys/syscall.h
 new file mode 100644
-index 00000000..90885b83
+index 00000000..c6d9cbd5
 --- /dev/null
 +++ b/sysdeps/petra/include/sys/syscall.h
-@@ -0,0 +1,120 @@
+@@ -0,0 +1,122 @@
 +#ifndef _SYS_SYSCALL_H
 +#define _SYS_SYSCALL_H
 +
@@ -1646,7 +1675,9 @@ index 00000000..90885b83
 +#define SYSCALL_EXIT_GROUP     231
 +#define SYSCALL_OPENAT         257
 +#define SYSCALL_NEWFSTATAT     262
++#define SYSCALL_FCHMODAT       268
 +#define SYSCALL_FACCESSAT      269
++#define SYSCALL_UTIMENSAT      280
 +#define SYSCALL_DUP3           292
 +#define SYSCALL_PIPE2          293
 +#define SYSCALL_PRLIMIT64      302
