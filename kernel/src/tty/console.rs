@@ -72,7 +72,7 @@ impl FlantermContext {
                 fb.green_mask_shift(),
                 fb.blue_mask_size(),
                 fb.blue_mask_shift(),
-                fb.addr() as *mut u32, // canvas (allocated internally)
+                core::ptr::null_mut(), // canvas (NULL disables double buffering, direct VRAM rendering)
                 core::ptr::null_mut(), // ansi colours
                 core::ptr::null_mut(), // ansi bright colours
                 core::ptr::null_mut(), // default bg
