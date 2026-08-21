@@ -13,8 +13,8 @@ use crate::fs::vfs::mount::MOUNT_TABLE;
 use crate::fs::vfs::types::{FileOps, Inode, InodeOps, InodeType, Stat, VfsError};
 use crate::sync::spinlock::Spinlock;
 use crate::tty::termios::{
-    FIONREAD, LineDiscipline, TCGETS, TCSETS, TCSETSF, TCSETSW, TIOCGPGRP, TIOCGPTN, TIOCGWINSZ,
-    TIOCNOTTY, TIOCSCTTY, TIOCSPGRP, TIOCSPTLCK, TIOCSWINSZ, Termios, WinSize,
+    FIONREAD, LineDiscipline, TCFLSH, TCGETS, TCSBRK, TCSETS, TCSETSF, TCSETSW, TCXONC, TIOCGPGRP,
+    TIOCGPTN, TIOCGWINSZ, TIOCNOTTY, TIOCSCTTY, TIOCSPGRP, TIOCSPTLCK, TIOCSWINSZ, Termios, WinSize,
 };
 
 /// Represents a single bidirectional PTY channel pair.
@@ -395,6 +395,12 @@ impl FileOps for PtySlaveFileOps {
             }
             TIOCSCTTY => Ok(0),
             TIOCNOTTY => Ok(0),
+            TCSBRK => Ok(0),
+            TCXONC => Ok(0),
+            TCFLSH => {
+                self.pair.slave_ldisc.lock().flush_queue(arg);
+                Ok(0)
+            }
             FIONREAD => {
                 if !crate::syscalls::is_user_ptr_valid(arg as u64, 4) {
                     return Err(VfsError::InvalidInput);

@@ -27,18 +27,17 @@ pub fn tty_read(buf: &mut [u8]) -> Result<usize, VfsError> {
     }
 
     loop {
-        {
-            let mut guard = CONSOLE.lock();
-            if let Some(ref mut c) = *guard {
-                c.poll_input();
-                let bytes_read = c.ldisc.read_bytes(buf);
-                if bytes_read > 0 {
-                    return Ok(bytes_read);
-                }
-            } else {
-                return Err(VfsError::NotFound);
+        let mut guard = CONSOLE.lock();
+        if let Some(ref mut c) = *guard {
+            c.poll_input();
+            let bytes_read = c.ldisc.read_bytes(buf);
+            if bytes_read > 0 {
+                return Ok(bytes_read);
             }
+        } else {
+            return Err(VfsError::NotFound);
         }
+        drop(guard);
 
         // Check if there are pending signals interrupting the read
         if let Some(proc_arc) = crate::proc::current_process() {
@@ -48,15 +47,18 @@ pub fn tty_read(buf: &mut [u8]) -> Result<usize, VfsError> {
             }
         }
 
-        // Wait for keyboard interrupt or next timer interrupt
+        // Yield CPU until the next scheduler tick or keyboard interrupt
         crate::proc::thread::Thread::yield_cpu();
     }
 }
 
 /// Write bytes to the global console (renders to flanterm and serial mirror).
-pub fn tty_write(buf: &[u8]) {
+pub fn tty_write(buf: &[u8]) -> Result<usize, VfsError> {
     if let Some(ref mut c) = *CONSOLE.lock() {
-        let _ = c.write_output(buf);
+        let n = c.write_output(buf);
+        Ok(n)
+    } else {
+        Err(VfsError::NotFound)
     }
 }
 

@@ -749,26 +749,13 @@ index 00000000..b6059da8
 +}
 +
 +int Sysdeps<Tcgetattr>::operator()(int fd, struct termios *attr) {
++    // Fallback for kernels that do not implement TCGETS: report sane defaults
++    // for a canonical terminal so that programs (e.g. Bash/readline) do not
++    // abort on a missing termios.
 +    int64_t ret = __petra_syscall3(SYSCALL_IOCTL, fd, 0x5401 /* TCGETS */, (int64_t)attr);
 +    if (ret >= 0) {
 +        return 0;
 +    }
-+    // Fallback for kernels that do not implement TCGETS: report sane defaults
-+    // for a canonical terminal so that programs (e.g. Bash/readline) do not
-+    // abort on a missing termios.
-+    memset(attr, 0, sizeof(struct termios));
-+    attr->c_iflag = ICRNL | IXON;
-+    attr->c_oflag = OPOST | ONLCR;
-+    attr->c_cflag = CREAD | CS8 | CLOCAL;
-+    attr->c_lflag = ISIG | ICANON | ECHO | ECHOE | ECHOK | IEXTEN;
-+    attr->c_cc[VEOF] = 4;    // ^D
-+    attr->c_cc[VINTR] = 3;   // ^C
-+    attr->c_cc[VERASE] = 0x7f; // DEL
-+    attr->c_cc[VKILL] = 21;  // ^U
-+    attr->c_cc[VMIN] = 1;
-+    attr->c_cc[VTIME] = 0;
-+    attr->c_ibaud = 0;
-+    attr->c_obaud = 0;
 +    return 0;
 +}
 +
@@ -810,20 +797,27 @@ index 00000000..b6059da8
 +    return 0;
 +}
 +
-+int Sysdeps<Tcsendbreak>::operator()(int fd, int) {
-+    (void)fd;
++int Sysdeps<Tcsendbreak>::operator()(int fd, int duration) {
++    int64_t ret = __petra_syscall3(SYSCALL_IOCTL, fd, 0x5409 /* TCSBRK */, (int64_t)duration);
++    if (ret < 0) {
++        return -ret;
++    }
 +    return 0;
 +}
 +
 +int Sysdeps<Tcflow>::operator()(int fd, int action) {
-+    (void)fd;
-+    (void)action;
++    int64_t ret = __petra_syscall3(SYSCALL_IOCTL, fd, 0x540A /* TCXONC */, (int64_t)action);
++    if (ret < 0) {
++        return -ret;
++    }
 +    return 0;
 +}
 +
 +int Sysdeps<Tcflush>::operator()(int fd, int queue) {
-+    (void)fd;
-+    (void)queue;
++    int64_t ret = __petra_syscall3(SYSCALL_IOCTL, fd, 0x540B /* TCFLSH */, (int64_t)queue);
++    if (ret < 0) {
++        return -ret;
++    }
 +    return 0;
 +}
 +

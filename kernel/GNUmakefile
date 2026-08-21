@@ -1,7 +1,3 @@
-# Nuke built-in rules and variables.
-MAKEFLAGS += -rR
-.SUFFIXES:
-
 # This is the name that our final executable will have.
 # Change as needed.
 override OUTPUT := kernel

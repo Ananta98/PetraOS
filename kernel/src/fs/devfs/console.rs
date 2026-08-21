@@ -6,8 +6,8 @@
 use crate::fs::vfs::types::{FileOps, InodeOps, Stat, VfsError};
 use crate::tty::console::CONSOLE;
 use crate::tty::termios::{
-    FIONREAD, TCGETS, TCSETS, TCSETSF, TCSETSW, TIOCGPGRP, TIOCGWINSZ, TIOCNOTTY, TIOCSCTTY,
-    TIOCSPGRP, TIOCSWINSZ, Termios, WinSize,
+    FIONREAD, TCFLSH, TCGETS, TCSBRK, TCSETS, TCSETSF, TCSETSW, TCXONC, TIOCGPGRP, TIOCGWINSZ,
+    TIOCNOTTY, TIOCSCTTY, TIOCSPGRP, TIOCSWINSZ, Termios, WinSize,
 };
 use crate::tty::{tty_read, tty_write};
 use alloc::sync::Arc;
@@ -53,10 +53,12 @@ impl FileOps for ConsoleFileOps {
                     return Err(VfsError::InvalidInput);
                 }
                 let t = console.ldisc.termios;
+
                 // SAFETY: User pointer validated within user space bounds.
                 unsafe {
                     *(arg as *mut Termios) = t;
                 }
+
                 Ok(0)
             }
             TCSETS | TCSETSW | TCSETSF => {
@@ -119,6 +121,12 @@ impl FileOps for ConsoleFileOps {
             }
             TIOCSCTTY => Ok(0),
             TIOCNOTTY => Ok(0),
+            TCSBRK => Ok(0),
+            TCXONC => Ok(0),
+            TCFLSH => {
+                console.ldisc.flush_queue(arg);
+                Ok(0)
+            }
             FIONREAD => {
                 if !crate::syscalls::is_user_ptr_valid(arg as u64, 4) {
                     return Err(VfsError::InvalidInput);

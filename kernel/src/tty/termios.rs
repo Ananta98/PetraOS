@@ -3,6 +3,7 @@
 //! Provides structures, bitflags, IOCTL constants, and line discipline
 //! management conforming to the Linux x86_64 ABI and POSIX.1-2017 standards.
 
+use crate::ipc::signal;
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
 
@@ -121,6 +122,17 @@ pub const TCSETS2: u64 = 0x402C542B;
 pub const TCSETSW2: u64 = 0x402C542C;
 pub const TCSETSF2: u64 = 0x402C542D;
 
+// Flow control actions (TCXONC)
+pub const TCOOFF: usize = 0;
+pub const TCOON: usize = 1;
+pub const TCIOFF: usize = 2;
+pub const TCION: usize = 3;
+
+// Queue selector constants (TCFLSH)
+pub const TCIFLUSH: usize = 0;
+pub const TCOFLUSH: usize = 1;
+pub const TCIOFLUSH: usize = 2;
+
 /// Standard POSIX `termios` structure conforming to Linux x86_64 ABI.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -160,7 +172,7 @@ impl Default for Termios {
             c_iflag: ICRNL | IXON | IUTF8,
             c_oflag: OPOST | ONLCR,
             c_cflag: CS8 | CREAD | HUPCL,
-            c_lflag: ISIG | ICANON | ECHO | ECHOE | ECHOK | ECHOCTL | ECHOKE | IEXTEN,
+            c_lflag: ISIG | ICANON | ECHO | ECHOE | ECHOK | ECHONL | IEXTEN,
             c_line: 0,
             c_cc: cc,
             c_ispeed: 38400,
@@ -168,6 +180,8 @@ impl Default for Termios {
         }
     }
 }
+
+
 
 /// POSIX terminal window size structure.
 #[repr(C)]
@@ -267,69 +281,71 @@ impl LineDiscipline {
         // 3. Canonical vs Raw mode processing
         if (self.termios.c_lflag & ICANON) != 0 {
             // Canonical Mode (Line-buffered)
-            if processed_byte == self.termios.c_cc[VERASE] || processed_byte == 0x08 {
-                if let Some(removed) = self.canon_buffer.pop() {
-                    if (self.termios.c_lflag & ECHO) != 0 && (self.termios.c_lflag & ECHOE) != 0 {
-                        // Visual erase: backspace, space, backspace
+            self.input_canon(processed_byte, &mut echo_bytes);
+        } else {
+            // Raw / Non-canonical Mode (Instant availability)
+            self.input_raw(processed_byte, &mut echo_bytes);
+        }
+
+        echo_bytes
+    }
+
+    pub fn input_canon(&mut self, byte: u8, echo_bytes: &mut Vec<u8>) {
+        let processed_byte = byte;
+        if processed_byte == self.termios.c_cc[VERASE] || processed_byte == 0x08 {
+            if let Some(removed) = self.canon_buffer.pop() {
+                if (self.termios.c_lflag & ECHO) != 0 && (self.termios.c_lflag & ECHOE) != 0 {
+                    // Visual erase: backspace, space, backspace
+                    echo_bytes.extend_from_slice(b"\x08 \x08");
+                    if removed < 0x20 && (self.termios.c_lflag & ECHOCTL) != 0 {
                         echo_bytes.extend_from_slice(b"\x08 \x08");
-                        if removed < 0x20 && (self.termios.c_lflag & ECHOCTL) != 0 {
-                            echo_bytes.extend_from_slice(b"\x08 \x08");
-                        }
-                    }
-                }
-            } else if processed_byte == self.termios.c_cc[VKILL] {
-                while let Some(removed) = self.canon_buffer.pop() {
-                    if (self.termios.c_lflag & ECHO) != 0 && (self.termios.c_lflag & ECHOK) != 0 {
-                        echo_bytes.extend_from_slice(b"\x08 \x08");
-                        if removed < 0x20 && (self.termios.c_lflag & ECHOCTL) != 0 {
-                            echo_bytes.extend_from_slice(b"\x08 \x08");
-                        }
-                    }
-                }
-            } else if processed_byte == self.termios.c_cc[VEOF] {
-                // Flush line buffer to read queue without including the EOF byte
-                for b in self.canon_buffer.drain(..) {
-                    self.read_queue.push_back(b);
-                }
-            } else if processed_byte == b'\n' || processed_byte == self.termios.c_cc[VEOL] {
-                self.canon_buffer.push(processed_byte);
-                if (self.termios.c_lflag & ECHO) != 0 || (self.termios.c_lflag & ECHONL) != 0 {
-                    if (self.termios.c_oflag & OPOST) != 0 && (self.termios.c_oflag & ONLCR) != 0 {
-                        echo_bytes.extend_from_slice(b"\r\n");
-                    } else {
-                        echo_bytes.push(b'\n');
-                    }
-                }
-                for b in self.canon_buffer.drain(..) {
-                    self.read_queue.push_back(b);
-                }
-            } else {
-                self.canon_buffer.push(processed_byte);
-                if (self.termios.c_lflag & ECHO) != 0 {
-                    if processed_byte < 0x20 && (self.termios.c_lflag & ECHOCTL) != 0 {
-                        echo_bytes.push(b'^');
-                        echo_bytes.push(processed_byte + b'@');
-                    } else {
-                        echo_bytes.push(processed_byte);
                     }
                 }
             }
-        } else {
-            // Raw / Non-canonical Mode (Instant availability)
-            self.read_queue.push_back(processed_byte);
-            if (self.termios.c_lflag & ECHO) != 0 {
-                if processed_byte == b'\n'
-                    && (self.termios.c_oflag & OPOST) != 0
-                    && (self.termios.c_oflag & ONLCR) != 0
-                {
+        } else if processed_byte == self.termios.c_cc[VKILL] {
+            while let Some(removed) = self.canon_buffer.pop() {
+                if (self.termios.c_lflag & ECHO) != 0 && (self.termios.c_lflag & ECHOK) != 0 {
+                    echo_bytes.extend_from_slice(b"\x08 \x08");
+                    if removed < 0x20 && (self.termios.c_lflag & ECHOCTL) != 0 {
+                        echo_bytes.extend_from_slice(b"\x08 \x08");
+                    }
+                }
+            }
+        } else if processed_byte == self.termios.c_cc[VEOF] {
+            // Flush line buffer to read queue without including the EOF byte
+            for b in self.canon_buffer.drain(..) {
+                self.read_queue.push_back(b);
+            }
+        } else if processed_byte == b'\n' || processed_byte == self.termios.c_cc[VEOL] {
+            self.canon_buffer.push(processed_byte);
+            if (self.termios.c_lflag & ECHO) != 0 || (self.termios.c_lflag & ECHONL) != 0 {
+                if (self.termios.c_oflag & OPOST) != 0 && (self.termios.c_oflag & ONLCR) != 0 {
                     echo_bytes.extend_from_slice(b"\r\n");
+                } else {
+                    echo_bytes.push(b'\n');
+                }
+            }
+            for b in self.canon_buffer.drain(..) {
+                self.read_queue.push_back(b);
+            }
+        } else {
+            self.canon_buffer.push(processed_byte);
+            if (self.termios.c_lflag & ECHO) != 0 {
+                if processed_byte < 0x20 && (self.termios.c_lflag & ECHOCTL) != 0 {
+                    echo_bytes.push(b'^');
+                    echo_bytes.push(processed_byte + b'@');
                 } else {
                     echo_bytes.push(processed_byte);
                 }
             }
         }
+    }
 
-        echo_bytes
+    pub fn input_raw(&mut self, byte: u8, echo_bytes: &mut Vec<u8>) {
+        self.read_queue.push_back(byte);
+        if (self.termios.c_lflag & ECHO) != 0 {
+            echo_bytes.push(byte);
+        }
     }
 
     /// Read available bytes into `buf`. Returns count read.
@@ -349,6 +365,25 @@ impl LineDiscipline {
     /// Check if bytes are ready for reading.
     pub fn available_read_bytes(&self) -> usize {
         self.read_queue.len()
+    }
+
+    /// Flush input/output queues based on POSIX queue selector:
+    /// TCIFLUSH (0), TCOFLUSH (1), TCIOFLUSH (2).
+    pub fn flush_queue(&mut self, queue_selector: usize) {
+        match queue_selector {
+            0 => {
+                self.canon_buffer.clear();
+                self.read_queue.clear();
+            }
+            1 => {
+                // TCOFLUSH: Output queue flush (line discipline streams directly)
+            }
+            2 => {
+                self.canon_buffer.clear();
+                self.read_queue.clear();
+            }
+            _ => {}
+        }
     }
 
     /// Process output bytes (c_oflag translation).
@@ -374,8 +409,7 @@ impl LineDiscipline {
     /// Send signal to the foreground process group.
     fn send_signal_to_fg(&self, signum: u8) {
         if self.foreground_pgid > 0 {
-            let _ = crate::ipc::signal::send_signal_to_process_group(self.foreground_pgid, signum);
+            let _ = signal::send_signal_to_process_group(self.foreground_pgid, signum);
         }
     }
 }
-

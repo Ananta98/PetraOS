@@ -109,11 +109,6 @@ pub fn handle_scancode(scancode: u8) {
         if event.state == KeyState::Pressed {
             if let Some(ch) = event.ascii {
                 KEY_RING_BUFFER.push(ch as u8);
-                log::trace!(
-                    "[KEYBOARD] Key Press: '{}' (Scancode: {:#04x})",
-                    ch,
-                    scancode
-                );
             } else {
                 match event.code {
                     KeyCode::Up => {
@@ -172,13 +167,7 @@ pub fn handle_scancode(scancode: u8) {
                     }
                     _ => {}
                 }
-                log::trace!(
-                    "[KEYBOARD] Special Key Press: {:?} (Scancode: {:#04x})",
-                    event.code,
-                    scancode
-                );
             }
-            crate::tty::console::on_input_available();
         }
     }
 }

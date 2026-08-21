@@ -11,6 +11,7 @@ use crate::drivers::char::keyboard::KEY_RING_BUFFER;
 use crate::drivers::serial::{PortIoBackend, SerialPort};
 use crate::limine::FRAMEBUFFER_REQUEST;
 use crate::sync::spinlock::Spinlock;
+use crate::tty::ECHO;
 use crate::tty::termios::{LineDiscipline, WinSize};
 
 // Memory allocation callbacks required by flanterm C library.
@@ -71,7 +72,7 @@ impl FlantermContext {
                 fb.green_mask_shift(),
                 fb.blue_mask_size(),
                 fb.blue_mask_shift(),
-                core::ptr::null_mut(), // canvas (allocated internally)
+                fb.addr() as *mut u32, // canvas (allocated internally)
                 core::ptr::null_mut(), // ansi colours
                 core::ptr::null_mut(), // ansi bright colours
                 core::ptr::null_mut(), // default bg
@@ -121,6 +122,26 @@ impl FlantermContext {
             (term.cols as u16, term.rows as u16)
         }
     }
+
+    /// Force flanterm to flush its internal back-buffer to the physical framebuffer.
+    pub fn flush(&mut self) {
+        if self.ctx.is_null() {
+            return;
+        }
+
+        // SAFETY: Accessing function pointers safely from the flanterm context.
+        unsafe {
+            let term = &*self.ctx;
+
+            // Depending on your bindgen generation, this is usually `double_buffer_flush`
+            // or `full_refresh`. We call it if it exists.
+            if let Some(flush_fn) = term.double_buffer_flush {
+                flush_fn(self.ctx);
+            } else if let Some(refresh_fn) = term.full_refresh {
+                refresh_fn(self.ctx);
+            }
+        }
+    }
 }
 
 /// Unified Console manager integrating Flanterm display, Line Discipline, and Serial fallback.
@@ -164,6 +185,7 @@ impl Console {
         let processed = self.ldisc.process_output_bytes(buf);
         if let Some(ref mut ft) = self.flanterm {
             ft.write_bytes(&processed);
+            ft.flush();
         }
         if let Some(ref mut ser) = self.serial {
             for &byte in &processed {
@@ -175,17 +197,26 @@ impl Console {
 
     /// Poll keyboard hardware and serial port for new characters and feed into line discipline.
     pub fn poll_input(&mut self) {
+        let mut screen_needs_flush = false;
+
         while let Some(byte) = KEY_RING_BUFFER.pop() {
             let echo = self.ldisc.accept_input_byte(byte);
             if !echo.is_empty() {
                 if let Some(ref mut ft) = self.flanterm {
                     ft.write_bytes(&echo);
+                    screen_needs_flush = true;
                 }
                 if let Some(ref mut ser) = self.serial {
                     for &b in &echo {
                         let _ = ser.write_byte(b);
                     }
                 }
+            }
+        }
+
+        if screen_needs_flush {
+            if let Some(ref mut ft) = self.flanterm {
+                ft.flush();
             }
         }
     }
@@ -215,14 +246,4 @@ pub fn init() {
         cols,
         rows
     );
-}
-
-/// Notify console that new input is available in the keyboard ring buffer.
-/// Attempts a non-blocking lock to immediately poll input and render echo to screen.
-pub fn on_input_available() {
-    if let Some(mut guard) = CONSOLE.try_lock() {
-        if let Some(ref mut console) = *guard {
-            console.poll_input();
-        }
-    }
 }
