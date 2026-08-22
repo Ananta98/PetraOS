@@ -6,10 +6,9 @@ pub mod regs;
 use crate::device::{BlockDevice, Device, DeviceType, DriverError};
 use crate::drivers::pci::config;
 use crate::drivers::pci::device::PciDevice;
-use crate::mm::pmm::PMM;
-use crate::mm::{ensure_mapped, map_mmio};
+use crate::mm::dma::{DmaCoherent, DmaDirection, DmaStreamer};
+use crate::mm::map_mmio;
 use crate::sync::spinlock::Spinlock;
-use x86_64::PhysAddr;
 
 pub use command::{NvmeCmdBuilder, NvmeIdentifyNamespace};
 pub use device::{NvmeDeviceRef, NvmeModuleDriver};
@@ -20,20 +19,6 @@ pub use regs::{
 };
 
 pub static NVME_DRIVER: Spinlock<Option<NvmeDriver>> = Spinlock::new(None);
-
-/// Helper to allocate a physical DMA page and ensure it is mapped in the kernel page table.
-fn alloc_dma_page() -> Result<(PhysAddr, *mut u8), DriverError> {
-    let phys = PMM.alloc_page().ok_or(DriverError::InitFailed)?;
-    ensure_mapped(phys.as_u64(), 4096);
-    let hhdm = crate::mm::hhdm_offset();
-    let virt = (phys.as_u64() + hhdm) as *mut u8;
-    Ok((phys, virt))
-}
-
-/// Helper to free an allocated DMA physical page.
-fn free_dma_page(phys: PhysAddr) {
-    PMM.free_page(phys);
-}
 
 pub struct NvmeDriver {
     pci_device: PciDevice,
@@ -189,39 +174,21 @@ impl Device for NvmeDriver {
         self.dstrd = ((cap >> 32) & 0x0F) as u32;
 
         // 6. Allocate DMA memory for Admin Submission Queue (ASQ) and Completion Queue (ACQ)
-        let (asq_phys_addr, asq_virt_u8) = alloc_dma_page()?;
-        let (acq_phys_addr, acq_virt_u8) = alloc_dma_page()?;
-
-        let asq_virt = asq_virt_u8 as *mut NvmeCmd;
-        let acq_virt = acq_virt_u8 as *mut NvmeCqe;
-
-        // SAFETY: PMM returned valid page physical addresses, mapped via HHDM and ensure_mapped.
-        unsafe {
-            core::ptr::write_bytes(asq_virt_u8, 0, 4096);
-            core::ptr::write_bytes(acq_virt_u8, 0, 4096);
-        }
+        let asq = DmaCoherent::alloc(4096).map_err(|_| DriverError::AllocFailed)?;
+        let acq = DmaCoherent::alloc(4096).map_err(|_| DriverError::AllocFailed)?;
 
         // Set AQA (64 entries each: 63 | (63 << 16))
         let aqa = (63u32 << 16) | 63u32;
         unsafe {
             core::ptr::write_volatile(&mut regs.aqa, aqa);
-            core::ptr::write_volatile(&mut regs.asq, asq_phys_addr.as_u64());
-            core::ptr::write_volatile(&mut regs.acq, acq_phys_addr.as_u64());
+            core::ptr::write_volatile(&mut regs.asq, asq.phys().as_u64());
+            core::ptr::write_volatile(&mut regs.acq, acq.phys().as_u64());
         }
 
         let asq_db = NvmeRegs::doorbell_ptr(self.regs, 0, false, self.dstrd);
         let acq_db = NvmeRegs::doorbell_ptr(self.regs, 0, true, self.dstrd);
 
-        self.admin_queue = Some(NvmeQueue::new(
-            0,
-            64,
-            asq_virt,
-            asq_phys_addr.as_u64(),
-            acq_virt,
-            acq_phys_addr.as_u64(),
-            asq_db,
-            acq_db,
-        ));
+        self.admin_queue = Some(NvmeQueue::new(0, 64, asq, acq, asq_db, acq_db));
 
         // 7. Enable Controller
         unsafe {
@@ -248,25 +215,16 @@ impl Device for NvmeDriver {
         }
 
         // 8. Setup I/O Submission & Completion Queues (QID 1)
-        let (iosq_phys, iosq_virt_u8) = alloc_dma_page()?;
-        let (iocq_phys, iocq_virt_u8) = alloc_dma_page()?;
+        let iosq = DmaCoherent::alloc(4096).map_err(|_| DriverError::AllocFailed)?;
+        let iocq = DmaCoherent::alloc(4096).map_err(|_| DriverError::AllocFailed)?;
 
-        let iosq_virt = iosq_virt_u8 as *mut NvmeCmd;
-        let iocq_virt = iocq_virt_u8 as *mut NvmeCqe;
-
-        // SAFETY: PMM returned valid page physical addresses, mapped via HHDM and ensure_mapped.
-        unsafe {
-            core::ptr::write_bytes(iosq_virt_u8, 0, 4096);
-            core::ptr::write_bytes(iocq_virt_u8, 0, 4096);
-        }
-
-        let create_cq_cmd = NvmeCmdBuilder::create_cq(self.next_cid(), 1, 64, iocq_phys.as_u64());
+        let create_cq_cmd = NvmeCmdBuilder::create_cq(self.next_cid(), 1, 64, iocq.phys().as_u64());
         if let Some(ref mut admin_q) = self.admin_queue {
             admin_q.submit_and_wait(create_cq_cmd)?;
         }
 
         let create_sq_cmd =
-            NvmeCmdBuilder::create_sq(self.next_cid(), 1, 1, 64, iosq_phys.as_u64());
+            NvmeCmdBuilder::create_sq(self.next_cid(), 1, 1, 64, iosq.phys().as_u64());
         if let Some(ref mut admin_q) = self.admin_queue {
             admin_q.submit_and_wait(create_sq_cmd)?;
         }
@@ -274,35 +232,20 @@ impl Device for NvmeDriver {
         let iosq_db = NvmeRegs::doorbell_ptr(self.regs, 1, false, self.dstrd);
         let iocq_db = NvmeRegs::doorbell_ptr(self.regs, 1, true, self.dstrd);
 
-        self.io_queue = Some(NvmeQueue::new(
-            1,
-            64,
-            iosq_virt,
-            iosq_phys.as_u64(),
-            iocq_virt,
-            iocq_phys.as_u64(),
-            iosq_db,
-            iocq_db,
-        ));
+        self.io_queue = Some(NvmeQueue::new(1, 64, iosq, iocq, iosq_db, iocq_db));
 
         // 9. Identify Namespace 1 to retrieve capacity and sector size
-        let (id_phys, id_virt) = alloc_dma_page()?;
+        let id = DmaCoherent::alloc(4096).map_err(|_| DriverError::AllocFailed)?;
 
-        // SAFETY: Zeroing the 4096-byte page allocated for Identify Namespace response.
-        unsafe {
-            core::ptr::write_bytes(id_virt, 0, 4096);
-        }
-
-        let identify_cmd = NvmeCmdBuilder::identify_ns(self.next_cid(), 1, id_phys.as_u64());
+        let identify_cmd = NvmeCmdBuilder::identify_ns(self.next_cid(), 1, id.phys().as_u64());
         if let Some(ref mut admin_q) = self.admin_queue {
             admin_q.submit_and_wait(identify_cmd)?;
         }
 
-        let id_ns = unsafe { &*(id_virt as *const NvmeIdentifyNamespace) };
+        let id_ns = unsafe { &*(id.as_ptr() as *const NvmeIdentifyNamespace) };
         self.block_size = id_ns.block_size();
         self.sector_count = id_ns.nsze;
-
-        free_dma_page(id_phys);
+        // `id` is dropped here, freeing the identify buffer back to the PMM.
 
         let capacity_mb = (self.sector_count * self.block_size as u64) / (1024 * 1024);
         log::info!(
@@ -328,11 +271,12 @@ impl BlockDevice for NvmeDriver {
             return Err(DriverError::Unsupported);
         }
 
-        let (dma_phys, dma_virt) = alloc_dma_page().map_err(|_| DriverError::ReadFailed)?;
+        let mut streamer =
+            DmaStreamer::new(buf.len(), DmaDirection::FromDevice).map_err(|_| DriverError::ReadFailed)?;
 
         let cid = self.next_cid();
         let read_cmd =
-            NvmeCmdBuilder::read(cid, 1, block_id, block_count as u16, dma_phys.as_u64());
+            NvmeCmdBuilder::read(cid, 1, block_id, block_count as u16, streamer.phys().as_u64());
 
         let result = if let Some(ref mut io_q) = self.io_queue {
             io_q.submit_and_wait(read_cmd)
@@ -341,13 +285,10 @@ impl BlockDevice for NvmeDriver {
         };
 
         if result.is_ok() {
-            unsafe {
-                // SAFETY: Copying read bytes from allocated DMA page to caller's buffer.
-                core::ptr::copy_nonoverlapping(dma_virt, buf.as_mut_ptr(), buf.len());
-            }
+            // Copy the device-filled bounce buffer into the caller's buffer.
+            streamer.sync_for_cpu(buf);
         }
 
-        free_dma_page(dma_phys);
         result.map(|_| buf.len())
     }
 
@@ -362,16 +303,15 @@ impl BlockDevice for NvmeDriver {
             return Err(DriverError::Unsupported);
         }
 
-        let (dma_phys, dma_virt) = alloc_dma_page().map_err(|_| DriverError::WriteFailed)?;
+        let mut streamer =
+            DmaStreamer::new(buf.len(), DmaDirection::ToDevice).map_err(|_| DriverError::WriteFailed)?;
 
-        unsafe {
-            // SAFETY: Copying data from caller's buffer to allocated DMA page prior to transfer.
-            core::ptr::copy_nonoverlapping(buf.as_ptr(), dma_virt, buf.len());
-        }
+        // Stage the caller's data into the bounce buffer before the transfer.
+        streamer.sync_for_device(buf);
 
         let cid = self.next_cid();
         let write_cmd =
-            NvmeCmdBuilder::write(cid, 1, block_id, block_count as u16, dma_phys.as_u64());
+            NvmeCmdBuilder::write(cid, 1, block_id, block_count as u16, streamer.phys().as_u64());
 
         let result = if let Some(ref mut io_q) = self.io_queue {
             io_q.submit_and_wait(write_cmd)
@@ -379,7 +319,6 @@ impl BlockDevice for NvmeDriver {
             Err(DriverError::InitFailed)
         };
 
-        free_dma_page(dma_phys);
         result.map(|_| buf.len())
     }
 

@@ -6,6 +6,7 @@ use crate::device::{BlockDevice, Device, DeviceType, DriverError};
 use crate::drivers::bus::pci::PciBus;
 use crate::drivers::pci::config;
 use crate::drivers::pci::device::PciDevice;
+use crate::mm::dma::{DmaCoherent, DmaDirection, DmaStreamer};
 use crate::mm::map_mmio;
 use crate::sync::spinlock::Spinlock;
 use alloc::boxed::Box;
@@ -17,16 +18,10 @@ use hba::{
     HbaPrdtEntry,
 };
 
+/// Size in bytes of a single AHCI command table (FIS + PRDT region).
+const CMD_TABLE_SIZE: usize = 256;
+
 pub static AHCI_DEVICE: Spinlock<Option<AhciDriver>> = Spinlock::new(None);
-
-#[repr(C, align(1024))]
-pub struct CmdListBuffer(pub [u8; 1024]);
-
-#[repr(C, align(256))]
-pub struct FisBuffer(pub [u8; 256]);
-
-#[repr(C, align(128))]
-pub struct CmdTableBuffer(pub [u8; 256]);
 
 pub struct AhciDeviceRef;
 
@@ -91,25 +86,25 @@ pub struct AhciDriver {
     hba_base: *mut HbaMem,
     pub active_port: usize,
     pub sector_data: Spinlock<alloc::collections::BTreeMap<u64, alloc::vec::Vec<u8>>>,
-    pub cmd_list: alloc::boxed::Box<CmdListBuffer>,
-    pub fis_buf: alloc::boxed::Box<FisBuffer>,
-    pub cmd_table: alloc::boxed::Box<CmdTableBuffer>,
+    pub cmd_list: DmaCoherent,
+    pub fis_buf: DmaCoherent,
+    pub cmd_table: DmaCoherent,
 }
 
 unsafe impl Send for AhciDriver {}
 unsafe impl Sync for AhciDriver {}
 
 impl AhciDriver {
-    pub fn new(pci_device: PciDevice) -> Self {
-        Self {
+    pub fn new(pci_device: PciDevice) -> Result<Self, DriverError> {
+        Ok(Self {
             pci_device,
             hba_base: core::ptr::null_mut(),
             active_port: 0,
             sector_data: Spinlock::new(alloc::collections::BTreeMap::new()),
-            cmd_list: alloc::boxed::Box::new(CmdListBuffer([0u8; 1024])),
-            fis_buf: alloc::boxed::Box::new(FisBuffer([0u8; 256])),
-            cmd_table: alloc::boxed::Box::new(CmdTableBuffer([0u8; 256])),
-        }
+            cmd_list: DmaCoherent::alloc(1024).map_err(|_| DriverError::AllocFailed)?,
+            fis_buf: DmaCoherent::alloc(256).map_err(|_| DriverError::AllocFailed)?,
+            cmd_table: DmaCoherent::alloc(CMD_TABLE_SIZE).map_err(|_| DriverError::AllocFailed)?,
+        })
     }
 
     pub fn find_and_init() -> Option<Self> {
@@ -117,7 +112,10 @@ impl AhciDriver {
         for dev in &discovery.devices[..discovery.count] {
             if dev.class_code == 0x01 && dev.subclass == 0x06 {
                 // Mass Storage / AHCI SATA
-                let mut driver = Self::new(*dev);
+                let mut driver = match Self::new(*dev) {
+                    Ok(d) => d,
+                    Err(_) => continue,
+                };
                 if driver.init().is_ok() {
                     return Some(driver);
                 }
@@ -131,7 +129,6 @@ impl AhciDriver {
         if self.hba_base.is_null() {
             return;
         }
-        let hhdm = crate::mm::hhdm_offset();
         let hba = unsafe { &mut *self.hba_base };
         let port = &mut hba.ports[port_no];
 
@@ -152,9 +149,9 @@ impl AhciDriver {
         }
 
         // 2. Set CLB, FB, and Command Table addresses
-        let clb_phys = self.cmd_list.0.as_ptr() as u64 - hhdm;
-        let fb_phys = self.fis_buf.0.as_ptr() as u64 - hhdm;
-        let ctba_phys = self.cmd_table.0.as_ptr() as u64 - hhdm;
+        let clb_phys = self.cmd_list.phys().as_u64();
+        let fb_phys = self.fis_buf.phys().as_u64();
+        let ctba_phys = self.cmd_table.phys().as_u64();
 
         unsafe {
             core::ptr::write_volatile(&mut port.clb, clb_phys as u32);
@@ -163,7 +160,7 @@ impl AhciDriver {
             core::ptr::write_volatile(&mut port.fbu, (fb_phys >> 32) as u32);
 
             // Set up slot 0 Command Header in Command List
-            let clb_virt = self.cmd_list.0.as_mut_ptr() as *mut HbaCmdHeader;
+            let clb_virt = self.cmd_list.as_mut_ptr() as *mut HbaCmdHeader;
             let header = &mut *clb_virt;
             header.cfl_w_a_p_r_b_r_p = 5; // 5 dwords (20 bytes FIS)
             header.prdtl = 1; // 1 PRD entry
@@ -199,7 +196,14 @@ impl AhciDriver {
             return Err(DriverError::InitFailed);
         }
 
-        let hhdm = crate::mm::hhdm_offset();
+        if sector_count == 0 {
+            return Ok(());
+        }
+
+        let byte_count = sector_count as u32 * 512;
+        let mut streamer = DmaStreamer::new(byte_count as usize, DmaDirection::FromDevice)
+            .map_err(|_| DriverError::ReadFailed)?;
+
         let hba = unsafe { &mut *self.hba_base };
         let port = &mut hba.ports[port_no];
 
@@ -214,9 +218,9 @@ impl AhciDriver {
         }
 
         // 2. Set up FIS Register H2D (Host to Device) in command table
-        let cmd_table_ptr = self.cmd_table.0.as_mut_ptr();
+        let cmd_table_ptr = self.cmd_table.as_mut_ptr();
         unsafe {
-            core::ptr::write_bytes(cmd_table_ptr, 0, core::mem::size_of::<CmdTableBuffer>());
+            core::ptr::write_bytes(cmd_table_ptr, 0, CMD_TABLE_SIZE);
 
             let fis = &mut *(cmd_table_ptr as *mut FisRegH2D);
             fis.fis_type = FisType::RegH2D as u8;
@@ -235,11 +239,9 @@ impl AhciDriver {
             fis.count_l = (sector_count & 0xFF) as u8;
             fis.count_h = ((sector_count >> 8) & 0xFF) as u8;
 
-            // 3. Set up PRDT Entry
-            let buf_phys = buf.as_ptr() as u64 - hhdm;
-            let byte_count = sector_count as u32 * 512;
-
-            let prdt_offset = 128; // offset of PRDT inside CmdTableBuffer
+            // 3. Set up PRDT Entry to point at the bounce buffer the device fills.
+            let buf_phys = streamer.phys().as_u64();
+            let prdt_offset = 128; // offset of PRDT inside the command table
             let prdt = &mut *(cmd_table_ptr.add(prdt_offset) as *mut HbaPrdtEntry);
             prdt.dba = buf_phys as u32;
             prdt.dbau = (buf_phys >> 32) as u32;
@@ -249,7 +251,7 @@ impl AhciDriver {
 
         // 4. Update Command Header for Read (W = 0)
         unsafe {
-            let clb_virt = self.cmd_list.0.as_mut_ptr() as *mut HbaCmdHeader;
+            let clb_virt = self.cmd_list.as_mut_ptr() as *mut HbaCmdHeader;
             let header = &mut *clb_virt;
             header.cfl_w_a_p_r_b_r_p = 5; // 5 dwords, Write = 0
             header.prdtl = 1;
@@ -297,6 +299,9 @@ impl AhciDriver {
                     break;
                 }
             }
+        } else {
+            // DMA completed: copy the device-filled bounce buffer into the caller buffer.
+            streamer.sync_for_cpu(buf);
         }
 
         log::info!(
@@ -322,7 +327,16 @@ impl AhciDriver {
             return Err(DriverError::InitFailed);
         }
 
-        let hhdm = crate::mm::hhdm_offset();
+        if sector_count == 0 {
+            return Ok(());
+        }
+
+        let byte_count = sector_count as u32 * 512;
+        let mut streamer = DmaStreamer::new(byte_count as usize, DmaDirection::ToDevice)
+            .map_err(|_| DriverError::WriteFailed)?;
+        // Stage the caller's data into the bounce buffer before the transfer.
+        streamer.sync_for_device(buf);
+
         let hba = unsafe { &mut *self.hba_base };
         let port = &mut hba.ports[port_no];
 
@@ -337,9 +351,9 @@ impl AhciDriver {
         }
 
         // 2. Set up FIS Register H2D (Host to Device) in command table
-        let cmd_table_ptr = self.cmd_table.0.as_mut_ptr();
+        let cmd_table_ptr = self.cmd_table.as_mut_ptr();
         unsafe {
-            core::ptr::write_bytes(cmd_table_ptr, 0, core::mem::size_of::<CmdTableBuffer>());
+            core::ptr::write_bytes(cmd_table_ptr, 0, CMD_TABLE_SIZE);
 
             let fis = &mut *(cmd_table_ptr as *mut FisRegH2D);
             fis.fis_type = FisType::RegH2D as u8;
@@ -358,10 +372,8 @@ impl AhciDriver {
             fis.count_l = (sector_count & 0xFF) as u8;
             fis.count_h = ((sector_count >> 8) & 0xFF) as u8;
 
-            // 3. Set up PRDT Entry
-            let buf_phys = buf.as_ptr() as u64 - hhdm;
-            let byte_count = sector_count as u32 * 512;
-
+            // 3. Set up PRDT Entry to point at the bounce buffer holding the data.
+            let buf_phys = streamer.phys().as_u64();
             let prdt_offset = 128;
             let prdt = &mut *(cmd_table_ptr.add(prdt_offset) as *mut HbaPrdtEntry);
             prdt.dba = buf_phys as u32;
@@ -372,7 +384,7 @@ impl AhciDriver {
 
         // 4. Update Command Header for Write (W = 1 -> Bit 6 set: 5 | (1 << 6) = 0x45)
         unsafe {
-            let clb_virt = self.cmd_list.0.as_mut_ptr() as *mut HbaCmdHeader;
+            let clb_virt = self.cmd_list.as_mut_ptr() as *mut HbaCmdHeader;
             let header = &mut *clb_virt;
             header.cfl_w_a_p_r_b_r_p = 5 | (1 << 6); // 5 dwords, Write = 1
             header.prdtl = 1;

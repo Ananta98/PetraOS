@@ -1,4 +1,5 @@
 pub mod alloc;
+pub mod dma;
 pub mod pmm;
 pub mod vmm;
 

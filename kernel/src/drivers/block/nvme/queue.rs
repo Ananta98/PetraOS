@@ -1,6 +1,7 @@
 //! NVMe Queue Pair (Submission & Completion Queue) Implementation
 
 use crate::device::DriverError;
+use crate::mm::dma::DmaCoherent;
 
 #[repr(C, packed)]
 #[derive(Clone, Copy, Debug, Default)]
@@ -34,10 +35,8 @@ pub struct NvmeCqe {
 pub struct NvmeQueue {
     pub qid: u32,
     pub size: u16,
-    pub sq_virt: *mut NvmeCmd,
-    pub sq_phys: u64,
-    pub cq_virt: *mut NvmeCqe,
-    pub cq_phys: u64,
+    pub sq: DmaCoherent,
+    pub cq: DmaCoherent,
     pub sq_tail: u16,
     pub cq_head: u16,
     pub cq_phase: bool,
@@ -52,20 +51,16 @@ impl NvmeQueue {
     pub fn new(
         qid: u32,
         size: u16,
-        sq_virt: *mut NvmeCmd,
-        sq_phys: u64,
-        cq_virt: *mut NvmeCqe,
-        cq_phys: u64,
+        sq: DmaCoherent,
+        cq: DmaCoherent,
         sq_db: *mut u32,
         cq_db: *mut u32,
     ) -> Self {
         Self {
             qid,
             size,
-            sq_virt,
-            sq_phys,
-            cq_virt,
-            cq_phys,
+            sq,
+            cq,
             sq_tail: 0,
             cq_head: 0,
             cq_phase: true,
@@ -77,8 +72,8 @@ impl NvmeQueue {
     /// Submit a command into the submission queue ring, advance tail, and write doorbell.
     pub fn submit(&mut self, cmd: NvmeCmd) {
         unsafe {
-            // SAFETY: sq_virt points to valid allocated DMA memory with capacity `size`.
-            let slot = self.sq_virt.add(self.sq_tail as usize);
+            // SAFETY: `sq` is a valid, mapped DMA buffer with capacity for `size` entries.
+            let slot = self.sq.as_mut_ptr().add(self.sq_tail as usize) as *mut NvmeCmd;
             core::ptr::write_volatile(slot, cmd);
         }
 
@@ -93,8 +88,8 @@ impl NvmeQueue {
     /// Poll the completion queue for an entry matching the active phase tag.
     pub fn poll_completion(&mut self) -> Option<NvmeCqe> {
         let cqe = unsafe {
-            // SAFETY: cq_virt points to valid allocated DMA memory with capacity `size`.
-            let slot = self.cq_virt.add(self.cq_head as usize);
+            // SAFETY: `cq` is a valid, mapped DMA buffer with capacity for `size` entries.
+            let slot = self.cq.as_mut_ptr().add(self.cq_head as usize) as *mut NvmeCqe;
             core::ptr::read_volatile(slot)
         };
 
