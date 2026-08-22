@@ -16,6 +16,39 @@ index 8e981a3c..d53f4c8b 100644
  # ANCHOR: demo-sysdeps
  elif host_machine.system() == 'demo'
  	subdir('sysdeps/demo')
+diff --git a/options/ansi/generic/file-io.cpp b/options/ansi/generic/file-io.cpp
+index 90c31608..e5e9d8d6 100644
+--- a/options/ansi/generic/file-io.cpp
++++ b/options/ansi/generic/file-io.cpp
+@@ -111,6 +111,10 @@ void abstract_file::dispose() {
+ int abstract_file::read(char *buffer, size_t max_size, size_t *actual_size) {
+ 	__ensure(max_size);
+ 
++	if(stdout && stdout != this) {
++		static_cast<abstract_file *>(stdout)->flush();
++	}
++
+ 	if(_init_bufmode())
+ 		return -1;
+ 
+@@ -550,7 +554,7 @@ int fd_file::determine_bufmode(buffer_mode *mode) {
+ 	}
+ 
+ 	if(int e = mlibc::sysdep<Isatty>(_fd); !e) {
+-		*mode = buffer_mode::line_buffer;
++		*mode = buffer_mode::no_buffer;
+ 		return 0;
+ 	}else if(e == ENOTTY) {
+ 		*mode = buffer_mode::full_buffer;
+@@ -647,7 +651,7 @@ namespace {
+ 	[[gnu::constructor(MLIBC_INIT_PRIORITY_STDIO)]]
+ 	void init_stdio() {
+ 		stdin_box.initialize(0);
+-		stdout_box.initialize(1);
++		stdout_box.initialize(1, nullptr, true);
+ 		stderr_box.initialize(2, nullptr, true);
+ 
+ 		stdin = stdin_box.get();
 diff --git a/options/ansi/generic/stdlib.cpp b/options/ansi/generic/stdlib.cpp
 index d9fa1697..a8cddac3 100644
 --- a/options/ansi/generic/stdlib.cpp
@@ -279,10 +312,10 @@ index 00000000..f7dca05d
 +}
 diff --git a/sysdeps/petra/generic/generic.cpp b/sysdeps/petra/generic/generic.cpp
 new file mode 100644
-index 00000000..b6059da8
+index 00000000..540bbc48
 --- /dev/null
 +++ b/sysdeps/petra/generic/generic.cpp
-@@ -0,0 +1,728 @@
+@@ -0,0 +1,718 @@
 +#include <bits/ensure.h>
 +#include <mlibc/debug.hpp>
 +#include <mlibc/all-sysdeps.hpp>
@@ -728,23 +761,22 @@ index 00000000..b6059da8
 +}
 +
 +int Sysdeps<Sleep>::operator()(time_t *secs, long *nanos) {
-+    struct timespec deadline = {}, current = {};
-+    sysdep<ClockGet>(0, &deadline.tv_sec, &deadline.tv_nsec);
-+    deadline.tv_sec += *secs;
-+    deadline.tv_nsec += *nanos;
-+    if (deadline.tv_nsec >= 1000000000L) {
-+        deadline.tv_sec += deadline.tv_nsec / 1000000000L;
-+        deadline.tv_nsec %= 1000000000L;
++    struct timespec req = {
++        .tv_sec  = *secs,
++        .tv_nsec = *nanos,
++    };
++    struct timespec rem = {};
++
++    int64_t ret = __petra_syscall2(SYSCALL_NANOSLEEP, (int64_t)&req, (int64_t)&rem);
++
++    // On EINTR the kernel writes the remaining time into rem; propagate it
++    // back so the caller can restart the sleep if desired.
++    *secs  = rem.tv_sec;
++    *nanos = rem.tv_nsec;
++
++    if (ret < 0) {
++        return (int)-ret;
 +    }
-+    while (1) {
-+        sysdep<ClockGet>(0, &current.tv_sec, &current.tv_nsec);
-+        if (current.tv_sec > deadline.tv_sec || (current.tv_sec == deadline.tv_sec && current.tv_nsec >= deadline.tv_nsec)) {
-+            break;
-+        }
-+        sysdep<Yield>();
-+    }
-+    *secs = 0;
-+    *nanos = 0;
 +    return 0;
 +}
 +
