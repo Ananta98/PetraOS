@@ -2,11 +2,11 @@ pub mod fis;
 pub mod hba;
 pub mod port;
 
-use crate::mm::map_mmio;
 use crate::device::{BlockDevice, Device, DeviceType, DriverError};
 use crate::drivers::bus::pci::PciBus;
 use crate::drivers::pci::config;
 use crate::drivers::pci::device::PciDevice;
+use crate::mm::map_mmio;
 use crate::sync::spinlock::Spinlock;
 use alloc::boxed::Box;
 use alloc::sync::Arc;
@@ -520,7 +520,7 @@ impl crate::device::Driver for AhciModuleDriver {
 }
 
 crate::MODULE_LICENSE!("BSD-2-Clause");
-crate::MODULE_AUTHOR!("PetraOS Development Team");
+crate::MODULE_AUTHOR!("Ananta98");
 crate::MODULE_DESCRIPTION!("AHCI SATA Mass Storage Controller Driver");
 crate::MODULE_VERSION!("1.0.0");
 crate::module_driver!(AHCI_INITCALL, ahci_driver_init, "ahci", AhciModuleDriver);

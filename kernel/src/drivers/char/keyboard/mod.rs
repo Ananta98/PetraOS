@@ -183,7 +183,7 @@ pub fn interrupt_count() -> u64 {
 }
 
 crate::MODULE_LICENSE!("BSD-2-Clause");
-crate::MODULE_AUTHOR!("PetraOS Development Team");
+crate::MODULE_AUTHOR!("Ananta98");
 crate::MODULE_DESCRIPTION!("PS/2 Character Keyboard Driver");
 crate::MODULE_VERSION!("1.0.0");
 crate::module_driver!(

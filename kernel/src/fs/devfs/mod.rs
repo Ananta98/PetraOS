@@ -22,7 +22,9 @@ use crate::device::DEVICE_MANAGER;
 use crate::fs::ramfs::RamDirFileOps;
 use crate::fs::vfs::dentry::Dentry;
 use crate::fs::vfs::mount::MOUNT_TABLE;
-use crate::fs::vfs::types::{FileOps, FileSystem, Inode, InodeOps, InodeType, Stat, SuperBlock, VfsError};
+use crate::fs::vfs::types::{
+    FileOps, FileSystem, Inode, InodeOps, InodeType, Stat, SuperBlock, VfsError,
+};
 use crate::sync::spinlock::Spinlock;
 
 /// Directory inode for devfs (/dev and /dev/pts) to support lookup, readdir, and stat.
@@ -250,5 +252,5 @@ pub fn mount_devfs() {
 
 crate::fs_initcall!(DevFs::init);
 crate::MODULE_LICENSE!("BSD-2-Clause");
-crate::MODULE_AUTHOR!("PetraOS Development Team");
+crate::MODULE_AUTHOR!("Ananta98");
 crate::MODULE_DESCRIPTION!("Device Filesystem Subsystem");

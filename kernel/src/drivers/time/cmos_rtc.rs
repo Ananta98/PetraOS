@@ -3,12 +3,12 @@
 //! Provides real-time clock reading, BCD decoding, 12/24 hour format normalization,
 //! Unix epoch timestamp conversion, and wall-clock time offset calculation.
 
-use core::sync::atomic::{AtomicU64, Ordering};
 use crate::arch::ports::Ports;
 use crate::device::{Device, DeviceType, Driver, DriverError};
 use crate::sync::spinlock::Spinlock;
 use alloc::boxed::Box;
 use alloc::sync::Arc;
+use core::sync::atomic::{AtomicU64, Ordering};
 
 const CMOS_ADDR: u16 = 0x70;
 const CMOS_DATA: u16 = 0x71;
@@ -64,10 +64,8 @@ impl RtcTime {
         if y < 1970 {
             return 0;
         }
-        let days_since_1970 = (y - 1970) * 365
-            + (y - 1969) / 4
-            - (y - 1901) / 100
-            + (y - 1601) / 400;
+        let days_since_1970 =
+            (y - 1970) * 365 + (y - 1969) / 4 - (y - 1901) / 100 + (y - 1601) / 400;
         let month_days = Self::days_before_month(self.month, self.year) as i64;
         let day_offset = (self.day.saturating_sub(1)) as i64;
         let total_days = days_since_1970 + month_days + day_offset;
@@ -303,7 +301,12 @@ impl Driver for CmosRtcDriver {
 }
 
 crate::MODULE_LICENSE!("BSD-2-Clause");
-crate::MODULE_AUTHOR!("PetraOS Development Team");
+crate::MODULE_AUTHOR!("Ananta98");
 crate::MODULE_DESCRIPTION!("CMOS Real-Time Clock Driver");
 crate::MODULE_VERSION!("1.0.0");
-crate::module_driver!(CMOS_RTC_INITCALL, cmos_rtc_driver_init, "cmos_rtc", CmosRtcDriver);
+crate::module_driver!(
+    CMOS_RTC_INITCALL,
+    cmos_rtc_driver_init,
+    "cmos_rtc",
+    CmosRtcDriver
+);

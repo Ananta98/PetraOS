@@ -253,7 +253,6 @@ impl ScancodeDecoder {
             0x48 => KeyCode::Up,
             0x49 => KeyCode::PageUp,
             0x4B => KeyCode::Left,
-            0x4C => KeyCode::Char('5'),
             0x4D => KeyCode::Right,
             0x4F => KeyCode::End,
             0x50 => KeyCode::Down,
