@@ -5,13 +5,86 @@ Subject: [PATCH] feat(petra): add PetraOS support to GNU Readline 8.1
 
 Signed-off-by: Ananta <kusumaananta042@gmail.com>
 ---
+ display.c             | 27 +++++++++++++++++++++------
  input.c               | 22 +++++++++++-----------
  parens.c              |  2 +-
  posixselect.h         |  6 +-----
  rlprivate.h           |  4 +---
+ rltty.c               |  2 +-
  support/shlib-install |  4 ++--
- 5 files changed, 16 insertions(+), 22 deletions(-)
+ terminal.c            | 38 ++++++++++++++++++++++++++++++--------
+ 8 files changed, 81 insertions(+), 43 deletions(-)
 
+diff --git a/display.c b/display.c
+index c1135ec..0b43c21 100644
+--- a/display.c
++++ b/display.c
+@@ -1609,7 +1609,11 @@ putc_face (int c, int face, char *cur_face)
+       *cur_face = face;
+     }
+   if (c != EOF)
+-    putc (c, rl_outstream);
++    {
++      putc (c, rl_outstream);
++      if (rl_outstream)
++        fflush (rl_outstream);
++    }
+ }
+ 
+ static void
+@@ -1621,6 +1625,8 @@ puts_face (const char *str, const char *face, int n)
+   for (cur_face = FACE_NORMAL, i = 0; i < n; i++)
+     putc_face ((unsigned char) str[i], face[i], &cur_face);
+   putc_face (EOF, FACE_NORMAL, &cur_face);
++  if (rl_outstream)
++    fflush (rl_outstream);
+ }
+ 
+ static void
+@@ -3180,11 +3186,18 @@ _rl_erase_at_end_of_line (int l)
+   register int i;
+ 
+   _rl_backspace (l);
+-  for (i = 0; i < l; i++)
+-    putc (' ', rl_outstream);
+-  _rl_backspace (l);
++  if (_rl_term_clreol && *_rl_term_clreol)
++    tputs (_rl_term_clreol, 1, _rl_output_character_function);
++  else
++    {
++      for (i = 0; i < l; i++)
++       _rl_output_character_function (' ');
++      _rl_backspace (l);
++    }
+   for (i = 0; i < l; i++)
+     visible_line[--_rl_last_c_pos] = '\0';
++  if (rl_outstream)
++    fflush (rl_outstream);
+   rl_display_fixed++;
+ }
+ 
+@@ -3211,9 +3224,11 @@ space_to_eol (int count)
+   register int i;
+ 
+   for (i = 0; i < count; i++)
+-    putc (' ', rl_outstream);
++    _rl_output_character_function (' ');
+ 
+   _rl_last_c_pos += count;
++  if (rl_outstream)
++    fflush (rl_outstream);
+ }
+ 
+ void
+@@ -3308,7 +3323,7 @@ _rl_update_final (void)
+ {
+   int full_lines, woff, botline_length;
+ 
+-  if (line_structures_initialized == 0)
++  if (_rl_echoing_p == 0 || line_structures_initialized == 0)
+     return;
+ 
+   full_lines = 0;
 diff --git a/input.c b/input.c
 index 61b0fde..af44012 100644
 --- a/input.c
@@ -191,5 +264,114 @@ index 661355d..5f98889 100755
  	# libname.so -> libname.so.M
  	${echo} ${RM} ${INSTALLDIR}/$LINK1
  	if [ -z "$uninstall" ]; then
+diff --git a/terminal.c b/terminal.c
+index 9997161..55bb8eb 100644
+--- a/terminal.c
++++ b/terminal.c
+@@ -553,17 +553,32 @@ _rl_init_terminal_io (const char *terminal_name)
+       /* Everything below here is used by the redisplay code (tputs). */
+       _rl_screenchars = _rl_screenwidth * _rl_screenheight;
+       _rl_term_cr = "\r";
++      _rl_term_backspace = "\b";
++      _rl_term_clreol = "\033[K";
++      _rl_term_clrpag = "\033[H\033[2J";
++      _rl_term_up = "\033[A";
++      _rl_term_dc = (char *)NULL;
++      _rl_term_forward_char = "\033[C";
++      _rl_term_ku = "\033[A";
++      _rl_term_kd = "\033[B";
++      _rl_term_kr = "\033[C";
++      _rl_term_kl = "\033[D";
++      _rl_term_kh = "\033[H";
++      _rl_term_at7 = "\033[F";
++      _rl_term_kD = "\033[3~";
++      _rl_term_kI = "\033[2~";
++      _rl_term_kN = "\033[6~";
++      _rl_term_kP = "\033[5~";
++      _rl_term_autowrap = 1;
++      _rl_terminal_can_insert = 1;
+       _rl_term_im = _rl_term_ei = _rl_term_ic = _rl_term_IC = (char *)NULL;
+-      _rl_term_up = _rl_term_dc = _rl_term_DC = _rl_visible_bell = (char *)NULL;
+-      _rl_term_ku = _rl_term_kd = _rl_term_kl = _rl_term_kr = (char *)NULL;
+-      _rl_term_kh = _rl_term_kH = _rl_term_kI = _rl_term_kD = (char *)NULL;
+-      _rl_term_ks = _rl_term_ke = _rl_term_at7 = (char *)NULL;
+-      _rl_term_kN = _rl_term_kP = (char *)NULL;
++      _rl_term_DC = _rl_visible_bell = (char *)NULL;
++      _rl_term_kH = (char *)NULL;
++      _rl_term_ks = _rl_term_ke = (char *)NULL;
+       _rl_term_mm = _rl_term_mo = (char *)NULL;
+       _rl_term_ve = _rl_term_vs = (char *)NULL;
+-      _rl_term_forward_char = (char *)NULL;
+       _rl_term_so = _rl_term_se = (char *)NULL;
+-      _rl_terminal_can_insert = term_has_meta = 0;
++      term_has_meta = 0;
+ 
+       /* Assume generic unknown terminal can't handle the enable/disable
+         escape sequences */
+@@ -701,7 +716,10 @@ _rl_output_character_function (int c)
+ int
+ _rl_output_character_function (int c)
+ {
+-  return putc (c, _rl_out_stream);
++  int res = putc (c, _rl_out_stream);
++  if (_rl_out_stream)
++    fflush (_rl_out_stream);
++  return res;
+ }
+ #endif /* !_MINIX */
+ 
+@@ -710,6 +728,8 @@ void
+ _rl_output_some_chars (const char *string, int count)
+ {
+   fwrite (string, 1, count, _rl_out_stream);
++  if (_rl_out_stream)
++    fflush (_rl_out_stream);
+ }
+ 
+ /* Move the cursor back. */
+@@ -719,13 +739,13 @@ _rl_backspace (int count)
+   register int i;
+ 
+ #ifndef __MSDOS__
+-  if (_rl_term_backspace)
++  if (_rl_term_backspace && *_rl_term_backspace)
+     for (i = 0; i < count; i++)
+       tputs (_rl_term_backspace, 1, _rl_output_character_function);
+   else
+ #endif
+     for (i = 0; i < count; i++)
+-      putc ('\b', _rl_out_stream);
++      _rl_output_character_function ('\b');
+   return 0;
+ }
+ 
+@@ -734,10 +754,11 @@ int
+ rl_crlf (void)
+ {
+ #if defined (NEW_TTY_DRIVER) || defined (__MINT__)
+-  if (_rl_term_cr)
++  if (_rl_term_cr && *_rl_term_cr)
+     tputs (_rl_term_cr, 1, _rl_output_character_function);
+ #endif /* NEW_TTY_DRIVER || __MINT__ */
+-  putc ('\n', _rl_out_stream);
++  _rl_output_character_function ('\r');
++  _rl_output_character_function ('\n');
+   return 0;
+ }
+ 
+@@ -745,9 +766,12 @@ void
+ _rl_cr (void)
+ {
+ #if defined (__MSDOS__)
+-  putc ('\r', rl_outstream);
++  _rl_output_character_function ('\r');
+ #else
+-  tputs (_rl_term_cr, 1, _rl_output_character_function);
++  if (_rl_term_cr && *_rl_term_cr)
++    tputs (_rl_term_cr, 1, _rl_output_character_function);
++  else
++    _rl_output_character_function ('\r');
+ #endif
+ }
 -- 
 2.43.0

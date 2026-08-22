@@ -140,14 +140,7 @@ impl ScancodeDecoder {
             0x49 => (KeyCode::PageUp, None),
             0x51 => (KeyCode::PageDown, None),
             0x52 => (KeyCode::Insert, None),
-            0x53 => (
-                KeyCode::Delete,
-                if !is_release {
-                    Some('\x7F')
-                } else {
-                    None
-                },
-            ),
+            0x53 => (KeyCode::Delete, None),
             _ => (KeyCode::Unknown(make_code), None),
         };
 

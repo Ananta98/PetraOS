@@ -57,6 +57,10 @@ impl File {
 
     /// POSIX lseek implementation.
     pub fn lseek(&self, offset: i64, whence: SeekWhence) -> Result<usize, VfsError> {
+        if self.dentry.inode.inode_type != crate::fs::vfs::types::InodeType::File {
+            return Err(VfsError::NotSupported);
+        }
+
         if let Ok(new_pos) = self.ops.lseek(offset, whence) {
             let mut off = self.offset.lock();
             *off = new_pos;

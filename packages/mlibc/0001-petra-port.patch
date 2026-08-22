@@ -749,12 +749,9 @@ index 00000000..b6059da8
 +}
 +
 +int Sysdeps<Tcgetattr>::operator()(int fd, struct termios *attr) {
-+    // Fallback for kernels that do not implement TCGETS: report sane defaults
-+    // for a canonical terminal so that programs (e.g. Bash/readline) do not
-+    // abort on a missing termios.
 +    int64_t ret = __petra_syscall3(SYSCALL_IOCTL, fd, 0x5401 /* TCGETS */, (int64_t)attr);
-+    if (ret >= 0) {
-+        return 0;
++    if (ret < 0) {
++        return -ret;
 +    }
 +    return 0;
 +}
