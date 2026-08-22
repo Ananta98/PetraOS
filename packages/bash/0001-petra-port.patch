@@ -7,12 +7,13 @@ Subject: [PATCH] feat(petra): add PetraOS support to GNU Bash 5.2
  lib/readline/display.c     | 27 +++++++++++++++++++++------
  lib/readline/input.c       | 22 +++++++++++-----------
  lib/readline/posixselect.h |  6 +-----
+ lib/readline/readline.c    |  6 ++++++
  lib/readline/rltty.c       |  2 +-
  lib/readline/terminal.c    | 46 ++++++++++++++++++++++++++++++++------
  lib/readline/text.c        |  2 +-
  lib/sh/random.c            |  4 ++++
  support/config.sub         |  1 +
- 8 files changed, 78 insertions(+), 32 deletions(-)
+ 9 files changed, 84 insertions(+), 32 deletions(-)
 
 --- a/lib/sh/random.c
 +++ b/lib/sh/random.c
@@ -47,7 +48,7 @@ Subject: [PATCH] feat(petra): add PetraOS support to GNU Bash 5.2
 +    {
 +      putc (c, rl_outstream);
 +      if (rl_outstream)
-+        fflush (rl_outstream);
++       fflush (rl_outstream);
 +    }
  }
  
@@ -213,6 +214,21 @@ Subject: [PATCH] feat(petra): add PetraOS support to GNU Bash 5.2
  #  if !defined (HAVE_SYS_SELECT_H) || !defined (M_UNIX)
  #    include <sys/time.h>
  #  endif
+--- a/lib/readline/readline.c
++++ b/lib/readline/readline.c
+@@ -1371,6 +1371,12 @@ bind_arrow_keys_internal (Keymap map)
+   rl_bind_keyseq_if_unbound ("\033[D", rl_backward_char);
+   rl_bind_keyseq_if_unbound ("\033[H", rl_beg_of_line);
+   rl_bind_keyseq_if_unbound ("\033[F", rl_end_of_line);
++  rl_bind_keyseq_if_unbound ("\033[3~", rl_delete);
++  rl_bind_keyseq_if_unbound ("\033[2~", rl_overwrite_mode);
++  rl_bind_keyseq_if_unbound ("\033[1~", rl_beg_of_line);
++  rl_bind_keyseq_if_unbound ("\033[4~", rl_end_of_line);
++  rl_bind_keyseq_if_unbound ("\033[5~", rl_history_search_backward);
++  rl_bind_keyseq_if_unbound ("\033[6~", rl_history_search_forward);
+ 
+   rl_bind_keyseq_if_unbound ("\033OA", rl_get_previous_history);
+   rl_bind_keyseq_if_unbound ("\033OB", rl_get_next_history);
 --- a/lib/readline/rltty.c
 +++ b/lib/readline/rltty.c
 @@ -505,7 +505,7 @@ prepare_terminal_settings (int meta_flag, TIOTYPE oldtio, TIOTYPE *tiop)
@@ -266,23 +282,47 @@ Subject: [PATCH] feat(petra): add PetraOS support to GNU Bash 5.2
  
        /* Assume generic unknown terminal can't handle the enable/disable
          escape sequences */
-@@ -677,6 +692,15 @@ bind_termcap_arrow_keys (Keymap map)
-   rl_bind_keyseq_if_unbound (_rl_term_kN, rl_history_search_forward);	/* Page Down */
-   rl_bind_keyseq_if_unbound (_rl_term_kP, rl_history_search_backward);	/* Page Up */
+@@ -663,28 +678,36 @@ bind_termcap_arrow_keys (Keymap map)
+   xkeymap = _rl_keymap;
+   _rl_keymap = map;
  
-+  rl_bind_keyseq_if_unbound ("\033[1~", rl_beg_of_line);
-+  rl_bind_keyseq_if_unbound ("\033[4~", rl_end_of_line);
-+  rl_bind_keyseq_if_unbound ("\033[H", rl_beg_of_line);
-+  rl_bind_keyseq_if_unbound ("\033[F", rl_end_of_line);
-+  rl_bind_keyseq_if_unbound ("\033OH", rl_beg_of_line);
-+  rl_bind_keyseq_if_unbound ("\033OF", rl_end_of_line);
-+  rl_bind_keyseq_if_unbound ("\033[3~", rl_delete);
-+  rl_bind_keyseq_if_unbound ("\033[2~", rl_overwrite_mode);
+-  rl_bind_keyseq_if_unbound (_rl_term_ku, rl_get_previous_history);
+-  rl_bind_keyseq_if_unbound (_rl_term_kd, rl_get_next_history);
+-  rl_bind_keyseq_if_unbound (_rl_term_kr, rl_forward_char);
+-  rl_bind_keyseq_if_unbound (_rl_term_kl, rl_backward_char);
++  rl_bind_keyseq (_rl_term_ku, rl_get_previous_history);
++  rl_bind_keyseq (_rl_term_kd, rl_get_next_history);
++  rl_bind_keyseq (_rl_term_kr, rl_forward_char);
++  rl_bind_keyseq (_rl_term_kl, rl_backward_char);
+ 
+-  rl_bind_keyseq_if_unbound (_rl_term_kh, rl_beg_of_line);	/* Home */
+-  rl_bind_keyseq_if_unbound (_rl_term_at7, rl_end_of_line);	/* End */
++  rl_bind_keyseq (_rl_term_kh, rl_beg_of_line);	/* Home */
++  rl_bind_keyseq (_rl_term_at7, rl_end_of_line);	/* End */
+ 
+-  rl_bind_keyseq_if_unbound (_rl_term_kD, rl_delete);
+-  rl_bind_keyseq_if_unbound (_rl_term_kI, rl_overwrite_mode);	/* Insert */
++  rl_bind_keyseq (_rl_term_kD, rl_delete);
++  rl_bind_keyseq (_rl_term_kI, rl_overwrite_mode);	/* Insert */
+ 
+-  rl_bind_keyseq_if_unbound (_rl_term_kN, rl_history_search_forward);	/* Page Down */
+-  rl_bind_keyseq_if_unbound (_rl_term_kP, rl_history_search_backward);	/* Page Up */
++  rl_bind_keyseq (_rl_term_kN, rl_history_search_forward);	/* Page Down */
++  rl_bind_keyseq (_rl_term_kP, rl_history_search_backward);	/* Page Up */
 +
++  rl_bind_keyseq ("\033[1~", rl_beg_of_line);
++  rl_bind_keyseq ("\033[4~", rl_end_of_line);
++  rl_bind_keyseq ("\033[H", rl_beg_of_line);
++  rl_bind_keyseq ("\033[F", rl_end_of_line);
++  rl_bind_keyseq ("\033OH", rl_beg_of_line);
++  rl_bind_keyseq ("\033OF", rl_end_of_line);
++  rl_bind_keyseq ("\033[3~", rl_delete);
++  rl_bind_keyseq ("\033[2~", rl_overwrite_mode);
+ 
    _rl_keymap = xkeymap;
  }
  
-@@ -701,7 +725,10 @@ _rl_output_character_function (int c)
+@@ -701,7 +724,10 @@ _rl_output_character_function (int c)
  int
  _rl_output_character_function (int c)
  {
@@ -294,7 +334,7 @@ Subject: [PATCH] feat(petra): add PetraOS support to GNU Bash 5.2
  }
  #endif /* !_MINIX */
  
-@@ -710,6 +737,8 @@ void
+@@ -710,6 +736,8 @@ void
  _rl_output_some_chars (const char *string, int count)
  {
    fwrite (string, 1, count, _rl_out_stream);
@@ -303,7 +343,7 @@ Subject: [PATCH] feat(petra): add PetraOS support to GNU Bash 5.2
  }
  
  /* Move the cursor back. */
-@@ -719,13 +748,13 @@ _rl_backspace (int count)
+@@ -719,13 +747,13 @@ _rl_backspace (int count)
    register int i;
  
  #ifndef __MSDOS__
@@ -319,7 +359,7 @@ Subject: [PATCH] feat(petra): add PetraOS support to GNU Bash 5.2
    return 0;
  }
  
-@@ -734,10 +763,11 @@ int
+@@ -734,10 +762,11 @@ int
  rl_crlf (void)
  {
  #if defined (NEW_TTY_DRIVER) || defined (__MINT__)
@@ -333,7 +373,7 @@ Subject: [PATCH] feat(petra): add PetraOS support to GNU Bash 5.2
    return 0;
  }
  
-@@ -745,9 +775,12 @@ void
+@@ -745,9 +774,12 @@ void
  _rl_cr (void)
  {
  #if defined (__MSDOS__)

@@ -119,10 +119,7 @@ impl ScancodeDecoder {
         };
 
         let (code, ascii) = match make_code {
-            0x1C => (
-                KeyCode::Enter,
-                if !is_release { Some('\n') } else { None },
-            ), // Keypad enter
+            0x1C => (KeyCode::Enter, if !is_release { Some('\n') } else { None }), // Keypad enter
             0x1D => {
                 self.modifiers.ctrl = !is_release;
                 (KeyCode::RightCtrl, None)
@@ -252,6 +249,17 @@ impl ScancodeDecoder {
             0x44 => KeyCode::F10,
             0x57 => KeyCode::F11,
             0x58 => KeyCode::F12,
+            0x47 => KeyCode::Home,
+            0x48 => KeyCode::Up,
+            0x49 => KeyCode::PageUp,
+            0x4B => KeyCode::Left,
+            0x4C => KeyCode::Char('5'),
+            0x4D => KeyCode::Right,
+            0x4F => KeyCode::End,
+            0x50 => KeyCode::Down,
+            0x51 => KeyCode::PageDown,
+            0x52 => KeyCode::Insert,
+            0x53 => KeyCode::Delete,
             _ => {
                 if let Some(ch) = self.map_ascii(make_code) {
                     KeyCode::Char(ch)
@@ -605,6 +613,83 @@ impl ScancodeDecoder {
             0x39 => ' ', // Space
             0x4A => '-', // Keypad -
             0x4E => '+', // Keypad +
+            0x47 => {
+                if self.modifiers.num_lock {
+                    '7'
+                } else {
+                    return None;
+                }
+            }
+            0x48 => {
+                if self.modifiers.num_lock {
+                    '8'
+                } else {
+                    return None;
+                }
+            }
+            0x49 => {
+                if self.modifiers.num_lock {
+                    '9'
+                } else {
+                    return None;
+                }
+            }
+            0x4B => {
+                if self.modifiers.num_lock {
+                    '4'
+                } else {
+                    return None;
+                }
+            }
+            0x4C => {
+                if self.modifiers.num_lock {
+                    '5'
+                } else {
+                    return None;
+                }
+            }
+            0x4D => {
+                if self.modifiers.num_lock {
+                    '6'
+                } else {
+                    return None;
+                }
+            }
+            0x4F => {
+                if self.modifiers.num_lock {
+                    '1'
+                } else {
+                    return None;
+                }
+            }
+            0x50 => {
+                if self.modifiers.num_lock {
+                    '2'
+                } else {
+                    return None;
+                }
+            }
+            0x51 => {
+                if self.modifiers.num_lock {
+                    '3'
+                } else {
+                    return None;
+                }
+            }
+            0x52 => {
+                if self.modifiers.num_lock {
+                    '0'
+                } else {
+                    return None;
+                }
+            }
+            0x53 => {
+                if self.modifiers.num_lock {
+                    '.'
+                } else {
+                    return None;
+                }
+            }
             _ => return None,
         };
 
