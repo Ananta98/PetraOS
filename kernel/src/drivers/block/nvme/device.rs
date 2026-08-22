@@ -17,6 +17,10 @@ impl Device for NvmeDeviceRef {
         "NVMe Controller"
     }
 
+    fn dev_name(&self) -> Option<&'static str> {
+        Some("nvme0n1")
+    }
+
     fn init(&mut self) -> Result<(), DriverError> {
         if let Some(ref mut drv) = *NVME_DRIVER.lock() {
             drv.init()

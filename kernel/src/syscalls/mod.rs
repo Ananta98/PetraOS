@@ -9,6 +9,8 @@ pub mod sys_info;
 pub mod time;
 
 use crate::arch::syscall::SyscallFrame;
+use crate::fs::vfs::types::*;
+use crate::sync::futex::*;
 
 /// POSIX Linux Error Numbers for System Calls
 #[repr(i64)]
@@ -25,6 +27,7 @@ pub enum SyscallError {
     ENOMEM = 12,
     EFAULT = 14,
     EEXIST = 17,
+    ENODEV = 19,
     ENOTDIR = 20,
     EISDIR = 21,
     EINVAL = 22,
@@ -32,6 +35,7 @@ pub enum SyscallError {
     ENOTTY = 25,
     ESPIPE = 29,
     ENOSYS = 38,
+    ELOOP = 40,
     ETIMEDOUT = 110,
 }
 
@@ -65,6 +69,14 @@ impl From<crate::fs::vfs::types::VfsError> for SyscallError {
             VfsError::NotEmpty => SyscallError::EINVAL,
             VfsError::IsDirectory => SyscallError::EISDIR,
             VfsError::Interrupted => SyscallError::EINTR,
+            VfsError::TooManySymlinks => SyscallError::ELOOP,
+            VfsError::DriverError(d) => match d {
+                crate::device::DriverError::Timeout => SyscallError::ETIMEDOUT,
+                crate::device::DriverError::NoDevice => SyscallError::ENODEV,
+                crate::device::DriverError::AllocFailed => SyscallError::ENOMEM,
+                crate::device::DriverError::Unsupported => SyscallError::ENOSYS,
+                _ => SyscallError::EIO,
+            },
         }
     }
 }

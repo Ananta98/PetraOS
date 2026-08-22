@@ -7,6 +7,14 @@ use alloc::sync::Arc;
 /// Maximum number of dentries retained in the global VFS dcache LRU table.
 pub const DCACHE_CAPACITY: usize = 2048;
 
+// SAFETY: Dentries are keyed by the raw pointer value of the parent Arc<Dentry>.
+// Since dentries are always pinned in Arc allocations that outlive dcache entries
+// (they are referenced by at least one live Arc elsewhere), the pointer value is
+// stable and unique for the lifetime of the entry, making it safe to use as a key.
+//
+// TODO: Replace the O(n) LRU eviction scan with an intrusive doubly-linked list
+//       (O(1) eviction). The current BTreeMap scan is acceptable at DCACHE_CAPACITY=2048.
+
 struct DCacheEntry {
     dentry: Arc<Dentry>,
     access_count: u64,
@@ -29,6 +37,7 @@ impl DCache {
 
     /// Look up a cached child dentry given its parent dentry and component name.
     pub fn lookup(&mut self, parent: &Arc<Dentry>, name: &str) -> Option<Arc<Dentry>> {
+        // SAFETY: See module-level SAFETY comment above for why this pointer is stable.
         let parent_ptr = Arc::as_ptr(parent) as usize;
         let key = (parent_ptr, String::from(name));
         if let Some(entry) = self.entries.get_mut(&key) {
@@ -41,6 +50,7 @@ impl DCache {
 
     /// Insert a parent-child dentry mapping into the DCache.
     pub fn insert(&mut self, parent: &Arc<Dentry>, name: &str, dentry: Arc<Dentry>) {
+        // SAFETY: See module-level SAFETY comment above for why this pointer is stable.
         let parent_ptr = Arc::as_ptr(parent) as usize;
         let key = (parent_ptr, String::from(name));
 
@@ -73,6 +83,7 @@ impl DCache {
 
     /// Remove a specific dentry entry from the DCache (e.g. on unlink / rmdir).
     pub fn evict(&mut self, parent: &Arc<Dentry>, name: &str) {
+        // SAFETY: See module-level SAFETY comment above for why this pointer is stable.
         let parent_ptr = Arc::as_ptr(parent) as usize;
         let key = (parent_ptr, String::from(name));
         self.entries.remove(&key);

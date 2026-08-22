@@ -2,9 +2,12 @@ pub mod bitmap;
 pub mod dir;
 pub mod file;
 pub mod inode;
+pub mod ondisk;
+pub mod reader;
 pub mod superblock;
 
 use self::inode::{Ext2InodeOps, Ext2Volume};
+use crate::device::{DeviceType, DEVICE_MANAGER};
 use crate::fs::vfs::types::{FileSystem, Inode, InodeType, SuperBlock, VfsError};
 use alloc::sync::Arc;
 
@@ -21,9 +24,9 @@ impl Ext2Fs {
     /// Auto-detect and mount Ext2 filesystem on available block storage devices.
     pub fn init() -> Result<(), &'static str> {
         let device_name = {
-            let dm = crate::device::DEVICE_MANAGER.read();
+            let dm = DEVICE_MANAGER.read();
             let mut target_name = None;
-            for dev in dm.get_devices() {
+            for dev in dm.get_by_type(DeviceType::Block) {
                 let dev_lock = dev.lock();
                 let name = dev_lock.as_ref().name();
                 if name == "NVMe Controller" {

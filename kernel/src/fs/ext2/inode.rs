@@ -1,184 +1,13 @@
 use super::bitmap::Ext2Bitmap;
 use super::dir::{ext2_add_entry, ext2_is_dir_empty, ext2_lookup, ext2_readdir, ext2_remove_entry};
 use super::file::Ext2FileOps;
+pub use super::ondisk::Ext2Inode;
+pub use super::reader::BlockDeviceReader;
 use super::superblock::{Ext2BlockGroupDescriptor, Ext2Superblock};
-use crate::device::DEVICE_MANAGER;
 use crate::fs::vfs::types::{FileOps, Inode, InodeOps, InodeType, Stat, VfsError};
 use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-
-/// Helper to read/write arbitrary bytes from/to a named block device.
-#[derive(Clone, Debug)]
-pub struct BlockDeviceReader {
-    pub device_name: &'static str,
-}
-
-impl BlockDeviceReader {
-    pub fn new(device_name: &'static str) -> Self {
-        Self { device_name }
-    }
-
-    /// Read up to `buf.len()` bytes starting at `offset` (in bytes).
-    pub fn read_bytes(&self, offset: u64, buf: &mut [u8]) -> Result<(), VfsError> {
-        let dm = DEVICE_MANAGER.read();
-        for dev_arc in dm.get_devices() {
-            let mut dev_lock = dev_arc.lock();
-            if dev_lock.as_ref().name() == self.device_name {
-                if let Some(block_dev) = dev_lock.as_mut().as_block_device_mut() {
-                    let sector_size = block_dev.block_size() as u64;
-                    let mut read_offset = offset;
-                    let mut buf_offset = 0;
-                    let mut sector_buf = alloc::vec![0u8; sector_size as usize];
-
-                    while buf_offset < buf.len() {
-                        let sector_id = read_offset / sector_size;
-                        let sector_offset = (read_offset % sector_size) as usize;
-
-                        block_dev
-                            .read_block(sector_id, &mut sector_buf)
-                            .map_err(|_| VfsError::NotSupported)?;
-
-                        let chunk_size = core::cmp::min(
-                            buf.len() - buf_offset,
-                            (sector_size - sector_offset as u64) as usize,
-                        );
-                        buf[buf_offset..buf_offset + chunk_size].copy_from_slice(
-                            &sector_buf[sector_offset..sector_offset + chunk_size],
-                        );
-
-                        buf_offset += chunk_size;
-                        read_offset += chunk_size as u64;
-                    }
-                    return Ok(());
-                }
-            }
-        }
-        Err(VfsError::NotFound)
-    }
-
-    /// Write `buf.len()` bytes starting at `offset` (in bytes).
-    pub fn write_bytes(&self, offset: u64, buf: &[u8]) -> Result<(), VfsError> {
-        let dm = DEVICE_MANAGER.read();
-        for dev_arc in dm.get_devices() {
-            let mut dev_lock = dev_arc.lock();
-            if dev_lock.as_ref().name() == self.device_name {
-                if let Some(block_dev) = dev_lock.as_mut().as_block_device_mut() {
-                    let sector_size = block_dev.block_size() as u64;
-                    let mut write_offset = offset;
-                    let mut buf_offset = 0;
-                    let mut sector_buf = alloc::vec![0u8; sector_size as usize];
-
-                    while buf_offset < buf.len() {
-                        let sector_id = write_offset / sector_size;
-                        let sector_offset = (write_offset % sector_size) as usize;
-                        let chunk_size = core::cmp::min(
-                            buf.len() - buf_offset,
-                            (sector_size - sector_offset as u64) as usize,
-                        );
-
-                        if sector_offset != 0 || chunk_size < sector_size as usize {
-                            block_dev
-                                .read_block(sector_id, &mut sector_buf)
-                                .map_err(|_| VfsError::NotSupported)?;
-                        }
-
-                        sector_buf[sector_offset..sector_offset + chunk_size]
-                            .copy_from_slice(&buf[buf_offset..buf_offset + chunk_size]);
-
-                        block_dev
-                            .write_block(sector_id, &sector_buf)
-                            .map_err(|_| VfsError::NotSupported)?;
-
-                        buf_offset += chunk_size;
-                        write_offset += chunk_size as u64;
-                    }
-                    return Ok(());
-                }
-            }
-        }
-        Err(VfsError::NotFound)
-    }
-}
-
-/// Representation of an Ext2 Inode.
-#[derive(Clone, Debug)]
-pub struct Ext2Inode {
-    pub mode: u16,
-    pub uid: u16,
-    pub size: u32,
-    pub atime: u32,
-    pub ctime: u32,
-    pub mtime: u32,
-    pub dtime: u32,
-    pub gid: u16,
-    pub links_count: u16,
-    pub blocks: u32,
-    pub flags: u32,
-    pub block: [u32; 15],
-}
-
-impl Ext2Inode {
-    /// Parse an Ext2 Inode from a 128-byte raw buffer.
-    pub fn parse(data: &[u8]) -> Option<Self> {
-        if data.len() < 128 {
-            return None;
-        }
-        let mut block = [0u32; 15];
-        for i in 0..15 {
-            let offset = 40 + i * 4;
-            block[i] = u32::from_le_bytes([
-                data[offset],
-                data[offset + 1],
-                data[offset + 2],
-                data[offset + 3],
-            ]);
-        }
-        Some(Self {
-            mode: u16::from_le_bytes([data[0], data[1]]),
-            uid: u16::from_le_bytes([data[2], data[3]]),
-            size: u32::from_le_bytes([data[4], data[5], data[6], data[7]]),
-            atime: u32::from_le_bytes([data[8], data[9], data[10], data[11]]),
-            ctime: u32::from_le_bytes([data[12], data[13], data[14], data[15]]),
-            mtime: u32::from_le_bytes([data[16], data[17], data[18], data[19]]),
-            dtime: u32::from_le_bytes([data[20], data[21], data[22], data[23]]),
-            gid: u16::from_le_bytes([data[24], data[25]]),
-            links_count: u16::from_le_bytes([data[26], data[27]]),
-            blocks: u32::from_le_bytes([data[28], data[29], data[30], data[31]]),
-            flags: u32::from_le_bytes([data[32], data[33], data[34], data[35]]),
-            block,
-        })
-    }
-
-    /// Serialize into a 128-byte raw buffer.
-    pub fn serialize(&self) -> [u8; 128] {
-        let mut data = [0u8; 128];
-        data[0..2].copy_from_slice(&self.mode.to_le_bytes());
-        data[2..4].copy_from_slice(&self.uid.to_le_bytes());
-        data[4..8].copy_from_slice(&self.size.to_le_bytes());
-        data[8..12].copy_from_slice(&self.atime.to_le_bytes());
-        data[12..16].copy_from_slice(&self.ctime.to_le_bytes());
-        data[16..20].copy_from_slice(&self.mtime.to_le_bytes());
-        data[20..24].copy_from_slice(&self.dtime.to_le_bytes());
-        data[24..26].copy_from_slice(&self.gid.to_le_bytes());
-        data[26..28].copy_from_slice(&self.links_count.to_le_bytes());
-        data[28..32].copy_from_slice(&self.blocks.to_le_bytes());
-        data[32..36].copy_from_slice(&self.flags.to_le_bytes());
-        for i in 0..15 {
-            let offset = 40 + i * 4;
-            data[offset..offset + 4].copy_from_slice(&self.block[i].to_le_bytes());
-        }
-        data
-    }
-
-    pub fn is_dir(&self) -> bool {
-        (self.mode & 0xF000) == 0x4000
-    }
-
-    pub fn is_file(&self) -> bool {
-        (self.mode & 0xF000) == 0x8000
-    }
-}
 
 /// Representation of an active Ext2 filesystem volume instance.
 pub struct Ext2Volume {
@@ -535,8 +364,8 @@ impl InodeOps for Ext2InodeOps {
 
         let inode_type = if child_inode.is_dir() {
             InodeType::Directory
-        } else if child_inode.is_file() {
-            InodeType::File
+        } else if child_inode.is_symlink() {
+            InodeType::Symlink
         } else {
             InodeType::File
         };

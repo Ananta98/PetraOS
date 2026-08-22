@@ -39,6 +39,10 @@ impl Device for AhciDeviceRef {
         "AHCI SATA Controller"
     }
 
+    fn dev_name(&self) -> Option<&'static str> {
+        Some("sda")
+    }
+
     fn init(&mut self) -> Result<(), DriverError> {
         if let Some(ref mut drv) = *AHCI_DEVICE.lock() {
             drv.init()

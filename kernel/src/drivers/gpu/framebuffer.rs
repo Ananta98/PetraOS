@@ -118,6 +118,9 @@ pub fn get_framebuffer_info() -> Option<FramebufferInfo> {
 
 /// Initialize the framebuffer device driver.
 pub fn init() {
+    if FB_DEVICE.lock().is_some() {
+        return;
+    }
     if let Some(info) = get_framebuffer_info() {
         let dev = FramebufferDevice::new(info);
         *FB_DEVICE.lock() = Some(dev);
@@ -162,6 +165,7 @@ impl Driver for FramebufferDriver {
     }
 
     fn probe(&self) -> Result<(), DriverError> {
+        init();
         if let Some(info) = get_framebuffer_info() {
             let dev = FramebufferDevice::new(info);
             let dev_ref: Arc<Spinlock<Box<dyn Device>>> = Arc::new(Spinlock::new(Box::new(dev)));
@@ -178,7 +182,7 @@ impl Driver for FramebufferDriver {
 }
 
 crate::MODULE_LICENSE!("BSD-2-Clause");
-crate::MODULE_AUTHOR!("PetraOS Development Team");
+crate::MODULE_AUTHOR!("Ananta98");
 crate::MODULE_DESCRIPTION!("Limine Linear Framebuffer Driver");
 crate::MODULE_VERSION!("1.0.0");
 crate::module_driver!(

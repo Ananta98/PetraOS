@@ -10,8 +10,10 @@ use alloc::vec::Vec;
 /// Maximum symlink traversal depth to prevent infinite circular loops.
 pub const MAX_SYMLINK_DEPTH: usize = 8;
 
-/// Canonicalize/normalize path relative to a base directory (handling `.` and `..`).
-pub fn normalize_path(base: &str, path: &str) -> alloc::string::String {
+// ===== Path Utilities =====
+
+/// Canonicalize/normalize a path relative to `base` (resolves `.` and `..`).
+pub fn normalize_path(base: &str, path: &str) -> String {
     let mut parts: Vec<&str> = Vec::new();
 
     if !path.starts_with('/') {
@@ -31,9 +33,9 @@ pub fn normalize_path(base: &str, path: &str) -> alloc::string::String {
     }
 
     if parts.is_empty() {
-        alloc::string::String::from("/")
+        String::from("/")
     } else {
-        let mut result = alloc::string::String::new();
+        let mut result = String::new();
         for segment in parts {
             result.push('/');
             result.push_str(segment);
@@ -42,12 +44,68 @@ pub fn normalize_path(base: &str, path: &str) -> alloc::string::String {
     }
 }
 
-/// Resolve an absolute or relative path to a dentry, traversing mount boundaries and symlinks.
+/// Build an absolute path string by walking up the dentry parent chain.
+pub fn build_path(dentry: &Dentry) -> String {
+    let mut components = Vec::new();
+    components.push(dentry.name.clone());
+
+    let mut current_parent = dentry.parent.lock().as_ref().and_then(|w| w.upgrade());
+    while let Some(parent) = current_parent {
+        if parent.name != "/" {
+            components.push(parent.name.clone());
+        }
+        current_parent = parent.parent.lock().as_ref().and_then(|w| w.upgrade());
+    }
+
+    components.reverse();
+    let mut path = String::from("/");
+    for (i, comp) in components.iter().enumerate() {
+        if comp == "/" {
+            continue;
+        }
+        if i > 0 && !path.ends_with('/') {
+            path.push('/');
+        }
+        path.push_str(comp);
+    }
+    if path.is_empty() {
+        path.push('/');
+    }
+    path
+}
+
+// ===== Shared Parent-Resolution Helper =====
+
+/// Split a path into (resolved parent dentry, leaf name).
+///
+/// Both `create_file`, `mkdir`, `unlink`, `rmdir`, `symlink` share this pattern.
+/// The parent must already exist; the leaf name must be non-empty.
+fn resolve_parent_and_name(path: &str) -> Result<(Arc<Dentry>, &str), VfsError> {
+    let last_slash = path.rfind('/').ok_or(VfsError::InvalidInput)?;
+    let parent_path = &path[..last_slash];
+    let leaf_name = &path[last_slash + 1..];
+
+    if leaf_name.is_empty() {
+        return Err(VfsError::InvalidInput);
+    }
+
+    let parent_dentry = if parent_path.is_empty() {
+        resolve_path("/")?
+    } else {
+        resolve_path(parent_path)?
+    };
+
+    Ok((parent_dentry, leaf_name))
+}
+
+// ===== Path Resolution =====
+
+/// Resolve an absolute or relative path to a dentry, traversing mount points and symlinks.
 pub fn resolve_path(path: &str) -> Result<Arc<Dentry>, VfsError> {
     if !path.starts_with('/') {
         let cwd = crate::proc::current_process()
             .map(|p| p.lock().cwd.clone())
-            .unwrap_or_else(|| alloc::string::String::from("/"));
+            .unwrap_or_else(|| String::from("/"));
         let norm_path = normalize_path(&cwd, path);
         resolve_path_symlink(&norm_path, 0)
     } else {
@@ -58,7 +116,7 @@ pub fn resolve_path(path: &str) -> Result<Arc<Dentry>, VfsError> {
 
 fn resolve_path_symlink(path: &str, depth: usize) -> Result<Arc<Dentry>, VfsError> {
     if depth >= MAX_SYMLINK_DEPTH {
-        return Err(VfsError::NotSupported);
+        return Err(VfsError::TooManySymlinks);
     }
 
     let mt = MOUNT_TABLE.read();
@@ -109,10 +167,11 @@ fn resolve_path_symlink(path: &str, depth: usize) -> Result<Arc<Dentry>, VfsErro
             }
         }
 
-        // 3. Mount boundary traversal check
+        // 3. Mount boundary traversal
         let child_path = build_path(&dentry);
         if let Some((child_mount, _)) = mt.lookup(&child_path) {
-            if child_mount.mount_point == child_path && child_mount.mount_point != mount.mount_point
+            if child_mount.mount_point == child_path
+                && child_mount.mount_point != mount.mount_point
             {
                 current = child_mount.root_dentry.clone();
                 continue;
@@ -125,23 +184,13 @@ fn resolve_path_symlink(path: &str, depth: usize) -> Result<Arc<Dentry>, VfsErro
     Ok(current)
 }
 
+// ===== Filesystem Mutation Operations =====
+
 /// Create a new regular file at the given absolute path.
 ///
 /// The parent directory must already exist.
 pub fn create_file(path: &str) -> Result<Arc<Dentry>, VfsError> {
-    let last_slash = path.rfind('/').ok_or(VfsError::InvalidInput)?;
-    let parent_path = &path[..last_slash];
-    let file_name = &path[last_slash + 1..];
-
-    if file_name.is_empty() {
-        return Err(VfsError::InvalidInput);
-    }
-
-    let parent_dentry = if parent_path.is_empty() {
-        resolve_path("/")?
-    } else {
-        resolve_path(parent_path)?
-    };
+    let (parent_dentry, file_name) = resolve_parent_and_name(path)?;
 
     if parent_dentry.inode.inode_type != InodeType::Directory {
         return Err(VfsError::NotDirectory);
@@ -154,19 +203,7 @@ pub fn create_file(path: &str) -> Result<Arc<Dentry>, VfsError> {
 
 /// Create a new directory at the given absolute path.
 pub fn mkdir(path: &str) -> Result<Arc<Dentry>, VfsError> {
-    let last_slash = path.rfind('/').ok_or(VfsError::InvalidInput)?;
-    let parent_path = &path[..last_slash];
-    let dir_name = &path[last_slash + 1..];
-
-    if dir_name.is_empty() {
-        return Err(VfsError::InvalidInput);
-    }
-
-    let parent_dentry = if parent_path.is_empty() {
-        resolve_path("/")?
-    } else {
-        resolve_path(parent_path)?
-    };
+    let (parent_dentry, dir_name) = resolve_parent_and_name(path)?;
 
     if parent_dentry.inode.inode_type != InodeType::Directory {
         return Err(VfsError::NotDirectory);
@@ -179,20 +216,7 @@ pub fn mkdir(path: &str) -> Result<Arc<Dentry>, VfsError> {
 
 /// Unlink (delete) a file entry at the given absolute path.
 pub fn unlink(path: &str) -> Result<(), VfsError> {
-    let last_slash = path.rfind('/').ok_or(VfsError::InvalidInput)?;
-    let parent_path = &path[..last_slash];
-    let file_name = &path[last_slash + 1..];
-
-    if file_name.is_empty() {
-        return Err(VfsError::InvalidInput);
-    }
-
-    let parent_dentry = if parent_path.is_empty() {
-        resolve_path("/")?
-    } else {
-        resolve_path(parent_path)?
-    };
-
+    let (parent_dentry, file_name) = resolve_parent_and_name(path)?;
     parent_dentry.inode.ops.unlink(file_name)?;
     Dentry::remove_child(&parent_dentry, file_name);
     dcache_evict(&parent_dentry, file_name);
@@ -201,20 +225,7 @@ pub fn unlink(path: &str) -> Result<(), VfsError> {
 
 /// Remove an empty directory entry at the given absolute path.
 pub fn rmdir(path: &str) -> Result<(), VfsError> {
-    let last_slash = path.rfind('/').ok_or(VfsError::InvalidInput)?;
-    let parent_path = &path[..last_slash];
-    let dir_name = &path[last_slash + 1..];
-
-    if dir_name.is_empty() {
-        return Err(VfsError::InvalidInput);
-    }
-
-    let parent_dentry = if parent_path.is_empty() {
-        resolve_path("/")?
-    } else {
-        resolve_path(parent_path)?
-    };
-
+    let (parent_dentry, dir_name) = resolve_parent_and_name(path)?;
     parent_dentry.inode.ops.rmdir(dir_name)?;
     Dentry::remove_child(&parent_dentry, dir_name);
     dcache_evict(&parent_dentry, dir_name);
@@ -223,38 +234,47 @@ pub fn rmdir(path: &str) -> Result<(), VfsError> {
 
 /// Create a symbolic link at `path` pointing to `target`.
 pub fn symlink(path: &str, target: &str) -> Result<Arc<Dentry>, VfsError> {
-    let last_slash = path.rfind('/').ok_or(VfsError::InvalidInput)?;
-    let parent_path = &path[..last_slash];
-    let link_name = &path[last_slash + 1..];
-
-    if link_name.is_empty() {
-        return Err(VfsError::InvalidInput);
-    }
-
-    let parent_dentry = if parent_path.is_empty() {
-        resolve_path("/")?
-    } else {
-        resolve_path(parent_path)?
-    };
-
+    let (parent_dentry, link_name) = resolve_parent_and_name(path)?;
     let child_inode = parent_dentry.inode.ops.symlink(link_name, target)?;
     let child_dentry = Dentry::add_child(&parent_dentry, link_name.into(), child_inode);
     Ok(child_dentry)
 }
 
 /// Read the target of a symbolic link at `path`.
-pub fn readlink(path: &str) -> Result<alloc::string::String, VfsError> {
+pub fn readlink(path: &str) -> Result<String, VfsError> {
     let dentry = resolve_path(path)?;
     dentry.inode.ops.readlink()
 }
 
-/// Fetch metadata stat structure for file/directory at `path`.
+/// Rename an existing path to a new path.
+pub fn rename(old_path: &str, new_path: &str) -> Result<(), VfsError> {
+    let (old_parent_dentry, old_name) = resolve_parent_and_name(old_path)?;
+    let (new_parent_dentry, new_name) = resolve_parent_and_name(new_path)?;
+
+    old_parent_dentry
+        .inode
+        .ops
+        .rename(old_name, &new_parent_dentry.inode, new_name)?;
+
+    if let Some(child_dentry) = old_parent_dentry.children.lock().remove(old_name) {
+        new_parent_dentry
+            .children
+            .lock()
+            .insert(new_name.into(), child_dentry);
+    }
+
+    Ok(())
+}
+
+// ===== File I/O Shortcuts =====
+
+/// Fetch metadata stat structure for the file/directory at `path`.
 pub fn stat(path: &str) -> Result<super::types::Stat, VfsError> {
     let dentry = resolve_path(path)?;
     dentry.inode.ops.stat()
 }
 
-/// Read the entire contents of a file at `path` from the VFS into a byte vector.
+/// Read the entire contents of a file at `path` into a byte vector.
 pub fn read_file(path: &str) -> Result<alloc::vec::Vec<u8>, VfsError> {
     let dentry = resolve_path(path)?;
     let stat = dentry.inode.ops.stat()?;
@@ -281,73 +301,4 @@ pub fn open_file(path: &str, flags: u32) -> Result<Arc<File>, VfsError> {
 
     let file_ops = dentry.inode.ops.open()?;
     Ok(Arc::new(File::new(dentry, flags, file_ops)))
-}
-
-/// Rename an existing path to a new path.
-pub fn rename(old_path: &str, new_path: &str) -> Result<(), VfsError> {
-    let old_slash = old_path.rfind('/').ok_or(VfsError::InvalidInput)?;
-    let old_parent_path = &old_path[..old_slash];
-    let old_name = &old_path[old_slash + 1..];
-
-    let new_slash = new_path.rfind('/').ok_or(VfsError::InvalidInput)?;
-    let new_parent_path = &new_path[..new_slash];
-    let new_name = &new_path[new_slash + 1..];
-
-    let old_parent_dentry = if old_parent_path.is_empty() {
-        resolve_path("/")?
-    } else {
-        resolve_path(old_parent_path)?
-    };
-
-    let new_parent_dentry = if new_parent_path.is_empty() {
-        resolve_path("/")?
-    } else {
-        resolve_path(new_parent_path)?
-    };
-
-    old_parent_dentry
-        .inode
-        .ops
-        .rename(old_name, &new_parent_dentry.inode, new_name)?;
-
-    if let Some(child_dentry) = old_parent_dentry.children.lock().remove(old_name) {
-        new_parent_dentry
-            .children
-            .lock()
-            .insert(new_name.into(), child_dentry);
-    }
-
-    Ok(())
-}
-
-/// Build an absolute path from a dentry by walking up the parent chain.
-pub fn build_path(dentry: &Dentry) -> alloc::string::String {
-    use alloc::vec::Vec;
-
-    let mut components = Vec::new();
-    components.push(dentry.name.clone());
-
-    let mut current_parent = dentry.parent.lock().as_ref().and_then(|w| w.upgrade());
-    while let Some(parent) = current_parent {
-        if parent.name != "/" {
-            components.push(parent.name.clone());
-        }
-        current_parent = parent.parent.lock().as_ref().and_then(|w| w.upgrade());
-    }
-
-    components.reverse();
-    let mut path = alloc::string::String::from("/");
-    for (i, comp) in components.iter().enumerate() {
-        if comp == "/" {
-            continue;
-        }
-        if i > 0 && !path.ends_with('/') {
-            path.push('/');
-        }
-        path.push_str(comp);
-    }
-    if path.is_empty() {
-        path.push('/');
-    }
-    path
 }

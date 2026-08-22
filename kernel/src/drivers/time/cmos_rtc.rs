@@ -17,7 +17,6 @@ const CMOS_DATA: u16 = 0x71;
 const REG_SECONDS: u8 = 0x00;
 const REG_MINUTES: u8 = 0x02;
 const REG_HOURS: u8 = 0x04;
-const REG_DAY_OF_WEEK: u8 = 0x06;
 const REG_DAY_OF_MONTH: u8 = 0x07;
 const REG_MONTH: u8 = 0x08;
 const REG_YEAR: u8 = 0x09;
@@ -222,7 +221,6 @@ impl Device for CmosRtcDeviceRef {
     }
 
     fn init(&mut self) -> Result<(), DriverError> {
-        init_boot_time();
         Ok(())
     }
 }

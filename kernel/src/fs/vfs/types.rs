@@ -1,3 +1,4 @@
+use crate::device::DriverError;
 use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
@@ -30,7 +31,19 @@ pub enum VfsError {
     IsDirectory,
     /// Operation interrupted by a signal (EINTR).
     Interrupted,
+    /// Symlink resolution depth exceeded the maximum (ELOOP).
+    TooManySymlinks,
+    /// An underlying device driver error occurred.
+    DriverError(DriverError),
 }
+
+impl From<DriverError> for VfsError {
+    fn from(e: DriverError) -> Self {
+        VfsError::DriverError(e)
+    }
+}
+
+// ===== Open Flags =====
 
 /// Open file for reading only.
 pub const O_RDONLY: u32 = 0;
@@ -40,6 +53,16 @@ pub const O_WRONLY: u32 = 1;
 pub const O_RDWR: u32 = 2;
 /// Create the file if it does not exist.
 pub const O_CREAT: u32 = 0x40;
+/// Truncate file to zero length on open.
+pub const O_TRUNC: u32 = 0x200;
+/// Append writes to the end of the file.
+pub const O_APPEND: u32 = 0x400;
+/// Non-blocking I/O (do not block on read/write).
+pub const O_NONBLOCK: u32 = 0x800;
+/// Fail if path is not a directory.
+pub const O_DIRECTORY: u32 = 0x10000;
+/// Do not follow the final symlink component.
+pub const O_NOFOLLOW: u32 = 0x20000;
 
 /// Mask to extract the access mode (read/write) from flags.
 const O_ACCMODE: u32 = 3;
@@ -56,7 +79,9 @@ pub fn can_write(flags: u32) -> bool {
     mode == O_WRONLY || mode == O_RDWR
 }
 
-/// POSIX file metadata structure.
+// ===== Stat Structures =====
+
+/// POSIX file metadata structure (kernel-internal).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Stat {
     pub ino: u64,
@@ -72,6 +97,7 @@ pub struct Stat {
     pub blocks: u64,
 }
 
+/// `struct stat` as defined by the Linux ABI (x86-64 `statx`-compatible layout).
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct LinuxStat {
@@ -95,13 +121,20 @@ pub struct LinuxStat {
     pub __glibc_reserved: [i64; 3],
 }
 
-/// Seek directive for lseek.
+// ===== Seek =====
+
+/// Seek directive for `lseek`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SeekWhence {
+    /// Seek to absolute offset from start of file.
     Set,
+    /// Seek relative to the current file offset.
     Cur,
+    /// Seek relative to end of file.
     End,
 }
+
+// ===== Inode Types =====
 
 /// The kind of object an inode represents.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -118,7 +151,12 @@ pub enum InodeType {
     Symlink,
 }
 
+// ===== InodeOps Trait =====
+
 /// Operations dispatch table for an inode.
+///
+/// Default implementations return appropriate errors so that concrete
+/// filesystems only need to implement the operations they support.
 pub trait InodeOps: Send + Sync {
     /// Look up a child entry by name within a directory inode.
     fn lookup(&self, _name: &str) -> Result<Arc<Inode>, VfsError> {
@@ -150,7 +188,7 @@ pub trait InodeOps: Send + Sync {
         Err(VfsError::NotSupported)
     }
 
-    /// Read target path from a symbolic link inode.
+    /// Read the target path from a symbolic link inode.
     fn readlink(&self) -> Result<String, VfsError> {
         Err(VfsError::NotSupported)
     }
@@ -180,7 +218,7 @@ pub trait InodeOps: Send + Sync {
         Err(VfsError::NotSupported)
     }
 
-    /// Truncate file to specified size.
+    /// Truncate file to the specified size in bytes.
     fn truncate(&self, _size: usize) -> Result<(), VfsError> {
         Err(VfsError::NotSupported)
     }
@@ -190,6 +228,8 @@ pub trait InodeOps: Send + Sync {
         Err(VfsError::NotSupported)
     }
 }
+
+// ===== Inode =====
 
 /// An in-memory inode representing a single filesystem object.
 pub struct Inode {
@@ -201,7 +241,11 @@ pub struct Inode {
     pub ops: Arc<dyn InodeOps>,
 }
 
+// ===== FileOps Trait =====
+
 /// Per-open-file I/O operations.
+///
+/// Obtained from `InodeOps::open()` and stored inside an open [`File`] description.
 pub trait FileOps: Send + Sync {
     /// Read up to `buf.len()` bytes starting at `offset`.
     fn read(&self, _offset: usize, _buf: &mut [u8]) -> Result<usize, VfsError> {
@@ -213,12 +257,12 @@ pub trait FileOps: Send + Sync {
         Err(VfsError::NotSupported)
     }
 
-    /// Seek to specified offset based on `whence`.
+    /// Seek to the specified offset based on `whence`.
     fn lseek(&self, _offset: i64, _whence: SeekWhence) -> Result<usize, VfsError> {
         Err(VfsError::NotSupported)
     }
 
-    /// Truncate file to `size`.
+    /// Truncate the file to `size` bytes.
     fn truncate(&self, _size: usize) -> Result<(), VfsError> {
         Err(VfsError::NotSupported)
     }
@@ -228,7 +272,7 @@ pub trait FileOps: Send + Sync {
         Err(VfsError::NotSupported)
     }
 
-    /// Synchronize in-memory file changes to storage.
+    /// Synchronize in-memory changes to persistent storage.
     fn sync(&self) -> Result<(), VfsError> {
         Ok(())
     }
@@ -238,20 +282,24 @@ pub trait FileOps: Send + Sync {
         Err(VfsError::NotSupported)
     }
 
-    /// Check if this file descriptor refers to a terminal.
+    /// Return `true` if this file descriptor refers to a terminal (TTY).
     fn isatty(&self) -> bool {
         false
     }
 }
 
-/// Trait implemented by each filesystem type (ramfs, devfs, procfs, ext2, etc.).
+// ===== FileSystem Trait =====
+
+/// Trait implemented by each filesystem type (ramfs, devfs, ext2, etc.).
 pub trait FileSystem: Send + Sync {
-    /// Human-readable name (e.g., "ramfs", "devfs", "procfs").
+    /// Human-readable filesystem name (e.g., "ramfs", "devfs", "ext2").
     fn name(&self) -> &'static str;
 
     /// Create a fresh superblock and root inode for a new mount instance.
     fn mount(&self) -> Result<SuperBlock, VfsError>;
 }
+
+// ===== SuperBlock =====
 
 /// Per-mount metadata. Each mounted filesystem instance has exactly one `SuperBlock`.
 pub struct SuperBlock {

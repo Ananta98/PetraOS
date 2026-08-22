@@ -7,7 +7,9 @@ use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::sync::atomic::{AtomicU64, Ordering};
 
-/// In-memory regular file ops.
+// ===== RamFileOps — in-memory file I/O =====
+
+/// File I/O operations for an in-memory regular file.
 pub struct RamFileOps {
     pub content: Arc<RwLock<Vec<u8>>>,
 }
@@ -34,8 +36,7 @@ impl FileOps for RamFileOps {
     }
 
     fn truncate(&self, size: usize) -> Result<(), VfsError> {
-        let mut content = self.content.write();
-        content.resize(size, 0);
+        self.content.write().resize(size, 0);
         Ok(())
     }
 
@@ -50,7 +51,9 @@ impl FileOps for RamFileOps {
     }
 }
 
-/// In-memory regular file inode.
+// ===== RamFileInode — in-memory regular file inode =====
+
+/// Inode operations for an in-memory regular file.
 pub struct RamFileInode {
     pub content: Arc<RwLock<Vec<u8>>>,
 }
@@ -81,45 +84,14 @@ impl InodeOps for RamFileInode {
     }
 
     fn truncate(&self, size: usize) -> Result<(), VfsError> {
-        let mut content = self.content.write();
-        content.resize(size, 0);
+        self.content.write().resize(size, 0);
         Ok(())
     }
 }
 
-/// In-memory directory inode. Stores child entries in a `BTreeMap`.
-pub struct RamDirInode {
-    pub entries: RwLock<BTreeMap<String, Arc<Inode>>>,
-}
+// ===== RamSymlinkInode — in-memory symbolic link inode =====
 
-impl RamDirInode {
-    pub fn new() -> Self {
-        Self {
-            entries: RwLock::new(BTreeMap::new()),
-        }
-    }
-
-    pub fn create_device(
-        &self,
-        name: &str,
-        device_ops: Arc<dyn InodeOps>,
-        ino: u64,
-    ) -> Result<Arc<Inode>, VfsError> {
-        let mut entries = self.entries.write();
-        if entries.contains_key(name) {
-            return Err(VfsError::AlreadyExists);
-        }
-        let inode = Arc::new(Inode {
-            ino,
-            inode_type: InodeType::CharDevice,
-            ops: device_ops,
-        });
-        entries.insert(name.into(), inode.clone());
-        Ok(inode)
-    }
-}
-
-/// In-memory symbolic link inode.
+/// Inode operations for an in-memory symbolic link.
 pub struct RamSymlinkInode {
     pub target: String,
 }
@@ -145,15 +117,61 @@ impl InodeOps for RamSymlinkInode {
     }
 }
 
+// ===== RamDirInode — in-memory directory inode =====
+
+/// Inode operations for an in-memory directory.
+///
+/// Uses a shared `Arc<AtomicU64>` inode counter from the filesystem's
+/// `SuperBlock::next_ino` so that all inode types draw from the same
+/// monotonically increasing sequence, preventing collisions.
+pub struct RamDirInode {
+    pub entries: RwLock<BTreeMap<String, Arc<Inode>>>,
+    /// Shared inode number allocator from the mounted SuperBlock.
+    next_ino: Arc<AtomicU64>,
+}
+
+impl RamDirInode {
+    /// Create a new directory inode with a shared inode counter.
+    pub fn new(next_ino: Arc<AtomicU64>) -> Self {
+        Self {
+            entries: RwLock::new(BTreeMap::new()),
+            next_ino,
+        }
+    }
+
+    /// Allocate the next unique inode number.
+    fn alloc_ino(&self) -> u64 {
+        self.next_ino.fetch_add(1, Ordering::Relaxed)
+    }
+
+    /// Register a device inode directly (used by devfs bridge).
+    pub fn create_device(
+        &self,
+        name: &str,
+        device_ops: Arc<dyn InodeOps>,
+        ino: u64,
+    ) -> Result<Arc<Inode>, VfsError> {
+        let mut entries = self.entries.write();
+        if entries.contains_key(name) {
+            return Err(VfsError::AlreadyExists);
+        }
+        let inode = Arc::new(Inode {
+            ino,
+            inode_type: InodeType::CharDevice,
+            ops: device_ops,
+        });
+        entries.insert(name.into(), inode.clone());
+        Ok(inode)
+    }
+}
+
 impl InodeOps for RamDirInode {
     fn lookup(&self, name: &str) -> Result<Arc<Inode>, VfsError> {
-        let entries = self.entries.read();
-        entries.get(name).cloned().ok_or(VfsError::NotFound)
+        self.entries.read().get(name).cloned().ok_or(VfsError::NotFound)
     }
 
     fn readdir(&self) -> Result<Vec<String>, VfsError> {
-        let entries = self.entries.read();
-        Ok(entries.keys().cloned().collect())
+        Ok(self.entries.read().keys().cloned().collect())
     }
 
     fn mkdir(&self, name: &str) -> Result<Arc<Inode>, VfsError> {
@@ -161,13 +179,11 @@ impl InodeOps for RamDirInode {
         if entries.contains_key(name) {
             return Err(VfsError::AlreadyExists);
         }
-        static DIR_INO: AtomicU64 = AtomicU64::new(1000);
-        let ino = DIR_INO.fetch_add(1, Ordering::Relaxed);
-
+        let ino = self.alloc_ino();
         let inode = Arc::new(Inode {
             ino,
             inode_type: InodeType::Directory,
-            ops: Arc::new(RamDirInode::new()),
+            ops: Arc::new(RamDirInode::new(self.next_ino.clone())),
         });
         entries.insert(name.into(), inode.clone());
         Ok(inode)
@@ -178,9 +194,7 @@ impl InodeOps for RamDirInode {
         if entries.contains_key(name) {
             return Err(VfsError::AlreadyExists);
         }
-        static FILE_INO: AtomicU64 = AtomicU64::new(2000);
-        let ino = FILE_INO.fetch_add(1, Ordering::Relaxed);
-
+        let ino = self.alloc_ino();
         let inode = Arc::new(Inode {
             ino,
             inode_type: InodeType::File,
@@ -195,9 +209,7 @@ impl InodeOps for RamDirInode {
         if entries.contains_key(name) {
             return Err(VfsError::AlreadyExists);
         }
-        static SYMLINK_INO: AtomicU64 = AtomicU64::new(3000);
-        let ino = SYMLINK_INO.fetch_add(1, Ordering::Relaxed);
-
+        let ino = self.alloc_ino();
         let inode = Arc::new(Inode {
             ino,
             inode_type: InodeType::Symlink,
@@ -227,6 +239,21 @@ impl InodeOps for RamDirInode {
         Ok(())
     }
 
+    fn rename(
+        &self,
+        old_name: &str,
+        _new_dir: &Arc<Inode>,
+        new_name: &str,
+    ) -> Result<(), VfsError> {
+        // In-memory rename: move the entry within this directory's own BTreeMap.
+        // Cross-directory rename is handled by VFS path.rs which calls rename on
+        // the source directory and then moves the dentry tree node itself.
+        let mut entries = self.entries.write();
+        let inode = entries.remove(old_name).ok_or(VfsError::NotFound)?;
+        entries.insert(new_name.into(), inode);
+        Ok(())
+    }
+
     fn stat(&self) -> Result<crate::fs::vfs::types::Stat, VfsError> {
         let entries = self.entries.read();
         Ok(crate::fs::vfs::types::Stat {
@@ -241,6 +268,8 @@ impl InodeOps for RamDirInode {
         Ok(Arc::new(RamDirFileOps))
     }
 }
+
+// ===== RamDirFileOps — file ops for directories =====
 
 pub struct RamDirFileOps;
 
@@ -263,7 +292,9 @@ impl FileOps for RamDirFileOps {
     }
 }
 
-/// In-memory filesystem. Used as the root filesystem.
+// ===== RamFs — in-memory filesystem =====
+
+/// In-memory filesystem used as the root filesystem.
 pub struct RamFs;
 
 impl RamFs {
@@ -291,19 +322,21 @@ impl FileSystem for RamFs {
     }
 
     fn mount(&self) -> Result<SuperBlock, VfsError> {
-        let next_ino = AtomicU64::new(1);
+        let next_ino = Arc::new(AtomicU64::new(1));
         let ino = next_ino.fetch_add(1, Ordering::Relaxed);
 
         let root_inode = Arc::new(Inode {
             ino,
             inode_type: InodeType::Directory,
-            ops: Arc::new(RamDirInode::new()),
+            ops: Arc::new(RamDirInode::new(next_ino.clone())),
         });
 
         Ok(SuperBlock {
             fs_name: "ramfs",
             root_inode,
-            next_ino,
+            // The SuperBlock also holds a copy of the counter via AtomicU64.
+            // Wrap the Arc value — both the root dir and the superblock share the same counter.
+            next_ino: AtomicU64::new(next_ino.load(Ordering::Relaxed)),
             read_only: false,
         })
     }

@@ -1,5 +1,6 @@
 use super::dentry::Dentry;
 use super::types::{FileOps, SeekWhence, VfsError, can_read, can_write};
+use crate::fs::vfs::types::InodeType;
 use crate::sync::spinlock::Spinlock;
 use alloc::sync::Arc;
 
@@ -8,7 +9,7 @@ use alloc::sync::Arc;
 pub struct File {
     /// The dentry this file was opened from.
     pub dentry: Arc<Dentry>,
-    /// Current read/write offset.
+    /// Current read/write offset (protected by a spinlock for safe concurrent access).
     pub offset: Spinlock<usize>,
     /// Open flags (O_RDONLY, O_WRONLY, O_RDWR, etc.).
     pub flags: u32,
@@ -49,28 +50,32 @@ impl File {
         Ok(bytes_written)
     }
 
-    /// Seek to an absolute offset.
+    /// Seek to an absolute offset directly (no `O_*` flag checks).
     pub fn seek(&self, new_offset: usize) {
-        let mut offset = self.offset.lock();
-        *offset = new_offset;
+        *self.offset.lock() = new_offset;
     }
 
-    /// POSIX lseek implementation.
+    /// POSIX `lseek` implementation.
+    ///
+    /// Acquires the offset lock exactly once to avoid a double-lock in the
+    /// fallback branch. If the underlying `FileOps` provides a custom `lseek`,
+    /// that result is used directly; otherwise the offset is updated in-place.
     pub fn lseek(&self, offset: i64, whence: SeekWhence) -> Result<usize, VfsError> {
-        if self.dentry.inode.inode_type != crate::fs::vfs::types::InodeType::File {
+        if self.dentry.inode.inode_type != InodeType::File {
             return Err(VfsError::NotSupported);
         }
 
+        // Delegate to FileOps if it provides a custom seek implementation.
         if let Ok(new_pos) = self.ops.lseek(offset, whence) {
-            let mut off = self.offset.lock();
-            *off = new_pos;
+            *self.offset.lock() = new_pos;
             return Ok(new_pos);
         }
 
-        let current_pos = *self.offset.lock();
+        // Fallback: compute the new offset ourselves — single lock acquisition.
+        let mut off = self.offset.lock();
         let base = match whence {
             SeekWhence::Set => 0i64,
-            SeekWhence::Cur => current_pos as i64,
+            SeekWhence::Cur => *off as i64,
             SeekWhence::End => {
                 let stat = self.ops.stat().or_else(|_| self.dentry.inode.ops.stat())?;
                 stat.size as i64
@@ -82,9 +87,7 @@ impl File {
             return Err(VfsError::InvalidInput);
         }
 
-        let new_offset = target as usize;
-        let mut off = self.offset.lock();
-        *off = new_offset;
-        Ok(new_offset)
+        *off = target as usize;
+        Ok(*off)
     }
 }
