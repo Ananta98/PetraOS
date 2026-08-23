@@ -5,6 +5,7 @@ use crate::ipc::signal::{PendingSignals, SigSet};
 use crate::ipc::signal::{SIG_BLOCK, SIG_SETMASK, SIG_UNBLOCK, SIGKILL, SIGSTOP};
 use crate::proc::process::Process;
 use crate::sched::nice::Nice;
+use crate::sched::policy::{DEFAULT_RR_QUANTUM_NS, RtPriority, SchedPolicy};
 use crate::sync::spinlock::Spinlock;
 use alloc::string::String;
 use alloc::sync::{Arc, Weak};
@@ -39,6 +40,15 @@ pub struct Thread {
 
     /// Dynamically allocated kernel stack for Ring 0 transitions and context switches
     pub kernel_stack: Option<KernelStack>,
+
+    /// Scheduling policy (Fair, Fifo, RoundRobin)
+    pub sched_policy: SchedPolicy,
+
+    /// Real-time scheduling priority (0..=99)
+    pub rt_priority: RtPriority,
+
+    /// Remaining time quantum in nanoseconds for `SCHED_RR`
+    pub rr_remaining_ns: u64,
 
     /// Accumulated virtual runtime in nanoseconds (EEVDF)
     pub vruntime: u64,
@@ -78,6 +88,9 @@ impl Thread {
             process,
             context: ThreadContext::default(),
             kernel_stack: None,
+            sched_policy: SchedPolicy::Fair,
+            rt_priority: RtPriority::DEFAULT,
+            rr_remaining_ns: DEFAULT_RR_QUANTUM_NS,
             vruntime: 0,
             vdeadline: 0,
             slice_ns: DEFAULT_THREAD_SLICE_NS,
@@ -101,6 +114,13 @@ impl Thread {
         self.weight = nice.weight();
     }
 
+    /// Sets the scheduling policy and real-time priority.
+    pub fn set_scheduler_policy(&mut self, policy: SchedPolicy, rt_prio: RtPriority) {
+        self.sched_policy = policy;
+        self.rt_priority = rt_prio;
+        self.rr_remaining_ns = DEFAULT_RR_QUANTUM_NS;
+    }
+
     /// Yield the CPU to another thread.
     pub fn yield_cpu() {
         crate::sched::schedule(true);
@@ -118,9 +138,7 @@ impl Thread {
         if t.state == ThreadState::Sleeping {
             t.state = ThreadState::Ready;
             drop(t);
-            crate::arch::without_interrupts(|| {
-                crate::sched::SCHEDULER.lock().add_thread(thread);
-            });
+            crate::sched::add_thread(thread);
         }
     }
 

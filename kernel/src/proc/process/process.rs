@@ -367,9 +367,7 @@ impl Process {
         let c_thread_arc = Arc::new(Spinlock::new(child_thread));
         child_threads.insert(child_tid, c_thread_arc.clone());
 
-        crate::arch::without_interrupts(|| {
-            crate::sched::SCHEDULER.lock().add_thread(c_thread_arc);
-        });
+        crate::sched::add_thread(c_thread_arc);
 
         child.lock().threads = child_threads;
 
@@ -467,28 +465,23 @@ impl Process {
         self.state = ProcessState::Zombie;
         self.exit_code = Some(status);
 
-        crate::arch::without_interrupts(|| {
-            // Determine the TID of the currently-running thread on this CPU.
-            let cpu_id = crate::arch::cpu_id();
-            let mut sched = crate::sched::SCHEDULER.lock();
-            let current_tid = sched.current_threads[cpu_id as usize]
-                .as_ref()
-                .map(|t| t.lock().tid);
+        // Determine the TID of the currently-running thread on this CPU.
+        let cpu_id = crate::arch::cpu_id();
+        let current_tid = crate::sched::current_thread_on_cpu(cpu_id)
+            .as_ref()
+            .map(|t| t.lock().tid);
 
-            // Remove all non-current threads from the scheduler run queue in a single lock session.
-            for (_, thread) in self.threads.iter() {
-                let mut t_lock = thread.lock();
-                let tid = t_lock.tid;
-                let is_current = current_tid.map_or(false, |ctid| ctid == tid);
-                t_lock.state = ThreadState::Zombie;
-                drop(t_lock);
-                if !is_current {
-                    // Thread is in the run queue (not current_threads[cpu]) — remove it.
-                    sched.remove_thread(tid);
-                }
-                // If is_current: leave it in current_threads[cpu]; block_current() handles it.
+        // Remove all non-current threads from the scheduler run queue.
+        for (_, thread) in self.threads.iter() {
+            let mut t_lock = thread.lock();
+            let tid = t_lock.tid;
+            let is_current = current_tid.map_or(false, |ctid| ctid == tid);
+            t_lock.state = ThreadState::Zombie;
+            drop(t_lock);
+            if !is_current {
+                crate::sched::remove_thread(tid);
             }
-        });
+        }
     }
 
     /// Update signal action for a given signal number (sigaction semantics).

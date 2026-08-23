@@ -2,7 +2,6 @@ use crate::arch::idt::{InterruptDescriptorTable, InterruptStackFrame};
 use crate::arch::lapic_timer;
 use crate::arch::{halt, read_cr2, without_interrupts};
 use crate::ipc::signal::SIGSEGV;
-use crate::sched::SCHEDULER;
 use crate::mm::{PageFaultErrorCode, VirtAddr};
 
 pub const KEYBOARD_VECTOR: u8 = 33;
@@ -259,10 +258,7 @@ extern "x86-interrupt" fn page_fault_handler(
 
     let cpu_id = unsafe { super::lapic::get_lapic().id() };
 
-    let current_thread = without_interrupts(|| {
-        let sched = SCHEDULER.lock();
-        sched.current_threads[cpu_id as usize].clone()
-    });
+    let current_thread = crate::sched::current_thread_on_cpu(cpu_id);
 
     if let Some(thread_arc) = current_thread {
         let thread = thread_arc.lock();
@@ -302,7 +298,7 @@ extern "x86-interrupt" fn timer_handler(_stack_frame: &mut InterruptStackFrame) 
         super::lapic::get_lapic().end_of_interrupt();
     }
 
-    crate::sched::SCHEDULER.lock().tick(cpu_id, 10_000_000);
+    crate::sched::tick(cpu_id, 10_000_000);
     crate::sched::schedule(true);
 }
 

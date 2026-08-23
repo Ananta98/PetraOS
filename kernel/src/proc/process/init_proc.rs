@@ -86,9 +86,7 @@ pub fn create_init_process() -> Result<(Arc<Spinlock<Process>>, u64, u64), &'sta
             super::process_table::register_process(proc_arc.clone());
 
             // Register as active thread on BSP CPU 0
-            crate::arch::without_interrupts(|| {
-                crate::sched::SCHEDULER.lock().current_threads[0] = Some(init_thread);
-            });
+            crate::sched::set_current_thread_on_cpu(0, Some(init_thread));
 
             return Ok((proc_arc, entry_point, stack_top));
         }

@@ -9,10 +9,7 @@ pub use tid::{next_tid, ThreadId};
 #[unsafe(no_mangle)]
 pub extern "C" fn thread_exit() -> ! {
     let cpu_id = crate::arch::cpu_id();
-    let thread = crate::arch::without_interrupts(|| {
-        let sched = crate::sched::SCHEDULER.lock();
-        sched.current_threads[cpu_id as usize].clone()
-    });
+    let thread = crate::sched::current_thread_on_cpu(cpu_id);
 
     if let Some(t) = thread {
         t.lock().exit(0);

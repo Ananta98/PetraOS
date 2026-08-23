@@ -15,10 +15,7 @@ use alloc::sync::Arc;
 /// Helper to obtain the currently executing Thread on the active CPU.
 pub fn current_thread() -> Option<Arc<Spinlock<Thread>>> {
     let cpu_id = crate::arch::cpu_id();
-    crate::arch::without_interrupts(|| {
-        let sched = crate::sched::SCHEDULER.lock();
-        sched.current_threads[cpu_id as usize].clone()
-    })
+    crate::sched::current_thread_on_cpu(cpu_id)
 }
 
 /// Helper to obtain the currently executing Process on the active CPU.
