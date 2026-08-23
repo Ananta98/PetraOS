@@ -1,6 +1,6 @@
+use crate::mm::PhysAddr;
 use crate::mm::pmm::buddy::{BuddyAllocator, Page, PageFlags};
 use crate::sync::spinlock::Spinlock;
-use x86_64::PhysAddr;
 
 pub struct PhysicalMemoryManagement {
     allocator: Spinlock<Option<BuddyAllocator>>,

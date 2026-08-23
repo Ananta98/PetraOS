@@ -14,7 +14,7 @@
 
 use super::coherent::DmaCoherent;
 use super::DmaError;
-use x86_64::{PhysAddr, VirtAddr};
+use crate::mm::{PhysAddr, VirtAddr};
 
 /// Direction of data flow for a streaming DMA mapping.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

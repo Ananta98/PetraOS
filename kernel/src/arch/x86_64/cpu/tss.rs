@@ -1,5 +1,39 @@
-use x86_64::structures::tss::TaskStateSegment;
-use x86_64::VirtAddr;
+//! Task State Segment (TSS) and Per-CPU State for x86_64 Architecture.
+//!
+//! Provides the 64-bit Task State Segment structure and CPU-local structures for interrupt/syscall stack switching.
+
+use crate::mm::VirtAddr;
+
+/// 64-bit Task State Segment (TSS) layout specified by the Intel/AMD64 architecture.
+#[derive(Debug, Clone, Copy)]
+#[repr(C, packed)]
+pub struct TaskStateSegment {
+    reserved_1: u32,
+    /// Privilege Stack Table: [RSP0, RSP1, RSP2]
+    pub privilege_stack_table: [VirtAddr; 3],
+    reserved_2: u64,
+    /// Interrupt Stack Table: [IST1, IST2, IST3, IST4, IST5, IST6, IST7]
+    pub interrupt_stack_table: [VirtAddr; 7],
+    reserved_3: u64,
+    reserved_4: u16,
+    /// I/O Map Base Address (offset from TSS base). Setting >= size of TSS disables I/O bitmap.
+    pub iomap_base: u16,
+}
+
+impl TaskStateSegment {
+    /// Creates a zeroed Task State Segment with I/O bitmap disabled.
+    pub const fn new() -> Self {
+        Self {
+            reserved_1: 0,
+            privilege_stack_table: [VirtAddr::zero(); 3],
+            reserved_2: 0,
+            interrupt_stack_table: [VirtAddr::zero(); 7],
+            reserved_3: 0,
+            reserved_4: 0,
+            iomap_base: core::mem::size_of::<Self>() as u16,
+        }
+    }
+}
 
 const STACK_SIZE: usize = 4096 * 5; // 20 KiB stack
 

@@ -18,45 +18,68 @@ pub use interrupt::lapic;
 pub use paging::ArchPageTable;
 pub use timer::lapic_timer;
 
-use x86_64::instructions::hlt;
-use x86_64::instructions::interrupts as x86_interrupts;
+use core::arch::asm;
 
-/// Enable interrupts on the calling CPU.
+/// Enable interrupts on the calling CPU (`sti`).
 #[inline(always)]
 pub fn enable_interrupts() {
-    x86_interrupts::enable();
-}
-
-/// Halt CPU until the next interrupt.
-#[inline(always)]
-pub fn halt() {
-    hlt();
-}
-
-pub fn idle() -> ! {
-    loop {
-        halt();
+    unsafe {
+        asm!("sti", options(nomem, nostack, preserves_flags));
     }
 }
 
-/// Disable interrupts on the calling CPU and return the previous interrupt flag state.
+/// Disable interrupts on the calling CPU (`cli`) and return the previous interrupt flag state.
 #[inline(always)]
 pub fn disable_interrupts() -> bool {
     let was_enabled = interrupts_enabled();
-    x86_interrupts::disable();
+    unsafe {
+        asm!("cli", options(nomem, nostack, preserves_flags));
+    }
     was_enabled
 }
 
 /// Check if interrupts are currently enabled on the calling CPU.
 #[inline(always)]
 pub fn interrupts_enabled() -> bool {
-    x86_interrupts::are_enabled()
+    let rflags: u64;
+    unsafe {
+        asm!("pushfq", "pop {}", out(reg) rflags, options(nomem, preserves_flags));
+    }
+    (rflags & (1 << 9)) != 0
+}
+
+/// Halt CPU until the next interrupt (`hlt`).
+#[inline(always)]
+pub fn halt() {
+    unsafe {
+        asm!("hlt", options(nomem, nostack, preserves_flags));
+    }
+}
+
+/// Atomically enable interrupts and halt CPU until the next interrupt (`sti; hlt`).
+#[inline(always)]
+pub fn enable_and_hlt() {
+    unsafe {
+        asm!("sti", "hlt", options(nomem, nostack, preserves_flags));
+    }
+}
+
+/// CPU idle loop.
+pub fn idle() -> ! {
+    loop {
+        halt();
+    }
 }
 
 /// Execute a closure with interrupts disabled, restoring the previous interrupt state afterwards.
 #[inline(always)]
 pub fn without_interrupts<R>(func: impl FnOnce() -> R) -> R {
-    x86_interrupts::without_interrupts(func)
+    let was_enabled = disable_interrupts();
+    let result = func();
+    if was_enabled {
+        enable_interrupts();
+    }
+    result
 }
 
 /// Get the Local APIC ID of the calling CPU core (defaults to 0 if APIC not yet initialized).

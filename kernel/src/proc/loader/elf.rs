@@ -1,9 +1,7 @@
 use super::header::*;
 use crate::mm::ArchPageTable;
 use crate::mm::PageTable;
-use crate::mm::{AddrSpace, VmAreaKind};
-use x86_64::structures::paging::PageTableFlags;
-use x86_64::VirtAddr;
+use crate::mm::{AddrSpace, PageTableFlags, VirtAddr, VmAreaKind};
 
 /// A loaded ELF executable's resources.
 pub struct LoadedElf {

@@ -32,26 +32,3 @@ switch_context_to:
   pop rbx
   pop rbp
   ret
-
-.global thread_bootstrapper
-.extern thread_exit
-thread_bootstrapper:
-  mov rdi, r13
-  call r12
-  call thread_exit
-
-.global fork_child_return
-fork_child_return:
-  # Pop general purpose registers matching SyscallFrame layout
-  pop r11
-  pop r10
-  pop r9
-  pop r8
-  pop rcx
-  pop rdx
-  pop rsi
-  pop rdi
-  pop rbp
-  pop rax
-  # Return to Ring 3 user mode with restored user RIP, CS, RFLAGS, RSP, SS
-  iretq

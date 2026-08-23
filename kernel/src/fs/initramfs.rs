@@ -73,7 +73,10 @@ pub fn extract_cpio_archive(data: &[u8]) -> Result<usize, &'static str> {
 
     for entry_res in archive.entries() {
         let entry = entry_res.map_err(|_| "Failed to parse CPIO entry header")?;
-        let raw_name = entry.name().trim_start_matches("./").trim_start_matches('/');
+        let raw_name = entry
+            .name()
+            .trim_start_matches("./")
+            .trim_start_matches('/');
 
         if raw_name.is_empty() || raw_name == "." {
             continue;
@@ -87,7 +90,11 @@ pub fn extract_cpio_archive(data: &[u8]) -> Result<usize, &'static str> {
             }
         } else if entry.is_regular_file() {
             if let Err(err) = create_file_with_parents(&full_path, entry.data()) {
-                log::warn!("[Initramfs] Failed to create file '{}': {:?}", full_path, err);
+                log::warn!(
+                    "[Initramfs] Failed to create file '{}': {:?}",
+                    full_path,
+                    err
+                );
             } else {
                 extracted_count += 1;
             }
@@ -95,7 +102,12 @@ pub fn extract_cpio_archive(data: &[u8]) -> Result<usize, &'static str> {
             if let Ok(raw_target) = core::str::from_utf8(entry.data()) {
                 let target = raw_target.trim_end_matches('\0');
                 if let Err(err) = create_symlink_with_parents(&full_path, target) {
-                    log::warn!("[Initramfs] Failed to create symlink '{}' -> '{}': {:?}", full_path, target, err);
+                    log::warn!(
+                        "[Initramfs] Failed to create symlink '{}' -> '{}': {:?}",
+                        full_path,
+                        target,
+                        err
+                    );
                 } else {
                     extracted_count += 1;
                 }
@@ -143,9 +155,7 @@ impl Initramfs {
             );
 
             // SAFETY: Limine guarantees module memory addresses are valid and mapped.
-            let raw_data = unsafe {
-                core::slice::from_raw_parts(module_file.addr(), size)
-            };
+            let raw_data = unsafe { core::slice::from_raw_parts(module_file.addr(), size) };
 
             match extract_cpio_archive(raw_data) {
                 Ok(count) => {
@@ -169,7 +179,7 @@ impl Initramfs {
     }
 }
 
-crate::fs_initcall!(Initramfs::init);
+crate::late_initcall!(Initramfs::init);
 crate::MODULE_LICENSE!("BSD-2-Clause");
 crate::MODULE_AUTHOR!("PetraOS Development Team");
 crate::MODULE_DESCRIPTION!("In-Memory CPIO Initramfs Unpacker");

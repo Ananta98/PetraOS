@@ -2,12 +2,12 @@
 use super::stack::init_stack;
 
 core::arch::global_asm!(include_str!("Switch.S"));
+core::arch::global_asm!(include_str!("Thread.S"));
 
 unsafe extern "C" {
     pub fn switch_context(prev_rsp_ptr: *mut u64, next_rsp: u64);
     pub fn switch_context_to(next_rsp: u64) -> !;
     pub fn thread_bootstrapper() -> !;
-    pub fn fork_child_return() -> !;
 }
 
 // ── Thread CPU Context ────────────────────────────────────────────────────────

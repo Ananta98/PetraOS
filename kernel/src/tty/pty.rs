@@ -147,7 +147,7 @@ impl FileOps for PtyMasterFileOps {
             }
             drop(mb);
             #[cfg(target_arch = "x86_64")]
-            x86_64::instructions::interrupts::enable_and_hlt();
+            crate::arch::enable_and_hlt();
             #[cfg(not(target_arch = "x86_64"))]
             crate::proc::thread::Thread::yield_cpu();
         }
@@ -291,7 +291,7 @@ impl FileOps for PtySlaveFileOps {
             }
             drop(ldisc);
             #[cfg(target_arch = "x86_64")]
-            x86_64::instructions::interrupts::enable_and_hlt();
+            crate::arch::enable_and_hlt();
             #[cfg(not(target_arch = "x86_64"))]
             crate::proc::thread::Thread::yield_cpu();
         }

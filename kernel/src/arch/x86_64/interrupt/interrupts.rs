@@ -3,8 +3,7 @@ use crate::arch::lapic_timer;
 use crate::arch::{halt, read_cr2, without_interrupts};
 use crate::ipc::signal::SIGSEGV;
 use crate::sched::SCHEDULER;
-use x86_64::VirtAddr;
-use x86_64::structures::idt::PageFaultErrorCode;
+use crate::mm::{PageFaultErrorCode, VirtAddr};
 
 pub const KEYBOARD_VECTOR: u8 = 33;
 

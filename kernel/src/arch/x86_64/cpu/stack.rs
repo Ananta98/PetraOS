@@ -2,6 +2,12 @@
 use super::context::thread_bootstrapper;
 use crate::arch::syscall::SyscallFrame;
 
+core::arch::global_asm!(include_str!("Stack.S"));
+
+unsafe extern "C" {
+    pub fn fork_child_return() -> !;
+}
+
 /// The layout of the context saved on the thread's stack during a context switch on x86_64.
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
@@ -98,7 +104,7 @@ pub fn init_fork_stack(kstack: &mut KernelStack, parent_frame: &SyscallFrame) ->
             r12: 0,
             rbx: 0,
             rbp: 0,
-            rip: super::context::fork_child_return as *const () as u64,
+            rip: fork_child_return as *const () as u64,
         });
     }
 

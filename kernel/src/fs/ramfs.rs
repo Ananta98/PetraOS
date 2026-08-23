@@ -167,7 +167,11 @@ impl RamDirInode {
 
 impl InodeOps for RamDirInode {
     fn lookup(&self, name: &str) -> Result<Arc<Inode>, VfsError> {
-        self.entries.read().get(name).cloned().ok_or(VfsError::NotFound)
+        self.entries
+            .read()
+            .get(name)
+            .cloned()
+            .ok_or(VfsError::NotFound)
     }
 
     fn readdir(&self) -> Result<Vec<String>, VfsError> {
@@ -342,7 +346,7 @@ impl FileSystem for RamFs {
     }
 }
 
-crate::fs_initcall!(RamFs::init);
+crate::core_initcall!(RamFs::init);
 crate::MODULE_LICENSE!("BSD-2-Clause");
 crate::MODULE_AUTHOR!("PetraOS Development Team");
 crate::MODULE_DESCRIPTION!("In-Memory RamFS Root Filesystem");

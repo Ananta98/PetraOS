@@ -1,8 +1,7 @@
-use crate::mm::PMM;
+use crate::mm::{PhysAddr, PMM};
 use crate::mm::alloc::freelist::{IntrusiveList, IntrusiveNode};
 use crate::sync::spinlock::Spinlock;
 use core::alloc::{GlobalAlloc, Layout};
-use x86_64::PhysAddr;
 
 struct FreeBlock {
     next: *mut FreeBlock,

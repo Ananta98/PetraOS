@@ -9,10 +9,9 @@ use crate::mm::PageTable;
 use crate::mm::vmm::AddrSpace;
 use crate::proc::thread::{Thread, ThreadId, ThreadState};
 use crate::sync::spinlock::Spinlock;
+use crate::mm::{PageTableFlags, VirtAddr};
 use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
-use x86_64::VirtAddr;
-use x86_64::structures::paging::PageTableFlags;
 
 /// State of a process.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

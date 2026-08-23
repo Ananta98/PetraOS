@@ -1,17 +1,42 @@
-use x86_64::structures::paging::mapper::{FlagUpdateError, MapToError, UnmapError};
-use x86_64::structures::paging::{PageTableFlags, Size4KiB};
-use x86_64::{PhysAddr, VirtAddr};
+//! Architecture-Independent Paging Subsystem for PetraOS.
+//!
+//! Defines the `PageTable` trait and hardware mapping abstractions.
 
+pub mod entry;
+
+pub use entry::PageTableEntry;
+
+use crate::mm::vmm::address::{PhysAddr, VirtAddr};
+use crate::mm::vmm::flags::PageTableFlags;
+
+/// Errors returned by page table manipulation operations.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PagingError {
+    /// Physical frame allocator failed to provide a frame for page table structures.
+    FrameAllocationFailed,
+    /// The specified virtual or physical address is invalid or unaligned.
+    InvalidAddress,
+    /// Virtual page is already mapped.
+    AlreadyMapped,
+    /// Virtual page is not mapped.
+    NotMapped,
+    /// Page table flags update failed.
+    FlagUpdateFailed,
+    /// Huge page conflicts with requested operation.
+    HugePageConflict,
+}
+
+/// Generic interface implemented by architecture-specific hardware page tables.
 pub trait PageTable: Send + Sync {
     /// Create a new page table by allocating a root directory and copying kernel-space mappings.
-    fn new() -> Result<Self, MapToError<Size4KiB>>
+    fn new() -> Result<Self, PagingError>
     where
         Self: Sized;
 
     /// Recreate a page table interface wrapper around an existing hardware page table root.
     ///
     /// # Safety
-    /// The caller must ensure that `root` points to a valid page directory root (e.g., PML4).
+    /// The caller must ensure that `root` points to a valid page directory root (e.g., PML4 or PML5).
     unsafe fn from_root(root: PhysAddr) -> Self
     where
         Self: Sized;
@@ -25,7 +50,7 @@ pub trait PageTable: Send + Sync {
         page: VirtAddr,
         frame: PhysAddr,
         flags: PageTableFlags,
-    ) -> Result<(), MapToError<Size4KiB>>;
+    ) -> Result<(), PagingError>;
 
     /// Map a contiguous range of virtual pages to physical frames.
     fn map_range(
@@ -34,16 +59,16 @@ pub trait PageTable: Send + Sync {
         frame: PhysAddr,
         size: usize,
         flags: PageTableFlags,
-    ) -> Result<(), MapToError<Size4KiB>>;
+    ) -> Result<(), PagingError>;
 
     /// Unmap a virtual page.
-    fn unmap(&mut self, page: VirtAddr) -> Result<PhysAddr, UnmapError>;
+    fn unmap(&mut self, page: VirtAddr) -> Result<PhysAddr, PagingError>;
 
     /// Unmap a contiguous range of virtual pages.
-    fn unmap_range(&mut self, page: VirtAddr, size: usize) -> Result<(), UnmapError>;
+    fn unmap_range(&mut self, page: VirtAddr, size: usize) -> Result<(), PagingError>;
 
     /// Remap a virtual page with new flags.
-    fn remap(&mut self, page: VirtAddr, flags: PageTableFlags) -> Result<(), FlagUpdateError>;
+    fn remap(&mut self, page: VirtAddr, flags: PageTableFlags) -> Result<(), PagingError>;
 
     /// Remap a contiguous range of virtual pages with new flags.
     fn remap_range(
@@ -51,13 +76,19 @@ pub trait PageTable: Send + Sync {
         page: VirtAddr,
         size: usize,
         flags: PageTableFlags,
-    ) -> Result<(), FlagUpdateError>;
+    ) -> Result<(), PagingError>;
 
     /// Translate a virtual address to its corresponding physical address.
     fn translate(&self, virt: VirtAddr) -> Option<PhysAddr>;
 
     /// Retrieve physical frame address and raw page entry flags for a virtual address.
     fn get_entry(&self, virt: VirtAddr) -> Option<(PhysAddr, PageTableFlags)>;
+
+    /// Flush the translation lookaside buffer (TLB) for the given virtual page address.
+    fn flush_tlb(&self, page: VirtAddr);
+
+    /// Flush the entire translation lookaside buffer (TLB).
+    fn flush_tlb_all(&self);
 
     /// Activate this page table by loading it into the MMU.
     ///

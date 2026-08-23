@@ -11,7 +11,7 @@
 use crate::mm::ensure_mapped;
 use crate::mm::hhdm_offset;
 use crate::mm::pmm::PMM;
-use x86_64::{PhysAddr, VirtAddr};
+use crate::mm::{PhysAddr, VirtAddr};
 
 use super::DmaError;
 

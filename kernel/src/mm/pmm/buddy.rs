@@ -1,5 +1,5 @@
+use crate::mm::PhysAddr;
 use crate::mm::alloc::freelist::{IntrusiveList, IntrusiveNode};
-use x86_64::PhysAddr;
 
 pub const MAX_ORDER: usize = 16;
 

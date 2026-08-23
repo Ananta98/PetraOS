@@ -1,8 +1,6 @@
 use super::{SyscallError, SyscallResult};
 use crate::arch::syscall::syscall::SyscallFrame;
-use crate::mm::{PageTable, VmAreaKind};
-use x86_64::structures::paging::PageTableFlags;
-use x86_64::VirtAddr;
+use crate::mm::{PageTable, PageTableFlags, VirtAddr, VmAreaKind};
 
 /// `sys_brk` (SYS_BRK = 12)
 /// Change data segment size (heap break pointer).

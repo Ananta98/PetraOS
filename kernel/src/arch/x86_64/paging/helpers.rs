@@ -1,18 +1,31 @@
+//! Paging Helper Functions for x86_64 Architecture.
+//!
+//! Provides routines for reading control registers, toggling NXE, and mapping MMIO ranges.
+
 use super::table::ArchPageTable;
+use crate::arch::cpu::msr::{rdmsr, wrmsr, IA32_EFER};
 use crate::arch::{active_address_space_root, read_cr2 as arch_read_cr2};
 use crate::mm::hhdm_offset;
-use crate::mm::vmm::PageTable;
-use x86_64::structures::paging::PageTableFlags;
-use x86_64::{PhysAddr, VirtAddr};
+use crate::mm::{PageTable, PageTableFlags, PhysAddr, VirtAddr};
 
-/// Read the current active physical PML4 root address.
+/// Read the current active physical page table root address (CR3).
+#[inline(always)]
 pub fn active_cr3() -> PhysAddr {
     PhysAddr::new(active_address_space_root())
 }
 
-/// Read the faulting virtual address.
+/// Read the linear faulting virtual address (CR2).
+#[inline(always)]
 pub fn read_cr2() -> VirtAddr {
     VirtAddr::new(arch_read_cr2())
+}
+
+/// Enable the No-Execute (NXE) bit (bit 11) in the IA32_EFER MSR.
+pub unsafe fn enable_nxe() {
+    unsafe {
+        let efer = rdmsr(IA32_EFER);
+        wrmsr(IA32_EFER, efer | (1 << 11));
+    }
 }
 
 /// Helper to ensure a physical memory range is mapped in the active page table.
