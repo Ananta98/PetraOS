@@ -1,5 +1,6 @@
 use super::{SyscallError, SyscallResult, is_user_ptr_valid, read_user_string};
 use crate::arch::syscall::syscall::SyscallFrame;
+use crate::drivers::time::cmos_rtc;
 use crate::fs::File;
 use crate::fs::vfs::types::{InodeType, LinuxStat, O_CREAT, O_RDONLY, O_WRONLY, SeekWhence, Stat};
 use alloc::string::String;
@@ -30,6 +31,20 @@ pub const DT_BLK: u8 = 6;
 pub const DT_REG: u8 = 8;
 pub const DT_LNK: u8 = 10;
 pub const DT_SOCK: u8 = 12;
+
+pub const POLLIN: i16 = 0x0001;
+pub const POLLPRI: i16 = 0x0002;
+pub const POLLOUT: i16 = 0x0004;
+pub const POLLERR: i16 = 0x0008;
+pub const POLLHUP: i16 = 0x0010;
+pub const POLLNVAL: i16 = 0x0020;
+
+/// `utimensat` special `tv_nsec` value: set the timestamp to the current time.
+const UTIME_NOW: i64 = 0x3FFF_FFFF;
+/// `utimensat` special `tv_nsec` value: leave the corresponding timestamp unchanged.
+const UTIME_OMIT: i64 = 0x3FFF_FFFE;
+/// Maximum valid nanosecond value within a timespec.
+const NSEC_MAX: i64 = 999_999_999;
 
 /// `sys_read` (SYS_READ = 0)
 /// Read from a file descriptor.
@@ -97,13 +112,6 @@ pub struct IoVec {
     pub iov_len: usize,
 }
 
-pub const POLLIN: i16 = 0x0001;
-pub const POLLPRI: i16 = 0x0002;
-pub const POLLOUT: i16 = 0x0004;
-pub const POLLERR: i16 = 0x0008;
-pub const POLLHUP: i16 = 0x0010;
-pub const POLLNVAL: i16 = 0x0020;
-
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct PollFd {
@@ -117,6 +125,53 @@ pub struct PollFd {
 pub struct LinuxTimespec {
     pub tv_sec: i64,
     pub tv_nsec: i64,
+}
+
+/// Current wall-clock time in seconds since the UNIX epoch.
+fn wall_now_secs() -> u64 {
+    crate::drivers::time::cmos_rtc::get_wall_time().0
+}
+
+/// Resolve one user-provided timespec against the value currently stored on disk.
+fn resolve_timespec(ts: LinuxTimespec, current: u64) -> Result<u64, SyscallError> {
+    match ts.tv_nsec {
+        UTIME_NOW => Ok(wall_now_secs()),
+        UTIME_OMIT => Ok(current),
+        n if (0..=NSEC_MAX).contains(&n) => Ok(ts.tv_sec as u64),
+        _ => Err(SyscallError::EINVAL),
+    }
+}
+
+/// Convert a user-provided timespec pair into concrete `(atime, mtime)`
+/// seconds for `utimensat`. A null pointer selects "current time" for both
+/// fields; `UTIME_OMIT` fields fall back to the current on-disk values.
+fn read_utimens(
+    times_ptr: *const LinuxTimespec,
+    cur_atime: u64,
+    cur_mtime: u64,
+) -> Result<(u64, u64), SyscallError> {
+    if times_ptr.is_null() {
+        let now = wall_now_secs();
+        return Ok((now, now));
+    }
+    if !is_user_ptr_valid(times_ptr as u64, 2 * core::mem::size_of::<LinuxTimespec>()) {
+        return Err(SyscallError::EFAULT);
+    }
+    // SAFETY: Pointer range validated above; points to two contiguous timespecs.
+    let times = unsafe { core::slice::from_raw_parts(times_ptr, 2) };
+    Ok((
+        resolve_timespec(times[0], cur_atime)?,
+        resolve_timespec(times[1], cur_mtime)?,
+    ))
+}
+
+/// Substitute the `(uid_t)-1` / `(gid_t)-1` "leave unchanged" sentinels with
+/// the ownership currently recorded in `st`.
+fn effective_owner(st: &Stat, uid: u32, gid: u32) -> (u32, u32) {
+    (
+        if uid == u32::MAX { st.uid } else { uid },
+        if gid == u32::MAX { st.gid } else { gid },
+    )
 }
 
 pub const FD_SETSIZE: usize = 1024;
@@ -1135,6 +1190,8 @@ pub fn sys_chown(frame: &mut SyscallFrame) -> SyscallResult {
 
     let path = unsafe { read_user_string(path_ptr, 256)? };
     let full_path = resolve_at_path(AT_FDCWD, &path)?;
+    let st = crate::fs::stat(&full_path)?;
+    let (uid, gid) = effective_owner(&st, uid, gid);
     crate::fs::chown(&full_path, uid, gid)?;
     Ok(0)
 }
@@ -1153,6 +1210,8 @@ pub fn sys_fchown(frame: &mut SyscallFrame) -> SyscallResult {
     let file = proc.fd_table.get(fd)?;
     drop(proc);
 
+    let st = file.dentry.inode.ops.stat()?;
+    let (uid, gid) = effective_owner(&st, uid, gid);
     file.ops
         .chown(uid, gid)
         .or_else(|_| file.dentry.inode.ops.chown(uid, gid))?;
@@ -1168,6 +1227,8 @@ pub fn sys_lchown(frame: &mut SyscallFrame) -> SyscallResult {
     let path = unsafe { read_user_string(path_ptr, 256)? };
     let full_path = resolve_at_path(AT_FDCWD, &path)?;
     let dentry = crate::fs::resolve_path_nofollow(&full_path)?;
+    let st = dentry.inode.ops.stat()?;
+    let (uid, gid) = effective_owner(&st, uid, gid);
     dentry.inode.ops.chown(uid, gid)?;
     Ok(0)
 }
@@ -1184,8 +1245,12 @@ pub fn sys_fchownat(frame: &mut SyscallFrame) -> SyscallResult {
     let full_path = resolve_at_path(dfd, &path)?;
     if (flags & crate::fs::AT_SYMLINK_NOFOLLOW) != 0 {
         let dentry = crate::fs::resolve_path_nofollow(&full_path)?;
+        let st = dentry.inode.ops.stat()?;
+        let (uid, gid) = effective_owner(&st, uid, gid);
         dentry.inode.ops.chown(uid, gid)?;
     } else {
+        let st = crate::fs::stat(&full_path)?;
+        let (uid, gid) = effective_owner(&st, uid, gid);
         crate::fs::chown(&full_path, uid, gid)?;
     }
     Ok(0)
@@ -1211,16 +1276,6 @@ pub fn sys_utimensat(frame: &mut SyscallFrame) -> SyscallResult {
     let times_ptr = frame.arg3() as *const LinuxTimespec;
     let flags = frame.arg4() as i32;
 
-    let (atime, mtime) = if !times_ptr.is_null() {
-        if !is_user_ptr_valid(times_ptr as u64, 2 * core::mem::size_of::<LinuxTimespec>()) {
-            return Err(SyscallError::EFAULT);
-        }
-        let times = unsafe { core::slice::from_raw_parts(times_ptr, 2) };
-        (times[0].tv_sec as u64, times[1].tv_sec as u64)
-    } else {
-        (0, 0)
-    };
-
     if path_ptr.is_null() || (path_ptr as u64 == 0) {
         if dfd < 0 {
             return Err(SyscallError::EBADF);
@@ -1229,6 +1284,8 @@ pub fn sys_utimensat(frame: &mut SyscallFrame) -> SyscallResult {
         let proc = proc_arc.lock();
         let file = proc.fd_table.get(dfd)?;
         drop(proc);
+        let st = file.ops.stat().or_else(|_| file.dentry.inode.ops.stat())?;
+        let (atime, mtime) = read_utimens(times_ptr, st.atime, st.mtime)?;
         file.ops
             .utimens(atime, mtime)
             .or_else(|_| file.dentry.inode.ops.utimens(atime, mtime))?;
@@ -1244,6 +1301,8 @@ pub fn sys_utimensat(frame: &mut SyscallFrame) -> SyscallResult {
         let proc = proc_arc.lock();
         let file = proc.fd_table.get(dfd)?;
         drop(proc);
+        let st = file.ops.stat().or_else(|_| file.dentry.inode.ops.stat())?;
+        let (atime, mtime) = read_utimens(times_ptr, st.atime, st.mtime)?;
         file.ops
             .utimens(atime, mtime)
             .or_else(|_| file.dentry.inode.ops.utimens(atime, mtime))?;
@@ -1251,6 +1310,8 @@ pub fn sys_utimensat(frame: &mut SyscallFrame) -> SyscallResult {
     }
 
     let full_path = resolve_at_path(dfd, &path)?;
+    let cur = crate::fs::stat(&full_path)?;
+    let (atime, mtime) = read_utimens(times_ptr, cur.atime, cur.mtime)?;
     crate::fs::utimens(&full_path, atime, mtime)?;
     Ok(0)
 }
@@ -1270,10 +1331,16 @@ pub fn sys_futimesat(frame: &mut SyscallFrame) -> SyscallResult {
         if !is_user_ptr_valid(utimes_ptr as u64, 2 * core::mem::size_of::<LinuxTimespec>()) {
             return Err(SyscallError::EFAULT);
         }
+        // SAFETY: User buffer pointer range validated above.
         let times = unsafe { core::slice::from_raw_parts(utimes_ptr, 2) };
-        (times[0].tv_sec as u64, times[1].tv_sec as u64)
+        (
+            resolve_timespec(times[0], 0)?,
+            resolve_timespec(times[1], 0)?,
+        )
     } else {
-        (0, 0)
+        // POSIX: a null timeval selects the current time for both fields.
+        let now = wall_now_secs();
+        (now, now)
     };
     crate::fs::utimens(&full_path, atime, mtime)?;
     Ok(0)

@@ -1,5 +1,9 @@
-use crate::fs::vfs::types::{FileOps, FileSystem, SuperBlock, VfsError};
+use crate::drivers::time::cmos_rtc;
+use crate::fs::vfs::types::{
+    FileOps, FileSystem, MODE_PERM_BITS, MODE_TYPE_BITS, Stat, SuperBlock, VfsError,
+};
 use crate::fs::{Inode, InodeOps, InodeType};
+use crate::sync::Mutex;
 use crate::sync::rwlock::RwLock;
 use alloc::collections::BTreeMap;
 use alloc::string::String;
@@ -7,11 +11,99 @@ use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::sync::atomic::{AtomicU64, Ordering};
 
+// ===== InodeMetadata — mutable inode metadata =====
+
+/// Mutable ownership, permission and timestamp metadata for an in-memory
+/// inode. Shared between an inode's `InodeOps` and its per-open `FileOps`
+/// so that changes made through either path are mutually visible.
+#[derive(Debug, Clone, Copy)]
+pub struct InodeMetadata {
+    /// Full mode including the file type bits (e.g. `0o100644`).
+    pub mode: u32,
+    pub uid: u32,
+    pub gid: u32,
+    pub atime: u64,
+    pub mtime: u64,
+    pub ctime: u64,
+}
+
+impl InodeMetadata {
+    /// Create default metadata carrying the given full mode.
+    fn new(mode: u32) -> Self {
+        Self {
+            mode,
+            uid: 0,
+            gid: 0,
+            atime: 0,
+            mtime: 0,
+            ctime: 0,
+        }
+    }
+}
+
+/// Shared handle to mutable inode metadata.
+type SharedMetadata = Arc<Mutex<InodeMetadata>>;
+
+/// Current wall-clock time in seconds since the UNIX epoch.
+fn now_secs() -> u64 {
+    cmos_rtc::get_wall_time().0
+}
+
+/// Change permission bits of shared metadata, preserving the file type bits.
+fn apply_chmod(meta: &SharedMetadata, mode: u32) -> Result<(), VfsError> {
+    let mut metadata = meta.lock();
+    metadata.mode = (metadata.mode & MODE_TYPE_BITS) | (mode & MODE_PERM_BITS);
+    metadata.ctime = now_secs();
+    Ok(())
+}
+
+/// Change owner/group of shared metadata.
+fn apply_chown(meta: &SharedMetadata, uid: u32, gid: u32) -> Result<(), VfsError> {
+    let mut metadata = meta.lock();
+    metadata.uid = uid;
+    metadata.gid = gid;
+    metadata.ctime = now_secs();
+    Ok(())
+}
+
+/// Update access/modification timestamps of shared metadata.
+fn apply_utimens(meta: &SharedMetadata, atime: u64, mtime: u64) -> Result<(), VfsError> {
+    let mut metadata = meta.lock();
+    metadata.atime = atime;
+    metadata.mtime = mtime;
+    metadata.ctime = now_secs();
+    Ok(())
+}
+
+/// Build a [`Stat`] from shared metadata plus the caller-supplied size/link/block info.
+fn metadata_stat(
+    meta: &SharedMetadata,
+    size: u64,
+    nlink: u32,
+    blocks: u64,
+) -> Result<Stat, VfsError> {
+    let metadata = meta.lock();
+    Ok(Stat {
+        mode: metadata.mode,
+        nlink,
+        uid: metadata.uid,
+        gid: metadata.gid,
+        size,
+        atime: metadata.atime,
+        mtime: metadata.mtime,
+        ctime: metadata.ctime,
+        blocks,
+        blksize: 4096,
+        ..Default::default()
+    })
+}
+
 // ===== RamFileOps — in-memory file I/O =====
 
 /// File I/O operations for an in-memory regular file.
 pub struct RamFileOps {
     pub content: Arc<RwLock<Vec<u8>>>,
+    pub meta: SharedMetadata,
 }
 
 impl FileOps for RamFileOps {
@@ -40,33 +132,21 @@ impl FileOps for RamFileOps {
         Ok(())
     }
 
-    fn chmod(&self, _mode: u32) -> Result<(), VfsError> {
-        Ok(())
+    fn chmod(&self, mode: u32) -> Result<(), VfsError> {
+        apply_chmod(&self.meta, mode)
     }
 
-    fn chown(&self, _uid: u32, _gid: u32) -> Result<(), VfsError> {
-        Ok(())
+    fn chown(&self, uid: u32, gid: u32) -> Result<(), VfsError> {
+        apply_chown(&self.meta, uid, gid)
     }
 
-    fn utimens(&self, _atime: u64, _mtime: u64) -> Result<(), VfsError> {
-        Ok(())
+    fn utimens(&self, atime: u64, mtime: u64) -> Result<(), VfsError> {
+        apply_utimens(&self.meta, atime, mtime)
     }
 
-    fn stat(&self) -> Result<crate::fs::vfs::types::Stat, VfsError> {
-        let content = self.content.read();
-        Ok(crate::fs::vfs::types::Stat {
-            size: content.len() as u64,
-            mode: 0o100644,
-            nlink: 1,
-            uid: 0,
-            gid: 0,
-            atime: 0,
-            mtime: 0,
-            ctime: 0,
-            blksize: 4096,
-            blocks: ((content.len() as u64 + 511) / 512),
-            ..Default::default()
-        })
+    fn stat(&self) -> Result<Stat, VfsError> {
+        let size = self.content.read().len() as u64;
+        metadata_stat(&self.meta, size, 1, (size + 511) / 512)
     }
 }
 
@@ -75,12 +155,14 @@ impl FileOps for RamFileOps {
 /// Inode operations for an in-memory regular file.
 pub struct RamFileInode {
     pub content: Arc<RwLock<Vec<u8>>>,
+    pub meta: SharedMetadata,
 }
 
 impl RamFileInode {
     pub fn new() -> Self {
         Self {
             content: Arc::new(RwLock::new(Vec::new())),
+            meta: Arc::new(Mutex::new(InodeMetadata::new(0o100644))),
         }
     }
 }
@@ -89,24 +171,13 @@ impl InodeOps for RamFileInode {
     fn open(&self) -> Result<Arc<dyn FileOps>, VfsError> {
         Ok(Arc::new(RamFileOps {
             content: self.content.clone(),
+            meta: self.meta.clone(),
         }))
     }
 
-    fn stat(&self) -> Result<crate::fs::vfs::types::Stat, VfsError> {
-        let content = self.content.read();
-        Ok(crate::fs::vfs::types::Stat {
-            size: content.len() as u64,
-            mode: 0o100644,
-            nlink: 1,
-            uid: 0,
-            gid: 0,
-            atime: 0,
-            mtime: 0,
-            ctime: 0,
-            blksize: 4096,
-            blocks: ((content.len() as u64 + 511) / 512),
-            ..Default::default()
-        })
+    fn stat(&self) -> Result<Stat, VfsError> {
+        let size = self.content.read().len() as u64;
+        metadata_stat(&self.meta, size, 1, (size + 511) / 512)
     }
 
     fn truncate(&self, size: usize) -> Result<(), VfsError> {
@@ -114,16 +185,16 @@ impl InodeOps for RamFileInode {
         Ok(())
     }
 
-    fn chmod(&self, _mode: u32) -> Result<(), VfsError> {
-        Ok(())
+    fn chmod(&self, mode: u32) -> Result<(), VfsError> {
+        apply_chmod(&self.meta, mode)
     }
 
-    fn chown(&self, _uid: u32, _gid: u32) -> Result<(), VfsError> {
-        Ok(())
+    fn chown(&self, uid: u32, gid: u32) -> Result<(), VfsError> {
+        apply_chown(&self.meta, uid, gid)
     }
 
-    fn utimens(&self, _atime: u64, _mtime: u64) -> Result<(), VfsError> {
-        Ok(())
+    fn utimens(&self, atime: u64, mtime: u64) -> Result<(), VfsError> {
+        apply_utimens(&self.meta, atime, mtime)
     }
 }
 
@@ -132,11 +203,15 @@ impl InodeOps for RamFileInode {
 /// Inode operations for an in-memory symbolic link.
 pub struct RamSymlinkInode {
     pub target: String,
+    pub meta: SharedMetadata,
 }
 
 impl RamSymlinkInode {
     pub fn new(target: String) -> Self {
-        Self { target }
+        Self {
+            target,
+            meta: Arc::new(Mutex::new(InodeMetadata::new(0o120777))),
+        }
     }
 }
 
@@ -145,23 +220,20 @@ impl InodeOps for RamSymlinkInode {
         Ok(self.target.clone())
     }
 
-    fn stat(&self) -> Result<crate::fs::vfs::types::Stat, VfsError> {
-        Ok(crate::fs::vfs::types::Stat {
-            size: self.target.len() as u64,
-            mode: 0o120777,
-            nlink: 1,
-            uid: 0,
-            gid: 0,
-            ..Default::default()
-        })
+    fn stat(&self) -> Result<Stat, VfsError> {
+        metadata_stat(&self.meta, self.target.len() as u64, 1, 0)
     }
 
-    fn chmod(&self, _mode: u32) -> Result<(), VfsError> {
-        Ok(())
+    fn chmod(&self, mode: u32) -> Result<(), VfsError> {
+        apply_chmod(&self.meta, mode)
     }
 
-    fn chown(&self, _uid: u32, _gid: u32) -> Result<(), VfsError> {
-        Ok(())
+    fn chown(&self, uid: u32, gid: u32) -> Result<(), VfsError> {
+        apply_chown(&self.meta, uid, gid)
+    }
+
+    fn utimens(&self, atime: u64, mtime: u64) -> Result<(), VfsError> {
+        apply_utimens(&self.meta, atime, mtime)
     }
 }
 
@@ -174,6 +246,8 @@ impl InodeOps for RamSymlinkInode {
 /// monotonically increasing sequence, preventing collisions.
 pub struct RamDirInode {
     pub entries: RwLock<BTreeMap<String, Arc<Inode>>>,
+    /// Metadata of this directory inode itself.
+    pub meta: SharedMetadata,
     /// Shared inode number allocator from the mounted SuperBlock.
     next_ino: Arc<AtomicU64>,
 }
@@ -183,6 +257,7 @@ impl RamDirInode {
     pub fn new(next_ino: Arc<AtomicU64>) -> Self {
         Self {
             entries: RwLock::new(BTreeMap::new()),
+            meta: Arc::new(Mutex::new(InodeMetadata::new(0o040755))),
             next_ino,
         }
     }
@@ -315,33 +390,21 @@ impl InodeOps for RamDirInode {
         Ok(())
     }
 
-    fn chmod(&self, _mode: u32) -> Result<(), VfsError> {
-        Ok(())
+    fn chmod(&self, mode: u32) -> Result<(), VfsError> {
+        apply_chmod(&self.meta, mode)
     }
 
-    fn chown(&self, _uid: u32, _gid: u32) -> Result<(), VfsError> {
-        Ok(())
+    fn chown(&self, uid: u32, gid: u32) -> Result<(), VfsError> {
+        apply_chown(&self.meta, uid, gid)
     }
 
-    fn utimens(&self, _atime: u64, _mtime: u64) -> Result<(), VfsError> {
-        Ok(())
+    fn utimens(&self, atime: u64, mtime: u64) -> Result<(), VfsError> {
+        apply_utimens(&self.meta, atime, mtime)
     }
 
-    fn stat(&self) -> Result<crate::fs::vfs::types::Stat, VfsError> {
-        let entries = self.entries.read();
-        Ok(crate::fs::vfs::types::Stat {
-            size: entries.len() as u64,
-            mode: 0o040755,
-            nlink: 2,
-            uid: 0,
-            gid: 0,
-            atime: 0,
-            mtime: 0,
-            ctime: 0,
-            blksize: 4096,
-            blocks: 1,
-            ..Default::default()
-        })
+    fn stat(&self) -> Result<Stat, VfsError> {
+        let entry_count = self.entries.read().len() as u64;
+        metadata_stat(&self.meta, entry_count, 2, 1)
     }
 
     fn open(&self) -> Result<Arc<dyn FileOps>, VfsError> {

@@ -4,6 +4,48 @@ use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::sync::atomic::{AtomicU64, Ordering};
 
+// ===== Open Flags =====
+
+/// Open file for reading only.
+pub const O_RDONLY: u32 = 0;
+/// Open file for writing only.
+pub const O_WRONLY: u32 = 1;
+/// Open file for reading and writing.
+pub const O_RDWR: u32 = 2;
+/// Create the file if it does not exist.
+pub const O_CREAT: u32 = 0x40;
+/// Exclusive create flag (fail if file exists).
+pub const O_EXCL: u32 = 0x80;
+/// Truncate file to zero length on open.
+pub const O_TRUNC: u32 = 0x200;
+/// Append writes to the end of the file.
+pub const O_APPEND: u32 = 0x400;
+/// Non-blocking I/O (do not block on read/write).
+pub const O_NONBLOCK: u32 = 0x800;
+/// Fail if path is not a directory.
+pub const O_DIRECTORY: u32 = 0x10000;
+/// Do not follow the final symlink component.
+pub const O_NOFOLLOW: u32 = 0x20000;
+
+/// Special dirfd value representing the current working directory.
+pub const AT_FDCWD: i32 = -100;
+/// Do not follow symbolic links.
+pub const AT_SYMLINK_NOFOLLOW: i32 = 0x100;
+/// Remove directory instead of unlinking file.
+pub const AT_REMOVEDIR: i32 = 0x200;
+/// Follow symbolic link.
+pub const AT_SYMLINK_FOLLOW: i32 = 0x400;
+/// Allow empty relative pathname.
+pub const AT_EMPTY_PATH: i32 = 0x1000;
+
+/// Mask to extract the access mode (read/write) from flags.
+const O_ACCMODE: u32 = 3;
+
+/// Mask of the file type bits within a full stat mode (S_IFMT).
+pub const MODE_TYPE_BITS: u32 = 0o170000;
+/// Mask of the permission, set-user/group-id and sticky bits within a full stat mode.
+pub const MODE_PERM_BITS: u32 = 0o7777;
+
 /// Unified error type for all VFS and filesystem operations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VfsError {
@@ -42,43 +84,6 @@ impl From<DriverError> for VfsError {
         VfsError::DriverError(e)
     }
 }
-
-// ===== Open Flags =====
-
-/// Open file for reading only.
-pub const O_RDONLY: u32 = 0;
-/// Open file for writing only.
-pub const O_WRONLY: u32 = 1;
-/// Open file for reading and writing.
-pub const O_RDWR: u32 = 2;
-/// Create the file if it does not exist.
-pub const O_CREAT: u32 = 0x40;
-/// Exclusive create flag (fail if file exists).
-pub const O_EXCL: u32 = 0x80;
-/// Truncate file to zero length on open.
-pub const O_TRUNC: u32 = 0x200;
-/// Append writes to the end of the file.
-pub const O_APPEND: u32 = 0x400;
-/// Non-blocking I/O (do not block on read/write).
-pub const O_NONBLOCK: u32 = 0x800;
-/// Fail if path is not a directory.
-pub const O_DIRECTORY: u32 = 0x10000;
-/// Do not follow the final symlink component.
-pub const O_NOFOLLOW: u32 = 0x20000;
-
-/// Special dirfd value representing the current working directory.
-pub const AT_FDCWD: i32 = -100;
-/// Do not follow symbolic links.
-pub const AT_SYMLINK_NOFOLLOW: i32 = 0x100;
-/// Remove directory instead of unlinking file.
-pub const AT_REMOVEDIR: i32 = 0x200;
-/// Follow symbolic link.
-pub const AT_SYMLINK_FOLLOW: i32 = 0x400;
-/// Allow empty relative pathname.
-pub const AT_EMPTY_PATH: i32 = 0x1000;
-
-/// Mask to extract the access mode (read/write) from flags.
-const O_ACCMODE: u32 = 3;
 
 /// Returns `true` if the given flags permit reading.
 pub fn can_read(flags: u32) -> bool {

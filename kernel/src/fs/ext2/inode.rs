@@ -4,7 +4,9 @@ use super::file::Ext2FileOps;
 pub use super::ondisk::Ext2Inode;
 pub use super::reader::BlockDeviceReader;
 use super::superblock::{Ext2BlockGroupDescriptor, Ext2Superblock};
-use crate::fs::vfs::types::{FileOps, Inode, InodeOps, InodeType, Stat, VfsError};
+use crate::fs::vfs::types::{
+    FileOps, Inode, InodeOps, InodeType, Stat, VfsError, MODE_PERM_BITS, MODE_TYPE_BITS,
+};
 use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
@@ -535,14 +537,41 @@ impl InodeOps for Ext2InodeOps {
             ino: self.ino as u64,
             mode: inode.mode as u32,
             nlink: inode.links_count as u32,
+            uid: inode.uid as u32,
+            gid: inode.gid as u32,
             size: inode.size as u64,
             atime: inode.atime as u64,
             mtime: inode.mtime as u64,
             ctime: inode.ctime as u64,
             blksize: self.volume.sb.block_size as u64,
             blocks: inode.blocks as u64,
-            ..Default::default()
         })
+    }
+
+    /// Change permission bits of the on-disk inode, preserving type bits.
+    fn chmod(&self, mode: u32) -> Result<(), VfsError> {
+        let mut inode = self.volume.read_inode(self.ino)?;
+        inode.mode = ((inode.mode as u32 & MODE_TYPE_BITS) | (mode & MODE_PERM_BITS)) as u16;
+        inode.ctime = crate::drivers::time::cmos_rtc::get_wall_time().0 as u32;
+        self.volume.write_inode(self.ino, &inode)
+    }
+
+    /// Change ownership of the on-disk inode (truncated to the 16-bit ext2 fields).
+    fn chown(&self, uid: u32, gid: u32) -> Result<(), VfsError> {
+        let mut inode = self.volume.read_inode(self.ino)?;
+        inode.uid = uid as u16;
+        inode.gid = gid as u16;
+        inode.ctime = crate::drivers::time::cmos_rtc::get_wall_time().0 as u32;
+        self.volume.write_inode(self.ino, &inode)
+    }
+
+    /// Update access and modification timestamps of the on-disk inode.
+    fn utimens(&self, atime: u64, mtime: u64) -> Result<(), VfsError> {
+        let mut inode = self.volume.read_inode(self.ino)?;
+        inode.atime = atime as u32;
+        inode.mtime = mtime as u32;
+        inode.ctime = crate::drivers::time::cmos_rtc::get_wall_time().0 as u32;
+        self.volume.write_inode(self.ino, &inode)
     }
 
     fn open(&self) -> Result<Arc<dyn FileOps>, VfsError> {

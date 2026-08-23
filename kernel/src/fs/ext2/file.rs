@@ -36,13 +36,14 @@ impl FileOps for Ext2FileOps {
             ino: self.ino as u64,
             mode: inode.mode as u32,
             nlink: inode.links_count as u32,
+            uid: inode.uid as u32,
+            gid: inode.gid as u32,
             size: inode.size as u64,
             atime: inode.atime as u64,
             mtime: inode.mtime as u64,
             ctime: inode.ctime as u64,
             blksize: self.volume.sb.block_size as u64,
             blocks: inode.blocks as u64,
-            ..Default::default()
         })
     }
 
