@@ -33,6 +33,7 @@ impl VmArea {
 #[derive(Debug)]
 pub enum AddrSpaceError {
     InvalidRange,
+    UnmappedRange,
     OverlappingArea,
     NoFreeSlots,
     PagingError(MapToError<Size4KiB>),
@@ -53,8 +54,8 @@ pub enum PageFaultError {
 ///
 /// Wraps a hardware page table implementation `P` and manages registered `VmArea` regions.
 pub struct AddrSpace<P: PageTable> {
-    page_table: P,
-    vm_areas: BTreeMap<VirtAddr, VmArea>,
+    pub(crate) page_table: P,
+    pub(crate) vm_areas: BTreeMap<VirtAddr, VmArea>,
 }
 
 impl<P: PageTable> AddrSpace<P> {

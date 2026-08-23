@@ -1,3 +1,4 @@
+pub mod mprotect;
 pub mod paging;
 pub mod types;
 pub mod vma;

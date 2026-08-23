@@ -150,15 +150,26 @@ pub fn sys_mprotect(frame: &mut SyscallFrame) -> SyscallResult {
     let len = frame.arg2() as usize;
     let prot = frame.arg3() as i32;
 
-    if addr == 0 || len == 0 {
+    if addr == 0 || !VirtAddr::new(addr).is_aligned(4096u64) {
         return Err(SyscallError::EINVAL);
     }
 
-    let aligned_len = (len + 4095) & !4095;
+    if len == 0 {
+        return Ok(0);
+    }
+
+    // Validate protection bits (PROT_NONE=0, PROT_READ=1, PROT_WRITE=2, PROT_EXEC=4)
+    if (prot & !0x7) != 0 {
+        return Err(SyscallError::EINVAL);
+    }
+
     let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
     let mut proc = proc_arc.lock();
 
-    let mut flags = PageTableFlags::PRESENT | PageTableFlags::USER_ACCESSIBLE;
+    let mut flags = PageTableFlags::USER_ACCESSIBLE;
+    if prot != 0 {
+        flags |= PageTableFlags::PRESENT;
+    }
     if (prot & 2) != 0 {
         flags |= PageTableFlags::WRITABLE;
     }
@@ -167,10 +178,12 @@ pub fn sys_mprotect(frame: &mut SyscallFrame) -> SyscallResult {
     }
 
     let mut addr_space = proc.address_space.lock();
-    for page_virt_u64 in (addr..addr + aligned_len as u64).step_by(4096) {
-        let page_virt = VirtAddr::new(page_virt_u64);
-        let _ = addr_space.page_table_mut().remap(page_virt, flags);
+    match addr_space.mprotect_range(VirtAddr::new(addr), len, flags) {
+        Ok(()) => Ok(0),
+        Err(crate::mm::AddrSpaceError::UnmappedRange) => Err(SyscallError::ENOMEM),
+        Err(crate::mm::AddrSpaceError::InvalidRange) => Err(SyscallError::EINVAL),
+        Err(crate::mm::AddrSpaceError::PagingError(_))
+        | Err(crate::mm::AddrSpaceError::FlagUpdateError(_)) => Err(SyscallError::ENOMEM),
+        Err(_) => Err(SyscallError::EINVAL),
     }
-
-    Ok(0)
 }

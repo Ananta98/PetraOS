@@ -90,10 +90,7 @@ impl PhysicalMemoryManagement {
 
                 for page_idx in start_page..end_page {
                     let paddr = (page_idx * 4096) as u64;
-                    // Exclude real-mode / BIOS / firmware low memory below 16MB (0x1000000)
-                    if paddr < 0x1000_000 {
-                        continue;
-                    }
+
                     // Exclude the pages containing the page map itself
                     if paddr >= page_map_phys && paddr < page_map_phys + page_map_size as u64 {
                         continue;

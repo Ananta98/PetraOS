@@ -50,7 +50,6 @@ impl Slab {
 }
 
 pub struct KmemCache {
-    name: &'static str,
     object_size: usize,
     alignment: usize,
     slabs_full: IntrusiveList,
@@ -59,9 +58,8 @@ pub struct KmemCache {
 }
 
 impl KmemCache {
-    pub const fn new(name: &'static str, object_size: usize, alignment: usize) -> Self {
+    pub const fn new(object_size: usize, alignment: usize) -> Self {
         Self {
-            name,
             object_size,
             alignment,
             slabs_full: IntrusiveList::new(),
@@ -166,15 +164,15 @@ impl SlabAllocatorInner {
     const fn new() -> Self {
         Self {
             caches: [
-                KmemCache::new("kmalloc-8", 8, 8),
-                KmemCache::new("kmalloc-16", 16, 16),
-                KmemCache::new("kmalloc-32", 32, 32),
-                KmemCache::new("kmalloc-64", 64, 64),
-                KmemCache::new("kmalloc-128", 128, 128),
-                KmemCache::new("kmalloc-256", 256, 256),
-                KmemCache::new("kmalloc-512", 512, 512),
-                KmemCache::new("kmalloc-1024", 1024, 1024),
-                KmemCache::new("kmalloc-2048", 2048, 2048),
+                KmemCache::new(8, 8),
+                KmemCache::new(16, 16),
+                KmemCache::new(32, 32),
+                KmemCache::new(64, 64),
+                KmemCache::new(128, 128),
+                KmemCache::new(256, 256),
+                KmemCache::new(512, 512),
+                KmemCache::new(1024, 1024),
+                KmemCache::new(2048, 2048),
             ],
         }
     }
