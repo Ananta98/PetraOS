@@ -14,10 +14,13 @@ pub use vfs::dentry::Dentry;
 pub use vfs::file::File;
 pub use vfs::mount::{MOUNT_TABLE, Mount};
 pub use vfs::path::{
-    build_path, create_file, mkdir, normalize_path, open_file, read_file, readlink, rename,
-    resolve_path, rmdir, stat, symlink, unlink,
+    build_path, chmod, chown, create_file, link, lstat, mkdir, normalize_path, open_file,
+    read_file, readlink, rename, resolve_path, resolve_path_nofollow, rmdir, stat, symlink,
+    truncate, unlink, utimens,
 };
 pub use vfs::types::{
-    FileOps, FileSystem, Inode, InodeOps, InodeType, O_CREAT, O_RDONLY, O_RDWR, O_WRONLY,
-    SeekWhence, Stat, SuperBlock, VfsError, can_read, can_write,
+    AT_EMPTY_PATH, AT_FDCWD, AT_REMOVEDIR, AT_SYMLINK_FOLLOW, AT_SYMLINK_NOFOLLOW, FileOps,
+    FileSystem, Inode, InodeOps, InodeType, O_APPEND, O_CREAT, O_DIRECTORY, O_EXCL, O_NOFOLLOW,
+    O_NONBLOCK, O_RDONLY, O_RDWR, O_TRUNC, O_WRONLY, SeekWhence, Stat, SuperBlock, VfsError,
+    can_read, can_write,
 };

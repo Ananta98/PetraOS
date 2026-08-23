@@ -40,12 +40,31 @@ impl FileOps for RamFileOps {
         Ok(())
     }
 
+    fn chmod(&self, _mode: u32) -> Result<(), VfsError> {
+        Ok(())
+    }
+
+    fn chown(&self, _uid: u32, _gid: u32) -> Result<(), VfsError> {
+        Ok(())
+    }
+
+    fn utimens(&self, _atime: u64, _mtime: u64) -> Result<(), VfsError> {
+        Ok(())
+    }
+
     fn stat(&self) -> Result<crate::fs::vfs::types::Stat, VfsError> {
         let content = self.content.read();
         Ok(crate::fs::vfs::types::Stat {
             size: content.len() as u64,
             mode: 0o100644,
             nlink: 1,
+            uid: 0,
+            gid: 0,
+            atime: 0,
+            mtime: 0,
+            ctime: 0,
+            blksize: 4096,
+            blocks: ((content.len() as u64 + 511) / 512),
             ..Default::default()
         })
     }
@@ -79,12 +98,31 @@ impl InodeOps for RamFileInode {
             size: content.len() as u64,
             mode: 0o100644,
             nlink: 1,
+            uid: 0,
+            gid: 0,
+            atime: 0,
+            mtime: 0,
+            ctime: 0,
+            blksize: 4096,
+            blocks: ((content.len() as u64 + 511) / 512),
             ..Default::default()
         })
     }
 
     fn truncate(&self, size: usize) -> Result<(), VfsError> {
         self.content.write().resize(size, 0);
+        Ok(())
+    }
+
+    fn chmod(&self, _mode: u32) -> Result<(), VfsError> {
+        Ok(())
+    }
+
+    fn chown(&self, _uid: u32, _gid: u32) -> Result<(), VfsError> {
+        Ok(())
+    }
+
+    fn utimens(&self, _atime: u64, _mtime: u64) -> Result<(), VfsError> {
         Ok(())
     }
 }
@@ -112,8 +150,18 @@ impl InodeOps for RamSymlinkInode {
             size: self.target.len() as u64,
             mode: 0o120777,
             nlink: 1,
+            uid: 0,
+            gid: 0,
             ..Default::default()
         })
+    }
+
+    fn chmod(&self, _mode: u32) -> Result<(), VfsError> {
+        Ok(())
+    }
+
+    fn chown(&self, _uid: u32, _gid: u32) -> Result<(), VfsError> {
+        Ok(())
     }
 }
 
@@ -208,6 +256,15 @@ impl InodeOps for RamDirInode {
         Ok(inode)
     }
 
+    fn link(&self, name: &str, target_inode: &Arc<Inode>) -> Result<(), VfsError> {
+        let mut entries = self.entries.write();
+        if entries.contains_key(name) {
+            return Err(VfsError::AlreadyExists);
+        }
+        entries.insert(name.into(), target_inode.clone());
+        Ok(())
+    }
+
     fn symlink(&self, name: &str, target: &str) -> Result<Arc<Inode>, VfsError> {
         let mut entries = self.entries.write();
         if entries.contains_key(name) {
@@ -258,12 +315,31 @@ impl InodeOps for RamDirInode {
         Ok(())
     }
 
+    fn chmod(&self, _mode: u32) -> Result<(), VfsError> {
+        Ok(())
+    }
+
+    fn chown(&self, _uid: u32, _gid: u32) -> Result<(), VfsError> {
+        Ok(())
+    }
+
+    fn utimens(&self, _atime: u64, _mtime: u64) -> Result<(), VfsError> {
+        Ok(())
+    }
+
     fn stat(&self) -> Result<crate::fs::vfs::types::Stat, VfsError> {
         let entries = self.entries.read();
         Ok(crate::fs::vfs::types::Stat {
             size: entries.len() as u64,
             mode: 0o040755,
             nlink: 2,
+            uid: 0,
+            gid: 0,
+            atime: 0,
+            mtime: 0,
+            ctime: 0,
+            blksize: 4096,
+            blocks: 1,
             ..Default::default()
         })
     }

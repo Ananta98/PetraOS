@@ -39,12 +39,17 @@ impl File {
         Ok(bytes_read)
     }
 
-    /// Write to the file, advancing the offset. Enforces `O_WRONLY`/`O_RDWR`.
+    /// Write to the file, advancing the offset. Enforces `O_WRONLY`/`O_RDWR` and `O_APPEND`.
     pub fn write(&self, buf: &[u8]) -> Result<usize, VfsError> {
         if !can_write(self.flags) {
             return Err(VfsError::PermissionDenied);
         }
         let mut offset = self.offset.lock();
+        if (self.flags & super::types::O_APPEND) != 0 {
+            if let Ok(stat) = self.ops.stat().or_else(|_| self.dentry.inode.ops.stat()) {
+                *offset = stat.size as usize;
+            }
+        }
         let bytes_written = self.ops.write(*offset, buf)?;
         *offset += bytes_written;
         Ok(bytes_written)

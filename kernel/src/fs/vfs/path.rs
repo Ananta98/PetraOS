@@ -266,12 +266,99 @@ pub fn rename(old_path: &str, new_path: &str) -> Result<(), VfsError> {
     Ok(())
 }
 
+/// Create a hard link from `old_path` to `new_path`.
+pub fn link(old_path: &str, new_path: &str) -> Result<(), VfsError> {
+    let target_dentry = resolve_path(old_path)?;
+    let (new_parent, new_name) = resolve_parent_and_name(new_path)?;
+    new_parent.inode.ops.link(new_name, &target_dentry.inode)?;
+    let child_dentry = Dentry::add_child(&new_parent, new_name.into(), target_dentry.inode.clone());
+    dcache_insert(&new_parent, new_name, child_dentry);
+    Ok(())
+}
+
+/// Change mode permissions of the file at `path`.
+pub fn chmod(path: &str, mode: u32) -> Result<(), VfsError> {
+    let dentry = resolve_path(path)?;
+    dentry.inode.ops.chmod(mode)
+}
+
+/// Change ownership (uid, gid) of the file at `path`.
+pub fn chown(path: &str, uid: u32, gid: u32) -> Result<(), VfsError> {
+    let dentry = resolve_path(path)?;
+    dentry.inode.ops.chown(uid, gid)
+}
+
+/// Truncate file at `path` to `size` bytes.
+pub fn truncate(path: &str, size: usize) -> Result<(), VfsError> {
+    let dentry = resolve_path(path)?;
+    dentry.inode.ops.truncate(size)
+}
+
+/// Update timestamps of the file at `path`.
+pub fn utimens(path: &str, atime: u64, mtime: u64) -> Result<(), VfsError> {
+    let dentry = resolve_path(path)?;
+    dentry.inode.ops.utimens(atime, mtime)
+}
+
 // ===== File I/O Shortcuts =====
 
 /// Fetch metadata stat structure for the file/directory at `path`.
 pub fn stat(path: &str) -> Result<super::types::Stat, VfsError> {
     let dentry = resolve_path(path)?;
     dentry.inode.ops.stat()
+}
+
+/// Fetch metadata stat without following the final symbolic link component.
+pub fn lstat(path: &str) -> Result<super::types::Stat, VfsError> {
+    let dentry = resolve_path_nofollow(path)?;
+    dentry.inode.ops.stat()
+}
+
+/// Resolve path without following the final symlink component.
+pub fn resolve_path_nofollow(path: &str) -> Result<Arc<Dentry>, VfsError> {
+    let norm_path = if !path.starts_with('/') {
+        let cwd = crate::proc::current_process()
+            .map(|p| p.lock().cwd.clone())
+            .unwrap_or_else(|| String::from("/"));
+        normalize_path(&cwd, path)
+    } else {
+        normalize_path("/", path)
+    };
+
+    if norm_path == "/" {
+        return resolve_path("/");
+    }
+
+    let last_slash = norm_path.rfind('/').unwrap_or(0);
+    let parent_path = &norm_path[..last_slash];
+    let leaf_name = &norm_path[last_slash + 1..];
+
+    if leaf_name.is_empty() {
+        return resolve_path(&norm_path);
+    }
+
+    let parent_dentry = if parent_path.is_empty() {
+        resolve_path("/")?
+    } else {
+        resolve_path(parent_path)?
+    };
+
+    if let Some(cached) = dcache_lookup(&parent_dentry, leaf_name) {
+        return Ok(cached);
+    }
+    if let Some(cached_child) = parent_dentry.children.lock().get(leaf_name).cloned() {
+        dcache_insert(&parent_dentry, leaf_name, cached_child.clone());
+        return Ok(cached_child);
+    }
+
+    if parent_dentry.inode.inode_type != InodeType::Directory {
+        return Err(VfsError::NotDirectory);
+    }
+
+    let child_inode = parent_dentry.inode.ops.lookup(leaf_name)?;
+    let child_dentry = Dentry::add_child(&parent_dentry, leaf_name.into(), child_inode);
+    dcache_insert(&parent_dentry, leaf_name, child_dentry.clone());
+    Ok(child_dentry)
 }
 
 /// Read the entire contents of a file at `path` into a byte vector.

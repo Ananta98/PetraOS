@@ -2,6 +2,7 @@ use super::{SyscallError, SyscallResult, is_user_ptr_valid, read_user_string};
 use crate::arch::syscall::syscall::SyscallFrame;
 use crate::fs::File;
 use crate::fs::vfs::types::{InodeType, LinuxStat, O_CREAT, O_RDONLY, O_WRONLY, SeekWhence, Stat};
+use alloc::string::String;
 use alloc::sync::Arc;
 
 pub const AT_FDCWD: i32 = -100;
@@ -89,18 +90,86 @@ pub fn sys_write(frame: &mut SyscallFrame) -> SyscallResult {
     Ok(bytes_written)
 }
 
-/// `sys_open` (SYS_OPEN = 2)
-/// Open a file.
-pub fn sys_open(frame: &mut SyscallFrame) -> SyscallResult {
-    let path_ptr = frame.arg1() as *const u8;
-    let flags = frame.arg2() as u32;
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct IoVec {
+    pub iov_base: u64,
+    pub iov_len: usize,
+}
 
-    let path = unsafe { read_user_string(path_ptr, 256)? };
+pub const POLLIN: i16 = 0x0001;
+pub const POLLPRI: i16 = 0x0002;
+pub const POLLOUT: i16 = 0x0004;
+pub const POLLERR: i16 = 0x0008;
+pub const POLLHUP: i16 = 0x0010;
+pub const POLLNVAL: i16 = 0x0020;
 
-    let dentry = match crate::fs::resolve_path(&path) {
-        Ok(d) => d,
-        Err(crate::fs::vfs::types::VfsError::NotFound) if (flags & O_CREAT) != 0 => {
-            crate::fs::create_file(&path)?
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct PollFd {
+    pub fd: i32,
+    pub events: i16,
+    pub revents: i16,
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct LinuxTimespec {
+    pub tv_sec: i64,
+    pub tv_nsec: i64,
+}
+
+pub const FD_SETSIZE: usize = 1024;
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct FdSet {
+    pub fds_bits: [u64; FD_SETSIZE / 64],
+}
+
+pub fn resolve_at_path(dfd: i32, path: &str) -> Result<String, SyscallError> {
+    if path.starts_with('/') {
+        Ok(crate::fs::normalize_path("/", path))
+    } else if dfd == AT_FDCWD || dfd as u32 == 0xffffff9c {
+        let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
+        let proc = proc_arc.lock();
+        Ok(crate::fs::normalize_path(&proc.cwd, path))
+    } else if dfd >= 0 {
+        let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
+        let proc = proc_arc.lock();
+        let file = proc.fd_table.get(dfd)?;
+        let dir_path = crate::fs::build_path(&file.dentry);
+        Ok(crate::fs::normalize_path(&dir_path, path))
+    } else {
+        let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
+        let proc = proc_arc.lock();
+        Ok(crate::fs::normalize_path(&proc.cwd, path))
+    }
+}
+
+fn do_openat(dfd: i32, path: &str, flags: u32) -> SyscallResult {
+    let full_path = resolve_at_path(dfd, path)?;
+
+    let dentry = match crate::fs::resolve_path(&full_path) {
+        Ok(d) => {
+            if (flags & crate::fs::O_CREAT) != 0 && (flags & crate::fs::O_EXCL) != 0 {
+                return Err(SyscallError::EEXIST);
+            }
+            if (flags & crate::fs::O_DIRECTORY) != 0 && d.inode.inode_type != InodeType::Directory {
+                return Err(SyscallError::ENOTDIR);
+            }
+            if d.inode.inode_type == InodeType::Directory && (crate::fs::can_write(flags)) {
+                return Err(SyscallError::EISDIR);
+            }
+            if (flags & crate::fs::O_TRUNC) != 0 && crate::fs::can_write(flags) {
+                let _ = d.inode.ops.truncate(0);
+            }
+            d
+        }
+        Err(crate::fs::vfs::types::VfsError::NotFound) if (flags & crate::fs::O_CREAT) != 0 => {
+            if (flags & crate::fs::O_DIRECTORY) != 0 {
+                return Err(SyscallError::ENOENT);
+            }
+            crate::fs::create_file(&full_path)?
         }
         Err(err) => return Err(SyscallError::from(err)),
     };
@@ -113,6 +182,27 @@ pub fn sys_open(frame: &mut SyscallFrame) -> SyscallResult {
     let fd = proc.fd_table.alloc(file);
 
     Ok(fd as usize)
+}
+
+/// `sys_open` (SYS_OPEN = 2)
+/// Open a file.
+pub fn sys_open(frame: &mut SyscallFrame) -> SyscallResult {
+    let path_ptr = frame.arg1() as *const u8;
+    let flags = frame.arg2() as u32;
+
+    let path = unsafe { read_user_string(path_ptr, 256)? };
+    do_openat(AT_FDCWD, &path, flags)
+}
+
+/// `sys_openat` (SYS_OPENAT = 257)
+/// Open a file relative to directory descriptor.
+pub fn sys_openat(frame: &mut SyscallFrame) -> SyscallResult {
+    let dfd = frame.arg1() as i32;
+    let path_ptr = frame.arg2() as *const u8;
+    let flags = frame.arg3() as u32;
+
+    let path = unsafe { read_user_string(path_ptr, 256)? };
+    do_openat(dfd, &path, flags)
 }
 
 /// `sys_close` (SYS_CLOSE = 3)
@@ -141,7 +231,8 @@ pub fn sys_stat(frame: &mut SyscallFrame) -> SyscallResult {
     }
 
     let path = unsafe { read_user_string(path_ptr, 256)? };
-    let vfs_stat = crate::fs::stat(&path)?;
+    let full_path = resolve_at_path(AT_FDCWD, &path)?;
+    let vfs_stat = crate::fs::stat(&full_path)?;
 
     let linux_stat = copy_to_linux_stat(&vfs_stat);
     // SAFETY: Writing stat struct to user statbuf after validation.
@@ -367,14 +458,15 @@ pub fn sys_chdir(frame: &mut SyscallFrame) -> SyscallResult {
     let path_ptr = frame.arg1() as *const u8;
     let path = unsafe { read_user_string(path_ptr, 256)? };
 
-    let dentry = crate::fs::resolve_path(&path)?;
+    let full_path = resolve_at_path(AT_FDCWD, &path)?;
+    let dentry = crate::fs::resolve_path(&full_path)?;
     if dentry.inode.inode_type != crate::fs::vfs::types::InodeType::Directory {
         return Err(SyscallError::ENOTDIR);
     }
 
     let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
     let mut proc = proc_arc.lock();
-    proc.cwd = crate::fs::normalize_path(&proc.cwd, &path);
+    proc.cwd = crate::fs::normalize_path(&proc.cwd, &full_path);
 
     Ok(0)
 }
@@ -433,54 +525,6 @@ pub fn sys_fcntl(frame: &mut SyscallFrame) -> SyscallResult {
     }
 }
 
-fn resolve_at_path(dfd: i32, path: &str) -> Result<alloc::string::String, SyscallError> {
-    if path.starts_with('/') {
-        Ok(crate::fs::normalize_path("/", path))
-    } else if dfd == -100 || dfd as u32 == 0xffffff9c {
-        let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
-        let proc = proc_arc.lock();
-        Ok(crate::fs::normalize_path(&proc.cwd, path))
-    } else if dfd >= 0 {
-        let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
-        let proc = proc_arc.lock();
-        let file = proc.fd_table.get(dfd)?;
-        let dir_path = crate::fs::build_path(&file.dentry);
-        Ok(crate::fs::normalize_path(&dir_path, path))
-    } else {
-        let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
-        let proc = proc_arc.lock();
-        Ok(crate::fs::normalize_path(&proc.cwd, path))
-    }
-}
-
-/// `sys_openat` (SYS_OPENAT = 257)
-/// Open a file relative to directory descriptor.
-pub fn sys_openat(frame: &mut SyscallFrame) -> SyscallResult {
-    let dfd = frame.arg1() as i32;
-    let path_ptr = frame.arg2() as *const u8;
-    let flags = frame.arg3() as u32;
-
-    let path = unsafe { read_user_string(path_ptr, 256)? };
-    let full_path = resolve_at_path(dfd, &path)?;
-
-    let dentry = match crate::fs::resolve_path(&full_path) {
-        Ok(d) => d,
-        Err(crate::fs::vfs::types::VfsError::NotFound) if (flags & O_CREAT) != 0 => {
-            crate::fs::create_file(&full_path)?
-        }
-        Err(err) => return Err(SyscallError::from(err)),
-    };
-
-    let file_ops = dentry.inode.ops.open()?;
-    let file = Arc::new(File::new(dentry, flags, file_ops));
-
-    let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
-    let proc = proc_arc.lock();
-    let fd = proc.fd_table.alloc(file);
-
-    Ok(fd as usize)
-}
-
 /// `sys_access` (SYS_ACCESS = 21)
 /// Check user's permissions for a file.
 pub fn sys_access(frame: &mut SyscallFrame) -> SyscallResult {
@@ -492,7 +536,8 @@ pub fn sys_access(frame: &mut SyscallFrame) -> SyscallResult {
     }
 
     let path = unsafe { read_user_string(path_ptr, 256)? };
-    let _dentry = crate::fs::resolve_path(&path)?;
+    let full_path = resolve_at_path(AT_FDCWD, &path)?;
+    let _dentry = crate::fs::resolve_path(&full_path)?;
 
     Ok(0)
 }
@@ -531,6 +576,706 @@ pub fn sys_newfstatat(frame: &mut SyscallFrame) -> SyscallResult {
         core::ptr::write_volatile(statbuf, linux_stat);
     }
 
+    Ok(0)
+}
+
+/// `sys_lstat` (SYS_LSTAT = 6)
+/// Get file status without following symlinks.
+pub fn sys_lstat(frame: &mut SyscallFrame) -> SyscallResult {
+    let path_ptr = frame.arg1() as *const u8;
+    let statbuf = frame.arg2() as *mut LinuxStat;
+
+    if !is_user_ptr_valid(statbuf as u64, core::mem::size_of::<LinuxStat>()) {
+        return Err(SyscallError::EFAULT);
+    }
+
+    let path = unsafe { read_user_string(path_ptr, 256)? };
+    let full_path = resolve_at_path(AT_FDCWD, &path)?;
+    let vfs_stat = crate::fs::lstat(&full_path)?;
+
+    let linux_stat = copy_to_linux_stat(&vfs_stat);
+    // SAFETY: Writing stat struct to user statbuf after validation.
+    unsafe {
+        core::ptr::write_volatile(statbuf, linux_stat);
+    }
+
+    Ok(0)
+}
+
+/// `sys_poll` (SYS_POLL = 7)
+pub fn sys_poll(frame: &mut SyscallFrame) -> SyscallResult {
+    let fds_ptr = frame.arg1() as *mut PollFd;
+    let nfds = frame.arg2() as usize;
+    let _timeout = frame.arg3() as i32;
+
+    if nfds == 0 {
+        return Ok(0);
+    }
+    if nfds > 1024 || !is_user_ptr_valid(fds_ptr as u64, nfds * core::mem::size_of::<PollFd>()) {
+        return Err(SyscallError::EFAULT);
+    }
+
+    let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
+    let proc = proc_arc.lock();
+
+    let mut ready_count = 0;
+    for i in 0..nfds {
+        let pfd = unsafe { &mut *fds_ptr.add(i) };
+        if pfd.fd < 0 {
+            pfd.revents = 0;
+            continue;
+        }
+        match proc.fd_table.get(pfd.fd) {
+            Ok(file) => {
+                let mut revents = 0;
+                if (pfd.events & POLLIN) != 0 && crate::fs::can_read(file.flags) {
+                    revents |= POLLIN;
+                }
+                if (pfd.events & POLLOUT) != 0 && crate::fs::can_write(file.flags) {
+                    revents |= POLLOUT;
+                }
+                pfd.revents = revents;
+                if revents != 0 {
+                    ready_count += 1;
+                }
+            }
+            Err(_) => {
+                pfd.revents = POLLNVAL;
+                ready_count += 1;
+            }
+        }
+    }
+    Ok(ready_count)
+}
+
+/// `sys_ppoll` (SYS_PPOLL = 271)
+pub fn sys_ppoll(frame: &mut SyscallFrame) -> SyscallResult {
+    sys_poll(frame)
+}
+
+/// `sys_readv` (SYS_READV = 19)
+pub fn sys_readv(frame: &mut SyscallFrame) -> SyscallResult {
+    let fd = frame.arg1() as i32;
+    let iov_ptr = frame.arg2() as *const IoVec;
+    let iovcnt = frame.arg3() as usize;
+
+    if fd < 0 {
+        return Err(SyscallError::EBADF);
+    }
+    if iovcnt == 0 {
+        return Ok(0);
+    }
+    if iovcnt > 1024 || !is_user_ptr_valid(iov_ptr as u64, iovcnt * core::mem::size_of::<IoVec>()) {
+        return Err(SyscallError::EFAULT);
+    }
+
+    let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
+    let proc = proc_arc.lock();
+    let file = proc.fd_table.get(fd)?;
+    drop(proc);
+
+    let mut total_read = 0;
+    for i in 0..iovcnt {
+        let iov = unsafe { *iov_ptr.add(i) };
+        if iov.iov_len == 0 {
+            continue;
+        }
+        if !is_user_ptr_valid(iov.iov_base, iov.iov_len) {
+            return Err(SyscallError::EFAULT);
+        }
+        let user_slice =
+            unsafe { core::slice::from_raw_parts_mut(iov.iov_base as *mut u8, iov.iov_len) };
+        let n = file.read(user_slice)?;
+        total_read += n;
+        if n < iov.iov_len {
+            break;
+        }
+    }
+    Ok(total_read)
+}
+
+/// `sys_writev` (SYS_WRITEV = 20)
+pub fn sys_writev(frame: &mut SyscallFrame) -> SyscallResult {
+    let fd = frame.arg1() as i32;
+    let iov_ptr = frame.arg2() as *const IoVec;
+    let iovcnt = frame.arg3() as usize;
+
+    if fd < 0 {
+        return Err(SyscallError::EBADF);
+    }
+    if iovcnt == 0 {
+        return Ok(0);
+    }
+    if iovcnt > 1024 || !is_user_ptr_valid(iov_ptr as u64, iovcnt * core::mem::size_of::<IoVec>()) {
+        return Err(SyscallError::EFAULT);
+    }
+
+    let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
+    let proc = proc_arc.lock();
+    let file = proc.fd_table.get(fd)?;
+    drop(proc);
+
+    let mut total_written = 0;
+    for i in 0..iovcnt {
+        let iov = unsafe { *iov_ptr.add(i) };
+        if iov.iov_len == 0 {
+            continue;
+        }
+        if !is_user_ptr_valid(iov.iov_base, iov.iov_len) {
+            return Err(SyscallError::EFAULT);
+        }
+        let user_slice =
+            unsafe { core::slice::from_raw_parts(iov.iov_base as *const u8, iov.iov_len) };
+        let n = file.write(user_slice)?;
+        total_written += n;
+        if n < iov.iov_len {
+            break;
+        }
+    }
+    Ok(total_written)
+}
+
+/// `sys_select` (SYS_SELECT = 23)
+pub fn sys_select(frame: &mut SyscallFrame) -> SyscallResult {
+    let nfds = frame.arg1() as i32;
+    let readfds = frame.arg2() as *mut FdSet;
+    let writefds = frame.arg3() as *mut FdSet;
+    let exceptfds = frame.arg4() as *mut FdSet;
+    let _timeout = frame.arg5() as *const LinuxTimespec;
+
+    if nfds < 0 || nfds > FD_SETSIZE as i32 {
+        return Err(SyscallError::EINVAL);
+    }
+    if nfds == 0 {
+        return Ok(0);
+    }
+
+    let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
+    let proc = proc_arc.lock();
+
+    let mut ready_count = 0;
+
+    for fd in 0..nfds {
+        let word = (fd / 64) as usize;
+        let bit = 1u64 << (fd % 64);
+
+        let mut is_r = false;
+        let mut is_w = false;
+
+        if !readfds.is_null() && is_user_ptr_valid(readfds as u64, core::mem::size_of::<FdSet>()) {
+            unsafe {
+                if ((*readfds).fds_bits[word] & bit) != 0 {
+                    is_r = true;
+                }
+            }
+        }
+        if !writefds.is_null() && is_user_ptr_valid(writefds as u64, core::mem::size_of::<FdSet>())
+        {
+            unsafe {
+                if ((*writefds).fds_bits[word] & bit) != 0 {
+                    is_w = true;
+                }
+            }
+        }
+        if !exceptfds.is_null()
+            && is_user_ptr_valid(exceptfds as u64, core::mem::size_of::<FdSet>())
+        {
+            unsafe {
+                (*exceptfds).fds_bits[word] &= !bit;
+            }
+        }
+
+        if is_r || is_w {
+            if let Ok(file) = proc.fd_table.get(fd) {
+                if is_r && crate::fs::can_read(file.flags) {
+                    ready_count += 1;
+                } else if !readfds.is_null() {
+                    unsafe {
+                        (*readfds).fds_bits[word] &= !bit;
+                    }
+                }
+                if is_w && crate::fs::can_write(file.flags) {
+                    ready_count += 1;
+                } else if !writefds.is_null() {
+                    unsafe {
+                        (*writefds).fds_bits[word] &= !bit;
+                    }
+                }
+            } else {
+                if !readfds.is_null() {
+                    unsafe {
+                        (*readfds).fds_bits[word] &= !bit;
+                    }
+                }
+                if !writefds.is_null() {
+                    unsafe {
+                        (*writefds).fds_bits[word] &= !bit;
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(ready_count)
+}
+
+/// `sys_pselect6` (SYS_PSELECT6 = 270)
+pub fn sys_pselect6(frame: &mut SyscallFrame) -> SyscallResult {
+    sys_select(frame)
+}
+
+/// `sys_fsync` (SYS_FSYNC = 74)
+pub fn sys_fsync(frame: &mut SyscallFrame) -> SyscallResult {
+    let fd = frame.arg1() as i32;
+    if fd < 0 {
+        return Err(SyscallError::EBADF);
+    }
+    let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
+    let proc = proc_arc.lock();
+    let file = proc.fd_table.get(fd)?;
+    drop(proc);
+    file.ops.sync()?;
+    Ok(0)
+}
+
+/// `sys_fdatasync` (SYS_FDATASYNC = 75)
+pub fn sys_fdatasync(frame: &mut SyscallFrame) -> SyscallResult {
+    let fd = frame.arg1() as i32;
+    if fd < 0 {
+        return Err(SyscallError::EBADF);
+    }
+    let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
+    let proc = proc_arc.lock();
+    let file = proc.fd_table.get(fd)?;
+    drop(proc);
+    file.ops.sync()?;
+    Ok(0)
+}
+
+/// `sys_truncate` (SYS_TRUNCATE = 76)
+pub fn sys_truncate(frame: &mut SyscallFrame) -> SyscallResult {
+    let path_ptr = frame.arg1() as *const u8;
+    let length = frame.arg2() as usize;
+
+    let path = unsafe { read_user_string(path_ptr, 256)? };
+    let full_path = resolve_at_path(AT_FDCWD, &path)?;
+    crate::fs::truncate(&full_path, length)?;
+    Ok(0)
+}
+
+/// `sys_ftruncate` (SYS_FTRUNCATE = 77)
+pub fn sys_ftruncate(frame: &mut SyscallFrame) -> SyscallResult {
+    let fd = frame.arg1() as i32;
+    let length = frame.arg2() as usize;
+
+    if fd < 0 {
+        return Err(SyscallError::EBADF);
+    }
+    let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
+    let proc = proc_arc.lock();
+    let file = proc.fd_table.get(fd)?;
+    drop(proc);
+
+    file.ops
+        .truncate(length)
+        .or_else(|_| file.dentry.inode.ops.truncate(length))?;
+    Ok(0)
+}
+
+/// `sys_rename` (SYS_RENAME = 82)
+pub fn sys_rename(frame: &mut SyscallFrame) -> SyscallResult {
+    let old_ptr = frame.arg1() as *const u8;
+    let new_ptr = frame.arg2() as *const u8;
+
+    let old_path = unsafe { read_user_string(old_ptr, 256)? };
+    let new_path = unsafe { read_user_string(new_ptr, 256)? };
+    let old_full = resolve_at_path(AT_FDCWD, &old_path)?;
+    let new_full = resolve_at_path(AT_FDCWD, &new_path)?;
+    crate::fs::rename(&old_full, &new_full)?;
+    Ok(0)
+}
+
+/// `sys_renameat` (SYS_RENAMEAT = 264)
+pub fn sys_renameat(frame: &mut SyscallFrame) -> SyscallResult {
+    let olddfd = frame.arg1() as i32;
+    let old_ptr = frame.arg2() as *const u8;
+    let newdfd = frame.arg3() as i32;
+    let new_ptr = frame.arg4() as *const u8;
+
+    let old_path = unsafe { read_user_string(old_ptr, 256)? };
+    let new_path = unsafe { read_user_string(new_ptr, 256)? };
+    let old_full = resolve_at_path(olddfd, &old_path)?;
+    let new_full = resolve_at_path(newdfd, &new_path)?;
+    crate::fs::rename(&old_full, &new_full)?;
+    Ok(0)
+}
+
+/// `sys_renameat2` (SYS_RENAMEAT2 = 316)
+pub fn sys_renameat2(frame: &mut SyscallFrame) -> SyscallResult {
+    let olddfd = frame.arg1() as i32;
+    let old_ptr = frame.arg2() as *const u8;
+    let newdfd = frame.arg3() as i32;
+    let new_ptr = frame.arg4() as *const u8;
+    let _flags = frame.arg5() as u32;
+
+    let old_path = unsafe { read_user_string(old_ptr, 256)? };
+    let new_path = unsafe { read_user_string(new_ptr, 256)? };
+    let old_full = resolve_at_path(olddfd, &old_path)?;
+    let new_full = resolve_at_path(newdfd, &new_path)?;
+    crate::fs::rename(&old_full, &new_full)?;
+    Ok(0)
+}
+
+/// `sys_mkdir` (SYS_MKDIR = 83)
+pub fn sys_mkdir(frame: &mut SyscallFrame) -> SyscallResult {
+    let path_ptr = frame.arg1() as *const u8;
+    let _mode = frame.arg2() as u32;
+
+    let path = unsafe { read_user_string(path_ptr, 256)? };
+    let full_path = resolve_at_path(AT_FDCWD, &path)?;
+    crate::fs::mkdir(&full_path)?;
+    Ok(0)
+}
+
+/// `sys_mkdirat` (SYS_MKDIRAT = 258)
+pub fn sys_mkdirat(frame: &mut SyscallFrame) -> SyscallResult {
+    let dfd = frame.arg1() as i32;
+    let path_ptr = frame.arg2() as *const u8;
+    let _mode = frame.arg3() as u32;
+
+    let path = unsafe { read_user_string(path_ptr, 256)? };
+    let full_path = resolve_at_path(dfd, &path)?;
+    crate::fs::mkdir(&full_path)?;
+    Ok(0)
+}
+
+/// `sys_rmdir` (SYS_RMDIR = 84)
+pub fn sys_rmdir(frame: &mut SyscallFrame) -> SyscallResult {
+    let path_ptr = frame.arg1() as *const u8;
+    let path = unsafe { read_user_string(path_ptr, 256)? };
+    let full_path = resolve_at_path(AT_FDCWD, &path)?;
+    crate::fs::rmdir(&full_path)?;
+    Ok(0)
+}
+
+/// `sys_link` (SYS_LINK = 86)
+pub fn sys_link(frame: &mut SyscallFrame) -> SyscallResult {
+    let old_ptr = frame.arg1() as *const u8;
+    let new_ptr = frame.arg2() as *const u8;
+
+    let old_path = unsafe { read_user_string(old_ptr, 256)? };
+    let new_path = unsafe { read_user_string(new_ptr, 256)? };
+    let old_full = resolve_at_path(AT_FDCWD, &old_path)?;
+    let new_full = resolve_at_path(AT_FDCWD, &new_path)?;
+    crate::fs::link(&old_full, &new_full)?;
+    Ok(0)
+}
+
+/// `sys_linkat` (SYS_LINKAT = 265)
+pub fn sys_linkat(frame: &mut SyscallFrame) -> SyscallResult {
+    let olddfd = frame.arg1() as i32;
+    let old_ptr = frame.arg2() as *const u8;
+    let newdfd = frame.arg3() as i32;
+    let new_ptr = frame.arg4() as *const u8;
+    let _flags = frame.arg5() as i32;
+
+    let old_path = unsafe { read_user_string(old_ptr, 256)? };
+    let new_path = unsafe { read_user_string(new_ptr, 256)? };
+    let old_full = resolve_at_path(olddfd, &old_path)?;
+    let new_full = resolve_at_path(newdfd, &new_path)?;
+    crate::fs::link(&old_full, &new_full)?;
+    Ok(0)
+}
+
+/// `sys_unlink` (SYS_UNLINK = 87)
+pub fn sys_unlink(frame: &mut SyscallFrame) -> SyscallResult {
+    let path_ptr = frame.arg1() as *const u8;
+    let path = unsafe { read_user_string(path_ptr, 256)? };
+    let full_path = resolve_at_path(AT_FDCWD, &path)?;
+    crate::fs::unlink(&full_path)?;
+    Ok(0)
+}
+
+/// `sys_unlinkat` (SYS_UNLINKAT = 263)
+pub fn sys_unlinkat(frame: &mut SyscallFrame) -> SyscallResult {
+    let dfd = frame.arg1() as i32;
+    let path_ptr = frame.arg2() as *const u8;
+    let flags = frame.arg3() as i32;
+
+    let path = unsafe { read_user_string(path_ptr, 256)? };
+    let full_path = resolve_at_path(dfd, &path)?;
+    if (flags & crate::fs::AT_REMOVEDIR) != 0 {
+        crate::fs::rmdir(&full_path)?;
+    } else {
+        crate::fs::unlink(&full_path)?;
+    }
+    Ok(0)
+}
+
+/// `sys_symlink` (SYS_SYMLINK = 88)
+pub fn sys_symlink(frame: &mut SyscallFrame) -> SyscallResult {
+    let target_ptr = frame.arg1() as *const u8;
+    let link_ptr = frame.arg2() as *const u8;
+
+    let target = unsafe { read_user_string(target_ptr, 256)? };
+    let link_path = unsafe { read_user_string(link_ptr, 256)? };
+    let full_path = resolve_at_path(AT_FDCWD, &link_path)?;
+    crate::fs::symlink(&full_path, &target)?;
+    Ok(0)
+}
+
+/// `sys_symlinkat` (SYS_SYMLINKAT = 266)
+pub fn sys_symlinkat(frame: &mut SyscallFrame) -> SyscallResult {
+    let target_ptr = frame.arg1() as *const u8;
+    let newdfd = frame.arg2() as i32;
+    let link_ptr = frame.arg3() as *const u8;
+
+    let target = unsafe { read_user_string(target_ptr, 256)? };
+    let link_path = unsafe { read_user_string(link_ptr, 256)? };
+    let full_path = resolve_at_path(newdfd, &link_path)?;
+    crate::fs::symlink(&full_path, &target)?;
+    Ok(0)
+}
+
+/// `sys_readlink` (SYS_READLINK = 89)
+pub fn sys_readlink(frame: &mut SyscallFrame) -> SyscallResult {
+    let path_ptr = frame.arg1() as *const u8;
+    let buf = frame.arg2() as *mut u8;
+    let bufsiz = frame.arg3() as usize;
+
+    if bufsiz == 0 || !is_user_ptr_valid(buf as u64, bufsiz) {
+        return Err(SyscallError::EINVAL);
+    }
+
+    let path = unsafe { read_user_string(path_ptr, 256)? };
+    let full_path = resolve_at_path(AT_FDCWD, &path)?;
+    let target = crate::fs::readlink(&full_path)?;
+    let target_bytes = target.as_bytes();
+    let copy_len = core::cmp::min(target_bytes.len(), bufsiz);
+
+    // SAFETY: Validated user memory buffer.
+    unsafe {
+        core::ptr::copy_nonoverlapping(target_bytes.as_ptr(), buf, copy_len);
+    }
+    Ok(copy_len)
+}
+
+/// `sys_readlinkat` (SYS_READLINKAT = 267)
+pub fn sys_readlinkat(frame: &mut SyscallFrame) -> SyscallResult {
+    let dfd = frame.arg1() as i32;
+    let path_ptr = frame.arg2() as *const u8;
+    let buf = frame.arg3() as *mut u8;
+    let bufsiz = frame.arg4() as usize;
+
+    if bufsiz == 0 || !is_user_ptr_valid(buf as u64, bufsiz) {
+        return Err(SyscallError::EINVAL);
+    }
+
+    let path = unsafe { read_user_string(path_ptr, 256)? };
+    let full_path = resolve_at_path(dfd, &path)?;
+    let target = crate::fs::readlink(&full_path)?;
+    let target_bytes = target.as_bytes();
+    let copy_len = core::cmp::min(target_bytes.len(), bufsiz);
+
+    // SAFETY: Validated user memory buffer.
+    unsafe {
+        core::ptr::copy_nonoverlapping(target_bytes.as_ptr(), buf, copy_len);
+    }
+    Ok(copy_len)
+}
+
+/// `sys_chmod` (SYS_CHMOD = 90)
+pub fn sys_chmod(frame: &mut SyscallFrame) -> SyscallResult {
+    let path_ptr = frame.arg1() as *const u8;
+    let mode = frame.arg2() as u32;
+
+    let path = unsafe { read_user_string(path_ptr, 256)? };
+    let full_path = resolve_at_path(AT_FDCWD, &path)?;
+    crate::fs::chmod(&full_path, mode)?;
+    Ok(0)
+}
+
+/// `sys_fchmod` (SYS_FCHMOD = 91)
+pub fn sys_fchmod(frame: &mut SyscallFrame) -> SyscallResult {
+    let fd = frame.arg1() as i32;
+    let mode = frame.arg2() as u32;
+
+    if fd < 0 {
+        return Err(SyscallError::EBADF);
+    }
+    let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
+    let proc = proc_arc.lock();
+    let file = proc.fd_table.get(fd)?;
+    drop(proc);
+
+    file.ops
+        .chmod(mode)
+        .or_else(|_| file.dentry.inode.ops.chmod(mode))?;
+    Ok(0)
+}
+
+/// `sys_fchmodat` (SYS_FCHMODAT = 268)
+pub fn sys_fchmodat(frame: &mut SyscallFrame) -> SyscallResult {
+    let dfd = frame.arg1() as i32;
+    let path_ptr = frame.arg2() as *const u8;
+    let mode = frame.arg3() as u32;
+    let _flags = frame.arg4() as i32;
+
+    let path = unsafe { read_user_string(path_ptr, 256)? };
+    let full_path = resolve_at_path(dfd, &path)?;
+    crate::fs::chmod(&full_path, mode)?;
+    Ok(0)
+}
+
+/// `sys_chown` (SYS_CHOWN = 92)
+pub fn sys_chown(frame: &mut SyscallFrame) -> SyscallResult {
+    let path_ptr = frame.arg1() as *const u8;
+    let uid = frame.arg2() as u32;
+    let gid = frame.arg3() as u32;
+
+    let path = unsafe { read_user_string(path_ptr, 256)? };
+    let full_path = resolve_at_path(AT_FDCWD, &path)?;
+    crate::fs::chown(&full_path, uid, gid)?;
+    Ok(0)
+}
+
+/// `sys_fchown` (SYS_FCHOWN = 93)
+pub fn sys_fchown(frame: &mut SyscallFrame) -> SyscallResult {
+    let fd = frame.arg1() as i32;
+    let uid = frame.arg2() as u32;
+    let gid = frame.arg3() as u32;
+
+    if fd < 0 {
+        return Err(SyscallError::EBADF);
+    }
+    let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
+    let proc = proc_arc.lock();
+    let file = proc.fd_table.get(fd)?;
+    drop(proc);
+
+    file.ops
+        .chown(uid, gid)
+        .or_else(|_| file.dentry.inode.ops.chown(uid, gid))?;
+    Ok(0)
+}
+
+/// `sys_lchown` (SYS_LCHOWN = 94)
+pub fn sys_lchown(frame: &mut SyscallFrame) -> SyscallResult {
+    let path_ptr = frame.arg1() as *const u8;
+    let uid = frame.arg2() as u32;
+    let gid = frame.arg3() as u32;
+
+    let path = unsafe { read_user_string(path_ptr, 256)? };
+    let full_path = resolve_at_path(AT_FDCWD, &path)?;
+    let dentry = crate::fs::resolve_path_nofollow(&full_path)?;
+    dentry.inode.ops.chown(uid, gid)?;
+    Ok(0)
+}
+
+/// `sys_fchownat` (SYS_FCHOWNAT = 260)
+pub fn sys_fchownat(frame: &mut SyscallFrame) -> SyscallResult {
+    let dfd = frame.arg1() as i32;
+    let path_ptr = frame.arg2() as *const u8;
+    let uid = frame.arg3() as u32;
+    let gid = frame.arg4() as u32;
+    let flags = frame.arg5() as i32;
+
+    let path = unsafe { read_user_string(path_ptr, 256)? };
+    let full_path = resolve_at_path(dfd, &path)?;
+    if (flags & crate::fs::AT_SYMLINK_NOFOLLOW) != 0 {
+        let dentry = crate::fs::resolve_path_nofollow(&full_path)?;
+        dentry.inode.ops.chown(uid, gid)?;
+    } else {
+        crate::fs::chown(&full_path, uid, gid)?;
+    }
+    Ok(0)
+}
+
+/// `sys_mknodat` (SYS_MKNODAT = 259)
+pub fn sys_mknodat(frame: &mut SyscallFrame) -> SyscallResult {
+    let dfd = frame.arg1() as i32;
+    let path_ptr = frame.arg2() as *const u8;
+    let _mode = frame.arg3() as u32;
+    let _dev = frame.arg4() as u64;
+
+    let path = unsafe { read_user_string(path_ptr, 256)? };
+    let full_path = resolve_at_path(dfd, &path)?;
+    let _ = crate::fs::create_file(&full_path)?;
+    Ok(0)
+}
+
+/// `sys_utimensat` (SYS_UTIMENSAT = 280)
+pub fn sys_utimensat(frame: &mut SyscallFrame) -> SyscallResult {
+    let dfd = frame.arg1() as i32;
+    let path_ptr = frame.arg2() as *const u8;
+    let times_ptr = frame.arg3() as *const LinuxTimespec;
+    let flags = frame.arg4() as i32;
+
+    let (atime, mtime) = if !times_ptr.is_null() {
+        if !is_user_ptr_valid(times_ptr as u64, 2 * core::mem::size_of::<LinuxTimespec>()) {
+            return Err(SyscallError::EFAULT);
+        }
+        let times = unsafe { core::slice::from_raw_parts(times_ptr, 2) };
+        (times[0].tv_sec as u64, times[1].tv_sec as u64)
+    } else {
+        (0, 0)
+    };
+
+    if path_ptr.is_null() || (path_ptr as u64 == 0) {
+        if dfd < 0 {
+            return Err(SyscallError::EBADF);
+        }
+        let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
+        let proc = proc_arc.lock();
+        let file = proc.fd_table.get(dfd)?;
+        drop(proc);
+        file.ops
+            .utimens(atime, mtime)
+            .or_else(|_| file.dentry.inode.ops.utimens(atime, mtime))?;
+        return Ok(0);
+    }
+
+    let path = unsafe { read_user_string(path_ptr, 256)? };
+    if path.is_empty() && (flags & crate::fs::AT_EMPTY_PATH) != 0 {
+        if dfd < 0 {
+            return Err(SyscallError::EBADF);
+        }
+        let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
+        let proc = proc_arc.lock();
+        let file = proc.fd_table.get(dfd)?;
+        drop(proc);
+        file.ops
+            .utimens(atime, mtime)
+            .or_else(|_| file.dentry.inode.ops.utimens(atime, mtime))?;
+        return Ok(0);
+    }
+
+    let full_path = resolve_at_path(dfd, &path)?;
+    crate::fs::utimens(&full_path, atime, mtime)?;
+    Ok(0)
+}
+
+/// `sys_futimesat` (SYS_FUTIMESAT = 261)
+pub fn sys_futimesat(frame: &mut SyscallFrame) -> SyscallResult {
+    let dfd = frame.arg1() as i32;
+    let path_ptr = frame.arg2() as *const u8;
+    let utimes_ptr = frame.arg3() as *const LinuxTimespec;
+
+    if path_ptr.is_null() {
+        return Ok(0);
+    }
+    let path = unsafe { read_user_string(path_ptr, 256)? };
+    let full_path = resolve_at_path(dfd, &path)?;
+    let (atime, mtime) = if !utimes_ptr.is_null() {
+        if !is_user_ptr_valid(utimes_ptr as u64, 2 * core::mem::size_of::<LinuxTimespec>()) {
+            return Err(SyscallError::EFAULT);
+        }
+        let times = unsafe { core::slice::from_raw_parts(utimes_ptr, 2) };
+        (times[0].tv_sec as u64, times[1].tv_sec as u64)
+    } else {
+        (0, 0)
+    };
+    crate::fs::utimens(&full_path, atime, mtime)?;
     Ok(0)
 }
 
@@ -610,7 +1355,7 @@ pub fn sys_getdents64(frame: &mut SyscallFrame) -> SyscallResult {
     let entries = file.dentry.inode.ops.readdir()?;
 
     // Construct full entry list with "." and ".." if not already explicitly returned
-    let mut all_entries: alloc::vec::Vec<(alloc::string::String, u64, u8)> = alloc::vec::Vec::new();
+    let mut all_entries: alloc::vec::Vec<(String, u64, u8)> = alloc::vec::Vec::new();
 
     let has_dot = entries.iter().any(|e| e == ".");
     let has_dotdot = entries.iter().any(|e| e == "..");

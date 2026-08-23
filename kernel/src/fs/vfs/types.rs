@@ -53,6 +53,8 @@ pub const O_WRONLY: u32 = 1;
 pub const O_RDWR: u32 = 2;
 /// Create the file if it does not exist.
 pub const O_CREAT: u32 = 0x40;
+/// Exclusive create flag (fail if file exists).
+pub const O_EXCL: u32 = 0x80;
 /// Truncate file to zero length on open.
 pub const O_TRUNC: u32 = 0x200;
 /// Append writes to the end of the file.
@@ -63,6 +65,17 @@ pub const O_NONBLOCK: u32 = 0x800;
 pub const O_DIRECTORY: u32 = 0x10000;
 /// Do not follow the final symlink component.
 pub const O_NOFOLLOW: u32 = 0x20000;
+
+/// Special dirfd value representing the current working directory.
+pub const AT_FDCWD: i32 = -100;
+/// Do not follow symbolic links.
+pub const AT_SYMLINK_NOFOLLOW: i32 = 0x100;
+/// Remove directory instead of unlinking file.
+pub const AT_REMOVEDIR: i32 = 0x200;
+/// Follow symbolic link.
+pub const AT_SYMLINK_FOLLOW: i32 = 0x400;
+/// Allow empty relative pathname.
+pub const AT_EMPTY_PATH: i32 = 0x1000;
 
 /// Mask to extract the access mode (read/write) from flags.
 const O_ACCMODE: u32 = 3;
@@ -223,6 +236,21 @@ pub trait InodeOps: Send + Sync {
         Err(VfsError::NotSupported)
     }
 
+    /// Change permissions mode of this inode.
+    fn chmod(&self, _mode: u32) -> Result<(), VfsError> {
+        Err(VfsError::NotSupported)
+    }
+
+    /// Change ownership (uid, gid) of this inode.
+    fn chown(&self, _uid: u32, _gid: u32) -> Result<(), VfsError> {
+        Err(VfsError::NotSupported)
+    }
+
+    /// Update access and modification timestamps.
+    fn utimens(&self, _atime: u64, _mtime: u64) -> Result<(), VfsError> {
+        Ok(())
+    }
+
     /// Produce per-open-file I/O operations for this inode.
     fn open(&self) -> Result<Arc<dyn FileOps>, VfsError> {
         Err(VfsError::NotSupported)
@@ -270,6 +298,21 @@ pub trait FileOps: Send + Sync {
     /// Fetch file stat metadata.
     fn stat(&self) -> Result<Stat, VfsError> {
         Err(VfsError::NotSupported)
+    }
+
+    /// Change permissions mode of this file.
+    fn chmod(&self, _mode: u32) -> Result<(), VfsError> {
+        Err(VfsError::NotSupported)
+    }
+
+    /// Change ownership (uid, gid) of this file.
+    fn chown(&self, _uid: u32, _gid: u32) -> Result<(), VfsError> {
+        Err(VfsError::NotSupported)
+    }
+
+    /// Update access and modification timestamps.
+    fn utimens(&self, _atime: u64, _mtime: u64) -> Result<(), VfsError> {
+        Ok(())
     }
 
     /// Synchronize in-memory changes to persistent storage.
