@@ -65,7 +65,7 @@ pub fn sys_setpgid(frame: &mut SyscallFrame) -> SyscallResult {
 pub fn sys_getuid(_frame: &mut SyscallFrame) -> SyscallResult {
     let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
     let proc = proc_arc.lock();
-    Ok(proc.uid as usize)
+    Ok(proc.creds.uid as usize)
 }
 
 /// `sys_getgid` (SYS_GETGID = 104)
@@ -73,7 +73,7 @@ pub fn sys_getuid(_frame: &mut SyscallFrame) -> SyscallResult {
 pub fn sys_getgid(_frame: &mut SyscallFrame) -> SyscallResult {
     let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
     let proc = proc_arc.lock();
-    Ok(proc.gid as usize)
+    Ok(proc.creds.gid as usize)
 }
 
 /// `sys_setuid` (SYS_SETUID = 105)
@@ -82,8 +82,9 @@ pub fn sys_setuid(frame: &mut SyscallFrame) -> SyscallResult {
     let uid = frame.arg1() as u32;
     let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
     let mut proc = proc_arc.lock();
-    proc.uid = uid;
-    proc.euid = uid;
+    let creds = alloc::sync::Arc::make_mut(&mut proc.creds);
+    creds.uid = uid;
+    creds.euid = uid;
     Ok(0)
 }
 
@@ -93,8 +94,9 @@ pub fn sys_setgid(frame: &mut SyscallFrame) -> SyscallResult {
     let gid = frame.arg1() as u32;
     let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
     let mut proc = proc_arc.lock();
-    proc.gid = gid;
-    proc.egid = gid;
+    let creds = alloc::sync::Arc::make_mut(&mut proc.creds);
+    creds.gid = gid;
+    creds.egid = gid;
     Ok(0)
 }
 
@@ -103,7 +105,7 @@ pub fn sys_setgid(frame: &mut SyscallFrame) -> SyscallResult {
 pub fn sys_geteuid(_frame: &mut SyscallFrame) -> SyscallResult {
     let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
     let proc = proc_arc.lock();
-    Ok(proc.euid as usize)
+    Ok(proc.creds.euid as usize)
 }
 
 /// `sys_getegid` (SYS_GETEGID = 108)
@@ -111,7 +113,7 @@ pub fn sys_geteuid(_frame: &mut SyscallFrame) -> SyscallResult {
 pub fn sys_getegid(_frame: &mut SyscallFrame) -> SyscallResult {
     let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
     let proc = proc_arc.lock();
-    Ok(proc.egid as usize)
+    Ok(proc.creds.egid as usize)
 }
 
 /// `sys_setsid` (SYS_SETSID = 112)
@@ -141,7 +143,7 @@ pub fn sys_getgroups(frame: &mut SyscallFrame) -> SyscallResult {
 
     let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
     let proc = proc_arc.lock();
-    let gid = proc.gid;
+    let gid = proc.creds.gid;
     drop(proc);
 
     // SAFETY: Validated user memory pointer bounds.

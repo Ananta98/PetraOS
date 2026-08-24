@@ -2,6 +2,8 @@ use super::header::*;
 use crate::mm::ArchPageTable;
 use crate::mm::PageTable;
 use crate::mm::{AddrSpace, PageTableFlags, VirtAddr, VmAreaKind};
+use crate::proc::process::CommandLine;
+use crate::proc::process::credentials::Credentials;
 
 /// A loaded ELF executable's resources.
 pub struct LoadedElf {
@@ -116,7 +118,10 @@ impl<'a> Elf<'a> {
     }
 
     /// Find a section by its name.
-    pub fn find_section(&self, name: &str) -> Result<Option<(&'a Elf64Shdr, &'a [u8])>, &'static str> {
+    pub fn find_section(
+        &self,
+        name: &str,
+    ) -> Result<Option<(&'a Elf64Shdr, &'a [u8])>, &'static str> {
         let shstrtab_data = self.shstrtab()?;
         let sh_slice = self.section_headers()?;
 
@@ -165,7 +170,8 @@ impl<'a> Elf<'a> {
     /// sets up System V AMD64 ABI argc/argv/envp/auxv parameters, and returns loaded image information.
     pub fn load_with_cmdline(
         &self,
-        cmdline: Option<&crate::proc::process::CommandLine>,
+        cmdline: Option<&CommandLine>,
+        creds: Option<&Credentials>,
     ) -> Result<LoadedElf, &'static str> {
         let page_table = ArchPageTable::new().map_err(|_| "Failed to create PML4 page table")?;
         let mut addr_space = AddrSpace::new(page_table);
@@ -221,6 +227,12 @@ impl<'a> Elf<'a> {
             }
         };
 
+        let (uid, euid, gid, egid) = if let Some(c) = creds {
+            (c.uid, c.euid, c.gid, c.egid)
+        } else {
+            (0, 0, 0, 0)
+        };
+
         let auxv = alloc::vec![
             (AT_PHDR, phdr_addr),
             (AT_PHENT, self.header.e_phentsize as u64),
@@ -229,19 +241,18 @@ impl<'a> Elf<'a> {
             (AT_BASE, at_base),
             (AT_FLAGS, 0),
             (AT_ENTRY, self.entry_point().as_u64()),
-            (AT_UID, 0),
-            (AT_EUID, 0),
-            (AT_GID, 0),
-            (AT_EGID, 0),
+            (AT_UID, uid as u64),
+            (AT_EUID, euid as u64),
+            (AT_GID, gid as u64),
+            (AT_EGID, egid as u64),
             (AT_SECURE, 0),
         ];
 
         let stack_size = 256 * 1024; // 256 KiB stack
         let stack_top = VirtAddr::new(0x7FFF_FFFF_0000);
         let stack_start = stack_top - stack_size as u64;
-        let stack_flags = PageTableFlags::PRESENT
-            | PageTableFlags::WRITABLE
-            | PageTableFlags::USER_ACCESSIBLE;
+        let stack_flags =
+            PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::USER_ACCESSIBLE;
 
         addr_space
             .map_area(stack_start, stack_size, stack_flags, VmAreaKind::Anonymous)
@@ -263,7 +274,7 @@ impl<'a> Elf<'a> {
     /// Maps the loadable segments, creates the user address space, allocates a user stack,
     /// and returns the loaded image information.
     pub fn load(&self) -> Result<LoadedElf, &'static str> {
-        self.load_with_cmdline(None)
+        self.load_with_cmdline(None, None)
     }
 
     /// Setup the System V AMD64 ABI user stack frame with argc, argv, envp, auxv, and string tables.
@@ -304,8 +315,8 @@ impl<'a> Elf<'a> {
 
         // 1. Push 16 bytes of random entropy for AT_RANDOM (stack canary)
         let random_entropy = [
-            0x4b, 0x1f, 0x93, 0x7c, 0xa2, 0x5e, 0x08, 0xd4,
-            0x39, 0xf1, 0x60, 0xbb, 0x8d, 0x24, 0xee, 0x57,
+            0x4b, 0x1f, 0x93, 0x7c, 0xa2, 0x5e, 0x08, 0xd4, 0x39, 0xf1, 0x60, 0xbb, 0x8d, 0x24,
+            0xee, 0x57,
         ];
         let random_vaddr = write_user_bytes(&mut cur_sp, &random_entropy)?;
 
@@ -483,15 +494,12 @@ impl<'a> Elf<'a> {
                     let dest_offset = (intersect_start - page_start) as usize;
 
                     let src_slice = &self.data[file_src_offset..file_src_offset + copy_len];
-                    let dest_ptr = ((phys_addr.as_u64() + hhdm) as *mut u8).wrapping_add(dest_offset);
+                    let dest_ptr =
+                        ((phys_addr.as_u64() + hhdm) as *mut u8).wrapping_add(dest_offset);
 
                     // SAFETY: Copying within bounds of checked src_slice and allocated physical frame.
                     unsafe {
-                        core::ptr::copy_nonoverlapping(
-                            src_slice.as_ptr(),
-                            dest_ptr,
-                            copy_len,
-                        );
+                        core::ptr::copy_nonoverlapping(src_slice.as_ptr(), dest_ptr, copy_len);
                     }
                 }
             }

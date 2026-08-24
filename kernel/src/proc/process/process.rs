@@ -1,4 +1,5 @@
 use super::cmdline::CommandLine;
+use super::credentials::Credentials;
 use super::pid::{ProcessId, next_pid};
 use super::process_table::{register_process, unregister_process};
 use crate::arch::userspace;
@@ -7,9 +8,9 @@ use crate::ipc::signal::{MAX_SIGNALS, PendingSignals, SigAction};
 use crate::mm::ArchPageTable;
 use crate::mm::PageTable;
 use crate::mm::vmm::AddrSpace;
+use crate::mm::{PageTableFlags, VirtAddr};
 use crate::proc::thread::{Thread, ThreadId, ThreadState};
 use crate::sync::spinlock::Spinlock;
-use crate::mm::{PageTableFlags, VirtAddr};
 use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
 
@@ -61,17 +62,8 @@ pub struct Process {
     /// Threads running in this process
     pub threads: BTreeMap<ThreadId, Arc<Spinlock<Thread>>>,
 
-    /// User ID (UID)
-    pub uid: u32,
-
-    /// Effective User ID (EUID)
-    pub euid: u32,
-
-    /// Group ID (GID)
-    pub gid: u32,
-
-    /// Effective Group ID (EGID)
-    pub egid: u32,
+    /// Process credentials (uid, gid, euid, egid, etc.)
+    pub creds: Arc<Credentials>,
 
     /// File mode creation mask (umask)
     pub umask: u32,
@@ -116,10 +108,7 @@ impl Process {
             pending_signals: PendingSignals::new(),
             children: BTreeMap::new(),
             threads: BTreeMap::new(),
-            uid: 0,
-            euid: 0,
-            gid: 0,
-            egid: 0,
+            creds: super::credentials::Credentials::new(),
             umask: 0o022,
             fd_table: Arc::new(crate::fs::FdTable::new()),
             heap_start: userspace::USER_HEAP_VBASE,
@@ -203,7 +192,7 @@ impl Process {
 
         // 4. Try loading as ELF binary
         match crate::proc::loader::elf::Elf::new(&binary_data) {
-            Ok(elf) => match elf.load_with_cmdline(Some(&cmdline)) {
+            Ok(elf) => match elf.load_with_cmdline(Some(&cmdline), Some(&self.creds)) {
                 Ok(loaded_elf) => {
                     self.address_space = Arc::new(Spinlock::new(loaded_elf.addr_space));
                     self.cmdline = cmdline;
@@ -306,10 +295,7 @@ impl Process {
         child_proc.sig_actions = p_lock.sig_actions;
         child_proc.fd_table = Arc::new(p_lock.fd_table.clone_table());
         child_proc.cwd = p_lock.cwd.clone();
-        child_proc.uid = p_lock.uid;
-        child_proc.euid = p_lock.euid;
-        child_proc.gid = p_lock.gid;
-        child_proc.egid = p_lock.egid;
+        child_proc.creds = Arc::clone(&p_lock.creds);
         child_proc.umask = p_lock.umask;
         child_proc.heap_start = p_lock.heap_start;
         child_proc.heap_brk = p_lock.heap_brk;

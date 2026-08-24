@@ -7,7 +7,7 @@ pub mod reader;
 pub mod superblock;
 
 use self::inode::{Ext2InodeOps, Ext2Volume};
-use crate::device::{DeviceType, DEVICE_MANAGER};
+use crate::device::{DEVICE_MANAGER, DeviceType};
 use crate::fs::vfs::types::{FileSystem, Inode, InodeType, SuperBlock, VfsError};
 use alloc::sync::Arc;
 
@@ -99,7 +99,7 @@ impl FileSystem for Ext2Fs {
     }
 }
 
-crate::late_initcall!(Ext2Fs::init);
+crate::fs_initcall!(Ext2Fs::init);
 crate::MODULE_LICENSE!("BSD-2-Clause");
 crate::MODULE_AUTHOR!("Ananta98");
 crate::MODULE_DESCRIPTION!("Ext2 Filesystem Driver Subsystem");

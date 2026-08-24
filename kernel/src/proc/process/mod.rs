@@ -1,4 +1,5 @@
 pub mod cmdline;
+pub mod credentials;
 pub mod init_proc;
 pub mod pid;
 pub mod process;

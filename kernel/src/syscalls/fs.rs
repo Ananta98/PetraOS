@@ -1145,6 +1145,14 @@ pub fn sys_chmod(frame: &mut SyscallFrame) -> SyscallResult {
 
     let path = unsafe { read_user_string(path_ptr, 256)? };
     let full_path = resolve_at_path(AT_FDCWD, &path)?;
+
+    let st = crate::fs::stat(&full_path)?;
+    let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
+    let creds = { Arc::clone(&proc_arc.lock().creds) };
+    if creds.euid != 0 && creds.euid != st.uid {
+        return Err(SyscallError::EPERM);
+    }
+
     crate::fs::chmod(&full_path, mode)?;
     Ok(0)
 }
@@ -1160,7 +1168,13 @@ pub fn sys_fchmod(frame: &mut SyscallFrame) -> SyscallResult {
     let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
     let proc = proc_arc.lock();
     let file = proc.fd_table.get(fd)?;
+    let creds = Arc::clone(&proc.creds);
     drop(proc);
+
+    let st = file.ops.stat().or_else(|_| file.dentry.inode.ops.stat())?;
+    if creds.euid != 0 && creds.euid != st.uid {
+        return Err(SyscallError::EPERM);
+    }
 
     file.ops
         .chmod(mode)
@@ -1191,6 +1205,16 @@ pub fn sys_chown(frame: &mut SyscallFrame) -> SyscallResult {
     let full_path = resolve_at_path(AT_FDCWD, &path)?;
     let st = crate::fs::stat(&full_path)?;
     let (uid, gid) = effective_owner(&st, uid, gid);
+
+    let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
+    let creds = { Arc::clone(&proc_arc.lock().creds) };
+
+    if creds.euid != 0 {
+        if uid != st.uid || (gid != st.gid && gid != creds.gid && gid != creds.egid) {
+            return Err(SyscallError::EPERM);
+        }
+    }
+
     crate::fs::chown(&full_path, uid, gid)?;
     Ok(0)
 }
@@ -1207,10 +1231,18 @@ pub fn sys_fchown(frame: &mut SyscallFrame) -> SyscallResult {
     let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
     let proc = proc_arc.lock();
     let file = proc.fd_table.get(fd)?;
+    let creds = Arc::clone(&proc.creds);
     drop(proc);
 
     let st = file.dentry.inode.ops.stat()?;
     let (uid, gid) = effective_owner(&st, uid, gid);
+
+    if creds.euid != 0 {
+        if uid != st.uid || (gid != st.gid && gid != creds.gid && gid != creds.egid) {
+            return Err(SyscallError::EPERM);
+        }
+    }
+
     file.ops
         .chown(uid, gid)
         .or_else(|_| file.dentry.inode.ops.chown(uid, gid))?;
@@ -1280,18 +1312,27 @@ pub fn sys_utimensat(frame: &mut SyscallFrame) -> SyscallResult {
             return Err(SyscallError::EBADF);
         }
         let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
+        let creds = { Arc::clone(&proc_arc.lock().creds) };
         let proc = proc_arc.lock();
         let file = proc.fd_table.get(dfd)?;
         drop(proc);
         let st = file.ops.stat().or_else(|_| file.dentry.inode.ops.stat())?;
+
+        if creds.euid != 0 && creds.euid != st.uid {
+            return Err(SyscallError::EPERM);
+        }
+
         let (atime, mtime) = read_utimens(times_ptr, st.atime, st.mtime)?;
-        log::info!("[DBG-utimensat-fd] fd={} atime={} mtime={}", dfd, atime, mtime);
-        file.ops
-            .utimens(atime, mtime)
-            .or_else(|e| {
-                log::info!("[DBG-utimensat-fd] file.ops err={:?}, falling back", e);
-                file.dentry.inode.ops.utimens(atime, mtime)
-            })?;
+        log::info!(
+            "[DBG-utimensat-fd] fd={} atime={} mtime={}",
+            dfd,
+            atime,
+            mtime
+        );
+        file.ops.utimens(atime, mtime).or_else(|e| {
+            log::info!("[DBG-utimensat-fd] file.ops err={:?}, falling back", e);
+            file.dentry.inode.ops.utimens(atime, mtime)
+        })?;
         return Ok(0);
     }
 
@@ -1301,10 +1342,16 @@ pub fn sys_utimensat(frame: &mut SyscallFrame) -> SyscallResult {
             return Err(SyscallError::EBADF);
         }
         let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
+        let creds = { Arc::clone(&proc_arc.lock().creds) };
         let proc = proc_arc.lock();
         let file = proc.fd_table.get(dfd)?;
         drop(proc);
         let st = file.ops.stat().or_else(|_| file.dentry.inode.ops.stat())?;
+
+        if creds.euid != 0 && creds.euid != st.uid {
+            return Err(SyscallError::EPERM);
+        }
+
         let (atime, mtime) = read_utimens(times_ptr, st.atime, st.mtime)?;
         file.ops
             .utimens(atime, mtime)
@@ -1313,9 +1360,21 @@ pub fn sys_utimensat(frame: &mut SyscallFrame) -> SyscallResult {
     }
 
     let full_path = resolve_at_path(dfd, &path)?;
-    let cur = crate::fs::stat(&full_path)?;
-    let (atime, mtime) = read_utimens(times_ptr, cur.atime, cur.mtime)?;
-    log::info!("[DBG-utimensat] path={} atime={} mtime={}", full_path, atime, mtime);
+    let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
+    let creds = { Arc::clone(&proc_arc.lock().creds) };
+    let st = crate::fs::stat(&full_path)?;
+
+    if creds.euid != 0 && creds.euid != st.uid {
+        return Err(SyscallError::EPERM);
+    }
+
+    let (atime, mtime) = read_utimens(times_ptr, st.atime, st.mtime)?;
+    log::info!(
+        "[DBG-utimensat] path={} atime={} mtime={}",
+        full_path,
+        atime,
+        mtime
+    );
     crate::fs::utimens(&full_path, atime, mtime)?;
     Ok(0)
 }
