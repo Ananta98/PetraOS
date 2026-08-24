@@ -9,8 +9,14 @@ pub mod sys_info;
 pub mod time;
 
 use crate::arch::syscall::SyscallFrame;
+use crate::device::DriverError::*;
+use crate::fs::vfs::types;
 use crate::fs::vfs::types::*;
+use crate::sync::futex::FutexError;
 use crate::sync::futex::*;
+
+/// Maximum virtual address allowed for user space pointers (Ring 3 canonical boundary).
+pub const USER_SPACE_MAX_ADDR: u64 = 0x0000_7FFF_FFFF_FFFF;
 
 /// POSIX Linux Error Numbers for System Calls
 #[repr(i64)]
@@ -39,9 +45,8 @@ pub enum SyscallError {
     ETIMEDOUT = 110,
 }
 
-impl From<crate::sync::futex::FutexError> for SyscallError {
-    fn from(err: crate::sync::futex::FutexError) -> Self {
-        use crate::sync::futex::FutexError;
+impl From<FutexError> for SyscallError {
+    fn from(err: FutexError) -> Self {
         match err {
             FutexError::WouldBlock => SyscallError::EAGAIN,
             FutexError::TimedOut => SyscallError::ETIMEDOUT,
@@ -53,9 +58,8 @@ impl From<crate::sync::futex::FutexError> for SyscallError {
     }
 }
 
-impl From<crate::fs::vfs::types::VfsError> for SyscallError {
-    fn from(err: crate::fs::vfs::types::VfsError) -> Self {
-        use crate::fs::vfs::types::VfsError;
+impl From<VfsError> for SyscallError {
+    fn from(err: VfsError) -> Self {
         match err {
             VfsError::NotFound => SyscallError::ENOENT,
             VfsError::NotDirectory => SyscallError::ENOTDIR,
@@ -128,9 +132,6 @@ macro_rules! define_syscall_table {
         ];
     };
 }
-
-/// Maximum virtual address allowed for user space pointers (Ring 3 canonical boundary).
-pub const USER_SPACE_MAX_ADDR: u64 = 0x0000_7FFF_FFFF_FFFF;
 
 /// Validate if a user pointer and range lies strictly within user-space memory.
 pub fn is_user_ptr_valid(ptr: u64, len: usize) -> bool {

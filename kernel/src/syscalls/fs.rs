@@ -1,6 +1,5 @@
 use super::{SyscallError, SyscallResult, is_user_ptr_valid, read_user_string};
 use crate::arch::syscall::syscall::SyscallFrame;
-use crate::drivers::time::cmos_rtc;
 use crate::fs::File;
 use crate::fs::vfs::types::{InodeType, LinuxStat, O_CREAT, O_RDONLY, O_WRONLY, SeekWhence, Stat};
 use alloc::string::String;
@@ -429,7 +428,7 @@ pub fn sys_pipe(frame: &mut SyscallFrame) -> SyscallResult {
         return Err(SyscallError::EFAULT);
     }
 
-    let (f_read, f_write) = crate::fs::pipe::create_pipe(false)?;
+    let (f_read, f_write) = crate::fs::pipefs::create_pipe(false)?;
 
     let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
     let proc = proc_arc.lock();
@@ -463,7 +462,7 @@ pub fn sys_pipe2(frame: &mut SyscallFrame) -> SyscallResult {
         0
     };
 
-    let (f_read, f_write) = crate::fs::pipe::create_pipe(nonblocking)?;
+    let (f_read, f_write) = crate::fs::pipefs::create_pipe(nonblocking)?;
 
     let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
     let proc = proc_arc.lock();
@@ -1286,9 +1285,13 @@ pub fn sys_utimensat(frame: &mut SyscallFrame) -> SyscallResult {
         drop(proc);
         let st = file.ops.stat().or_else(|_| file.dentry.inode.ops.stat())?;
         let (atime, mtime) = read_utimens(times_ptr, st.atime, st.mtime)?;
+        log::info!("[DBG-utimensat-fd] fd={} atime={} mtime={}", dfd, atime, mtime);
         file.ops
             .utimens(atime, mtime)
-            .or_else(|_| file.dentry.inode.ops.utimens(atime, mtime))?;
+            .or_else(|e| {
+                log::info!("[DBG-utimensat-fd] file.ops err={:?}, falling back", e);
+                file.dentry.inode.ops.utimens(atime, mtime)
+            })?;
         return Ok(0);
     }
 
@@ -1312,6 +1315,7 @@ pub fn sys_utimensat(frame: &mut SyscallFrame) -> SyscallResult {
     let full_path = resolve_at_path(dfd, &path)?;
     let cur = crate::fs::stat(&full_path)?;
     let (atime, mtime) = read_utimens(times_ptr, cur.atime, cur.mtime)?;
+    log::info!("[DBG-utimensat] path={} atime={} mtime={}", full_path, atime, mtime);
     crate::fs::utimens(&full_path, atime, mtime)?;
     Ok(0)
 }

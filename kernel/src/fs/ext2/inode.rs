@@ -4,8 +4,9 @@ use super::file::Ext2FileOps;
 pub use super::ondisk::Ext2Inode;
 pub use super::reader::BlockDeviceReader;
 use super::superblock::{Ext2BlockGroupDescriptor, Ext2Superblock};
+use crate::drivers::time::cmos_rtc;
 use crate::fs::vfs::types::{
-    FileOps, Inode, InodeOps, InodeType, Stat, VfsError, MODE_PERM_BITS, MODE_TYPE_BITS,
+    FileOps, Inode, InodeOps, InodeType, MODE_PERM_BITS, MODE_TYPE_BITS, Stat, VfsError,
 };
 use alloc::string::String;
 use alloc::sync::Arc;
@@ -127,7 +128,8 @@ impl Ext2Volume {
             let mut data_block = u32::from_le_bytes(ptr_buf);
             if data_block == 0 {
                 data_block = Ext2Bitmap::alloc_block(self)?;
-                self.reader.write_bytes(phys_ptr, &data_block.to_le_bytes())?;
+                self.reader
+                    .write_bytes(phys_ptr, &data_block.to_le_bytes())?;
                 inode.blocks += block_size / 512;
             }
             return Ok(data_block);
@@ -156,7 +158,8 @@ impl Ext2Volume {
 
             if singly_block == 0 {
                 singly_block = Ext2Bitmap::alloc_block(self)?;
-                self.reader.write_bytes(p1_phys, &singly_block.to_le_bytes())?;
+                self.reader
+                    .write_bytes(p1_phys, &singly_block.to_le_bytes())?;
                 inode.blocks += block_size / 512;
                 let zero_buf = alloc::vec![0u8; block_size as usize];
                 self.reader
@@ -170,7 +173,8 @@ impl Ext2Volume {
 
             if data_block == 0 {
                 data_block = Ext2Bitmap::alloc_block(self)?;
-                self.reader.write_bytes(p2_phys, &data_block.to_le_bytes())?;
+                self.reader
+                    .write_bytes(p2_phys, &data_block.to_le_bytes())?;
                 inode.blocks += block_size / 512;
             }
 

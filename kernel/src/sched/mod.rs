@@ -16,6 +16,7 @@ pub mod policy;
 pub mod realtime;
 
 use crate::arch::cpu::context::{switch_context, switch_context_to};
+use crate::arch::cpu::{msr, tss};
 use crate::proc::thread::{Thread, ThreadId, ThreadState};
 use crate::sync::spinlock::Spinlock;
 use alloc::sync::Arc;
@@ -266,11 +267,11 @@ pub fn schedule(yielding: bool) {
             }
 
             // Restore TLS base register
-            crate::arch::cpu::msr::write_fs_base(next_fs_base);
+            msr::write_fs_base(next_fs_base);
 
             // Update TSS RSP0 for Ring 3 transitions
             if next_kstack_top != 0 {
-                crate::arch::cpu::tss::set_rsp0(next_kstack_top);
+                tss::set_rsp0(next_kstack_top);
             }
 
             // SAFETY: Context switch between two valid thread execution stacks.
@@ -304,10 +305,10 @@ pub fn schedule(yielding: bool) {
                 }
             }
 
-            crate::arch::cpu::msr::write_fs_base(next_fs_base);
+            msr::write_fs_base(next_fs_base);
 
             if next_kstack_top != 0 {
-                crate::arch::cpu::tss::set_rsp0(next_kstack_top);
+                tss::set_rsp0(next_kstack_top);
             }
 
             // SAFETY: Context switch into initial thread stack.
