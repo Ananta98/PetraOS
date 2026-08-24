@@ -3,9 +3,9 @@
 //! Evaluates virtual memory access violations, resolves demand paging,
 //! and handles Copy-On-Write (COW) page duplication.
 
-use crate::mm::vmm::address::VirtAddr;
-use crate::mm::vmm::flags::{COW_FLAG, PageFaultErrorCode, PageTableFlags};
-use crate::mm::vmm::paging::{PageTable, PagingError};
+use crate::mm::vmm::paging::{
+    COW_FLAG, PageFaultErrorCode, PageTable, PageTableFlags, PagingError, VirtAddr,
+};
 use crate::mm::vmm::types::VmAreaKind;
 use crate::mm::vmm::vma::AddrSpace;
 

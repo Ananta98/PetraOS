@@ -2,12 +2,13 @@
 //!
 //! Defines the `PageTable` trait and hardware mapping abstractions.
 
+pub mod address;
 pub mod entry;
+pub mod flags;
 
+pub use address::{PhysAddr, VirtAddr};
 pub use entry::PageTableEntry;
-
-use crate::mm::vmm::address::{PhysAddr, VirtAddr};
-use crate::mm::vmm::flags::PageTableFlags;
+pub use flags::{COW_FLAG, PageFaultErrorCode, PageTableFlags};
 
 /// Errors returned by page table manipulation operations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

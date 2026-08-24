@@ -2,8 +2,8 @@
 //!
 //! Provides `PageTableEntry` for manipulating 64-bit physical addresses and flags within page tables.
 
-use crate::mm::vmm::address::PhysAddr;
-use crate::mm::vmm::flags::PageTableFlags;
+use super::address::PhysAddr;
+use super::flags::PageTableFlags;
 
 /// A 64-bit hardware page table entry.
 #[derive(Clone, Copy, PartialEq, Eq, Default)]

@@ -1,5 +1,5 @@
 use alloc::sync::Arc;
-use crate::mm::vmm::address::PhysAddr;
+use crate::mm::vmm::paging::PhysAddr;
 
 /// Backing store kind for a Virtual Memory Area (VMA).
 #[derive(Clone)]

@@ -144,11 +144,11 @@ macro_rules! module_driver {
     ($initcall_ident:ident, $init_fn:ident, $name:expr, $driver_ty:ty) => {
         pub fn $init_fn() -> Result<(), &'static str> {
             use $crate::device::Driver;
-            use $crate::modules::module::{get_attr_for_module, ModAttrKind};
+            use $crate::modules::module::{ModAttrKind, get_attr_for_module};
 
             let driver = <$driver_ty>::default();
             let path = module_path!();
-            let author = get_attr_for_module(path, ModAttrKind::Author, "PetraOS Development Team");
+            let author = get_attr_for_module(path, ModAttrKind::Author, "Ananta98");
             let desc = get_attr_for_module(path, ModAttrKind::Description, driver.description());
             let license = get_attr_for_module(path, ModAttrKind::License, "BSD-2-Clause");
             let version = get_attr_for_module(path, ModAttrKind::Version, "1.0.0");
@@ -156,13 +156,7 @@ macro_rules! module_driver {
             match driver.probe() {
                 Ok(()) => {
                     let module = $crate::modules::KernelModule::new(
-                        $name,
-                        author,
-                        desc,
-                        license,
-                        version,
-                        $init_fn,
-                        None,
+                        $name, author, desc, license, version, $init_fn, None,
                     );
                     let _ = $crate::modules::MODULE_MANAGER.write().register(module);
                     Ok(())

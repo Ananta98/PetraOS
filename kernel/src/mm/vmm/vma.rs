@@ -3,9 +3,9 @@
 //! Provides region-based memory management, Copy-On-Write (COW) address space duplication,
 //! and integration with architecture-specific page tables.
 
-use crate::mm::vmm::address::{PhysAddr, VirtAddr};
-use crate::mm::vmm::flags::{COW_FLAG, PageTableFlags};
-use crate::mm::vmm::paging::{PageTable, PagingError};
+use crate::mm::vmm::paging::{
+    COW_FLAG, PageTable, PageTableFlags, PagingError, PhysAddr, VirtAddr,
+};
 use crate::mm::vmm::types::VmAreaKind;
 use alloc::collections::BTreeMap;
 

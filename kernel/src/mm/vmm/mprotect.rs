@@ -3,9 +3,7 @@
 //! Provides region-based memory protection updates, splitting/merging VMAs,
 //! and synchronizing hardware page table permissions (with Copy-On-Write awareness).
 
-use crate::mm::vmm::address::VirtAddr;
-use crate::mm::vmm::flags::{COW_FLAG, PageTableFlags};
-use crate::mm::vmm::paging::PageTable;
+use crate::mm::vmm::paging::{COW_FLAG, PageTable, PageTableFlags, VirtAddr};
 use crate::mm::vmm::types::VmAreaKind;
 use crate::mm::vmm::vma::{AddrSpace, AddrSpaceError, VmArea};
 use alloc::sync::Arc;
