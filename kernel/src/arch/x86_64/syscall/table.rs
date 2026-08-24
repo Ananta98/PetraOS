@@ -1,7 +1,7 @@
 //! Architecture-specific system call numbering and dispatch table for x86_64 Linux ABI.
 
 use crate::define_syscall_table;
-use crate::syscalls::{arch_prctl, fs, ioctl, mm, proc, signals, sync, sys_info, time};
+use crate::syscalls::{arch_prctl, fs, ipc, ioctl, mm, proc, signals, sync, sys_info, time};
 
 // Entries in SYSCALL_TABLE must be kept sorted by system call number for binary search.
 define_syscall_table! {
@@ -39,6 +39,9 @@ define_syscall_table! {
     SYS_WAIT4          = 61  => ("wait4",          proc::sys_wait4),
     SYS_KILL           = 62  => ("kill",           signals::sys_kill),
     SYS_UNAME          = 63  => ("uname",          sys_info::sys_uname),
+    SYS_SEMGET         = 64  => ("semget",         ipc::sys_semget),
+    SYS_SEMOP          = 65  => ("semop",          ipc::sys_semop),
+    SYS_SEMCTL         = 66  => ("semctl",         ipc::sys_semctl),
     SYS_FCNTL          = 72  => ("fcntl",          fs::sys_fcntl),
     SYS_FSYNC          = 74  => ("fsync",          fs::sys_fsync),
     SYS_FDATASYNC      = 75  => ("fdatasync",      fs::sys_fdatasync),
@@ -78,6 +81,7 @@ define_syscall_table! {
     SYS_FUTEX          = 202 => ("futex",          sync::sys_futex),
     SYS_ISATTY         = 215 => ("isatty",         ioctl::sys_isatty),
     SYS_GETDENTS64     = 217 => ("getdents64",     fs::sys_getdents64),
+    SYS_SEMTIMEDOP     = 220 => ("semtimedop",     ipc::sys_semtimedop),
     SYS_CLOCK_GETTIME  = 228 => ("clock_gettime",  time::sys_clock_gettime),
     SYS_EXIT_GROUP     = 231 => ("exit_group",     proc::sys_exit_group),
     SYS_OPENAT         = 257 => ("openat",         fs::sys_openat),

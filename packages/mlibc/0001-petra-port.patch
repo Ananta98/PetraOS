@@ -1,3 +1,163 @@
+From 39144cfd07563fa2587563f3afecf79648a0cc79 Mon Sep 17 00:00:00 2001
+From: Ananta <kusumaananta042@gmail.com>
+Date: Sat, 15 Aug 2026 11:59:14 +0700
+Subject: [PATCH 01/15] feat(sysdeps): add PetraOS support and GCC 13
+ compatibility
+
+---
+ meson.build                                   |   7 +
+ options/ansi/generic/stdlib.cpp               |   8 +-
+ options/ansi/x86_64/meson.build               |  11 +-
+ options/internal/include/mlibc/allocator.hpp  |  32 +-
+ subprojects/frigg.wrap                        |   1 +
+ .../packagefiles/frigg/include/frg/span.hpp   |  69 +++
+ sysdeps/petra/crt-x86_64/Scrt1.S              |   8 +
+ sysdeps/petra/crt-x86_64/crt1.S               |   8 +
+ sysdeps/petra/crt-x86_64/crti.S               |  15 +
+ sysdeps/petra/crt-x86_64/crtn.S               |  11 +
+ sysdeps/petra/generic/entry.cpp               |  16 +
+ sysdeps/petra/generic/generic.cpp             | 461 ++++++++++++++++++
+ sysdeps/petra/include/abi-bits/access.h       |   1 +
+ sysdeps/petra/include/abi-bits/aio.h          |   1 +
+ sysdeps/petra/include/abi-bits/auxv.h         |   1 +
+ sysdeps/petra/include/abi-bits/blkcnt_t.h     |   1 +
+ sysdeps/petra/include/abi-bits/blksize_t.h    |   1 +
+ sysdeps/petra/include/abi-bits/clockid_t.h    |   1 +
+ sysdeps/petra/include/abi-bits/clone-flags.h  |   1 +
+ sysdeps/petra/include/abi-bits/dev_t.h        |   1 +
+ sysdeps/petra/include/abi-bits/epoll.h        |   1 +
+ sysdeps/petra/include/abi-bits/errno.h        |   1 +
+ sysdeps/petra/include/abi-bits/fcntl.h        |   1 +
+ sysdeps/petra/include/abi-bits/fd_set.h       |   1 +
+ sysdeps/petra/include/abi-bits/fsblkcnt_t.h   |   1 +
+ sysdeps/petra/include/abi-bits/fsfilcnt_t.h   |   1 +
+ sysdeps/petra/include/abi-bits/gid_t.h        |   1 +
+ sysdeps/petra/include/abi-bits/in.h           |   1 +
+ sysdeps/petra/include/abi-bits/ino_t.h        |   1 +
+ sysdeps/petra/include/abi-bits/inotify.h      |   1 +
+ sysdeps/petra/include/abi-bits/ioctls.h       |   1 +
+ sysdeps/petra/include/abi-bits/ipc.h          |   1 +
+ sysdeps/petra/include/abi-bits/limits.h       |   1 +
+ sysdeps/petra/include/abi-bits/mode_t.h       |   1 +
+ sysdeps/petra/include/abi-bits/mqueue.h       |   1 +
+ sysdeps/petra/include/abi-bits/msg.h          |   1 +
+ sysdeps/petra/include/abi-bits/nlink_t.h      |   1 +
+ sysdeps/petra/include/abi-bits/packet.h       |   1 +
+ sysdeps/petra/include/abi-bits/pid_t.h        |   1 +
+ sysdeps/petra/include/abi-bits/poll.h         |   1 +
+ sysdeps/petra/include/abi-bits/ptrace.h       |   1 +
+ sysdeps/petra/include/abi-bits/random.h       |   1 +
+ sysdeps/petra/include/abi-bits/reboot.h       |   1 +
+ sysdeps/petra/include/abi-bits/resource.h     |   1 +
+ .../petra/include/abi-bits/riscv-hwprobe.h    |   1 +
+ sysdeps/petra/include/abi-bits/rlim_t.h       |   1 +
+ sysdeps/petra/include/abi-bits/route.h        |   1 +
+ sysdeps/petra/include/abi-bits/sa_family_t.h  |   1 +
+ sysdeps/petra/include/abi-bits/sched_param.h  |   1 +
+ sysdeps/petra/include/abi-bits/seek-whence.h  |   1 +
+ sysdeps/petra/include/abi-bits/sem.h          |   1 +
+ sysdeps/petra/include/abi-bits/shm.h          |   1 +
+ sysdeps/petra/include/abi-bits/sig-limits.h   |   1 +
+ sysdeps/petra/include/abi-bits/sigevent.h     |   1 +
+ sysdeps/petra/include/abi-bits/signal.h       |   1 +
+ sysdeps/petra/include/abi-bits/sigset_t.h     |   1 +
+ sysdeps/petra/include/abi-bits/sigval.h       |   1 +
+ .../petra/include/abi-bits/sockaddr_storage.h |   1 +
+ sysdeps/petra/include/abi-bits/socket.h       |   1 +
+ sysdeps/petra/include/abi-bits/socklen_t.h    |   1 +
+ sysdeps/petra/include/abi-bits/stat.h         |   1 +
+ sysdeps/petra/include/abi-bits/statfs.h       |   1 +
+ sysdeps/petra/include/abi-bits/statvfs.h      |   1 +
+ sysdeps/petra/include/abi-bits/statx.h        |   1 +
+ sysdeps/petra/include/abi-bits/suseconds_t.h  |   1 +
+ sysdeps/petra/include/abi-bits/termios.h      |   1 +
+ sysdeps/petra/include/abi-bits/time.h         |   1 +
+ sysdeps/petra/include/abi-bits/uid_t.h        |   1 +
+ sysdeps/petra/include/abi-bits/utmp-defines.h |   1 +
+ sysdeps/petra/include/abi-bits/utmpx.h        |   1 +
+ sysdeps/petra/include/abi-bits/utsname.h      |   1 +
+ sysdeps/petra/include/abi-bits/vm-flags.h     |   1 +
+ sysdeps/petra/include/abi-bits/vt.h           |   1 +
+ sysdeps/petra/include/abi-bits/wait.h         |   1 +
+ sysdeps/petra/include/abi-bits/xattr.h        |   1 +
+ sysdeps/petra/include/mlibc/sysdeps.hpp       |  69 +++
+ sysdeps/petra/include/sys/syscall.h           | 119 +++++
+ sysdeps/petra/meson.build                     | 118 +++++
+ 78 files changed, 993 insertions(+), 23 deletions(-)
+ create mode 100644 subprojects/packagefiles/frigg/include/frg/span.hpp
+ create mode 100644 sysdeps/petra/crt-x86_64/Scrt1.S
+ create mode 100644 sysdeps/petra/crt-x86_64/crt1.S
+ create mode 100644 sysdeps/petra/crt-x86_64/crti.S
+ create mode 100644 sysdeps/petra/crt-x86_64/crtn.S
+ create mode 100644 sysdeps/petra/generic/entry.cpp
+ create mode 100644 sysdeps/petra/generic/generic.cpp
+ create mode 120000 sysdeps/petra/include/abi-bits/access.h
+ create mode 120000 sysdeps/petra/include/abi-bits/aio.h
+ create mode 120000 sysdeps/petra/include/abi-bits/auxv.h
+ create mode 120000 sysdeps/petra/include/abi-bits/blkcnt_t.h
+ create mode 120000 sysdeps/petra/include/abi-bits/blksize_t.h
+ create mode 120000 sysdeps/petra/include/abi-bits/clockid_t.h
+ create mode 120000 sysdeps/petra/include/abi-bits/clone-flags.h
+ create mode 120000 sysdeps/petra/include/abi-bits/dev_t.h
+ create mode 120000 sysdeps/petra/include/abi-bits/epoll.h
+ create mode 120000 sysdeps/petra/include/abi-bits/errno.h
+ create mode 120000 sysdeps/petra/include/abi-bits/fcntl.h
+ create mode 120000 sysdeps/petra/include/abi-bits/fd_set.h
+ create mode 120000 sysdeps/petra/include/abi-bits/fsblkcnt_t.h
+ create mode 120000 sysdeps/petra/include/abi-bits/fsfilcnt_t.h
+ create mode 120000 sysdeps/petra/include/abi-bits/gid_t.h
+ create mode 120000 sysdeps/petra/include/abi-bits/in.h
+ create mode 120000 sysdeps/petra/include/abi-bits/ino_t.h
+ create mode 120000 sysdeps/petra/include/abi-bits/inotify.h
+ create mode 120000 sysdeps/petra/include/abi-bits/ioctls.h
+ create mode 120000 sysdeps/petra/include/abi-bits/ipc.h
+ create mode 120000 sysdeps/petra/include/abi-bits/limits.h
+ create mode 120000 sysdeps/petra/include/abi-bits/mode_t.h
+ create mode 120000 sysdeps/petra/include/abi-bits/mqueue.h
+ create mode 120000 sysdeps/petra/include/abi-bits/msg.h
+ create mode 120000 sysdeps/petra/include/abi-bits/nlink_t.h
+ create mode 120000 sysdeps/petra/include/abi-bits/packet.h
+ create mode 120000 sysdeps/petra/include/abi-bits/pid_t.h
+ create mode 120000 sysdeps/petra/include/abi-bits/poll.h
+ create mode 120000 sysdeps/petra/include/abi-bits/ptrace.h
+ create mode 120000 sysdeps/petra/include/abi-bits/random.h
+ create mode 120000 sysdeps/petra/include/abi-bits/reboot.h
+ create mode 120000 sysdeps/petra/include/abi-bits/resource.h
+ create mode 120000 sysdeps/petra/include/abi-bits/riscv-hwprobe.h
+ create mode 120000 sysdeps/petra/include/abi-bits/rlim_t.h
+ create mode 120000 sysdeps/petra/include/abi-bits/route.h
+ create mode 120000 sysdeps/petra/include/abi-bits/sa_family_t.h
+ create mode 120000 sysdeps/petra/include/abi-bits/sched_param.h
+ create mode 120000 sysdeps/petra/include/abi-bits/seek-whence.h
+ create mode 120000 sysdeps/petra/include/abi-bits/sem.h
+ create mode 120000 sysdeps/petra/include/abi-bits/shm.h
+ create mode 120000 sysdeps/petra/include/abi-bits/sig-limits.h
+ create mode 120000 sysdeps/petra/include/abi-bits/sigevent.h
+ create mode 120000 sysdeps/petra/include/abi-bits/signal.h
+ create mode 120000 sysdeps/petra/include/abi-bits/sigset_t.h
+ create mode 120000 sysdeps/petra/include/abi-bits/sigval.h
+ create mode 120000 sysdeps/petra/include/abi-bits/sockaddr_storage.h
+ create mode 120000 sysdeps/petra/include/abi-bits/socket.h
+ create mode 120000 sysdeps/petra/include/abi-bits/socklen_t.h
+ create mode 120000 sysdeps/petra/include/abi-bits/stat.h
+ create mode 120000 sysdeps/petra/include/abi-bits/statfs.h
+ create mode 120000 sysdeps/petra/include/abi-bits/statvfs.h
+ create mode 120000 sysdeps/petra/include/abi-bits/statx.h
+ create mode 120000 sysdeps/petra/include/abi-bits/suseconds_t.h
+ create mode 120000 sysdeps/petra/include/abi-bits/termios.h
+ create mode 120000 sysdeps/petra/include/abi-bits/time.h
+ create mode 120000 sysdeps/petra/include/abi-bits/uid_t.h
+ create mode 120000 sysdeps/petra/include/abi-bits/utmp-defines.h
+ create mode 120000 sysdeps/petra/include/abi-bits/utmpx.h
+ create mode 120000 sysdeps/petra/include/abi-bits/utsname.h
+ create mode 120000 sysdeps/petra/include/abi-bits/vm-flags.h
+ create mode 120000 sysdeps/petra/include/abi-bits/vt.h
+ create mode 120000 sysdeps/petra/include/abi-bits/wait.h
+ create mode 120000 sysdeps/petra/include/abi-bits/xattr.h
+ create mode 100644 sysdeps/petra/include/mlibc/sysdeps.hpp
+ create mode 100644 sysdeps/petra/include/sys/syscall.h
+ create mode 100644 sysdeps/petra/meson.build
+
 diff --git a/meson.build b/meson.build
 index 8e981a3c..d53f4c8b 100644
 --- a/meson.build
@@ -16,39 +176,6 @@ index 8e981a3c..d53f4c8b 100644
  # ANCHOR: demo-sysdeps
  elif host_machine.system() == 'demo'
  	subdir('sysdeps/demo')
-diff --git a/options/ansi/generic/file-io.cpp b/options/ansi/generic/file-io.cpp
-index 90c31608..e5e9d8d6 100644
---- a/options/ansi/generic/file-io.cpp
-+++ b/options/ansi/generic/file-io.cpp
-@@ -111,6 +111,10 @@ void abstract_file::dispose() {
- int abstract_file::read(char *buffer, size_t max_size, size_t *actual_size) {
- 	__ensure(max_size);
- 
-+	if(stdout && stdout != this) {
-+		static_cast<abstract_file *>(stdout)->flush();
-+	}
-+
- 	if(_init_bufmode())
- 		return -1;
- 
-@@ -550,7 +554,7 @@ int fd_file::determine_bufmode(buffer_mode *mode) {
- 	}
- 
- 	if(int e = mlibc::sysdep<Isatty>(_fd); !e) {
--		*mode = buffer_mode::line_buffer;
-+		*mode = buffer_mode::no_buffer;
- 		return 0;
- 	}else if(e == ENOTTY) {
- 		*mode = buffer_mode::full_buffer;
-@@ -647,7 +651,7 @@ namespace {
- 	[[gnu::constructor(MLIBC_INIT_PRIORITY_STDIO)]]
- 	void init_stdio() {
- 		stdin_box.initialize(0);
--		stdout_box.initialize(1);
-+		stdout_box.initialize(1, nullptr, true);
- 		stderr_box.initialize(2, nullptr, true);
- 
- 		stdin = stdin_box.get();
 diff --git a/options/ansi/generic/stdlib.cpp b/options/ansi/generic/stdlib.cpp
 index d9fa1697..a8cddac3 100644
 --- a/options/ansi/generic/stdlib.cpp
@@ -312,10 +439,10 @@ index 00000000..f7dca05d
 +}
 diff --git a/sysdeps/petra/generic/generic.cpp b/sysdeps/petra/generic/generic.cpp
 new file mode 100644
-index 00000000..540bbc48
+index 00000000..c8493d43
 --- /dev/null
 +++ b/sysdeps/petra/generic/generic.cpp
-@@ -0,0 +1,718 @@
+@@ -0,0 +1,461 @@
 +#include <bits/ensure.h>
 +#include <mlibc/debug.hpp>
 +#include <mlibc/all-sysdeps.hpp>
@@ -333,12 +460,7 @@ index 00000000..540bbc48
 +#include <mlibc/tcb.hpp>
 +#include <sys/types.h>
 +#include <sys/stat.h>
-+#include <sys/select.h>
-+#include <termios.h>
-+#include <poll.h>
 +#include <stddef.h>
-+#include <sys/utsname.h>
-+#include <sys/resource.h>
 +
 +namespace mlibc {
 +
@@ -761,279 +883,27 @@ index 00000000..540bbc48
 +}
 +
 +int Sysdeps<Sleep>::operator()(time_t *secs, long *nanos) {
-+    struct timespec req = {
-+        .tv_sec  = *secs,
-+        .tv_nsec = *nanos,
-+    };
-+    struct timespec rem = {};
-+
-+    int64_t ret = __petra_syscall2(SYSCALL_NANOSLEEP, (int64_t)&req, (int64_t)&rem);
-+
-+    // On EINTR the kernel writes the remaining time into rem; propagate it
-+    // back so the caller can restart the sleep if desired.
-+    *secs  = rem.tv_sec;
-+    *nanos = rem.tv_nsec;
-+
-+    if (ret < 0) {
-+        return (int)-ret;
++    struct timespec deadline = {}, current = {};
++    sysdep<ClockGet>(0, &deadline.tv_sec, &deadline.tv_nsec);
++    deadline.tv_sec += *secs;
++    deadline.tv_nsec += *nanos;
++    if (deadline.tv_nsec >= 1000000000L) {
++        deadline.tv_sec += deadline.tv_nsec / 1000000000L;
++        deadline.tv_nsec %= 1000000000L;
 +    }
-+    return 0;
-+}
-+
-+int Sysdeps<Tcgetattr>::operator()(int fd, struct termios *attr) {
-+    int64_t ret = __petra_syscall3(SYSCALL_IOCTL, fd, 0x5401 /* TCGETS */, (int64_t)attr);
-+    if (ret < 0) {
-+        return -ret;
-+    }
-+    return 0;
-+}
-+
-+int Sysdeps<Tcsetattr>::operator()(int fd, int optional_action, const struct termios *attr) {
-+    (void)optional_action;
-+    int64_t ret = __petra_syscall3(SYSCALL_IOCTL, fd, 0x5402 /* TCSETS */, (int64_t)attr);
-+    if (ret < 0) {
-+        return -ret;
-+    }
-+    return 0;
-+}
-+
-+int Sysdeps<Ttyname>::operator()(int fd, char *buf, size_t size) {
-+    if (int e = sysdep<Isatty>(fd); e) {
-+        return e;
-+    }
-+    static const char tty_name[] = "/dev/tty";
-+    if (size < sizeof(tty_name)) {
-+        return ERANGE;
-+    }
-+    memcpy(buf, tty_name, sizeof(tty_name));
-+    return 0;
-+}
-+
-+int Sysdeps<GetHostname>::operator()(char *buffer, size_t bufsize) {
-+    if (bufsize == 0) {
-+        return 0;
-+    }
-+    struct utsname uts;
-+    const char *name = "petraos";
-+    int64_t ret = __petra_syscall1(SYSCALL_UNAME, (int64_t)&uts);
-+    if (ret >= 0 && uts.nodename[0] != '\0') {
-+        name = uts.nodename;
-+    }
-+    size_t len = strlen(name);
-+    size_t copy = (len < bufsize) ? len : bufsize - 1;
-+    memcpy(buffer, name, copy);
-+    buffer[copy] = '\0';
-+    return 0;
-+}
-+
-+int Sysdeps<Tcsendbreak>::operator()(int fd, int duration) {
-+    int64_t ret = __petra_syscall3(SYSCALL_IOCTL, fd, 0x5409 /* TCSBRK */, (int64_t)duration);
-+    if (ret < 0) {
-+        return -ret;
-+    }
-+    return 0;
-+}
-+
-+int Sysdeps<Tcflow>::operator()(int fd, int action) {
-+    int64_t ret = __petra_syscall3(SYSCALL_IOCTL, fd, 0x540A /* TCXONC */, (int64_t)action);
-+    if (ret < 0) {
-+        return -ret;
-+    }
-+    return 0;
-+}
-+
-+int Sysdeps<Tcflush>::operator()(int fd, int queue) {
-+    int64_t ret = __petra_syscall3(SYSCALL_IOCTL, fd, 0x540B /* TCFLSH */, (int64_t)queue);
-+    if (ret < 0) {
-+        return -ret;
-+    }
-+    return 0;
-+}
-+
-+int Sysdeps<Ppoll>::operator()(struct pollfd *fds, nfds_t count, const struct timespec *timeout, const sigset_t *sigmask, int *num_events) {
-+    (void)timeout;
-+    (void)sigmask;
-+    int ready = 0;
-+    for (nfds_t i = 0; i < count; i++) {
-+        fds[i].revents = fds[i].events & (POLLIN | POLLOUT);
-+        if (fds[i].revents) {
-+            ready++;
-+        }
-+    }
-+    if (num_events) {
-+        *num_events = ready;
-+    }
-+    return 0;
-+}
-+
-+int Sysdeps<Poll>::operator()(struct pollfd *fds, nfds_t count, int timeout, int *num_events) {
-+    (void)timeout;
-+    return sysdep<Ppoll>(fds, count, NULL, NULL, num_events);
-+}
-+
-+#ifndef MLIBC_BUILDING_RTLD
-+int Sysdeps<Pselect>::operator()(int nfds, fd_set *read_set, fd_set *write_set,
-+        fd_set *except_set, const struct timespec *timeout,
-+        const sigset_t *sigmask, int *num_events) {
-+    if (nfds <= 0) {
-+        if (num_events) {
-+            *num_events = 0;
-+        }
-+        return 0;
-+    }
-+
-+    struct pollfd *fds = static_cast<struct pollfd *>(malloc(nfds * sizeof(struct pollfd)));
-+    if (!fds) {
-+        return ENOMEM;
-+    }
-+
-+    int actual_count = 0;
-+    for (int fd = 0; fd < nfds; fd++) {
-+        short events = 0;
-+        if (read_set && FD_ISSET(fd, read_set)) {
-+            events |= POLLIN;
-+        }
-+        if (write_set && FD_ISSET(fd, write_set)) {
-+            events |= POLLOUT;
-+        }
-+        if (except_set && FD_ISSET(fd, except_set)) {
-+            events |= POLLPRI;
-+        }
-+        if (events) {
-+            fds[actual_count].fd = fd;
-+            fds[actual_count].events = events;
-+            fds[actual_count].revents = 0;
-+            actual_count++;
-+        }
-+    }
-+
-+    int num;
-+    int err = sysdep<Ppoll>(fds, actual_count, timeout, sigmask, &num);
-+    if (err) {
-+        free(fds);
-+        return err;
-+    }
-+
-+    int return_count = 0;
-+    for (int i = 0; i < actual_count; i++) {
-+        int events = fds[i].events;
-+        if ((events & POLLIN) && (fds[i].revents & (POLLIN | POLLHUP | POLLERR)) == 0) {
-+            FD_CLR(fds[i].fd, read_set);
-+            events &= ~POLLIN;
-+        }
-+        if ((events & POLLOUT) && (fds[i].revents & (POLLOUT | POLLERR)) == 0) {
-+            FD_CLR(fds[i].fd, write_set);
-+            events &= ~POLLOUT;
-+        }
-+        if ((events & POLLPRI) && (fds[i].revents & POLLPRI) == 0) {
-+            FD_CLR(fds[i].fd, except_set);
-+            events &= ~POLLPRI;
-+        }
-+        if (events) {
-+            return_count++;
-+        }
-+    }
-+    if (num_events) {
-+        *num_events = return_count;
-+    }
-+    free(fds);
-+    return 0;
-+}
-+#endif /* !MLIBC_BUILDING_RTLD */
-+
-+int Sysdeps<Sigpending>::operator()(sigset_t *set) {
-+    if (set) {
-+        memset(set, 0, sizeof(sigset_t));
-+    }
-+    return 0;
-+}
-+
-+int Sysdeps<OpenDir>::operator()(const char *path, int *fd) {
-+    return sysdep<Open>(path, O_DIRECTORY, 0, fd);
-+}
-+
-+int Sysdeps<ReadEntries>::operator()(int handle, void *buffer, size_t max_size, size_t *bytes_read) {
-+    int64_t ret = __petra_syscall3(SYSCALL_GETDENTS64, handle, (int64_t)buffer, max_size);
-+    if (ret < 0) {
-+        return -ret;
-+    }
-+    *bytes_read = ret;
-+    return 0;
-+}
-+
-+int Sysdeps<Sysconf>::operator()(int num, long *ret) {
-+    switch(num) {
-+        case _SC_OPEN_MAX: {
-+            struct rlimit ru;
-+            if(int e = sysdep<GetRlimit>(RLIMIT_NOFILE, &ru); e) {
-+                *ret = 1024;
-+                return 0;
-+            }
-+            *ret = (ru.rlim_cur == RLIM_INFINITY) ? 1024 : ru.rlim_cur;
++    while (1) {
++        sysdep<ClockGet>(0, &current.tv_sec, &current.tv_nsec);
++        if (current.tv_sec > deadline.tv_sec || (current.tv_sec == deadline.tv_sec && current.tv_nsec >= deadline.tv_nsec)) {
 +            break;
 +        }
-+        case _SC_CHILD_MAX: {
-+            struct rlimit ru;
-+            if(int e = sysdep<GetRlimit>(RLIMIT_NPROC, &ru); e) {
-+                *ret = 4096;
-+                return 0;
-+            }
-+            *ret = (ru.rlim_cur == RLIM_INFINITY) ? 4096 : ru.rlim_cur;
-+            break;
-+        }
-+        case _SC_NPROCESSORS_CONF:
-+        case _SC_NPROCESSORS_ONLN: {
-+            *ret = 1;
-+            break;
-+        }
-+        case _SC_PHYS_PAGES:
-+        case _SC_AVPHYS_PAGES: {
-+            *ret = 262144;
-+            break;
-+        }
-+        case _SC_PAGESIZE: {
-+            *ret = 4096;
-+            break;
-+        }
-+        case _SC_CLK_TCK: {
-+            *ret = 100;
-+            break;
-+        }
-+        default: {
-+            return EINVAL;
-+        }
++        sysdep<Yield>();
 +    }
-+    return 0;
-+}
-+
-+int Sysdeps<Brk>::operator()(void **out) {
-+    int64_t ret = __petra_syscall1(SYSCALL_BRK, 0);
-+    if (ret < 0) {
-+        return -ret;
-+    }
-+    *out = (void *)ret;
-+    return 0;
-+}
-+
-+int Sysdeps<Fchmodat>::operator()(int fd, const char *pathname, mode_t mode, int flags) {
-+    int64_t ret = __petra_syscall4(SYSCALL_FCHMODAT, fd, (int64_t)pathname, mode, flags);
-+    if (ret < 0) {
-+        return -ret;
-+    }
-+    return 0;
-+}
-+
-+int Sysdeps<Utimensat>::operator()(int dirfd, const char *pathname, const struct timespec times[2], int flags) {
-+    int64_t ret = __petra_syscall4(SYSCALL_UTIMENSAT, dirfd, (int64_t)pathname, (int64_t)times, flags);
-+    if (ret < 0) {
-+        return -ret;
-+    }
++    *secs = 0;
++    *nanos = 0;
 +    return 0;
 +}
 +
 +} // namespace mlibc
-+
-+
 diff --git a/sysdeps/petra/include/abi-bits/access.h b/sysdeps/petra/include/abi-bits/access.h
 new file mode 120000
 index 00000000..cb839316
@@ -1540,10 +1410,10 @@ index 00000000..66412d70
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/mlibc/sysdeps.hpp b/sysdeps/petra/include/mlibc/sysdeps.hpp
 new file mode 100644
-index 00000000..045a9709
+index 00000000..5681c78f
 --- /dev/null
 +++ b/sysdeps/petra/include/mlibc/sysdeps.hpp
-@@ -0,0 +1,86 @@
+@@ -0,0 +1,69 @@
 +#pragma once
 +
 +#include <mlibc/sysdep-signatures.hpp>
@@ -1602,24 +1472,7 @@ index 00000000..045a9709
 +    Umask,
 +    Chdir,
 +    GetCwd,
-+    Sleep,
-+    Tcgetattr,
-+    Tcsetattr,
-+    Ttyname,
-+    GetHostname,
-+    Tcsendbreak,
-+    Tcflow,
-+    Tcflush,
-+    Ppoll,
-+    Poll,
-+    Pselect,
-+    Sigpending,
-+    OpenDir,
-+    ReadEntries,
-+    Sysconf,
-+    Brk,
-+    Fchmodat,
-+    Utimensat
++    Sleep
 +{};
 +
 +template<typename Tag>
@@ -1632,10 +1485,10 @@ index 00000000..045a9709
 +} // namespace mlibc
 diff --git a/sysdeps/petra/include/sys/syscall.h b/sysdeps/petra/include/sys/syscall.h
 new file mode 100644
-index 00000000..c6d9cbd5
+index 00000000..88915e85
 --- /dev/null
 +++ b/sysdeps/petra/include/sys/syscall.h
-@@ -0,0 +1,122 @@
+@@ -0,0 +1,119 @@
 +#ifndef _SYS_SYSCALL_H
 +#define _SYS_SYSCALL_H
 +
@@ -1693,14 +1546,11 @@ index 00000000..c6d9cbd5
 +#define SYSCALL_SETRLIMIT      160
 +#define SYSCALL_FUTEX          202
 +#define SYSCALL_ISATTY         215
-+#define SYSCALL_GETDENTS64     217
 +#define SYSCALL_CLOCK_GETTIME  228
 +#define SYSCALL_EXIT_GROUP     231
 +#define SYSCALL_OPENAT         257
 +#define SYSCALL_NEWFSTATAT     262
-+#define SYSCALL_FCHMODAT       268
 +#define SYSCALL_FACCESSAT      269
-+#define SYSCALL_UTIMENSAT      280
 +#define SYSCALL_DUP3           292
 +#define SYSCALL_PIPE2          293
 +#define SYSCALL_PRLIMIT64      302
@@ -1882,3 +1732,1396 @@ index 00000000..44587ad2
 +        install_dir: get_option('libdir')
 +    )
 +endif
+-- 
+2.43.0
+
+
+From a75d7c4e673984be4fcb0ffbb4f7e345c56bd39d Mon Sep 17 00:00:00 2001
+From: Ananta <kusumaananta042@gmail.com>
+Date: Sun, 16 Aug 2026 17:18:00 +0700
+Subject: [PATCH 02/15] feat(sysdeps/petra): add terminal control, poll, and
+ select sysdeps
+
+---
+ sysdeps/petra/generic/generic.cpp | 86 +++++++++++++++++++++++++++++++
+ sysdeps/petra/meson.build         |  1 +
+ 2 files changed, 87 insertions(+)
+
+diff --git a/sysdeps/petra/generic/generic.cpp b/sysdeps/petra/generic/generic.cpp
+index c8493d43..12ef809c 100644
+--- a/sysdeps/petra/generic/generic.cpp
++++ b/sysdeps/petra/generic/generic.cpp
+@@ -15,6 +15,9 @@
+ #include <mlibc/tcb.hpp>
+ #include <sys/types.h>
+ #include <sys/stat.h>
++#include <sys/select.h>
++#include <termios.h>
++#include <poll.h>
+ #include <stddef.h>
+ 
+ namespace mlibc {
+@@ -458,4 +461,87 @@ int Sysdeps<Sleep>::operator()(time_t *secs, long *nanos) {
+     return 0;
+ }
+ 
++int Sysdeps<Tcgetattr>::operator()(int fd, struct termios *attr) {
++    int64_t ret = __petra_syscall3(SYSCALL_IOCTL, fd, 0x5401 /* TCGETS */, (int64_t)attr);
++    if (ret < 0) {
++        return -ret;
++    }
++    return 0;
++}
++
++int Sysdeps<Tcsetattr>::operator()(int fd, int optional_action, const struct termios *attr) {
++    (void)optional_action;
++    int64_t ret = __petra_syscall3(SYSCALL_IOCTL, fd, 0x5402 /* TCSETS */, (int64_t)attr);
++    if (ret < 0) {
++        return -ret;
++    }
++    return 0;
++}
++
++int Sysdeps<Tcsendbreak>::operator()(int fd, int) {
++    (void)fd;
++    return 0;
++}
++
++int Sysdeps<Tcflow>::operator()(int fd, int action) {
++    (void)fd;
++    (void)action;
++    return 0;
++}
++
++int Sysdeps<Tcflush>::operator()(int fd, int queue) {
++    (void)fd;
++    (void)queue;
++    return 0;
++}
++
++int Sysdeps<Ppoll>::operator()(struct pollfd *fds, nfds_t count, const struct timespec *timeout, const sigset_t *sigmask, int *num_events) {
++    (void)timeout;
++    (void)sigmask;
++    int ready = 0;
++    for (nfds_t i = 0; i < count; i++) {
++        fds[i].revents = fds[i].events & (POLLIN | POLLOUT);
++        if (fds[i].revents) {
++            ready++;
++        }
++    }
++    if (num_events) {
++        *num_events = ready;
++    }
++    return 0;
++}
++
++int Sysdeps<Poll>::operator()(struct pollfd *fds, nfds_t count, int timeout, int *num_events) {
++    (void)timeout;
++    return sysdep<Ppoll>(fds, count, NULL, NULL, num_events);
++}
++
++int Sysdeps<Pselect>::operator()(int nfds, fd_set *read_set, fd_set *write_set,
++        fd_set *except_set, const struct timespec *timeout,
++        const sigset_t *sigmask, int *num_events) {
++    (void)except_set;
++    (void)timeout;
++    (void)sigmask;
++    int ready = 0;
++    for (int i = 0; i < nfds; i++) {
++        if (read_set && FD_ISSET(i, read_set)) {
++            ready++;
++        }
++        if (write_set && FD_ISSET(i, write_set)) {
++            ready++;
++        }
++    }
++    if (num_events) {
++        *num_events = ready;
++    }
++    return 0;
++}
++
++int Sysdeps<Sigpending>::operator()(sigset_t *set) {
++    if (set) {
++        *set = 0;
++    }
++    return 0;
++}
++
+ } // namespace mlibc
+diff --git a/sysdeps/petra/meson.build b/sysdeps/petra/meson.build
+index 44587ad2..24a2b48d 100644
+--- a/sysdeps/petra/meson.build
++++ b/sysdeps/petra/meson.build
+@@ -2,6 +2,7 @@ sysdep_supported_options = {
+     'posix': true,
+     'glibc': true,
+     'bsd': true,
++    'linux': true,
+ }
+ 
+ rtld_sources += files(
+-- 
+2.43.0
+
+
+From c4434488b69469b46faf5a07bdbd51e40152d381 Mon Sep 17 00:00:00 2001
+From: Ananta <kusumaananta042@gmail.com>
+Date: Sun, 16 Aug 2026 17:19:03 +0700
+Subject: [PATCH 03/15] fix(sysdeps/petra): remove linux from
+ sysdep_supported_options
+
+---
+ sysdeps/petra/meson.build | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/sysdeps/petra/meson.build b/sysdeps/petra/meson.build
+index 24a2b48d..44587ad2 100644
+--- a/sysdeps/petra/meson.build
++++ b/sysdeps/petra/meson.build
+@@ -2,7 +2,6 @@ sysdep_supported_options = {
+     'posix': true,
+     'glibc': true,
+     'bsd': true,
+-    'linux': true,
+ }
+ 
+ rtld_sources += files(
+-- 
+2.43.0
+
+
+From 26c988ed911573e59fdc842e4463b89f0a433176 Mon Sep 17 00:00:00 2001
+From: Ananta <kusumaananta042@gmail.com>
+Date: Sun, 16 Aug 2026 17:19:35 +0700
+Subject: [PATCH 04/15] feat(sysdeps/petra): declare terminal and poll tags in
+ PetraSysdepTags
+
+---
+ sysdeps/petra/include/mlibc/sysdeps.hpp | 11 ++++++++++-
+ 1 file changed, 10 insertions(+), 1 deletion(-)
+
+diff --git a/sysdeps/petra/include/mlibc/sysdeps.hpp b/sysdeps/petra/include/mlibc/sysdeps.hpp
+index 5681c78f..7abf63e8 100644
+--- a/sysdeps/petra/include/mlibc/sysdeps.hpp
++++ b/sysdeps/petra/include/mlibc/sysdeps.hpp
+@@ -56,7 +56,16 @@ struct PetraSysdepTags :
+     Umask,
+     Chdir,
+     GetCwd,
+-    Sleep
++    Sleep,
++    Tcgetattr,
++    Tcsetattr,
++    Tcsendbreak,
++    Tcflow,
++    Tcflush,
++    Ppoll,
++    Poll,
++    Pselect,
++    Sigpending
+ {};
+ 
+ template<typename Tag>
+-- 
+2.43.0
+
+
+From 1b5f07719d46d788c322d248c5a36ca94d0f5a50 Mon Sep 17 00:00:00 2001
+From: Ananta <kusumaananta042@gmail.com>
+Date: Sun, 16 Aug 2026 17:20:01 +0700
+Subject: [PATCH 05/15] fix(sysdeps/petra): use memset for sigset_t
+
+---
+ sysdeps/petra/generic/generic.cpp | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/sysdeps/petra/generic/generic.cpp b/sysdeps/petra/generic/generic.cpp
+index 12ef809c..413db4ac 100644
+--- a/sysdeps/petra/generic/generic.cpp
++++ b/sysdeps/petra/generic/generic.cpp
+@@ -539,7 +539,7 @@ int Sysdeps<Pselect>::operator()(int nfds, fd_set *read_set, fd_set *write_set,
+ 
+ int Sysdeps<Sigpending>::operator()(sigset_t *set) {
+     if (set) {
+-        *set = 0;
++        memset(set, 0, sizeof(sigset_t));
+     }
+     return 0;
+ }
+-- 
+2.43.0
+
+
+From e9bdc4ebbb80ca9fb000279f83eae7b97b10768d Mon Sep 17 00:00:00 2001
+From: Ananta <kusumaananta042@gmail.com>
+Date: Sun, 16 Aug 2026 17:21:15 +0700
+Subject: [PATCH 06/15] fix(sysdeps/petra): direct bit check in Pselect without
+ __FD_ISSET
+
+---
+ sysdeps/petra/generic/generic.cpp | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/sysdeps/petra/generic/generic.cpp b/sysdeps/petra/generic/generic.cpp
+index 413db4ac..a7cd878e 100644
+--- a/sysdeps/petra/generic/generic.cpp
++++ b/sysdeps/petra/generic/generic.cpp
+@@ -524,10 +524,10 @@ int Sysdeps<Pselect>::operator()(int nfds, fd_set *read_set, fd_set *write_set,
+     (void)sigmask;
+     int ready = 0;
+     for (int i = 0; i < nfds; i++) {
+-        if (read_set && FD_ISSET(i, read_set)) {
++        if (read_set && (read_set->__fds_bits[i / __NFDBITS] & (1UL << (i % __NFDBITS)))) {
+             ready++;
+         }
+-        if (write_set && FD_ISSET(i, write_set)) {
++        if (write_set && (write_set->__fds_bits[i / __NFDBITS] & (1UL << (i % __NFDBITS)))) {
+             ready++;
+         }
+     }
+-- 
+2.43.0
+
+
+From 6e637c6bc5ffda81272b882d3e182f3468adbfd0 Mon Sep 17 00:00:00 2001
+From: Ananta <kusumaananta042@gmail.com>
+Date: Sun, 16 Aug 2026 17:21:39 +0700
+Subject: [PATCH 07/15] fix(sysdeps/petra): use fds_bits in Pselect
+
+---
+ sysdeps/petra/generic/generic.cpp | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/sysdeps/petra/generic/generic.cpp b/sysdeps/petra/generic/generic.cpp
+index a7cd878e..0e3b2d30 100644
+--- a/sysdeps/petra/generic/generic.cpp
++++ b/sysdeps/petra/generic/generic.cpp
+@@ -524,10 +524,10 @@ int Sysdeps<Pselect>::operator()(int nfds, fd_set *read_set, fd_set *write_set,
+     (void)sigmask;
+     int ready = 0;
+     for (int i = 0; i < nfds; i++) {
+-        if (read_set && (read_set->__fds_bits[i / __NFDBITS] & (1UL << (i % __NFDBITS)))) {
++        if (read_set && (read_set->fds_bits[i / __NFDBITS] & (1UL << (i % __NFDBITS)))) {
+             ready++;
+         }
+-        if (write_set && (write_set->__fds_bits[i / __NFDBITS] & (1UL << (i % __NFDBITS)))) {
++        if (write_set && (write_set->fds_bits[i / __NFDBITS] & (1UL << (i % __NFDBITS)))) {
+             ready++;
+         }
+     }
+-- 
+2.43.0
+
+
+From e67318b77642431df8bc8ee4a8af8bb8a9a94bf0 Mon Sep 17 00:00:00 2001
+From: Ananta <kusumaananta042@gmail.com>
+Date: Sun, 16 Aug 2026 18:12:18 +0700
+Subject: [PATCH 08/15] feat(sysdeps/petra): implement ttyname, gethostname,
+ termios fallback and pselect wrapper
+
+- Implement sys_ttyname: verify fd is a TTY via isatty, then report /dev/tty.
+- Implement sys_gethostname: query kernel utsname nodename, fall back to petraos.
+- sys_tcgetattr: keep ioctl TCGETS path, add canonical termios defaults on failure.
+- sys_pselect: translate fd_set to pollfd and route through sysdep<Ppoll>;
+  guarded against the RTLD build to avoid pulling in malloc.
+---
+ sysdeps/petra/generic/generic.cpp       | 119 +++++++++++++++++++++---
+ sysdeps/petra/include/mlibc/sysdeps.hpp |   2 +
+ 2 files changed, 109 insertions(+), 12 deletions(-)
+
+diff --git a/sysdeps/petra/generic/generic.cpp b/sysdeps/petra/generic/generic.cpp
+index 0e3b2d30..0f823027 100644
+--- a/sysdeps/petra/generic/generic.cpp
++++ b/sysdeps/petra/generic/generic.cpp
+@@ -19,6 +19,7 @@
+ #include <termios.h>
+ #include <poll.h>
+ #include <stddef.h>
++#include <sys/utsname.h>
+ 
+ namespace mlibc {
+ 
+@@ -463,9 +464,25 @@ int Sysdeps<Sleep>::operator()(time_t *secs, long *nanos) {
+ 
+ int Sysdeps<Tcgetattr>::operator()(int fd, struct termios *attr) {
+     int64_t ret = __petra_syscall3(SYSCALL_IOCTL, fd, 0x5401 /* TCGETS */, (int64_t)attr);
+-    if (ret < 0) {
+-        return -ret;
++    if (ret >= 0) {
++        return 0;
+     }
++    // Fallback for kernels that do not implement TCGETS: report sane defaults
++    // for a canonical terminal so that programs (e.g. Bash/readline) do not
++    // abort on a missing termios.
++    memset(attr, 0, sizeof(struct termios));
++    attr->c_iflag = ICRNL | IXON;
++    attr->c_oflag = OPOST | ONLCR;
++    attr->c_cflag = CREAD | CS8 | CLOCAL;
++    attr->c_lflag = ISIG | ICANON | ECHO | ECHOE | ECHOK | IEXTEN;
++    attr->c_cc[VEOF] = 4;    // ^D
++    attr->c_cc[VINTR] = 3;   // ^C
++    attr->c_cc[VERASE] = 0x7f; // DEL
++    attr->c_cc[VKILL] = 21;  // ^U
++    attr->c_cc[VMIN] = 1;
++    attr->c_cc[VTIME] = 0;
++    attr->c_ibaud = 0;
++    attr->c_obaud = 0;
+     return 0;
+ }
+ 
+@@ -478,6 +495,35 @@ int Sysdeps<Tcsetattr>::operator()(int fd, int optional_action, const struct ter
+     return 0;
+ }
+ 
++int Sysdeps<Ttyname>::operator()(int fd, char *buf, size_t size) {
++    if (int e = sysdep<Isatty>(fd); e) {
++        return e;
++    }
++    static const char tty_name[] = "/dev/tty";
++    if (size < sizeof(tty_name)) {
++        return ERANGE;
++    }
++    memcpy(buf, tty_name, sizeof(tty_name));
++    return 0;
++}
++
++int Sysdeps<GetHostname>::operator()(char *buffer, size_t bufsize) {
++    if (bufsize == 0) {
++        return 0;
++    }
++    struct utsname uts;
++    const char *name = "petraos";
++    int64_t ret = __petra_syscall1(SYSCALL_UNAME, (int64_t)&uts);
++    if (ret >= 0 && uts.nodename[0] != '\0') {
++        name = uts.nodename;
++    }
++    size_t len = strlen(name);
++    size_t copy = (len < bufsize) ? len : bufsize - 1;
++    memcpy(buffer, name, copy);
++    buffer[copy] = '\0';
++    return 0;
++}
++
+ int Sysdeps<Tcsendbreak>::operator()(int fd, int) {
+     (void)fd;
+     return 0;
+@@ -516,26 +562,75 @@ int Sysdeps<Poll>::operator()(struct pollfd *fds, nfds_t count, int timeout, int
+     return sysdep<Ppoll>(fds, count, NULL, NULL, num_events);
+ }
+ 
++#ifndef MLIBC_BUILDING_RTLD
+ int Sysdeps<Pselect>::operator()(int nfds, fd_set *read_set, fd_set *write_set,
+         fd_set *except_set, const struct timespec *timeout,
+         const sigset_t *sigmask, int *num_events) {
+-    (void)except_set;
+-    (void)timeout;
+-    (void)sigmask;
+-    int ready = 0;
+-    for (int i = 0; i < nfds; i++) {
+-        if (read_set && (read_set->fds_bits[i / __NFDBITS] & (1UL << (i % __NFDBITS)))) {
+-            ready++;
++    if (nfds <= 0) {
++        if (num_events) {
++            *num_events = 0;
+         }
+-        if (write_set && (write_set->fds_bits[i / __NFDBITS] & (1UL << (i % __NFDBITS)))) {
+-            ready++;
++        return 0;
++    }
++
++    struct pollfd *fds = static_cast<struct pollfd *>(malloc(nfds * sizeof(struct pollfd)));
++    if (!fds) {
++        return ENOMEM;
++    }
++
++    int actual_count = 0;
++    for (int fd = 0; fd < nfds; fd++) {
++        short events = 0;
++        if (read_set && FD_ISSET(fd, read_set)) {
++            events |= POLLIN;
++        }
++        if (write_set && FD_ISSET(fd, write_set)) {
++            events |= POLLOUT;
++        }
++        if (except_set && FD_ISSET(fd, except_set)) {
++            events |= POLLPRI;
++        }
++        if (events) {
++            fds[actual_count].fd = fd;
++            fds[actual_count].events = events;
++            fds[actual_count].revents = 0;
++            actual_count++;
++        }
++    }
++
++    int num;
++    int err = sysdep<Ppoll>(fds, actual_count, timeout, sigmask, &num);
++    if (err) {
++        free(fds);
++        return err;
++    }
++
++    int return_count = 0;
++    for (int i = 0; i < actual_count; i++) {
++        int events = fds[i].events;
++        if ((events & POLLIN) && (fds[i].revents & (POLLIN | POLLHUP | POLLERR)) == 0) {
++            FD_CLR(fds[i].fd, read_set);
++            events &= ~POLLIN;
++        }
++        if ((events & POLLOUT) && (fds[i].revents & (POLLOUT | POLLERR)) == 0) {
++            FD_CLR(fds[i].fd, write_set);
++            events &= ~POLLOUT;
++        }
++        if ((events & POLLPRI) && (fds[i].revents & POLLPRI) == 0) {
++            FD_CLR(fds[i].fd, except_set);
++            events &= ~POLLPRI;
++        }
++        if (events) {
++            return_count++;
+         }
+     }
+     if (num_events) {
+-        *num_events = ready;
++        *num_events = return_count;
+     }
++    free(fds);
+     return 0;
+ }
++#endif /* !MLIBC_BUILDING_RTLD */
+ 
+ int Sysdeps<Sigpending>::operator()(sigset_t *set) {
+     if (set) {
+diff --git a/sysdeps/petra/include/mlibc/sysdeps.hpp b/sysdeps/petra/include/mlibc/sysdeps.hpp
+index 7abf63e8..47b92d23 100644
+--- a/sysdeps/petra/include/mlibc/sysdeps.hpp
++++ b/sysdeps/petra/include/mlibc/sysdeps.hpp
+@@ -59,6 +59,8 @@ struct PetraSysdepTags :
+     Sleep,
+     Tcgetattr,
+     Tcsetattr,
++    Ttyname,
++    GetHostname,
+     Tcsendbreak,
+     Tcflow,
+     Tcflush,
+-- 
+2.43.0
+
+
+From 0a4b8b6296d3c8673c702c177b6a926d1718630d Mon Sep 17 00:00:00 2001
+From: Ananta <kusumaananta042@gmail.com>
+Date: Sun, 16 Aug 2026 21:54:12 +0700
+Subject: [PATCH 09/15] feat(sysdeps/petra): implement OpenDir and ReadEntries
+ using getdents64
+
+---
+ sysdeps/petra/generic/generic.cpp       | 13 +++++++++++++
+ sysdeps/petra/include/mlibc/sysdeps.hpp |  4 +++-
+ sysdeps/petra/include/sys/syscall.h     |  1 +
+ 3 files changed, 17 insertions(+), 1 deletion(-)
+
+diff --git a/sysdeps/petra/generic/generic.cpp b/sysdeps/petra/generic/generic.cpp
+index 0f823027..1da8ed59 100644
+--- a/sysdeps/petra/generic/generic.cpp
++++ b/sysdeps/petra/generic/generic.cpp
+@@ -639,4 +639,17 @@ int Sysdeps<Sigpending>::operator()(sigset_t *set) {
+     return 0;
+ }
+ 
++int Sysdeps<OpenDir>::operator()(const char *path, int *fd) {
++    return sysdep<Open>(path, O_DIRECTORY, 0, fd);
++}
++
++int Sysdeps<ReadEntries>::operator()(int handle, void *buffer, size_t max_size, size_t *bytes_read) {
++    int64_t ret = __petra_syscall3(SYSCALL_GETDENTS64, handle, (int64_t)buffer, max_size);
++    if (ret < 0) {
++        return -ret;
++    }
++    *bytes_read = ret;
++    return 0;
++}
++
+ } // namespace mlibc
+diff --git a/sysdeps/petra/include/mlibc/sysdeps.hpp b/sysdeps/petra/include/mlibc/sysdeps.hpp
+index 47b92d23..f774f219 100644
+--- a/sysdeps/petra/include/mlibc/sysdeps.hpp
++++ b/sysdeps/petra/include/mlibc/sysdeps.hpp
+@@ -67,7 +67,9 @@ struct PetraSysdepTags :
+     Ppoll,
+     Poll,
+     Pselect,
+-    Sigpending
++    Sigpending,
++    OpenDir,
++    ReadEntries
+ {};
+ 
+ template<typename Tag>
+diff --git a/sysdeps/petra/include/sys/syscall.h b/sysdeps/petra/include/sys/syscall.h
+index 88915e85..90885b83 100644
+--- a/sysdeps/petra/include/sys/syscall.h
++++ b/sysdeps/petra/include/sys/syscall.h
+@@ -55,6 +55,7 @@
+ #define SYSCALL_SETRLIMIT      160
+ #define SYSCALL_FUTEX          202
+ #define SYSCALL_ISATTY         215
++#define SYSCALL_GETDENTS64     217
+ #define SYSCALL_CLOCK_GETTIME  228
+ #define SYSCALL_EXIT_GROUP     231
+ #define SYSCALL_OPENAT         257
+-- 
+2.43.0
+
+
+From 45602e3a9d462aca3481f28fc99a9fcbcbb03ac3 Mon Sep 17 00:00:00 2001
+From: Ananta <kusumaananta042@gmail.com>
+Date: Wed, 19 Aug 2026 19:25:53 +0700
+Subject: [PATCH 10/15] feat(sysdeps/petra): implement Sysdeps<Sysconf>
+ handling
+
+---
+ sysdeps/petra/generic/generic.cpp       | 47 +++++++++++++++++++++++++
+ sysdeps/petra/include/mlibc/sysdeps.hpp |  3 +-
+ 2 files changed, 49 insertions(+), 1 deletion(-)
+
+diff --git a/sysdeps/petra/generic/generic.cpp b/sysdeps/petra/generic/generic.cpp
+index 1da8ed59..0c51aeac 100644
+--- a/sysdeps/petra/generic/generic.cpp
++++ b/sysdeps/petra/generic/generic.cpp
+@@ -20,6 +20,7 @@
+ #include <poll.h>
+ #include <stddef.h>
+ #include <sys/utsname.h>
++#include <sys/resource.h>
+ 
+ namespace mlibc {
+ 
+@@ -652,4 +653,50 @@ int Sysdeps<ReadEntries>::operator()(int handle, void *buffer, size_t max_size,
+     return 0;
+ }
+ 
++int Sysdeps<Sysconf>::operator()(int num, long *ret) {
++    switch(num) {
++        case _SC_OPEN_MAX: {
++            struct rlimit ru;
++            if(int e = sysdep<GetRlimit>(RLIMIT_NOFILE, &ru); e) {
++                *ret = 1024;
++                return 0;
++            }
++            *ret = (ru.rlim_cur == RLIM_INFINITY) ? 1024 : ru.rlim_cur;
++            break;
++        }
++        case _SC_CHILD_MAX: {
++            struct rlimit ru;
++            if(int e = sysdep<GetRlimit>(RLIMIT_NPROC, &ru); e) {
++                *ret = 4096;
++                return 0;
++            }
++            *ret = (ru.rlim_cur == RLIM_INFINITY) ? 4096 : ru.rlim_cur;
++            break;
++        }
++        case _SC_NPROCESSORS_CONF:
++        case _SC_NPROCESSORS_ONLN: {
++            *ret = 1;
++            break;
++        }
++        case _SC_PHYS_PAGES:
++        case _SC_AVPHYS_PAGES: {
++            *ret = 262144;
++            break;
++        }
++        case _SC_PAGESIZE: {
++            *ret = 4096;
++            break;
++        }
++        case _SC_CLK_TCK: {
++            *ret = 100;
++            break;
++        }
++        default: {
++            return EINVAL;
++        }
++    }
++    return 0;
++}
++
+ } // namespace mlibc
++
+diff --git a/sysdeps/petra/include/mlibc/sysdeps.hpp b/sysdeps/petra/include/mlibc/sysdeps.hpp
+index f774f219..71c97380 100644
+--- a/sysdeps/petra/include/mlibc/sysdeps.hpp
++++ b/sysdeps/petra/include/mlibc/sysdeps.hpp
+@@ -69,7 +69,8 @@ struct PetraSysdepTags :
+     Pselect,
+     Sigpending,
+     OpenDir,
+-    ReadEntries
++    ReadEntries,
++    Sysconf
+ {};
+ 
+ template<typename Tag>
+-- 
+2.43.0
+
+
+From 9335db45d9abd4d3eff29731ba435cabcdf8fb19 Mon Sep 17 00:00:00 2001
+From: Ananta <kusumaananta042@gmail.com>
+Date: Wed, 19 Aug 2026 20:37:20 +0700
+Subject: [PATCH 11/15] feat(sysdeps/petra): implement brk, fchmodat, and
+ utimensat sysdeps
+
+---
+ sysdeps/petra/generic/generic.cpp       | 26 +++++++++++++++++++++++++
+ sysdeps/petra/include/mlibc/sysdeps.hpp |  5 ++++-
+ sysdeps/petra/include/sys/syscall.h     |  2 ++
+ 3 files changed, 32 insertions(+), 1 deletion(-)
+
+diff --git a/sysdeps/petra/generic/generic.cpp b/sysdeps/petra/generic/generic.cpp
+index 0c51aeac..b6059da8 100644
+--- a/sysdeps/petra/generic/generic.cpp
++++ b/sysdeps/petra/generic/generic.cpp
+@@ -698,5 +698,31 @@ int Sysdeps<Sysconf>::operator()(int num, long *ret) {
+     return 0;
+ }
+ 
++int Sysdeps<Brk>::operator()(void **out) {
++    int64_t ret = __petra_syscall1(SYSCALL_BRK, 0);
++    if (ret < 0) {
++        return -ret;
++    }
++    *out = (void *)ret;
++    return 0;
++}
++
++int Sysdeps<Fchmodat>::operator()(int fd, const char *pathname, mode_t mode, int flags) {
++    int64_t ret = __petra_syscall4(SYSCALL_FCHMODAT, fd, (int64_t)pathname, mode, flags);
++    if (ret < 0) {
++        return -ret;
++    }
++    return 0;
++}
++
++int Sysdeps<Utimensat>::operator()(int dirfd, const char *pathname, const struct timespec times[2], int flags) {
++    int64_t ret = __petra_syscall4(SYSCALL_UTIMENSAT, dirfd, (int64_t)pathname, (int64_t)times, flags);
++    if (ret < 0) {
++        return -ret;
++    }
++    return 0;
++}
++
+ } // namespace mlibc
+ 
++
+diff --git a/sysdeps/petra/include/mlibc/sysdeps.hpp b/sysdeps/petra/include/mlibc/sysdeps.hpp
+index 71c97380..045a9709 100644
+--- a/sysdeps/petra/include/mlibc/sysdeps.hpp
++++ b/sysdeps/petra/include/mlibc/sysdeps.hpp
+@@ -70,7 +70,10 @@ struct PetraSysdepTags :
+     Sigpending,
+     OpenDir,
+     ReadEntries,
+-    Sysconf
++    Sysconf,
++    Brk,
++    Fchmodat,
++    Utimensat
+ {};
+ 
+ template<typename Tag>
+diff --git a/sysdeps/petra/include/sys/syscall.h b/sysdeps/petra/include/sys/syscall.h
+index 90885b83..c6d9cbd5 100644
+--- a/sysdeps/petra/include/sys/syscall.h
++++ b/sysdeps/petra/include/sys/syscall.h
+@@ -60,7 +60,9 @@
+ #define SYSCALL_EXIT_GROUP     231
+ #define SYSCALL_OPENAT         257
+ #define SYSCALL_NEWFSTATAT     262
++#define SYSCALL_FCHMODAT       268
+ #define SYSCALL_FACCESSAT      269
++#define SYSCALL_UTIMENSAT      280
+ #define SYSCALL_DUP3           292
+ #define SYSCALL_PIPE2          293
+ #define SYSCALL_PRLIMIT64      302
+-- 
+2.43.0
+
+
+From e8d6d7700a37243e47c2b6b08d94d2308c7a4d48 Mon Sep 17 00:00:00 2001
+From: Ananta <kusumaananta042@gmail.com>
+Date: Wed, 19 Aug 2026 20:47:47 +0700
+Subject: [PATCH 12/15] fix(ansi): flush stdout on read and default stdout to
+ unbuffered for immediate terminal echo
+
+---
+ options/ansi/generic/file-io.cpp | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/options/ansi/generic/file-io.cpp b/options/ansi/generic/file-io.cpp
+index 90c31608..3c8c4926 100644
+--- a/options/ansi/generic/file-io.cpp
++++ b/options/ansi/generic/file-io.cpp
+@@ -111,6 +111,10 @@ void abstract_file::dispose() {
+ int abstract_file::read(char *buffer, size_t max_size, size_t *actual_size) {
+ 	__ensure(max_size);
+ 
++	if(stdout && stdout != this) {
++		stdout->flush();
++	}
++
+ 	if(_init_bufmode())
+ 		return -1;
+ 
+@@ -647,7 +651,7 @@ namespace {
+ 	[[gnu::constructor(MLIBC_INIT_PRIORITY_STDIO)]]
+ 	void init_stdio() {
+ 		stdin_box.initialize(0);
+-		stdout_box.initialize(1);
++		stdout_box.initialize(1, nullptr, true);
+ 		stderr_box.initialize(2, nullptr, true);
+ 
+ 		stdin = stdin_box.get();
+-- 
+2.43.0
+
+
+From 179993a53e07b1e15717d1c60ecdefb337a95815 Mon Sep 17 00:00:00 2001
+From: Ananta <kusumaananta042@gmail.com>
+Date: Wed, 19 Aug 2026 20:59:14 +0700
+Subject: [PATCH 13/15] fix(stdio): default interactive terminal streams to
+ unbuffered for immediate character echoing
+
+---
+ options/ansi/generic/file-io.cpp | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/options/ansi/generic/file-io.cpp b/options/ansi/generic/file-io.cpp
+index 3c8c4926..e5e9d8d6 100644
+--- a/options/ansi/generic/file-io.cpp
++++ b/options/ansi/generic/file-io.cpp
+@@ -112,7 +112,7 @@ int abstract_file::read(char *buffer, size_t max_size, size_t *actual_size) {
+ 	__ensure(max_size);
+ 
+ 	if(stdout && stdout != this) {
+-		stdout->flush();
++		static_cast<abstract_file *>(stdout)->flush();
+ 	}
+ 
+ 	if(_init_bufmode())
+@@ -554,7 +554,7 @@ int fd_file::determine_bufmode(buffer_mode *mode) {
+ 	}
+ 
+ 	if(int e = mlibc::sysdep<Isatty>(_fd); !e) {
+-		*mode = buffer_mode::line_buffer;
++		*mode = buffer_mode::no_buffer;
+ 		return 0;
+ 	}else if(e == ENOTTY) {
+ 		*mode = buffer_mode::full_buffer;
+-- 
+2.43.0
+
+
+From 9025747d7f1b7a5396a69d1b3e47ef630f0c1bb9 Mon Sep 17 00:00:00 2001
+From: Ananta <kusumaananta042@gmail.com>
+Date: Sat, 22 Aug 2026 10:05:46 +0700
+Subject: [PATCH 14/15] fix(sysdeps/petra): replace busy-loop Sleep with
+ sys_nanosleep syscall
+
+---
+ sysdeps/petra/generic/generic.cpp | 70 +++++++++++++------------------
+ 1 file changed, 30 insertions(+), 40 deletions(-)
+
+diff --git a/sysdeps/petra/generic/generic.cpp b/sysdeps/petra/generic/generic.cpp
+index b6059da8..540bbc48 100644
+--- a/sysdeps/petra/generic/generic.cpp
++++ b/sysdeps/petra/generic/generic.cpp
+@@ -443,47 +443,30 @@ int Sysdeps<GetCwd>::operator()(char *buffer, size_t size) {
+ }
+ 
+ int Sysdeps<Sleep>::operator()(time_t *secs, long *nanos) {
+-    struct timespec deadline = {}, current = {};
+-    sysdep<ClockGet>(0, &deadline.tv_sec, &deadline.tv_nsec);
+-    deadline.tv_sec += *secs;
+-    deadline.tv_nsec += *nanos;
+-    if (deadline.tv_nsec >= 1000000000L) {
+-        deadline.tv_sec += deadline.tv_nsec / 1000000000L;
+-        deadline.tv_nsec %= 1000000000L;
+-    }
+-    while (1) {
+-        sysdep<ClockGet>(0, &current.tv_sec, &current.tv_nsec);
+-        if (current.tv_sec > deadline.tv_sec || (current.tv_sec == deadline.tv_sec && current.tv_nsec >= deadline.tv_nsec)) {
+-            break;
+-        }
+-        sysdep<Yield>();
++    struct timespec req = {
++        .tv_sec  = *secs,
++        .tv_nsec = *nanos,
++    };
++    struct timespec rem = {};
++
++    int64_t ret = __petra_syscall2(SYSCALL_NANOSLEEP, (int64_t)&req, (int64_t)&rem);
++
++    // On EINTR the kernel writes the remaining time into rem; propagate it
++    // back so the caller can restart the sleep if desired.
++    *secs  = rem.tv_sec;
++    *nanos = rem.tv_nsec;
++
++    if (ret < 0) {
++        return (int)-ret;
+     }
+-    *secs = 0;
+-    *nanos = 0;
+     return 0;
+ }
+ 
+ int Sysdeps<Tcgetattr>::operator()(int fd, struct termios *attr) {
+     int64_t ret = __petra_syscall3(SYSCALL_IOCTL, fd, 0x5401 /* TCGETS */, (int64_t)attr);
+-    if (ret >= 0) {
+-        return 0;
++    if (ret < 0) {
++        return -ret;
+     }
+-    // Fallback for kernels that do not implement TCGETS: report sane defaults
+-    // for a canonical terminal so that programs (e.g. Bash/readline) do not
+-    // abort on a missing termios.
+-    memset(attr, 0, sizeof(struct termios));
+-    attr->c_iflag = ICRNL | IXON;
+-    attr->c_oflag = OPOST | ONLCR;
+-    attr->c_cflag = CREAD | CS8 | CLOCAL;
+-    attr->c_lflag = ISIG | ICANON | ECHO | ECHOE | ECHOK | IEXTEN;
+-    attr->c_cc[VEOF] = 4;    // ^D
+-    attr->c_cc[VINTR] = 3;   // ^C
+-    attr->c_cc[VERASE] = 0x7f; // DEL
+-    attr->c_cc[VKILL] = 21;  // ^U
+-    attr->c_cc[VMIN] = 1;
+-    attr->c_cc[VTIME] = 0;
+-    attr->c_ibaud = 0;
+-    attr->c_obaud = 0;
+     return 0;
+ }
+ 
+@@ -525,20 +508,27 @@ int Sysdeps<GetHostname>::operator()(char *buffer, size_t bufsize) {
+     return 0;
+ }
+ 
+-int Sysdeps<Tcsendbreak>::operator()(int fd, int) {
+-    (void)fd;
++int Sysdeps<Tcsendbreak>::operator()(int fd, int duration) {
++    int64_t ret = __petra_syscall3(SYSCALL_IOCTL, fd, 0x5409 /* TCSBRK */, (int64_t)duration);
++    if (ret < 0) {
++        return -ret;
++    }
+     return 0;
+ }
+ 
+ int Sysdeps<Tcflow>::operator()(int fd, int action) {
+-    (void)fd;
+-    (void)action;
++    int64_t ret = __petra_syscall3(SYSCALL_IOCTL, fd, 0x540A /* TCXONC */, (int64_t)action);
++    if (ret < 0) {
++        return -ret;
++    }
+     return 0;
+ }
+ 
+ int Sysdeps<Tcflush>::operator()(int fd, int queue) {
+-    (void)fd;
+-    (void)queue;
++    int64_t ret = __petra_syscall3(SYSCALL_IOCTL, fd, 0x540B /* TCFLSH */, (int64_t)queue);
++    if (ret < 0) {
++        return -ret;
++    }
+     return 0;
+ }
+ 
+-- 
+2.43.0
+
+
+From 4d8f8e521611cbab241c67b3927c767fc0240bef Mon Sep 17 00:00:00 2001
+From: Ananta <kusumaananta042@gmail.com>
+Date: Mon, 24 Aug 2026 12:51:05 +0700
+Subject: [PATCH 15/15] feat(sysdeps/petra): implement System V semaphore
+ syscall support
+
+Add kernel-facing syscall numbers and userspace Sysdeps<> implementations
+for the full System V IPC semaphore API:
+
+- SYSCALL_SEMGET (64), SYSCALL_SEMOP (65), SYSCALL_SEMCTL (66),
+  SYSCALL_SEMTIMEDOP (220) added to sys/syscall.h.
+- Semop and Semtimedop sysdep tags added to sysdep-tags.hpp.
+- Corresponding SYSDEP_FUNC signatures added to sysdep-signatures.hpp.
+- Sysdeps<Semget>, Sysdeps<Semctl>, Sysdeps<Semop>, Sysdeps<Semtimedop>
+  implemented in sysdeps/petra/generic/generic.cpp.
+- PetraSysdepTags extended with Semget, Semctl, Semop, Semtimedop.
+- sys-sem.cpp: semop() now delegates to sysdep<Semop>; semtimedop()
+  added and delegates to sysdep<Semtimedop>.
+- sys/sem.h: semtimedop() declaration added.
+---
+ .../include/mlibc/sysdep-signatures.hpp       |   2 +
+ .../internal/include/mlibc/sysdep-tags.hpp    |   4 +
+ options/posix/generic/sys-sem.cpp             |  19 +-
+ options/posix/include/sys/sem.h               |   3 +
+ sysdeps/petra/generic/generic.cpp             | 227 ++++++++++++++++++
+ sysdeps/petra/include/mlibc/sysdeps.hpp       |  28 ++-
+ sysdeps/petra/include/sys/syscall.h           |  37 +++
+ 7 files changed, 316 insertions(+), 4 deletions(-)
+
+diff --git a/options/internal/include/mlibc/sysdep-signatures.hpp b/options/internal/include/mlibc/sysdep-signatures.hpp
+index 20d8637e..fceed339 100644
+--- a/options/internal/include/mlibc/sysdep-signatures.hpp
++++ b/options/internal/include/mlibc/sysdep-signatures.hpp
+@@ -248,6 +248,8 @@ SYSDEP_FUNC(ThreadGetname, void *tcb, char *name, size_t size);
+ SYSDEP_FUNC(Sysconf, int num, long *ret);
+ SYSDEP_FUNC(Semget, key_t key, int n, int fl, int *id);
+ SYSDEP_FUNC(Semctl, int semid, int semnum, int cmd, void *semun, int *ret);
++SYSDEP_FUNC(Semop, int semid, struct sembuf *sops, size_t nsops);
++SYSDEP_FUNC(Semtimedop, int semid, struct sembuf *sops, size_t nsops, const struct timespec *timeout);
+ SYSDEP_FUNC(GetAffinity, pid_t pid, size_t cpusetsize, cpu_set_t *mask);
+ SYSDEP_FUNC(GetThreadaffinity, pid_t tid, size_t cpusetsize, cpu_set_t *mask);
+ SYSDEP_FUNC(SetAffinity, pid_t pid, size_t cpusetsize, const cpu_set_t *mask);
+diff --git a/options/internal/include/mlibc/sysdep-tags.hpp b/options/internal/include/mlibc/sysdep-tags.hpp
+index 6630cd5a..c740d335 100644
+--- a/options/internal/include/mlibc/sysdep-tags.hpp
++++ b/options/internal/include/mlibc/sysdep-tags.hpp
+@@ -514,6 +514,10 @@ struct Sysconf {};
+ struct Semget {};
+ // int sys_semctl(int semid, int semnum, int cmd, void *semun, int *ret);
+ struct Semctl {};
++// int sys_semop(int semid, struct sembuf *sops, size_t nsops);
++struct Semop {};
++// int sys_semtimedop(int semid, struct sembuf *sops, size_t nsops, const struct timespec *timeout);
++struct Semtimedop {};
+ // int sys_getaffinity(pid_t pid, size_t cpusetsize, cpu_set_t *mask);
+ struct GetAffinity {};
+ // int sys_getthreadaffinity(pid_t tid, size_t cpusetsize, cpu_set_t *mask);
+diff --git a/options/posix/generic/sys-sem.cpp b/options/posix/generic/sys-sem.cpp
+index 0c128832..0ce7c38f 100644
+--- a/options/posix/generic/sys-sem.cpp
++++ b/options/posix/generic/sys-sem.cpp
+@@ -3,6 +3,7 @@
+ #include <errno.h>
+ #include <limits.h>
+ #include <sys/sem.h>
++#include <time.h>
+ 
+ #include <mlibc/all-sysdeps.hpp>
+ 
+@@ -20,9 +21,21 @@ int semget(key_t key, int n, int fl) {
+ 	return id;
+ }
+ 
+-int semop(int, struct sembuf *, size_t) {
+-	__ensure(!"Not implemented");
+-	__builtin_unreachable();
++int semop(int semid, struct sembuf *sops, size_t nsops) {
++	if(int e = mlibc::sysdep_or_enosys<Semop>(semid, sops, nsops); e) {
++		errno = e;
++		return -1;
++	}
++	return 0;
++}
++
++int semtimedop(int semid, struct sembuf *sops, size_t nsops,
++               const struct timespec *timeout) {
++	if(int e = mlibc::sysdep_or_enosys<Semtimedop>(semid, sops, nsops, timeout); e) {
++		errno = e;
++		return -1;
++	}
++	return 0;
+ }
+ 
+ union semun {
+diff --git a/options/posix/include/sys/sem.h b/options/posix/include/sys/sem.h
+index 1aa56eee..c0f84983 100644
+--- a/options/posix/include/sys/sem.h
++++ b/options/posix/include/sys/sem.h
+@@ -5,6 +5,7 @@
+ #include <bits/ansi/time_t.h>
+ #include <sys/ipc.h>
+ #include <stddef.h>
++#include <time.h>
+ 
+ #ifdef __cplusplus
+ extern "C" {
+@@ -14,6 +15,8 @@ extern "C" {
+ 
+ int semget(key_t __key, int __nsems, int __semflg);
+ int semop(int __semid, struct sembuf *__sops, size_t __nsops);
++int semtimedop(int __semid, struct sembuf *__sops, size_t __nsops,
++               const struct timespec *__timeout);
+ int semctl(int __semid, int __semnum, int __op, ...);
+ 
+ #endif /* !__MLIBC_ABI_ONLY */
+diff --git a/sysdeps/petra/generic/generic.cpp b/sysdeps/petra/generic/generic.cpp
+index 540bbc48..e0e5a13f 100644
+--- a/sysdeps/petra/generic/generic.cpp
++++ b/sysdeps/petra/generic/generic.cpp
+@@ -21,6 +21,7 @@
+ #include <stddef.h>
+ #include <sys/utsname.h>
+ #include <sys/resource.h>
++#include <sys/uio.h>
+ 
+ namespace mlibc {
+ 
+@@ -713,6 +714,232 @@ int Sysdeps<Utimensat>::operator()(int dirfd, const char *pathname, const struct
+     return 0;
+ }
+ 
++int Sysdeps<Mkdir>::operator()(const char *path, mode_t mode) {
++    int64_t ret = __petra_syscall2(SYSCALL_MKDIR, (int64_t)path, mode);
++    if (ret < 0) {
++        return -ret;
++    }
++    return 0;
++}
++
++int Sysdeps<Mkdirat>::operator()(int dirfd, const char *path, mode_t mode) {
++    int64_t ret = __petra_syscall3(SYSCALL_MKDIRAT, dirfd, (int64_t)path, mode);
++    if (ret < 0) {
++        return -ret;
++    }
++    return 0;
++}
++
++int Sysdeps<Rmdir>::operator()(const char *path) {
++    int64_t ret = __petra_syscall1(SYSCALL_RMDIR, (int64_t)path);
++    if (ret < 0) {
++        return -ret;
++    }
++    return 0;
++}
++
++int Sysdeps<Unlinkat>::operator()(int dirfd, const char *path, int flags) {
++    int64_t ret = __petra_syscall3(SYSCALL_UNLINKAT, dirfd, (int64_t)path, flags);
++    if (ret < 0) {
++        return -ret;
++    }
++    return 0;
++}
++
++int Sysdeps<Rename>::operator()(const char *path, const char *new_path) {
++    int64_t ret = __petra_syscall2(SYSCALL_RENAME, (int64_t)path, (int64_t)new_path);
++    if (ret < 0) {
++        return -ret;
++    }
++    return 0;
++}
++
++int Sysdeps<Renameat>::operator()(int olddirfd, const char *old_path, int newdirfd, const char *new_path) {
++    int64_t ret = __petra_syscall4(SYSCALL_RENAMEAT, olddirfd, (int64_t)old_path, newdirfd, (int64_t)new_path);
++    if (ret < 0) {
++        return -ret;
++    }
++    return 0;
++}
++
++int Sysdeps<Link>::operator()(const char *old_path, const char *new_path) {
++    int64_t ret = __petra_syscall2(SYSCALL_LINK, (int64_t)old_path, (int64_t)new_path);
++    if (ret < 0) {
++        return -ret;
++    }
++    return 0;
++}
++
++int Sysdeps<Linkat>::operator()(int olddirfd, const char *old_path, int newdirfd, const char *new_path, int flags) {
++    int64_t ret = __petra_syscall5(SYSCALL_LINKAT, olddirfd, (int64_t)old_path, newdirfd, (int64_t)new_path, flags);
++    if (ret < 0) {
++        return -ret;
++    }
++    return 0;
++}
++
++int Sysdeps<Symlink>::operator()(const char *target_path, const char *link_path) {
++    int64_t ret = __petra_syscall2(SYSCALL_SYMLINK, (int64_t)target_path, (int64_t)link_path);
++    if (ret < 0) {
++        return -ret;
++    }
++    return 0;
++}
++
++int Sysdeps<Symlinkat>::operator()(const char *target_path, int dirfd, const char *link_path) {
++    int64_t ret = __petra_syscall3(SYSCALL_SYMLINKAT, (int64_t)target_path, dirfd, (int64_t)link_path);
++    if (ret < 0) {
++        return -ret;
++    }
++    return 0;
++}
++
++int Sysdeps<Readlink>::operator()(const char *path, void *buffer, size_t max_size, ssize_t *length) {
++    int64_t ret = __petra_syscall3(SYSCALL_READLINK, (int64_t)path, (int64_t)buffer, max_size);
++    if (ret < 0) {
++        return -ret;
++    }
++    if (length) {
++        *length = ret;
++    }
++    return 0;
++}
++
++int Sysdeps<Readlinkat>::operator()(int dirfd, const char *path, void *buffer, size_t max_size, ssize_t *length) {
++    int64_t ret = __petra_syscall4(SYSCALL_READLINKAT, dirfd, (int64_t)path, (int64_t)buffer, max_size);
++    if (ret < 0) {
++        return -ret;
++    }
++    if (length) {
++        *length = ret;
++    }
++    return 0;
++}
++
++int Sysdeps<Chmod>::operator()(const char *pathname, mode_t mode) {
++    int64_t ret = __petra_syscall2(SYSCALL_CHMOD, (int64_t)pathname, mode);
++    if (ret < 0) {
++        return -ret;
++    }
++    return 0;
++}
++
++int Sysdeps<Fchmod>::operator()(int fd, mode_t mode) {
++    int64_t ret = __petra_syscall2(SYSCALL_FCHMOD, fd, mode);
++    if (ret < 0) {
++        return -ret;
++    }
++    return 0;
++}
++
++int Sysdeps<Fchownat>::operator()(int dirfd, const char *pathname, uid_t owner, gid_t group, int flags) {
++    int64_t ret = __petra_syscall5(SYSCALL_FCHOWNAT, dirfd, (int64_t)pathname, owner, group, flags);
++    if (ret < 0) {
++        return -ret;
++    }
++    return 0;
++}
++
++int Sysdeps<Truncate>::operator()(const char *path, off_t length) {
++    int64_t ret = __petra_syscall2(SYSCALL_TRUNCATE, (int64_t)path, length);
++    if (ret < 0) {
++        return -ret;
++    }
++    return 0;
++}
++
++int Sysdeps<Ftruncate>::operator()(int fd, size_t size) {
++    int64_t ret = __petra_syscall2(SYSCALL_FTRUNCATE, fd, size);
++    if (ret < 0) {
++        return -ret;
++    }
++    return 0;
++}
++
++int Sysdeps<Readv>::operator()(int fd, const struct iovec *iovs, int iovc, ssize_t *bytes_read) {
++    int64_t ret = __petra_syscall3(SYSCALL_READV, fd, (int64_t)iovs, iovc);
++    if (ret < 0) {
++        return -ret;
++    }
++    if (bytes_read) {
++        *bytes_read = ret;
++    }
++    return 0;
++}
++
++int Sysdeps<Writev>::operator()(int fd, const struct iovec *iovs, int iovc, ssize_t *bytes_written) {
++    int64_t ret = __petra_syscall3(SYSCALL_WRITEV, fd, (int64_t)iovs, iovc);
++    if (ret < 0) {
++        return -ret;
++    }
++    if (bytes_written) {
++        *bytes_written = ret;
++    }
++    return 0;
++}
++
++int Sysdeps<Fsync>::operator()(int fd) {
++    int64_t ret = __petra_syscall1(SYSCALL_FSYNC, fd);
++    if (ret < 0) {
++        return -ret;
++    }
++    return 0;
++}
++
++int Sysdeps<Fdatasync>::operator()(int fd) {
++    int64_t ret = __petra_syscall1(SYSCALL_FDATASYNC, fd);
++    if (ret < 0) {
++        return -ret;
++    }
++    return 0;
++}
++
++int Sysdeps<Mknodat>::operator()(int dirfd, const char *path, int mode, int dev) {
++    int64_t ret = __petra_syscall4(SYSCALL_MKNODAT, dirfd, (int64_t)path, mode, dev);
++    if (ret < 0) {
++        return -ret;
++    }
++    return 0;
++}
++
++int Sysdeps<Semget>::operator()(key_t key, int n, int fl, int *id) {
++    int64_t ret = __petra_syscall3(SYSCALL_SEMGET, (int64_t)key, n, fl);
++    if (ret < 0) {
++        return (int)(-ret);
++    }
++    *id = (int)ret;
++    return 0;
++}
++
++int Sysdeps<Semctl>::operator()(int semid, int semnum, int cmd, void *semun, int *ret_val) {
++    int64_t ret = __petra_syscall4(SYSCALL_SEMCTL, semid, semnum, cmd, (int64_t)semun);
++    if (ret < 0) {
++        return (int)(-ret);
++    }
++    if (ret_val) {
++        *ret_val = (int)ret;
++    }
++    return 0;
++}
++
++int Sysdeps<Semop>::operator()(int semid, struct sembuf *sops, size_t nsops) {
++    int64_t ret = __petra_syscall3(SYSCALL_SEMOP, semid, (int64_t)sops, (int64_t)nsops);
++    if (ret < 0) {
++        return (int)(-ret);
++    }
++    return 0;
++}
++
++int Sysdeps<Semtimedop>::operator()(int semid, struct sembuf *sops, size_t nsops,
++                                    const struct timespec *timeout) {
++    int64_t ret = __petra_syscall4(SYSCALL_SEMTIMEDOP, semid, (int64_t)sops,
++                                   (int64_t)nsops, (int64_t)timeout);
++    if (ret < 0) {
++        return (int)(-ret);
++    }
++    return 0;
++}
++
+ } // namespace mlibc
+ 
+ 
+diff --git a/sysdeps/petra/include/mlibc/sysdeps.hpp b/sysdeps/petra/include/mlibc/sysdeps.hpp
+index 045a9709..0c16c129 100644
+--- a/sysdeps/petra/include/mlibc/sysdeps.hpp
++++ b/sysdeps/petra/include/mlibc/sysdeps.hpp
+@@ -73,7 +73,33 @@ struct PetraSysdepTags :
+     Sysconf,
+     Brk,
+     Fchmodat,
+-    Utimensat
++    Utimensat,
++    Mkdir,
++    Mkdirat,
++    Rmdir,
++    Unlinkat,
++    Rename,
++    Renameat,
++    Link,
++    Linkat,
++    Symlink,
++    Symlinkat,
++    Readlink,
++    Readlinkat,
++    Chmod,
++    Fchmod,
++    Fchownat,
++    Truncate,
++    Ftruncate,
++    Readv,
++    Writev,
++    Fsync,
++    Fdatasync,
++    Mknodat,
++    Semget,
++    Semctl,
++    Semop,
++    Semtimedop
+ {};
+ 
+ template<typename Tag>
+diff --git a/sysdeps/petra/include/sys/syscall.h b/sysdeps/petra/include/sys/syscall.h
+index c6d9cbd5..44e9825e 100644
+--- a/sysdeps/petra/include/sys/syscall.h
++++ b/sysdeps/petra/include/sys/syscall.h
+@@ -10,6 +10,8 @@
+ #define SYSCALL_CLOSE          3
+ #define SYSCALL_STAT           4
+ #define SYSCALL_FSTAT          5
++#define SYSCALL_LSTAT          6
++#define SYSCALL_POLL           7
+ #define SYSCALL_LSEEK          8
+ #define SYSCALL_MMAP           9
+ #define SYSCALL_MPROTECT       10
+@@ -19,8 +21,11 @@
+ #define SYSCALL_RT_SIGPROCMASK 14
+ #define SYSCALL_RT_SIGRETURN   15
+ #define SYSCALL_IOCTL          16
++#define SYSCALL_READV          19
++#define SYSCALL_WRITEV         20
+ #define SYSCALL_ACCESS         21
+ #define SYSCALL_PIPE           22
++#define SYSCALL_SELECT         23
+ #define SYSCALL_YIELD          24
+ #define SYSCALL_DUP            32
+ #define SYSCALL_DUP2           33
+@@ -33,9 +38,28 @@
+ #define SYSCALL_WAIT4          61
+ #define SYSCALL_KILL           62
+ #define SYSCALL_UNAME          63
++#define SYSCALL_SEMGET         64
++#define SYSCALL_SEMOP          65
++#define SYSCALL_SEMCTL         66
+ #define SYSCALL_FCNTL          72
++#define SYSCALL_FSYNC          74
++#define SYSCALL_FDATASYNC      75
++#define SYSCALL_TRUNCATE       76
++#define SYSCALL_FTRUNCATE      77
+ #define SYSCALL_GETCWD         79
+ #define SYSCALL_CHDIR          80
++#define SYSCALL_RENAME         82
++#define SYSCALL_MKDIR          83
++#define SYSCALL_RMDIR          84
++#define SYSCALL_LINK           86
++#define SYSCALL_UNLINK         87
++#define SYSCALL_SYMLINK        88
++#define SYSCALL_READLINK       89
++#define SYSCALL_CHMOD          90
++#define SYSCALL_FCHMOD         91
++#define SYSCALL_CHOWN          92
++#define SYSCALL_FCHOWN         93
++#define SYSCALL_LCHOWN         94
+ #define SYSCALL_UMASK          95
+ #define SYSCALL_GETTIMEOFDAY   96
+ #define SYSCALL_GETRLIMIT      97
+@@ -56,16 +80,29 @@
+ #define SYSCALL_FUTEX          202
+ #define SYSCALL_ISATTY         215
+ #define SYSCALL_GETDENTS64     217
++#define SYSCALL_SEMTIMEDOP     220
+ #define SYSCALL_CLOCK_GETTIME  228
+ #define SYSCALL_EXIT_GROUP     231
+ #define SYSCALL_OPENAT         257
++#define SYSCALL_MKDIRAT        258
++#define SYSCALL_MKNODAT        259
++#define SYSCALL_FCHOWNAT       260
++#define SYSCALL_FUTIMESAT      261
+ #define SYSCALL_NEWFSTATAT     262
++#define SYSCALL_UNLINKAT       263
++#define SYSCALL_RENAMEAT       264
++#define SYSCALL_LINKAT         265
++#define SYSCALL_SYMLINKAT      266
++#define SYSCALL_READLINKAT     267
+ #define SYSCALL_FCHMODAT       268
+ #define SYSCALL_FACCESSAT      269
++#define SYSCALL_PSELECT6       270
++#define SYSCALL_PPOLL          271
+ #define SYSCALL_UTIMENSAT      280
+ #define SYSCALL_DUP3           292
+ #define SYSCALL_PIPE2          293
+ #define SYSCALL_PRLIMIT64      302
++#define SYSCALL_RENAMEAT2      316
+ 
+ #if defined(__x86_64__)
+ 
+-- 
+2.43.0
+

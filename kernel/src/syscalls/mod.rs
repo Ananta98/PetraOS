@@ -1,5 +1,6 @@
 pub mod arch_prctl;
 pub mod fs;
+pub mod ipc;
 pub mod ioctl;
 pub mod mm;
 pub mod proc;
@@ -27,6 +28,7 @@ pub enum SyscallError {
     ECHILD = 10,
     EAGAIN = 11,
     ENOMEM = 12,
+    EACCES = 13,
     EFAULT = 14,
     EEXIST = 17,
     ENODEV = 19,
@@ -38,6 +40,8 @@ pub enum SyscallError {
     ESPIPE = 29,
     ENOSYS = 38,
     ELOOP = 40,
+    EIDRM = 43,
+    ERANGE = 34,
     ETIMEDOUT = 110,
 }
 
