@@ -71,12 +71,13 @@ pub fn create_init_process() -> Result<(Arc<Spinlock<Process>>, u64, u64), &'sta
                 .root()
                 .as_u64() as usize;
 
-            let kernel_stack = KernelStack::new(16 * 1024);
+            let kernel_stack = KernelStack::new()
+                .map_err(|_| "Failed to allocate kernel stack for init process")?;
             {
                 let mut t_lock = init_thread.lock();
                 t_lock.context.cr3 = cr3;
                 t_lock.state = crate::proc::thread::ThreadState::Running;
-                t_lock.kernel_stack = Some(kernel_stack);
+                t_lock.set_kernel_stack(kernel_stack);
             }
 
             proc_arc

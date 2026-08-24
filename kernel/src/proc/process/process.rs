@@ -192,83 +192,30 @@ impl Process {
             }
         }
 
-        // 4. Try loading as ELF binary
-        match Elf::new(&binary_data) {
-            Ok(elf) => match elf.load_with_cmdline(Some(&cmdline), Some(&self.creds)) {
-                Ok(loaded_elf) => {
-                    self.address_space = Arc::new(Spinlock::new(loaded_elf.addr_space));
-                    self.cmdline = cmdline;
-                    self.heap_start = userspace::USER_HEAP_VBASE;
-                    self.heap_brk = userspace::USER_HEAP_VBASE;
-                    self.mmap_bump = userspace::USER_MMAP_VBASE;
-                    self.state = ProcessState::Running;
-                    return Ok((
-                        loaded_elf.entry_point.as_u64(),
-                        loaded_elf.stack_pointer.as_u64(),
-                    ));
-                }
-                Err(err) => {
-                    log::error!("[Process] ELF loading failed for '{}': {}", file_name, err);
-                }
-            },
-            Err(err) => {
-                log::error!("[Process] ELF parsing failed for '{}': {}", file_name, err);
-            }
-        }
+        // 4. Load ELF binary
+        let elf = Elf::new(&binary_data).map_err(|err| {
+            log::error!("[Process] ELF parsing failed for '{}': {}", file_name, err);
+            "ELF parsing failed"
+        })?;
 
-        // 5. Fallback for raw binary payloads
-        let mut addr_space_guard = self.address_space.lock();
-        let addr_space = &mut *addr_space_guard;
+        let loaded_elf = elf
+            .load_with_cmdline(Some(&cmdline), Some(&self.creds))
+            .map_err(|err| {
+                log::error!("[Process] ELF loading failed for '{}': {}", file_name, err);
+                "ELF loading failed"
+            })?;
 
-        let code_vaddr = VirtAddr::new(userspace::USER_CODE_VBASE);
-        let code_flags =
-            PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::USER_ACCESSIBLE;
-
-        addr_space
-            .map_area(
-                code_vaddr,
-                4096,
-                code_flags,
-                crate::mm::VmAreaKind::Anonymous,
-            )
-            .map_err(|_| "Failed to map user code VMA")?;
-
-        let code_phys = addr_space
-            .page_table()
-            .translate(code_vaddr)
-            .ok_or("Failed to translate user code virtual page")?;
-
-        let hhdm = crate::mm::hhdm_offset();
-        let code_ptr = (code_phys.as_u64() + hhdm) as *mut u8;
-        let copy_len = core::cmp::min(binary_data.len(), 4096);
-
-        // SAFETY: Copying binary content into physical frame.
-        unsafe {
-            core::ptr::copy_nonoverlapping(binary_data.as_ptr(), code_ptr, copy_len);
-        }
-
-        let stack_vaddr = VirtAddr::new(userspace::USER_STACK_VTOP - 4096);
-        let stack_flags =
-            PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::USER_ACCESSIBLE;
-
-        addr_space
-            .map_area(
-                stack_vaddr,
-                4096,
-                stack_flags,
-                crate::mm::VmAreaKind::Anonymous,
-            )
-            .map_err(|_| "Failed to map user stack VMA")?;
-
-        drop(addr_space_guard);
-
+        self.address_space = Arc::new(Spinlock::new(loaded_elf.addr_space));
         self.cmdline = cmdline;
         self.heap_start = userspace::USER_HEAP_VBASE;
         self.heap_brk = userspace::USER_HEAP_VBASE;
         self.mmap_bump = userspace::USER_MMAP_VBASE;
         self.state = ProcessState::Running;
 
-        Ok((userspace::USER_CODE_VBASE, userspace::USER_STACK_VTOP))
+        Ok((
+            loaded_elf.entry_point.as_u64(),
+            loaded_elf.stack_pointer.as_u64(),
+        ))
     }
 
     /// Fork a child process duplicating this process (POSIX fork).
@@ -310,9 +257,10 @@ impl Process {
         let mut child_threads = BTreeMap::new();
         let child_tid = crate::proc::thread::next_tid();
 
-        let (thread_name, thread_weight, sig_mask, fs_base, gs_base) =
-            if let Some(calling_thread) = crate::proc::current_thread() {
-                let t_lock = calling_thread.lock();
+        let (thread_name, thread_weight, sig_mask, fs_base, gs_base) = crate::proc::current_thread()
+            .or_else(|| p_lock.threads.values().next().cloned())
+            .map(|t| {
+                let t_lock = t.lock();
                 (
                     t_lock.name.clone(),
                     t_lock.weight,
@@ -320,18 +268,8 @@ impl Process {
                     t_lock.context.fs_base,
                     t_lock.context.gs_base,
                 )
-            } else if let Some((_, t_arc)) = p_lock.threads.iter().next() {
-                let t_lock = t_arc.lock();
-                (
-                    t_lock.name.clone(),
-                    t_lock.weight,
-                    t_lock.sig_mask,
-                    t_lock.context.fs_base,
-                    t_lock.context.gs_base,
-                )
-            } else {
-                (alloc::string::String::from("fork_child"), 1024, 0, 0, 0)
-            };
+            })
+            .unwrap_or_else(|| (alloc::string::String::from("fork_child"), 1024, 0, 0, 0));
 
         let mut child_thread = Thread::new(
             child_tid,
@@ -340,17 +278,18 @@ impl Process {
             Arc::downgrade(&child),
         );
 
-        let mut child_kstack = crate::arch::cpu::stack::KernelStack::new(16 * 1024);
+        let mut child_kstack = crate::arch::cpu::stack::KernelStack::new()
+            .map_err(|_| "Failed to allocate kernel stack for child process")?;
         let child_rsp = crate::arch::cpu::stack::init_fork_stack(&mut child_kstack, parent_frame);
 
-        child_thread.context.rsp = child_rsp as usize;
-        child_thread.context.cr3 = child_cr3;
-        child_thread.context.rflags = 0x202;
-        child_thread.context.fs_base = fs_base;
-        child_thread.context.gs_base = gs_base;
-        child_thread.sig_mask = sig_mask;
-        child_thread.kernel_stack = Some(child_kstack);
-        child_thread.state = ThreadState::Ready;
+        child_thread.setup_fork_context(
+            child_kstack,
+            child_rsp,
+            child_cr3,
+            fs_base,
+            gs_base,
+            sig_mask,
+        );
 
         let c_thread_arc = Arc::new(Spinlock::new(child_thread));
         child_threads.insert(child_tid, c_thread_arc.clone());
@@ -377,7 +316,10 @@ impl Process {
         pid_req: i32,
         wuntraced: bool,
     ) -> Result<Option<(ProcessId, i32)>, crate::syscalls::SyscallError> {
-        let mut matching_pids = alloc::vec::Vec::new();
+        let mut has_matching_children = false;
+        let mut found_pid = None;
+        let mut found_status = 0;
+
         for (&child_pid, child_arc) in self.children.iter() {
             let c_lock = child_arc.lock();
             let matches = if pid_req == -1 {
@@ -389,27 +331,34 @@ impl Process {
             } else {
                 c_lock.pgid.as_u64() == (-pid_req) as u64
             };
-            if matches {
-                matching_pids.push((child_pid, c_lock.state, c_lock.exit_code));
+
+            if !matches {
+                continue;
             }
-        }
 
-        if matching_pids.is_empty() {
-            return Err(crate::syscalls::SyscallError::ECHILD);
-        }
+            has_matching_children = true;
 
-        for (child_pid, state, exit_code) in matching_pids {
-            if state == ProcessState::Zombie {
-                let code = exit_code.unwrap_or(0);
-                let status = (code & 0xFF) << 8;
-                self.children.remove(&child_pid);
-                unregister_process(child_pid);
-                return Ok(Some((child_pid, status)));
-            } else if state == ProcessState::Stopped && wuntraced {
+            if c_lock.state == ProcessState::Zombie {
+                let code = c_lock.exit_code.unwrap_or(0);
+                found_pid = Some(child_pid);
+                found_status = (code & 0xFF) << 8;
+                break;
+            } else if c_lock.state == ProcessState::Stopped && wuntraced {
                 let sig = 19; // SIGSTOP
-                let status = (sig << 8) | 0x7F;
-                return Ok(Some((child_pid, status)));
+                found_pid = Some(child_pid);
+                found_status = (sig << 8) | 0x7F;
+                break;
             }
+        }
+
+        if let Some(child_pid) = found_pid {
+            self.children.remove(&child_pid);
+            unregister_process(child_pid);
+            return Ok(Some((child_pid, found_status)));
+        }
+
+        if !has_matching_children {
+            return Err(crate::syscalls::SyscallError::ECHILD);
         }
 
         Ok(None)
