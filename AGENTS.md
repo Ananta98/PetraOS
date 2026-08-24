@@ -4,30 +4,7 @@ This document defines the absolute standard of behavior, architecture, and codin
 
 ---
 
-## 1. LLM Behavioral Guardrails (Karpathy Guidelines)
-
-All AI agents must strictly adhere to the following behavioral rules during development.
-
-### 1.1 Think Before Coding
-* **Zero Assumptions**: Never assume requirements, APIs, or existing structures. If any instruction is ambiguous or confusing, stop and ask the user for clarification.
-* **Surface Tradeoffs**: Before implementing, state assumptions explicitly. If there are multiple design approaches, list their pros/cons and present them to the user.
-* **Propose Simpler Paths**: If a requested feature or change can be done in a simpler, cleaner way, suggest it instead of blindly implementing the more complex path.
-
-### 1.2 Simplicity First
-* **Minimalist Implementations**: Write the absolute minimum code required to solve the problem. Do not add speculative features or "future-proofing" that wasn't requested.
-* **No Premature Abstractions**: Do not build complex abstraction layers for single-use code.
-* **No Redundant Complexity**: If a solution can be implemented in 50 lines, do not write 200 lines. Keep code concise and easy to audit.
-
-### 1.3 Surgical Changes
-* **Strict Scope Limits**: Touch only the files and lines that are strictly necessary to fulfill the task.
-* **No Unsolicited Cleanup**: Do not reformat, refactor, or "fix" adjacent code that is not broken unless explicitly instructed to do so.
-* **Traceability**: Every modified line must be directly traceable to the active task.
-
-### 1.4 Goal-Driven Execution
-* **Verifiable Steps**: Define clear success criteria before writing code.
-* **Test-Driven Mentality**: Create tests that reproduce bugs or verify new functionality, and ensure they pass before concluding the task.
-
-### 1.5 Git Authorship, Patch Metadata & Committer Policy (Strict Human Attribution)
+### 1. Git Authorship, Patch Metadata & Committer Policy (Strict Human Attribution)
 * **Human Git Committer Identity**: All git commits, patch headers, package manifests, and module metadata must attribute the human git committer / repository maintainer (from `git config user.name` and `git config user.email`), **NEVER** an AI Agent.
 * **No AI Patch Author / Email**: In patch series (`From: ...`), xbstrap configurations (`bootstrap.yml`, `packages/**/*.yml` with `patch_author` and `patch_email`), never use names like `"AI Agent"`, `"PetraOS Agent"`, `"Antigravity"`, `"ChatGPT"`, `"Claude"`, or synthetic bot emails (e.g., `agent@petraos.dev`). Always use the human committer's name and email.
 * **Module Creator & File Headers**: Any source file headers, module creator tags (`@author`), or documentation author fields must specify the human developer/maintainer as the creator, not an AI persona.
@@ -210,38 +187,3 @@ Code quality must be production-ready. Readability is paramount.
 * **File Size & Separation**: If a module grows large (e.g., exceeding ~300-500 lines) or handles multiple distinct responsibilities (e.g., driver initialization vs. I/O processing vs. interrupt handling), split it into submodules and individual files.
 * **Avoid Monolithic Files**: Do not dump all subsystem logic inside a single file (like `mod.rs` or `lib.rs`). Use Rust's module hierarchy and subdirectory layout to split components cleanly (e.g., `arch/x86_64/gdt.rs` and `arch/x86_64/idt.rs` instead of one giant file).
 * **Clean Encapsulation & APIs**: Expose only the necessary minimal interface using `pub` or `pub(crate)`. Keep private implementation details hidden to facilitate easier debugging, testing, and isolated modifications.
-
----
-
-## 6. User-Space Coding Rules
-
-User-space applications run in unprivileged CPU modes and interact with the kernel strictly via system calls.
-
-* **System Call Layer**: Wrap system calls in a standard library wrapper (`no_std`) providing safe Rust functions that return `Result<T, SystemError>`.
-* **Zero Shared Memory (by default)**: Enforce address space isolation. Memory is shared between user space and kernel space only through explicit memory mapping operations (`mmap`) or safe buffer validations in syscall handlers.
-* **Resource Cleanup**: User-space applications must be written to cleanly release resources, closing descriptors and freeing heap space. The kernel must ensure complete cleanup of a process's page directory and allocated structures on termination.
-
----
-
-## 7. QEMU Testing & Execution Guidelines
-
-All agents must verify kernel-level changes by running and testing them in QEMU.
-
-### 7.1 How to Run QEMU Properly
-* **Headless/Serial Mode**: If you are executing in a headless environment, command-line sandbox, or terminal without GUI forwarding, run QEMU with the graphics display disabled and the serial output redirected to standard output. Override `QEMUFLAGS` to achieve this:
-  ```bash
-  make run QEMUFLAGS="-m 2G -display none -serial stdio"
-  ```
-  Or for BIOS boot:
-  ```bash
-  make run-bios QEMUFLAGS="-m 2G -display none -serial stdio"
-  ```
-* **Monitoring Output**: Pay close attention to standard output. Verify that the bootloader (Limine) successfully loads the kernel, that the kernel initializes, and that no panic occurs.
-* **Graceful Termination**: QEMU runs indefinitely until interrupted or exited via debug ports. Once you have verified the serial logs and confirmed successful execution, terminate the QEMU process. In the terminal or background task manager, send a SIGINT (`Ctrl+C`) or kill the process. Do not let orphaned QEMU processes run in the background.
-
-### 7.2 Declaring QEMU Test Results
-* **Required Test Statement**: Once testing is complete, you **must** explicitly report the status of the QEMU test in your final response or walkthrough.
-* **Format**: Include a clear declaration in your final response under a dedicated heading:
-  > **QEMU Test Verification**:
-  > * **Command Run**: `make run QEMUFLAGS="..."`
-  > * **Result**: Success / Failure / Panic (with a brief description of what was verified, e.g., "Serial logs successfully displayed GDT and IDT initialization messages without panic").
