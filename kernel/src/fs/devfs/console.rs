@@ -4,6 +4,7 @@
 //! routing operations directly to the kernel TTY subsystem and line discipline.
 
 use crate::fs::vfs::types::{FileOps, InodeOps, Stat, VfsError};
+use crate::mm::UserPtr;
 use crate::tty::console::CONSOLE;
 use crate::tty::termios::{
     FIONREAD, TCFLSH, TCGETS, TCSBRK, TCSETS, TCSETSF, TCSETSW, TCXONC, TIOCGPGRP, TIOCGWINSZ,
@@ -48,48 +49,26 @@ impl FileOps for ConsoleFileOps {
 
         match cmd {
             TCGETS => {
-                if !crate::syscalls::is_user_ptr_valid(arg as u64, core::mem::size_of::<Termios>())
-                {
-                    return Err(VfsError::InvalidInput);
-                }
+                let ptr = UserPtr::<Termios>::from_u64(arg as u64);
                 let t = console.ldisc.termios;
-
-                // SAFETY: User pointer validated within user space bounds.
-                unsafe {
-                    *(arg as *mut Termios) = t;
-                }
-
+                ptr.write(t).ok_or(VfsError::InvalidInput)?;
                 Ok(0)
             }
             TCSETS | TCSETSW | TCSETSF => {
-                if !crate::syscalls::is_user_ptr_valid(arg as u64, core::mem::size_of::<Termios>())
-                {
-                    return Err(VfsError::InvalidInput);
-                }
-                // SAFETY: User pointer validated within user space bounds.
-                let t = unsafe { *(arg as *const Termios) };
+                let ptr = UserPtr::<Termios>::from_u64(arg as u64);
+                let t = ptr.read().ok_or(VfsError::InvalidInput)?;
                 console.ldisc.termios = t;
                 Ok(0)
             }
             TIOCGWINSZ => {
-                if !crate::syscalls::is_user_ptr_valid(arg as u64, core::mem::size_of::<WinSize>())
-                {
-                    return Err(VfsError::InvalidInput);
-                }
+                let ptr = UserPtr::<WinSize>::from_u64(arg as u64);
                 let ws = console.ldisc.winsize;
-                // SAFETY: User pointer validated within user space bounds.
-                unsafe {
-                    *(arg as *mut WinSize) = ws;
-                }
+                ptr.write(ws).ok_or(VfsError::InvalidInput)?;
                 Ok(0)
             }
             TIOCSWINSZ => {
-                if !crate::syscalls::is_user_ptr_valid(arg as u64, core::mem::size_of::<WinSize>())
-                {
-                    return Err(VfsError::InvalidInput);
-                }
-                // SAFETY: User pointer validated within user space bounds.
-                let ws = unsafe { *(arg as *const WinSize) };
+                let ptr = UserPtr::<WinSize>::from_u64(arg as u64);
+                let ws = ptr.read().ok_or(VfsError::InvalidInput)?;
                 console.ldisc.winsize = ws;
                 if console.ldisc.foreground_pgid > 0 {
                     let _ = crate::ipc::signal::send_signal_to_process_group(
@@ -100,22 +79,14 @@ impl FileOps for ConsoleFileOps {
                 Ok(0)
             }
             TIOCGPGRP => {
-                if !crate::syscalls::is_user_ptr_valid(arg as u64, 4) {
-                    return Err(VfsError::InvalidInput);
-                }
+                let ptr = UserPtr::<i32>::from_u64(arg as u64);
                 let pgid = console.ldisc.foreground_pgid;
-                // SAFETY: User pointer validated within user space bounds.
-                unsafe {
-                    *(arg as *mut i32) = pgid;
-                }
+                ptr.write(pgid).ok_or(VfsError::InvalidInput)?;
                 Ok(0)
             }
             TIOCSPGRP => {
-                if !crate::syscalls::is_user_ptr_valid(arg as u64, 4) {
-                    return Err(VfsError::InvalidInput);
-                }
-                // SAFETY: User pointer validated within user space bounds.
-                let pgid = unsafe { *(arg as *const i32) };
+                let ptr = UserPtr::<i32>::from_u64(arg as u64);
+                let pgid = ptr.read().ok_or(VfsError::InvalidInput)?;
                 console.ldisc.foreground_pgid = pgid;
                 Ok(0)
             }
@@ -128,14 +99,9 @@ impl FileOps for ConsoleFileOps {
                 Ok(0)
             }
             FIONREAD => {
-                if !crate::syscalls::is_user_ptr_valid(arg as u64, 4) {
-                    return Err(VfsError::InvalidInput);
-                }
+                let ptr = UserPtr::<i32>::from_u64(arg as u64);
                 let len = console.available_input() as i32;
-                // SAFETY: User pointer validated within user space bounds.
-                unsafe {
-                    *(arg as *mut i32) = len;
-                }
+                ptr.write(len).ok_or(VfsError::InvalidInput)?;
                 Ok(0)
             }
             _ => Err(VfsError::NotSupported),

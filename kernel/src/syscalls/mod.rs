@@ -9,14 +9,10 @@ pub mod sys_info;
 pub mod time;
 
 use crate::arch::syscall::SyscallFrame;
-use crate::device::DriverError::*;
-use crate::fs::vfs::types;
 use crate::fs::vfs::types::*;
 use crate::sync::futex::FutexError;
-use crate::sync::futex::*;
 
-/// Maximum virtual address allowed for user space pointers (Ring 3 canonical boundary).
-pub const USER_SPACE_MAX_ADDR: u64 = 0x0000_7FFF_FFFF_FFFF;
+pub use crate::mm::user::{USER_SPACE_MAX_ADDR, UserCStr, UserPtr};
 
 /// POSIX Linux Error Numbers for System Calls
 #[repr(i64)]
@@ -131,42 +127,6 @@ macro_rules! define_syscall_table {
             )*
         ];
     };
-}
-
-/// Validate if a user pointer and range lies strictly within user-space memory.
-pub fn is_user_ptr_valid(ptr: u64, len: usize) -> bool {
-    if ptr == 0 {
-        return false;
-    }
-    let end = match ptr.checked_add(len as u64) {
-        Some(e) => e,
-        None => return false,
-    };
-    end <= USER_SPACE_MAX_ADDR
-}
-
-/// Helper to safely copy a null-terminated string from user space memory into kernel `String`.
-pub unsafe fn read_user_string(
-    ptr: *const u8,
-    max_len: usize,
-) -> Result<alloc::string::String, SyscallError> {
-    if !is_user_ptr_valid(ptr as u64, 1) {
-        return Err(SyscallError::EFAULT);
-    }
-    let mut vec = alloc::vec::Vec::new();
-    for i in 0..max_len {
-        let addr = ptr as u64 + i as u64;
-        if !is_user_ptr_valid(addr, 1) {
-            return Err(SyscallError::EFAULT);
-        }
-        // SAFETY: User space memory range validated.
-        let byte = unsafe { core::ptr::read_volatile((addr) as *const u8) };
-        if byte == 0 {
-            break;
-        }
-        vec.push(byte);
-    }
-    alloc::string::String::from_utf8(vec).map_err(|_| SyscallError::EINVAL)
 }
 
 /// System Call Dispatcher utilizing Asterinas-style Binary Search on architecture-specific table

@@ -1,4 +1,4 @@
-use super::{SyscallError, SyscallResult, is_user_ptr_valid};
+use super::{SyscallError, SyscallResult, UserPtr};
 use crate::arch::syscall::syscall::SyscallFrame;
 
 /// POSIX timeval structure for `sys_gettimeofday`
@@ -30,36 +30,24 @@ pub struct Tms {
 /// `sys_gettimeofday` (SYS_GETTIMEOFDAY = 96)
 /// Returns system wall-clock time in seconds and microseconds since Unix epoch.
 pub fn sys_gettimeofday(frame: &mut SyscallFrame) -> SyscallResult {
-    let tv_ptr = frame.arg1() as *mut TimeVal;
-    let tz_ptr = frame.arg2() as *mut TimeZone;
+    let tv_ptr = UserPtr::<TimeVal>::from_u64(frame.arg1());
+    let tz_ptr = UserPtr::<TimeZone>::from_u64(frame.arg2());
 
     if !tv_ptr.is_null() {
-        if !is_user_ptr_valid(tv_ptr as u64, core::mem::size_of::<TimeVal>()) {
-            return Err(SyscallError::EFAULT);
-        }
         let (sec, usec) = crate::drivers::time::cmos_rtc::get_wall_time();
         let tv = TimeVal {
             tv_sec: sec as i64,
             tv_usec: usec as i64,
         };
-        // SAFETY: tv_ptr verified with is_user_ptr_valid above.
-        unsafe {
-            core::ptr::write_volatile(tv_ptr, tv);
-        }
+        tv_ptr.write(tv).ok_or(SyscallError::EFAULT)?;
     }
 
     if !tz_ptr.is_null() {
-        if !is_user_ptr_valid(tz_ptr as u64, core::mem::size_of::<TimeZone>()) {
-            return Err(SyscallError::EFAULT);
-        }
         let tz = TimeZone {
             tz_minuteswest: 0,
             tz_dsttime: 0,
         };
-        // SAFETY: tz_ptr verified with is_user_ptr_valid above.
-        unsafe {
-            core::ptr::write_volatile(tz_ptr, tz);
-        }
+        tz_ptr.write(tz).ok_or(SyscallError::EFAULT)?;
     }
 
     Ok(0)
@@ -68,20 +56,16 @@ pub fn sys_gettimeofday(frame: &mut SyscallFrame) -> SyscallResult {
 /// `sys_times` (SYS_TIMES = 100)
 /// Returns elapsed system clock ticks since system boot, and fills process CPU timing.
 pub fn sys_times(frame: &mut SyscallFrame) -> SyscallResult {
-    let buf_ptr = frame.arg1() as *mut Tms;
+    let buf_ptr = UserPtr::<Tms>::from_u64(frame.arg1());
 
     // Standard POSIX clock ticks per second (CLK_TCK = 100)
     let elapsed_ns = crate::arch::timer::hpet::elapsed_ns();
     let total_ticks = (elapsed_ns / 10_000_000) as i64; // 10ms per tick (100Hz)
 
     if !buf_ptr.is_null() {
-        if !is_user_ptr_valid(buf_ptr as u64, core::mem::size_of::<Tms>()) {
-            return Err(SyscallError::EFAULT);
-        }
-
         // Retrieve current process CPU times if available
         let mut utime = total_ticks;
-        let mut stime = 0i64;
+        let stime = 0i64;
 
         if let Some(proc_arc) = crate::proc::current_process() {
             let proc = proc_arc.lock();
@@ -103,10 +87,7 @@ pub fn sys_times(frame: &mut SyscallFrame) -> SyscallResult {
             tms_cstime: 0,
         };
 
-        // SAFETY: buf_ptr verified with is_user_ptr_valid above.
-        unsafe {
-            core::ptr::write_volatile(buf_ptr, tms);
-        }
+        buf_ptr.write(tms).ok_or(SyscallError::EFAULT)?;
     }
 
     Ok(total_ticks as usize)
@@ -133,11 +114,7 @@ pub struct TimeSpec {
 /// Retrieve time of the specified clock.
 pub fn sys_clock_gettime(frame: &mut SyscallFrame) -> SyscallResult {
     let clock_id = frame.arg1() as i32;
-    let tp_ptr = frame.arg2() as *mut TimeSpec;
-
-    if !is_user_ptr_valid(tp_ptr as u64, core::mem::size_of::<TimeSpec>()) {
-        return Err(SyscallError::EFAULT);
-    }
+    let tp_ptr = UserPtr::<TimeSpec>::from_u64(frame.arg2());
 
     let ts = match clock_id {
         CLOCK_REALTIME | CLOCK_REALTIME_COARSE => {
@@ -164,10 +141,7 @@ pub fn sys_clock_gettime(frame: &mut SyscallFrame) -> SyscallResult {
         _ => return Err(SyscallError::EINVAL),
     };
 
-    // SAFETY: Validated user memory pointer bounds.
-    unsafe {
-        core::ptr::write_volatile(tp_ptr, ts);
-    }
+    tp_ptr.write(ts).ok_or(SyscallError::EFAULT)?;
 
     Ok(0)
 }
@@ -175,15 +149,10 @@ pub fn sys_clock_gettime(frame: &mut SyscallFrame) -> SyscallResult {
 /// `sys_nanosleep` (SYS_NANOSLEEP = 35)
 /// High-resolution sleep.
 pub fn sys_nanosleep(frame: &mut SyscallFrame) -> SyscallResult {
-    let req_ptr = frame.arg1() as *const TimeSpec;
-    let rem_ptr = frame.arg2() as *mut TimeSpec;
+    let req_ptr = UserPtr::<TimeSpec>::from_u64(frame.arg1());
+    let rem_ptr = UserPtr::<TimeSpec>::from_u64(frame.arg2());
 
-    if !is_user_ptr_valid(req_ptr as u64, core::mem::size_of::<TimeSpec>()) {
-        return Err(SyscallError::EFAULT);
-    }
-
-    // SAFETY: Validated user memory pointer bounds.
-    let req = unsafe { core::ptr::read_unaligned(req_ptr) };
+    let req = req_ptr.read_unaligned().ok_or(SyscallError::EFAULT)?;
     if req.tv_sec < 0 || req.tv_nsec < 0 || req.tv_nsec >= 1_000_000_000 {
         return Err(SyscallError::EINVAL);
     }
@@ -197,11 +166,8 @@ pub fn sys_nanosleep(frame: &mut SyscallFrame) -> SyscallResult {
         crate::proc::thread::Thread::yield_cpu();
     }
 
-    if !rem_ptr.is_null() && is_user_ptr_valid(rem_ptr as u64, core::mem::size_of::<TimeSpec>()) {
-        // SAFETY: Validated user memory pointer bounds.
-        unsafe {
-            core::ptr::write_volatile(rem_ptr, TimeSpec::default());
-        }
+    if !rem_ptr.is_null() {
+        let _ = rem_ptr.write(TimeSpec::default());
     }
 
     Ok(0)

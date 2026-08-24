@@ -3,7 +3,7 @@
 //! Provides the POSIX `sys_futex` system call (Syscall #202 on x86_64) for userspace
 //! fast synchronization primitives (mutexes, condition variables, semaphores, barriers).
 
-use super::{is_user_ptr_valid, SyscallError, SyscallResult};
+use super::{SyscallError, SyscallResult, UserPtr};
 use crate::arch::syscall::syscall::SyscallFrame;
 use crate::mm::{PageTable, VirtAddr};
 use crate::proc::thread::ThreadState;
@@ -24,12 +24,12 @@ pub struct TimeSpec {
 
 /// Helper to validate a user futex address (must be valid Ring 3 pointer and 4-byte aligned).
 #[inline]
-fn validate_futex_ptr(ptr: *const u32) -> Result<(), SyscallError> {
-    let addr = ptr as u64;
+fn validate_futex_ptr(ptr: UserPtr<u32>) -> Result<(), SyscallError> {
+    let addr = ptr.as_u64();
     if addr == 0 || (addr % 4) != 0 {
         return Err(SyscallError::EINVAL);
     }
-    if !is_user_ptr_valid(addr, core::mem::size_of::<u32>()) {
+    if !ptr.is_valid() {
         return Err(SyscallError::EFAULT);
     }
     Ok(())
@@ -37,11 +37,11 @@ fn validate_futex_ptr(ptr: *const u32) -> Result<(), SyscallError> {
 
 /// Helper to resolve a `FutexKey` from a user-space virtual address.
 fn resolve_futex_key(
-    uaddr: *const u32,
+    uaddr: UserPtr<u32>,
     is_private: bool,
     proc: &crate::proc::Process,
 ) -> FutexKey {
-    let vaddr = uaddr as u64;
+    let vaddr = uaddr.as_u64();
     if is_private {
         FutexKey::Private {
             pid: proc.pid.as_u64(),
@@ -64,18 +64,12 @@ fn resolve_futex_key(
 }
 
 /// Helper to safely parse a user-space `timespec` structure.
-fn parse_user_timespec(timeout_ptr: *const TimeSpec) -> Result<Option<TimeSpec>, SyscallError> {
+fn parse_user_timespec(timeout_ptr: UserPtr<TimeSpec>) -> Result<Option<TimeSpec>, SyscallError> {
     if timeout_ptr.is_null() {
         return Ok(None);
     }
 
-    let addr = timeout_ptr as u64;
-    if !is_user_ptr_valid(addr, core::mem::size_of::<TimeSpec>()) {
-        return Err(SyscallError::EFAULT);
-    }
-
-    // SAFETY: Validated user memory within Ring 3 boundary.
-    let ts = unsafe { core::ptr::read_volatile(timeout_ptr) };
+    let ts = timeout_ptr.read().ok_or(SyscallError::EFAULT)?;
     if ts.tv_sec < 0 || ts.tv_nsec < 0 || ts.tv_nsec >= 1_000_000_000 {
         return Err(SyscallError::EINVAL);
     }
@@ -95,11 +89,11 @@ fn parse_user_timespec(timeout_ptr: *const TimeSpec) -> Result<Option<TimeSpec>,
 /// - `arg5` (uaddr2): Target pointer for requeue operations.
 /// - `arg6` (val3): Expected value (for cmp_requeue) or bitset mask (for bitset wait/wake).
 pub fn sys_futex(frame: &mut SyscallFrame) -> SyscallResult {
-    let uaddr = frame.arg1() as *const u32;
+    let uaddr = UserPtr::<u32>::from_u64(frame.arg1());
     let futex_op = frame.arg2() as u32;
     let val = frame.arg3() as u32;
     let timeout_or_val2 = frame.arg4();
-    let uaddr2 = frame.arg5() as *const u32;
+    let uaddr2 = UserPtr::<u32>::from_u64(frame.arg5());
     let val3 = frame.arg6() as u32;
 
     validate_futex_ptr(uaddr)?;
@@ -116,22 +110,28 @@ pub fn sys_futex(frame: &mut SyscallFrame) -> SyscallResult {
     match cmd {
         FUTEX_WAIT => {
             let thread_arc = crate::proc::current_thread().ok_or(SyscallError::ESRCH)?;
-            let timeout_ptr = timeout_or_val2 as *const TimeSpec;
+            let timeout_ptr = UserPtr::<TimeSpec>::from_u64(timeout_or_val2);
             let timeout = parse_user_timespec(timeout_ptr)?;
 
-            let current_ns = crate::arch::timer::hpet::elapsed_ns();
+            // Convert relative timeout to absolute HPET nanoseconds
             let deadline_ns = timeout.map(|ts| {
-                let duration_ns = (ts.tv_sec as u64)
+                let dur_ns = (ts.tv_sec as u64)
                     .saturating_mul(1_000_000_000)
                     .saturating_add(ts.tv_nsec as u64);
                 if is_realtime {
-                    duration_ns
+                    // For CLOCK_REALTIME, compute duration relative to CMOS RTC wall clock
+                    let (now_sec, now_usec) = crate::drivers::time::cmos_rtc::get_wall_time();
+                    let now_wall_ns = now_sec
+                        .saturating_mul(1_000_000_000)
+                        .saturating_add(now_usec.saturating_mul(1_000));
+                    let remaining = dur_ns.saturating_sub(now_wall_ns);
+                    crate::arch::timer::hpet::elapsed_ns().saturating_add(remaining)
                 } else {
-                    current_ns.saturating_add(duration_ns)
+                    crate::arch::timer::hpet::elapsed_ns().saturating_add(dur_ns)
                 }
             });
 
-            // Enqueue thread in futex wait queue under lock
+            // Atomically verify futex word and enqueue thread into wait queue
             {
                 let mut mgr = FUTEX_MANAGER.lock();
                 // SAFETY: `uaddr` is verified and valid for 4-byte read.
@@ -139,7 +139,7 @@ pub fn sys_futex(frame: &mut SyscallFrame) -> SyscallResult {
                     mgr.wait_prepare(
                         key,
                         thread_arc.clone(),
-                        uaddr,
+                        uaddr.as_ptr(),
                         val,
                         FUTEX_BITSET_MATCH_ANY,
                         deadline_ns,
@@ -186,8 +186,9 @@ pub fn sys_futex(frame: &mut SyscallFrame) -> SyscallResult {
             let requeue_count = timeout_or_val2 as usize;
 
             let mut mgr = FUTEX_MANAGER.lock();
-            let (woken, _) = mgr.requeue(key, key2, wake_count, requeue_count, FUTEX_BITSET_MATCH_ANY);
-            Ok(woken)
+            let (woken, requeued) =
+                mgr.requeue(key, key2, wake_count, requeue_count, FUTEX_BITSET_MATCH_ANY);
+            Ok(woken + requeued)
         }
 
         FUTEX_CMP_REQUEUE => {
@@ -196,8 +197,7 @@ pub fn sys_futex(frame: &mut SyscallFrame) -> SyscallResult {
             let key2 = resolve_futex_key(uaddr2, is_private, &proc);
             drop(proc);
 
-            // SAFETY: `uaddr` validated with `validate_futex_ptr`.
-            let current_val = unsafe { core::ptr::read_volatile(uaddr) };
+            let current_val = uaddr.read().ok_or(SyscallError::EFAULT)?;
             if current_val != val3 {
                 return Err(SyscallError::EAGAIN);
             }
@@ -218,7 +218,7 @@ pub fn sys_futex(frame: &mut SyscallFrame) -> SyscallResult {
             }
 
             let thread_arc = crate::proc::current_thread().ok_or(SyscallError::ESRCH)?;
-            let timeout_ptr = timeout_or_val2 as *const TimeSpec;
+            let timeout_ptr = UserPtr::<TimeSpec>::from_u64(timeout_or_val2);
             let timeout = parse_user_timespec(timeout_ptr)?;
 
             // In Linux, FUTEX_WAIT_BITSET timeouts are absolute timestamps
@@ -233,7 +233,7 @@ pub fn sys_futex(frame: &mut SyscallFrame) -> SyscallResult {
                 let mut mgr = FUTEX_MANAGER.lock();
                 // SAFETY: `uaddr` is verified and valid for 4-byte read.
                 unsafe {
-                    mgr.wait_prepare(key, thread_arc.clone(), uaddr, val, bitset, deadline_ns)?;
+                    mgr.wait_prepare(key, thread_arc.clone(), uaddr.as_ptr(), val, bitset, deadline_ns)?;
                 }
             }
 
@@ -283,7 +283,7 @@ pub fn sys_futex(frame: &mut SyscallFrame) -> SyscallResult {
         }
 
         _ => {
-            log::warn!("Unknown futex operation: {}", futex_op);
+            log::warn!("Unknown futex operation {}", futex_op);
             Err(SyscallError::EINVAL)
         }
     }

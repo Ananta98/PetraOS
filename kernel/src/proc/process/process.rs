@@ -2,6 +2,7 @@ use super::cmdline::CommandLine;
 use super::credentials::Credentials;
 use super::pid::{ProcessId, next_pid};
 use super::process_table::{register_process, unregister_process};
+use crate::arch::syscall::syscall::SyscallFrame;
 use crate::arch::userspace;
 use crate::fs::FdTable;
 use crate::ipc::signal::{MAX_SIGNALS, PendingSignals, SigAction};
@@ -9,6 +10,7 @@ use crate::mm::ArchPageTable;
 use crate::mm::PageTable;
 use crate::mm::vmm::AddrSpace;
 use crate::mm::{PageTableFlags, VirtAddr};
+use crate::proc::loader::elf::Elf;
 use crate::proc::thread::{Thread, ThreadId, ThreadState};
 use crate::sync::spinlock::Spinlock;
 use alloc::collections::BTreeMap;
@@ -191,7 +193,7 @@ impl Process {
         }
 
         // 4. Try loading as ELF binary
-        match crate::proc::loader::elf::Elf::new(&binary_data) {
+        match Elf::new(&binary_data) {
             Ok(elf) => match elf.load_with_cmdline(Some(&cmdline), Some(&self.creds)) {
                 Ok(loaded_elf) => {
                     self.address_space = Arc::new(Spinlock::new(loaded_elf.addr_space));
@@ -539,11 +541,7 @@ impl Process {
     }
 
     /// Evaluate and handle pending signals for a process thread prior to user return.
-    pub fn handle_pending_signals(
-        &mut self,
-        thread: &mut Thread,
-        frame: &mut crate::arch::syscall::syscall::SyscallFrame,
-    ) {
+    pub fn handle_pending_signals(&mut self, thread: &mut Thread, frame: &mut SyscallFrame) {
         let sig_opt = self
             .pending_signals
             .dequeue(thread.sig_mask)

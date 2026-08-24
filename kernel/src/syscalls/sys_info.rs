@@ -1,4 +1,4 @@
-use super::{SyscallError, SyscallResult, is_user_ptr_valid};
+use super::{SyscallError, SyscallResult, UserPtr};
 use crate::arch::syscall::syscall::SyscallFrame;
 
 /// x86_64 Linux ABI compatible utsname structure layout.
@@ -35,10 +35,7 @@ fn set_bytes(dst: &mut [u8; 65], src: &[u8]) {
 /// `sys_uname` (SYS_UNAME = 63)
 /// Get name and information about current kernel.
 pub fn sys_uname(frame: &mut SyscallFrame) -> SyscallResult {
-    let buf = frame.arg1() as *mut UtsName;
-    if !is_user_ptr_valid(buf as u64, core::mem::size_of::<UtsName>()) {
-        return Err(SyscallError::EFAULT);
-    }
+    let buf = UserPtr::<UtsName>::from_u64(frame.arg1());
 
     let mut uts = UtsName::default();
     set_bytes(&mut uts.sysname, b"PetraOS");
@@ -48,10 +45,7 @@ pub fn sys_uname(frame: &mut SyscallFrame) -> SyscallResult {
     set_bytes(&mut uts.machine, b"x86_64");
     set_bytes(&mut uts.domainname, b"localdomain");
 
-    // SAFETY: Writing UtsName struct to user pointer after bounds validation.
-    unsafe {
-        core::ptr::write_volatile(buf, uts);
-    }
+    buf.write(uts).ok_or(SyscallError::EFAULT)?;
 
     Ok(0)
 }

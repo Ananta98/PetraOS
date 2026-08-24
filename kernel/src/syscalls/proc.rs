@@ -1,4 +1,4 @@
-use super::{SyscallError, SyscallResult, is_user_ptr_valid, read_user_string};
+use super::{SyscallError, SyscallResult, UserCStr, UserPtr};
 use crate::arch::syscall::syscall::SyscallFrame;
 use crate::mm::vmm::paging::PageTable;
 use crate::proc::ProcessId;
@@ -129,7 +129,7 @@ pub fn sys_setsid(_frame: &mut SyscallFrame) -> SyscallResult {
 /// Get list of supplementary group IDs.
 pub fn sys_getgroups(frame: &mut SyscallFrame) -> SyscallResult {
     let size = frame.arg1() as i32;
-    let list_ptr = frame.arg2() as *mut u32;
+    let list_ptr = UserPtr::<u32>::from_u64(frame.arg2());
 
     if size < 0 {
         return Err(SyscallError::EINVAL);
@@ -137,19 +137,13 @@ pub fn sys_getgroups(frame: &mut SyscallFrame) -> SyscallResult {
     if size == 0 {
         return Ok(1);
     }
-    if !is_user_ptr_valid(list_ptr as u64, core::mem::size_of::<u32>()) {
-        return Err(SyscallError::EFAULT);
-    }
 
     let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
     let proc = proc_arc.lock();
     let gid = proc.creds.gid;
     drop(proc);
 
-    // SAFETY: Validated user memory pointer bounds.
-    unsafe {
-        core::ptr::write_volatile(list_ptr, gid);
-    }
+    list_ptr.write(gid).ok_or(SyscallError::EFAULT)?;
     Ok(1)
 }
 
@@ -188,17 +182,10 @@ fn get_default_rlimit(resource: i32) -> RLimit64 {
 /// Get resource limits.
 pub fn sys_getrlimit(frame: &mut SyscallFrame) -> SyscallResult {
     let resource = frame.arg1() as i32;
-    let rlim_ptr = frame.arg2() as *mut RLimit64;
-
-    if !is_user_ptr_valid(rlim_ptr as u64, core::mem::size_of::<RLimit64>()) {
-        return Err(SyscallError::EFAULT);
-    }
+    let rlim_ptr = UserPtr::<RLimit64>::from_u64(frame.arg2());
 
     let limit = get_default_rlimit(resource);
-    // SAFETY: Validated user memory pointer bounds.
-    unsafe {
-        core::ptr::write_volatile(rlim_ptr, limit);
-    }
+    rlim_ptr.write(limit).ok_or(SyscallError::EFAULT)?;
     Ok(0)
 }
 
@@ -206,9 +193,9 @@ pub fn sys_getrlimit(frame: &mut SyscallFrame) -> SyscallResult {
 /// Set resource limits.
 pub fn sys_setrlimit(frame: &mut SyscallFrame) -> SyscallResult {
     let _resource = frame.arg1() as i32;
-    let rlim_ptr = frame.arg2() as *const RLimit64;
+    let rlim_ptr = UserPtr::<RLimit64>::from_u64(frame.arg2());
 
-    if !is_user_ptr_valid(rlim_ptr as u64, core::mem::size_of::<RLimit64>()) {
+    if !rlim_ptr.is_valid() {
         return Err(SyscallError::EFAULT);
     }
     Ok(0)
@@ -219,24 +206,16 @@ pub fn sys_setrlimit(frame: &mut SyscallFrame) -> SyscallResult {
 pub fn sys_prlimit64(frame: &mut SyscallFrame) -> SyscallResult {
     let _pid = frame.arg1() as i32;
     let resource = frame.arg2() as i32;
-    let new_limit_ptr = frame.arg3() as *const RLimit64;
-    let old_limit_ptr = frame.arg4() as *mut RLimit64;
+    let new_limit_ptr = UserPtr::<RLimit64>::from_u64(frame.arg3());
+    let old_limit_ptr = UserPtr::<RLimit64>::from_u64(frame.arg4());
 
-    if !new_limit_ptr.is_null()
-        && !is_user_ptr_valid(new_limit_ptr as u64, core::mem::size_of::<RLimit64>())
-    {
+    if !new_limit_ptr.is_null() && !new_limit_ptr.is_valid() {
         return Err(SyscallError::EFAULT);
     }
 
     if !old_limit_ptr.is_null() {
-        if !is_user_ptr_valid(old_limit_ptr as u64, core::mem::size_of::<RLimit64>()) {
-            return Err(SyscallError::EFAULT);
-        }
         let limit = get_default_rlimit(resource);
-        // SAFETY: Validated user memory pointer bounds.
-        unsafe {
-            core::ptr::write_volatile(old_limit_ptr, limit);
-        }
+        old_limit_ptr.write(limit).ok_or(SyscallError::EFAULT)?;
     }
 
     Ok(0)
@@ -261,11 +240,11 @@ pub fn sys_vfork(frame: &mut SyscallFrame) -> SyscallResult {
 /// `sys_execve` (SYS_EXECVE = 59)
 /// Execute program file.
 pub fn sys_execve(frame: &mut SyscallFrame) -> SyscallResult {
-    let path_ptr = frame.arg1() as *const u8;
+    let path_ptr = UserCStr::from_u64(frame.arg1());
     let argv_ptr = frame.arg2() as *const *const u8;
     let envp_ptr = frame.arg3() as *const *const u8;
 
-    let path = unsafe { read_user_string(path_ptr, 256)? };
+    let path = path_ptr.to_string(256)?;
 
     let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
     let mut proc = proc_arc.lock();
@@ -319,9 +298,9 @@ pub struct RUsage {
 /// Wait for process state change.
 pub fn sys_wait4(frame: &mut SyscallFrame) -> SyscallResult {
     let pid_raw = frame.arg1() as i32;
-    let wstatus = frame.arg2() as *mut i32;
+    let wstatus = UserPtr::<i32>::from_u64(frame.arg2());
     let options = frame.arg3() as i32;
-    let rusage_ptr = frame.arg4() as *mut RUsage;
+    let rusage_ptr = UserPtr::<RUsage>::from_u64(frame.arg4());
 
     let wnohang = (options & 1) != 0;
     let wuntraced = (options & 2) != 0;
@@ -345,19 +324,12 @@ pub fn sys_wait4(frame: &mut SyscallFrame) -> SyscallResult {
         }
     };
 
-    if !wstatus.is_null() && is_user_ptr_valid(wstatus as u64, core::mem::size_of::<i32>()) {
-        // SAFETY: User pointer validated within Ring 3 address bounds.
-        unsafe {
-            core::ptr::write_volatile(wstatus, status);
-        }
+    if !wstatus.is_null() {
+        wstatus.write(status).ok_or(SyscallError::EFAULT)?;
     }
 
-    if !rusage_ptr.is_null() && is_user_ptr_valid(rusage_ptr as u64, core::mem::size_of::<RUsage>())
-    {
-        // SAFETY: User pointer validated within Ring 3 address bounds.
-        unsafe {
-            core::ptr::write_volatile(rusage_ptr, RUsage::default());
-        }
+    if !rusage_ptr.is_null() {
+        rusage_ptr.write(RUsage::default()).ok_or(SyscallError::EFAULT)?;
     }
 
     Ok(child_pid.as_u64() as usize)

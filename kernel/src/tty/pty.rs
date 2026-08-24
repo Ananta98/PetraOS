@@ -11,6 +11,7 @@ use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use crate::fs::vfs::dentry::Dentry;
 use crate::fs::vfs::mount::MOUNT_TABLE;
 use crate::fs::vfs::types::{FileOps, Inode, InodeOps, InodeType, Stat, VfsError};
+use crate::mm::UserPtr;
 use crate::sync::spinlock::Spinlock;
 use crate::tty::termios::{
     FIONREAD, LineDiscipline, TCFLSH, TCGETS, TCSBRK, TCSETS, TCSETSF, TCSETSW, TCXONC, TIOCGPGRP,
@@ -172,47 +173,25 @@ impl FileOps for PtyMasterFileOps {
     fn ioctl(&self, cmd: u64, arg: usize) -> Result<usize, VfsError> {
         match cmd {
             TIOCGPTN => {
-                if !crate::syscalls::is_user_ptr_valid(arg as u64, 4) {
-                    return Err(VfsError::InvalidInput);
-                }
-                // SAFETY: Pointer is user space verified.
-                unsafe {
-                    *(arg as *mut u32) = self.pair.id;
-                }
+                let ptr = UserPtr::<u32>::from_u64(arg as u64);
+                ptr.write(self.pair.id).ok_or(VfsError::InvalidInput)?;
                 Ok(0)
             }
             TIOCSPTLCK => {
-                if !crate::syscalls::is_user_ptr_valid(arg as u64, 4) {
-                    return Err(VfsError::InvalidInput);
-                }
-                // SAFETY: Pointer is user space verified.
-                let lock_val = unsafe { *(arg as *const i32) };
+                let ptr = UserPtr::<i32>::from_u64(arg as u64);
+                let lock_val = ptr.read().ok_or(VfsError::InvalidInput)?;
                 self.pair.locked.store(lock_val != 0, Ordering::SeqCst);
                 Ok(0)
             }
             TIOCGWINSZ => {
-                if !crate::syscalls::is_user_ptr_valid(
-                    arg as u64,
-                    core::mem::size_of::<WinSize>(),
-                ) {
-                    return Err(VfsError::InvalidInput);
-                }
+                let ptr = UserPtr::<WinSize>::from_u64(arg as u64);
                 let ws = self.pair.slave_ldisc.lock().winsize;
-                // SAFETY: Pointer is user space verified.
-                unsafe {
-                    *(arg as *mut WinSize) = ws;
-                }
+                ptr.write(ws).ok_or(VfsError::InvalidInput)?;
                 Ok(0)
             }
             TIOCSWINSZ => {
-                if !crate::syscalls::is_user_ptr_valid(
-                    arg as u64,
-                    core::mem::size_of::<WinSize>(),
-                ) {
-                    return Err(VfsError::InvalidInput);
-                }
-                // SAFETY: Pointer is user space verified.
-                let ws = unsafe { *(arg as *const WinSize) };
+                let ptr = UserPtr::<WinSize>::from_u64(arg as u64);
+                let ws = ptr.read().ok_or(VfsError::InvalidInput)?;
                 let mut ldisc = self.pair.slave_ldisc.lock();
                 ldisc.winsize = ws;
                 if ldisc.foreground_pgid > 0 {
@@ -224,14 +203,9 @@ impl FileOps for PtyMasterFileOps {
                 Ok(0)
             }
             FIONREAD => {
-                if !crate::syscalls::is_user_ptr_valid(arg as u64, 4) {
-                    return Err(VfsError::InvalidInput);
-                }
+                let ptr = UserPtr::<i32>::from_u64(arg as u64);
                 let len = self.pair.master_buffer.lock().len() as i32;
-                // SAFETY: Pointer is user space verified.
-                unsafe {
-                    *(arg as *mut i32) = len;
-                }
+                ptr.write(len).ok_or(VfsError::InvalidInput)?;
                 Ok(0)
             }
             _ => Err(VfsError::NotSupported),
@@ -315,54 +289,26 @@ impl FileOps for PtySlaveFileOps {
     fn ioctl(&self, cmd: u64, arg: usize) -> Result<usize, VfsError> {
         match cmd {
             TCGETS => {
-                if !crate::syscalls::is_user_ptr_valid(
-                    arg as u64,
-                    core::mem::size_of::<Termios>(),
-                ) {
-                    return Err(VfsError::InvalidInput);
-                }
+                let ptr = UserPtr::<Termios>::from_u64(arg as u64);
                 let t = self.pair.slave_ldisc.lock().termios;
-                // SAFETY: Pointer is user space verified.
-                unsafe {
-                    *(arg as *mut Termios) = t;
-                }
+                ptr.write(t).ok_or(VfsError::InvalidInput)?;
                 Ok(0)
             }
             TCSETS | TCSETSW | TCSETSF => {
-                if !crate::syscalls::is_user_ptr_valid(
-                    arg as u64,
-                    core::mem::size_of::<Termios>(),
-                ) {
-                    return Err(VfsError::InvalidInput);
-                }
-                // SAFETY: Pointer is user space verified.
-                let t = unsafe { *(arg as *const Termios) };
+                let ptr = UserPtr::<Termios>::from_u64(arg as u64);
+                let t = ptr.read().ok_or(VfsError::InvalidInput)?;
                 self.pair.slave_ldisc.lock().termios = t;
                 Ok(0)
             }
             TIOCGWINSZ => {
-                if !crate::syscalls::is_user_ptr_valid(
-                    arg as u64,
-                    core::mem::size_of::<WinSize>(),
-                ) {
-                    return Err(VfsError::InvalidInput);
-                }
+                let ptr = UserPtr::<WinSize>::from_u64(arg as u64);
                 let ws = self.pair.slave_ldisc.lock().winsize;
-                // SAFETY: Pointer is user space verified.
-                unsafe {
-                    *(arg as *mut WinSize) = ws;
-                }
+                ptr.write(ws).ok_or(VfsError::InvalidInput)?;
                 Ok(0)
             }
             TIOCSWINSZ => {
-                if !crate::syscalls::is_user_ptr_valid(
-                    arg as u64,
-                    core::mem::size_of::<WinSize>(),
-                ) {
-                    return Err(VfsError::InvalidInput);
-                }
-                // SAFETY: Pointer is user space verified.
-                let ws = unsafe { *(arg as *const WinSize) };
+                let ptr = UserPtr::<WinSize>::from_u64(arg as u64);
+                let ws = ptr.read().ok_or(VfsError::InvalidInput)?;
                 let mut ldisc = self.pair.slave_ldisc.lock();
                 ldisc.winsize = ws;
                 if ldisc.foreground_pgid > 0 {
@@ -374,22 +320,14 @@ impl FileOps for PtySlaveFileOps {
                 Ok(0)
             }
             TIOCGPGRP => {
-                if !crate::syscalls::is_user_ptr_valid(arg as u64, 4) {
-                    return Err(VfsError::InvalidInput);
-                }
+                let ptr = UserPtr::<i32>::from_u64(arg as u64);
                 let pgid = self.pair.slave_ldisc.lock().foreground_pgid;
-                // SAFETY: Pointer is user space verified.
-                unsafe {
-                    *(arg as *mut i32) = pgid;
-                }
+                ptr.write(pgid).ok_or(VfsError::InvalidInput)?;
                 Ok(0)
             }
             TIOCSPGRP => {
-                if !crate::syscalls::is_user_ptr_valid(arg as u64, 4) {
-                    return Err(VfsError::InvalidInput);
-                }
-                // SAFETY: Pointer is user space verified.
-                let pgid = unsafe { *(arg as *const i32) };
+                let ptr = UserPtr::<i32>::from_u64(arg as u64);
+                let pgid = ptr.read().ok_or(VfsError::InvalidInput)?;
                 self.pair.slave_ldisc.lock().foreground_pgid = pgid;
                 Ok(0)
             }
@@ -402,14 +340,9 @@ impl FileOps for PtySlaveFileOps {
                 Ok(0)
             }
             FIONREAD => {
-                if !crate::syscalls::is_user_ptr_valid(arg as u64, 4) {
-                    return Err(VfsError::InvalidInput);
-                }
+                let ptr = UserPtr::<i32>::from_u64(arg as u64);
                 let len = self.pair.slave_ldisc.lock().available_read_bytes() as i32;
-                // SAFETY: Pointer is user space verified.
-                unsafe {
-                    *(arg as *mut i32) = len;
-                }
+                ptr.write(len).ok_or(VfsError::InvalidInput)?;
                 Ok(0)
             }
             _ => Err(VfsError::NotSupported),

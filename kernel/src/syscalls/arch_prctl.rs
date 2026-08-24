@@ -1,7 +1,7 @@
 //! System call handler for `arch_prctl` (x86_64 architecture-specific control).
 
 use crate::arch::syscall::SyscallFrame;
-use crate::syscalls::{SyscallError, SyscallResult, is_user_ptr_valid};
+use crate::syscalls::{SyscallError, SyscallResult, UserPtr};
 
 pub const ARCH_SET_GS: u64 = 0x1001;
 pub const ARCH_SET_FS: u64 = 0x1002;
@@ -27,16 +27,11 @@ pub fn sys_arch_prctl(frame: &mut SyscallFrame) -> SyscallResult {
         }
         ARCH_GET_FS => {
             log::trace!("sys_arch_prctl: ARCH_GET_FS to {:#x}", addr);
-            if !is_user_ptr_valid(addr, 8) {
-                return Err(SyscallError::EFAULT);
-            }
+            let ptr = UserPtr::<u64>::from_u64(addr);
             let fs_base = crate::proc::current_thread()
                 .map(|t| t.lock().context.fs_base)
                 .unwrap_or_else(crate::arch::cpu::msr::read_fs_base);
-            // SAFETY: Validated user memory pointer.
-            unsafe {
-                core::ptr::write_volatile(addr as *mut u64, fs_base);
-            }
+            ptr.write(fs_base).ok_or(SyscallError::EFAULT)?;
             Ok(0)
         }
         ARCH_SET_GS => {
@@ -50,14 +45,9 @@ pub fn sys_arch_prctl(frame: &mut SyscallFrame) -> SyscallResult {
         }
         ARCH_GET_GS => {
             log::trace!("sys_arch_prctl: ARCH_GET_GS to {:#x}", addr);
-            if !is_user_ptr_valid(addr, 8) {
-                return Err(SyscallError::EFAULT);
-            }
+            let ptr = UserPtr::<u64>::from_u64(addr);
             let gs_base = crate::arch::cpu::msr::read_gs_base();
-            // SAFETY: Validated user memory pointer.
-            unsafe {
-                core::ptr::write_volatile(addr as *mut u64, gs_base);
-            }
+            ptr.write(gs_base).ok_or(SyscallError::EFAULT)?;
             Ok(0)
         }
         _ => {

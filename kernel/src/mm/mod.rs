@@ -1,9 +1,11 @@
 pub mod alloc;
 pub mod dma;
 pub mod pmm;
+pub mod user;
 pub mod vmm;
 
 pub use pmm::PMM;
+pub use user::{UserCStr, UserPtr, USER_SPACE_MAX_ADDR};
 pub use vmm::{
     AddrSpace, AddrSpaceError, COW_FLAG, PageFaultError, PageFaultErrorCode, PageTable,
     PageTableEntry, PageTableFlags, PagingError, PhysAddr, VirtAddr, VmArea, VmAreaKind,

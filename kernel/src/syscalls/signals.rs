@@ -1,6 +1,6 @@
-use super::{SyscallError, SyscallResult, is_user_ptr_valid};
+use super::{SyscallError, SyscallResult, UserPtr};
 use crate::arch::syscall::syscall::SyscallFrame;
-use crate::ipc::signal::{SigAction, SigSet, is_uncatchable};
+use crate::ipc::signal::{is_uncatchable, SigAction, SigSet};
 
 /// `sys_kill` (SYS_KILL = 62)
 /// Sends a signal to a process or process group.
@@ -45,8 +45,8 @@ pub fn sys_kill(frame: &mut SyscallFrame) -> SyscallResult {
 /// Examine and change a signal action.
 pub fn sys_rt_sigaction(frame: &mut SyscallFrame) -> SyscallResult {
     let sig = frame.arg1() as u8;
-    let act = frame.arg2() as *const SigAction;
-    let oact = frame.arg3() as *mut SigAction;
+    let act = UserPtr::<SigAction>::from_u64(frame.arg2());
+    let oact = UserPtr::<SigAction>::from_u64(frame.arg3());
 
     if sig == 0 || sig > 64 {
         return Err(SyscallError::EINVAL);
@@ -55,16 +55,8 @@ pub fn sys_rt_sigaction(frame: &mut SyscallFrame) -> SyscallResult {
         return Err(SyscallError::EINVAL);
     }
 
-    if !act.is_null() && !is_user_ptr_valid(act as u64, core::mem::size_of::<SigAction>()) {
-        return Err(SyscallError::EFAULT);
-    }
-    if !oact.is_null() && !is_user_ptr_valid(oact as u64, core::mem::size_of::<SigAction>()) {
-        return Err(SyscallError::EFAULT);
-    }
-
     let new_action = if !act.is_null() {
-        // SAFETY: User pointer validated within Ring 3 address space bounds.
-        Some(unsafe { core::ptr::read_volatile(act) })
+        Some(act.read().ok_or(SyscallError::EFAULT)?)
     } else {
         None
     };
@@ -76,10 +68,7 @@ pub fn sys_rt_sigaction(frame: &mut SyscallFrame) -> SyscallResult {
         .map_err(|_| SyscallError::EINVAL)?;
 
     if !oact.is_null() {
-        // SAFETY: User pointer validated within Ring 3 address space bounds.
-        unsafe {
-            core::ptr::write_volatile(oact, old_action);
-        }
+        oact.write(old_action).ok_or(SyscallError::EFAULT)?;
     }
 
     Ok(0)
@@ -89,22 +78,14 @@ pub fn sys_rt_sigaction(frame: &mut SyscallFrame) -> SyscallResult {
 /// Examine and change blocked signals.
 pub fn sys_rt_sigprocmask(frame: &mut SyscallFrame) -> SyscallResult {
     let how = frame.arg1() as i32;
-    let set_ptr = frame.arg2() as *const SigSet;
-    let oset_ptr = frame.arg3() as *mut SigSet;
-
-    if !set_ptr.is_null() && !is_user_ptr_valid(set_ptr as u64, core::mem::size_of::<SigSet>()) {
-        return Err(SyscallError::EFAULT);
-    }
-    if !oset_ptr.is_null() && !is_user_ptr_valid(oset_ptr as u64, core::mem::size_of::<SigSet>()) {
-        return Err(SyscallError::EFAULT);
-    }
+    let set_ptr = UserPtr::<SigSet>::from_u64(frame.arg2());
+    let oset_ptr = UserPtr::<SigSet>::from_u64(frame.arg3());
 
     let thread_arc = crate::proc::current_thread().ok_or(SyscallError::ESRCH)?;
     let mut thread = thread_arc.lock();
 
     let set = if !set_ptr.is_null() {
-        // SAFETY: User pointer validated within Ring 3 address space bounds.
-        unsafe { core::ptr::read_unaligned(set_ptr) }
+        set_ptr.read_unaligned().ok_or(SyscallError::EFAULT)?
     } else {
         0
     };
@@ -114,10 +95,7 @@ pub fn sys_rt_sigprocmask(frame: &mut SyscallFrame) -> SyscallResult {
         .map_err(|_| SyscallError::EINVAL)?;
 
     if !oset_ptr.is_null() {
-        // SAFETY: User pointer validated within Ring 3 address space bounds.
-        unsafe {
-            core::ptr::write_volatile(oset_ptr, old_mask);
-        }
+        oset_ptr.write(old_mask).ok_or(SyscallError::EFAULT)?;
     }
     Ok(0)
 }

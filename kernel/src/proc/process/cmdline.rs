@@ -2,7 +2,7 @@
 
 use alloc::string::String;
 use alloc::vec::Vec;
-use core::ffi::CStr;
+use crate::mm::{UserCStr, UserPtr};
 
 /// Represents parsed command line arguments and environment variables for a process.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -42,42 +42,46 @@ impl CommandLine {
         envp: *const *const u8,
     ) -> Result<Self, &'static str> {
         let mut args = Vec::new();
-        if !argv.is_null() && crate::syscalls::is_user_ptr_valid(argv as u64, 8) {
+        let argv_user = UserPtr::<UserPtr<u8>>::from_raw(argv as *const UserPtr<u8>);
+        if !argv_user.is_null() && argv_user.is_valid() {
             let mut i = 0;
             loop {
                 if argc > 0 && i >= argc {
                     break;
                 }
-                let ptr_addr = (argv as u64).wrapping_add((i * 8) as u64);
-                if !crate::syscalls::is_user_ptr_valid(ptr_addr, 8) {
+                let ptr_slot = argv_user.offset(i);
+                let arg_ptr = match ptr_slot.read() {
+                    Some(p) => p,
+                    None => break,
+                };
+                if arg_ptr.is_null() {
                     break;
                 }
-                let arg_ptr = unsafe { *(ptr_addr as *const *const u8) };
-                if arg_ptr.is_null() || !crate::syscalls::is_user_ptr_valid(arg_ptr as u64, 1) {
-                    break;
+                let c_str = UserCStr::new(arg_ptr.addr());
+                match c_str.as_string(4096) {
+                    Some(s) => args.push(s),
+                    None => return Err("Invalid UTF-8 in argv"),
                 }
-                let c_str = unsafe { CStr::from_ptr(arg_ptr as *const i8) };
-                let str_slice = c_str.to_str().map_err(|_| "Invalid UTF-8 in argv")?;
-                args.push(String::from(str_slice));
                 i += 1;
             }
         }
 
         let mut env = Vec::new();
-        if !envp.is_null() && crate::syscalls::is_user_ptr_valid(envp as u64, 8) {
+        let envp_user = UserPtr::<UserPtr<u8>>::from_raw(envp as *const UserPtr<u8>);
+        if !envp_user.is_null() && envp_user.is_valid() {
             let mut i = 0;
             loop {
-                let ptr_addr = (envp as u64).wrapping_add((i * 8) as u64);
-                if !crate::syscalls::is_user_ptr_valid(ptr_addr, 8) {
+                let ptr_slot = envp_user.offset(i);
+                let env_ptr = match ptr_slot.read() {
+                    Some(p) => p,
+                    None => break,
+                };
+                if env_ptr.is_null() {
                     break;
                 }
-                let env_ptr = unsafe { *(ptr_addr as *const *const u8) };
-                if env_ptr.is_null() || !crate::syscalls::is_user_ptr_valid(env_ptr as u64, 1) {
-                    break;
-                }
-                let c_str = unsafe { CStr::from_ptr(env_ptr as *const i8) };
-                if let Ok(str_slice) = c_str.to_str() {
-                    env.push(String::from(str_slice));
+                let c_str = UserCStr::new(env_ptr.addr());
+                if let Some(s) = c_str.as_string(4096) {
+                    env.push(s);
                 }
                 i += 1;
             }
