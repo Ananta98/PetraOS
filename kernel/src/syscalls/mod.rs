@@ -106,6 +106,7 @@ impl From<VfsError> for SyscallError {
             VfsError::IsDirectory => SyscallError::EISDIR,
             VfsError::Interrupted => SyscallError::EINTR,
             VfsError::TooManySymlinks => SyscallError::ELOOP,
+            VfsError::WouldBlock => SyscallError::EAGAIN,
             VfsError::DriverError(d) => match d {
                 DriverError::Timeout => SyscallError::ETIMEDOUT,
                 DriverError::NoDevice => SyscallError::ENODEV,

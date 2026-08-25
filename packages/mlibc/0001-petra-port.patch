@@ -1,7 +1,7 @@
 From 39144cfd07563fa2587563f3afecf79648a0cc79 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sat, 15 Aug 2026 11:59:14 +0700
-Subject: [PATCH 01/17] feat(sysdeps): add PetraOS support and GCC 13
+Subject: [PATCH 01/18] feat(sysdeps): add PetraOS support and GCC 13
  compatibility
 
 ---
@@ -1739,7 +1739,7 @@ index 00000000..44587ad2
 From a75d7c4e673984be4fcb0ffbb4f7e345c56bd39d Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sun, 16 Aug 2026 17:18:00 +0700
-Subject: [PATCH 02/17] feat(sysdeps/petra): add terminal control, poll, and
+Subject: [PATCH 02/18] feat(sysdeps/petra): add terminal control, poll, and
  select sysdeps
 
 ---
@@ -1868,7 +1868,7 @@ index 44587ad2..24a2b48d 100644
 From c4434488b69469b46faf5a07bdbd51e40152d381 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sun, 16 Aug 2026 17:19:03 +0700
-Subject: [PATCH 03/17] fix(sysdeps/petra): remove linux from
+Subject: [PATCH 03/18] fix(sysdeps/petra): remove linux from
  sysdep_supported_options
 
 ---
@@ -1894,7 +1894,7 @@ index 24a2b48d..44587ad2 100644
 From 26c988ed911573e59fdc842e4463b89f0a433176 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sun, 16 Aug 2026 17:19:35 +0700
-Subject: [PATCH 04/17] feat(sysdeps/petra): declare terminal and poll tags in
+Subject: [PATCH 04/18] feat(sysdeps/petra): declare terminal and poll tags in
  PetraSysdepTags
 
 ---
@@ -1930,7 +1930,7 @@ index 5681c78f..7abf63e8 100644
 From 1b5f07719d46d788c322d248c5a36ca94d0f5a50 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sun, 16 Aug 2026 17:20:01 +0700
-Subject: [PATCH 05/17] fix(sysdeps/petra): use memset for sigset_t
+Subject: [PATCH 05/18] fix(sysdeps/petra): use memset for sigset_t
 
 ---
  sysdeps/petra/generic/generic.cpp | 2 +-
@@ -1956,7 +1956,7 @@ index 12ef809c..413db4ac 100644
 From e9bdc4ebbb80ca9fb000279f83eae7b97b10768d Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sun, 16 Aug 2026 17:21:15 +0700
-Subject: [PATCH 06/17] fix(sysdeps/petra): direct bit check in Pselect without
+Subject: [PATCH 06/18] fix(sysdeps/petra): direct bit check in Pselect without
  __FD_ISSET
 
 ---
@@ -1987,7 +1987,7 @@ index 413db4ac..a7cd878e 100644
 From 6e637c6bc5ffda81272b882d3e182f3468adbfd0 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sun, 16 Aug 2026 17:21:39 +0700
-Subject: [PATCH 07/17] fix(sysdeps/petra): use fds_bits in Pselect
+Subject: [PATCH 07/18] fix(sysdeps/petra): use fds_bits in Pselect
 
 ---
  sysdeps/petra/generic/generic.cpp | 4 ++--
@@ -2017,7 +2017,7 @@ index a7cd878e..0e3b2d30 100644
 From e67318b77642431df8bc8ee4a8af8bb8a9a94bf0 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sun, 16 Aug 2026 18:12:18 +0700
-Subject: [PATCH 08/17] feat(sysdeps/petra): implement ttyname, gethostname,
+Subject: [PATCH 08/18] feat(sysdeps/petra): implement ttyname, gethostname,
  termios fallback and pselect wrapper
 
 - Implement sys_ttyname: verify fd is a TTY via isatty, then report /dev/tty.
@@ -2212,7 +2212,7 @@ index 7abf63e8..47b92d23 100644
 From 0a4b8b6296d3c8673c702c177b6a926d1718630d Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sun, 16 Aug 2026 21:54:12 +0700
-Subject: [PATCH 09/17] feat(sysdeps/petra): implement OpenDir and ReadEntries
+Subject: [PATCH 09/18] feat(sysdeps/petra): implement OpenDir and ReadEntries
  using getdents64
 
 ---
@@ -2277,7 +2277,7 @@ index 88915e85..90885b83 100644
 From 45602e3a9d462aca3481f28fc99a9fcbcbb03ac3 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Wed, 19 Aug 2026 19:25:53 +0700
-Subject: [PATCH 10/17] feat(sysdeps/petra): implement Sysdeps<Sysconf>
+Subject: [PATCH 10/18] feat(sysdeps/petra): implement Sysdeps<Sysconf>
  handling
 
 ---
@@ -2369,7 +2369,7 @@ index f774f219..71c97380 100644
 From 9335db45d9abd4d3eff29731ba435cabcdf8fb19 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Wed, 19 Aug 2026 20:37:20 +0700
-Subject: [PATCH 11/17] feat(sysdeps/petra): implement brk, fchmodat, and
+Subject: [PATCH 11/18] feat(sysdeps/petra): implement brk, fchmodat, and
  utimensat sysdeps
 
 ---
@@ -2451,7 +2451,7 @@ index 90885b83..c6d9cbd5 100644
 From e8d6d7700a37243e47c2b6b08d94d2308c7a4d48 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Wed, 19 Aug 2026 20:47:47 +0700
-Subject: [PATCH 12/17] fix(ansi): flush stdout on read and default stdout to
+Subject: [PATCH 12/18] fix(ansi): flush stdout on read and default stdout to
  unbuffered for immediate terminal echo
 
 ---
@@ -2489,7 +2489,7 @@ index 90c31608..3c8c4926 100644
 From 179993a53e07b1e15717d1c60ecdefb337a95815 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Wed, 19 Aug 2026 20:59:14 +0700
-Subject: [PATCH 13/17] fix(stdio): default interactive terminal streams to
+Subject: [PATCH 13/18] fix(stdio): default interactive terminal streams to
  unbuffered for immediate character echoing
 
 ---
@@ -2525,7 +2525,7 @@ index 3c8c4926..e5e9d8d6 100644
 From 9025747d7f1b7a5396a69d1b3e47ef630f0c1bb9 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sat, 22 Aug 2026 10:05:46 +0700
-Subject: [PATCH 14/17] fix(sysdeps/petra): replace busy-loop Sleep with
+Subject: [PATCH 14/18] fix(sysdeps/petra): replace busy-loop Sleep with
  sys_nanosleep syscall
 
 ---
@@ -2642,7 +2642,7 @@ index b6059da8..540bbc48 100644
 From 4d8f8e521611cbab241c67b3927c767fc0240bef Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Mon, 24 Aug 2026 12:51:05 +0700
-Subject: [PATCH 15/17] feat(sysdeps/petra): implement System V semaphore
+Subject: [PATCH 15/18] feat(sysdeps/petra): implement System V semaphore
  syscall support
 
 Add kernel-facing syscall numbers and userspace Sysdeps<> implementations
@@ -3129,7 +3129,7 @@ index c6d9cbd5..44e9825e 100644
 From 1f4f7fb31575eb51b6ae944c3da62d7cbc0f50a0 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Tue, 25 Aug 2026 09:42:26 +0700
-Subject: [PATCH 16/17] feat(sysdeps/petra): implement fadvise and System V
+Subject: [PATCH 16/18] feat(sysdeps/petra): implement fadvise and System V
  shared memory sysdeps
 
 ---
@@ -3262,7 +3262,7 @@ index 44e9825e..22b2c37f 100644
 From 0a2fbd447a951d0ce7b768070dc19b4a6445a9e3 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Tue, 25 Aug 2026 10:08:11 +0700
-Subject: [PATCH 17/17] feat(sysdeps/petra): implement socket and network
+Subject: [PATCH 17/18] feat(sysdeps/petra): implement socket and network
  system call sysdeps
 
 ---
@@ -3503,6 +3503,84 @@ index 22b2c37f..a6c79f74 100644
  #define SYSCALL_DUP3           292
  #define SYSCALL_PIPE2          293
  #define SYSCALL_PRLIMIT64      302
+-- 
+2.43.0
+
+
+From 73ef5308d59c11d59bc83af1209c9b47c791d862 Mon Sep 17 00:00:00 2001
+From: Ananta <kusumaananta042@gmail.com>
+Date: Tue, 25 Aug 2026 20:04:30 +0700
+Subject: [PATCH 18/18] feat(sysdeps/petra): implement ppoll, poll, and
+ terminal winsize sysdeps
+
+---
+ sysdeps/petra/generic/generic.cpp | 39 ++++++++++++++++++++++---------
+ 1 file changed, 28 insertions(+), 11 deletions(-)
+
+diff --git a/sysdeps/petra/generic/generic.cpp b/sysdeps/petra/generic/generic.cpp
+index 2f2160ea..65de87b6 100644
+--- a/sysdeps/petra/generic/generic.cpp
++++ b/sysdeps/petra/generic/generic.cpp
+@@ -482,6 +482,22 @@ int Sysdeps<Tcsetattr>::operator()(int fd, int optional_action, const struct ter
+     return 0;
+ }
+ 
++int Sysdeps<Tcgetwinsize>::operator()(int fd, struct winsize *winsz) {
++    int64_t ret = __petra_syscall3(SYSCALL_IOCTL, fd, 0x5413 /* TIOCGWINSZ */, (int64_t)winsz);
++    if (ret < 0) {
++        return -ret;
++    }
++    return 0;
++}
++
++int Sysdeps<Tcsetwinsize>::operator()(int fd, const struct winsize *winsz) {
++    int64_t ret = __petra_syscall3(SYSCALL_IOCTL, fd, 0x5414 /* TIOCSWINSZ */, (int64_t)winsz);
++    if (ret < 0) {
++        return -ret;
++    }
++    return 0;
++}
++
+ int Sysdeps<Ttyname>::operator()(int fd, char *buf, size_t size) {
+     if (int e = sysdep<Isatty>(fd); e) {
+         return e;
+@@ -536,24 +552,25 @@ int Sysdeps<Tcflush>::operator()(int fd, int queue) {
+ }
+ 
+ int Sysdeps<Ppoll>::operator()(struct pollfd *fds, nfds_t count, const struct timespec *timeout, const sigset_t *sigmask, int *num_events) {
+-    (void)timeout;
+-    (void)sigmask;
+-    int ready = 0;
+-    for (nfds_t i = 0; i < count; i++) {
+-        fds[i].revents = fds[i].events & (POLLIN | POLLOUT);
+-        if (fds[i].revents) {
+-            ready++;
+-        }
++    int64_t ret = __petra_syscall5(SYSCALL_PPOLL, (int64_t)fds, count, (int64_t)timeout, (int64_t)sigmask, sizeof(sigset_t));
++    if (ret < 0) {
++        return -ret;
+     }
+     if (num_events) {
+-        *num_events = ready;
++        *num_events = ret;
+     }
+     return 0;
+ }
+ 
+ int Sysdeps<Poll>::operator()(struct pollfd *fds, nfds_t count, int timeout, int *num_events) {
+-    (void)timeout;
+-    return sysdep<Ppoll>(fds, count, NULL, NULL, num_events);
++    int64_t ret = __petra_syscall3(SYSCALL_POLL, (int64_t)fds, count, timeout);
++    if (ret < 0) {
++        return -ret;
++    }
++    if (num_events) {
++        *num_events = ret;
++    }
++    return 0;
+ }
+ 
+ #ifndef MLIBC_BUILDING_RTLD
 -- 
 2.43.0
 

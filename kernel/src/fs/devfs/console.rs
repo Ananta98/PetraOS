@@ -35,12 +35,43 @@ pub struct ConsoleFileOps;
 
 impl FileOps for ConsoleFileOps {
     fn read(&self, _offset: usize, buf: &mut [u8]) -> Result<usize, VfsError> {
-        tty_read(buf)
+        tty_read(buf, false)
+    }
+
+    fn read_with_flags(
+        &self,
+        _offset: usize,
+        buf: &mut [u8],
+        flags: u32,
+    ) -> Result<usize, VfsError> {
+        let non_blocking = (flags & crate::fs::vfs::types::O_NONBLOCK) != 0;
+        tty_read(buf, non_blocking)
     }
 
     fn write(&self, _offset: usize, buf: &[u8]) -> Result<usize, VfsError> {
         tty_write(buf);
         Ok(buf.len())
+    }
+
+    fn isatty(&self) -> bool {
+        true
+    }
+
+    fn poll_events(&self, events: i16) -> i16 {
+        let mut revents = 0;
+        if (events & crate::syscalls::fs::POLLOUT) != 0 {
+            revents |= crate::syscalls::fs::POLLOUT;
+        }
+        if (events & crate::syscalls::fs::POLLIN) != 0 {
+            let mut guard = CONSOLE.lock();
+            if let Some(ref mut c) = *guard {
+                c.poll_input();
+                if c.available_input() > 0 {
+                    revents |= crate::syscalls::fs::POLLIN;
+                }
+            }
+        }
+        revents
     }
 
     fn ioctl(&self, cmd: u64, arg: usize) -> Result<usize, VfsError> {
@@ -106,9 +137,5 @@ impl FileOps for ConsoleFileOps {
             }
             _ => Err(VfsError::NotSupported),
         }
-    }
-
-    fn isatty(&self) -> bool {
-        true
     }
 }

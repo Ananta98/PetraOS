@@ -50,6 +50,8 @@ packages:
           - '--enable-widec'
         environ:
           cf_cv_func_nanosleep: 'yes'
+          cf_cv_sizechange: 'yes'
+          cf_cv_struct_winsize: 'yes'
     build:
       - args: ['make', '-j@PARALLELISM@']
     install:

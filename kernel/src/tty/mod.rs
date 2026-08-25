@@ -20,8 +20,8 @@ pub fn init() {
 }
 
 /// Read from the global console input buffer through line discipline.
-/// Blocks until input is available (POSIX terminal blocking semantics).
-pub fn tty_read(buf: &mut [u8]) -> Result<usize, VfsError> {
+/// If `non_blocking` is true, returns `Err(VfsError::WouldBlock)` if no input is ready.
+pub fn tty_read(buf: &mut [u8], non_blocking: bool) -> Result<usize, VfsError> {
     if buf.is_empty() {
         return Ok(0);
     }
@@ -33,6 +33,9 @@ pub fn tty_read(buf: &mut [u8]) -> Result<usize, VfsError> {
             let bytes_read = c.ldisc.read_bytes(buf);
             if bytes_read > 0 {
                 return Ok(bytes_read);
+            }
+            if non_blocking {
+                return Err(VfsError::WouldBlock);
             }
         } else {
             return Err(VfsError::NotFound);
@@ -48,6 +51,7 @@ pub fn tty_read(buf: &mut [u8]) -> Result<usize, VfsError> {
         }
 
         // Yield CPU until the next scheduler tick or keyboard interrupt
+        crate::arch::enable_interrupts();
         crate::proc::thread::Thread::yield_cpu();
     }
 }

@@ -3,6 +3,7 @@ use super::types::{FileOps, SeekWhence, VfsError, can_read, can_write};
 use crate::fs::vfs::types::InodeType;
 use crate::sync::Mutex;
 use alloc::sync::Arc;
+use core::sync::atomic::{AtomicU32, Ordering};
 
 /// An open file description, tying a dentry to per-open state (offset, flags)
 /// and the I/O operations obtained from the inode.
@@ -12,7 +13,7 @@ pub struct File {
     /// Current read/write offset (protected by a mutex for safe concurrent access).
     pub offset: Mutex<usize>,
     /// Open flags (O_RDONLY, O_WRONLY, O_RDWR, etc.).
-    pub flags: u32,
+    pub flags: AtomicU32,
     /// Per-open I/O operations from the inode.
     pub ops: Arc<dyn FileOps>,
 }
@@ -23,34 +24,46 @@ impl File {
         Self {
             dentry,
             offset: Mutex::new(0),
-            flags,
+            flags: AtomicU32::new(flags),
             ops,
         }
     }
 
+    /// Return the current open flags.
+    pub fn flags(&self) -> u32 {
+        self.flags.load(Ordering::Acquire)
+    }
+
+    /// Update the open flags (e.g. via fcntl F_SETFL).
+    pub fn set_flags(&self, flags: u32) {
+        self.flags.store(flags, Ordering::Release);
+    }
+
     /// Read from the file, advancing the offset. Enforces `O_RDONLY`/`O_RDWR`.
     pub fn read(&self, buf: &mut [u8]) -> Result<usize, VfsError> {
-        if !can_read(self.flags) {
+        let flags = self.flags();
+        if !can_read(flags) {
             return Err(VfsError::PermissionDenied);
         }
         let mut offset = self.offset.lock();
-        let bytes_read = self.ops.read(*offset, buf)?;
+        let bytes_read = self.ops.read_with_flags(*offset, buf, flags)?;
         *offset += bytes_read;
         Ok(bytes_read)
     }
 
     /// Write to the file, advancing the offset. Enforces `O_WRONLY`/`O_RDWR` and `O_APPEND`.
     pub fn write(&self, buf: &[u8]) -> Result<usize, VfsError> {
-        if !can_write(self.flags) {
+        let flags = self.flags();
+        if !can_write(flags) {
             return Err(VfsError::PermissionDenied);
         }
         let mut offset = self.offset.lock();
-        if (self.flags & super::types::O_APPEND) != 0 {
+        if (flags & super::types::O_APPEND) != 0 {
             if let Ok(stat) = self.ops.stat().or_else(|_| self.dentry.inode.ops.stat()) {
                 *offset = stat.size as usize;
             }
         }
-        let bytes_written = self.ops.write(*offset, buf)?;
+        let bytes_written = self.ops.write_with_flags(*offset, buf, flags)?;
         *offset += bytes_written;
         Ok(bytes_written)
     }

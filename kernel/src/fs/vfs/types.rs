@@ -77,6 +77,8 @@ pub enum VfsError {
     Interrupted,
     /// Symlink resolution depth exceeded the maximum (ELOOP).
     TooManySymlinks,
+    /// Resource temporarily unavailable / operation would block (EAGAIN/EWOULDBLOCK).
+    WouldBlock,
     /// An underlying device driver error occurred.
     DriverError(DriverError),
 }
@@ -287,9 +289,29 @@ pub trait FileOps: Send + Sync {
         Err(VfsError::NotSupported)
     }
 
+    /// Read up to `buf.len()` bytes starting at `offset` with open/fcntl flags (e.g. O_NONBLOCK).
+    fn read_with_flags(
+        &self,
+        offset: usize,
+        buf: &mut [u8],
+        _flags: u32,
+    ) -> Result<usize, VfsError> {
+        self.read(offset, buf)
+    }
+
     /// Write up to `buf.len()` bytes starting at `offset`.
     fn write(&self, _offset: usize, _buf: &[u8]) -> Result<usize, VfsError> {
         Err(VfsError::NotSupported)
+    }
+
+    /// Write up to `buf.len()` bytes starting at `offset` with open/fcntl flags.
+    fn write_with_flags(
+        &self,
+        offset: usize,
+        buf: &[u8],
+        _flags: u32,
+    ) -> Result<usize, VfsError> {
+        self.write(offset, buf)
     }
 
     /// Seek to the specified offset based on `whence`.

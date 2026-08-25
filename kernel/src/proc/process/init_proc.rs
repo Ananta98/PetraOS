@@ -122,4 +122,3 @@ pub fn run_init_process() -> ! {
         jump_to_userspace(entry_point, stack_top, kernel_rsp0, cr3);
     }
 }
-

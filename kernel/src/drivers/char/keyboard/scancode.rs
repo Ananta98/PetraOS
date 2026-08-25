@@ -271,6 +271,7 @@ impl ScancodeDecoder {
 
     fn map_ascii(&self, make_code: u8) -> Option<char> {
         let shift = self.modifiers.shift;
+        let ctrl = self.modifiers.ctrl;
         let caps = self.modifiers.caps_lock;
         let effective_shift_for_alpha = shift ^ caps;
 
@@ -284,7 +285,9 @@ impl ScancodeDecoder {
                 }
             }
             0x03 => {
-                if shift {
+                if ctrl {
+                    '\0' // NUL (^@)
+                } else if shift {
                     '@'
                 } else {
                     '2'
@@ -312,7 +315,9 @@ impl ScancodeDecoder {
                 }
             }
             0x07 => {
-                if shift {
+                if ctrl {
+                    '\x1E' // RS (^^)
+                } else if shift {
                     '^'
                 } else {
                     '6'
@@ -347,7 +352,9 @@ impl ScancodeDecoder {
                 }
             }
             0x0C => {
-                if shift {
+                if ctrl {
+                    '\x1F' // US (^_)
+                } else if shift {
                     '_'
                 } else {
                     '-'
@@ -363,84 +370,108 @@ impl ScancodeDecoder {
             0x0E => '\x08', // Backspace
             0x0F => '\t',   // Tab
             0x10 => {
-                if effective_shift_for_alpha {
+                if ctrl {
+                    '\x11' // DC1 (^Q)
+                } else if effective_shift_for_alpha {
                     'Q'
                 } else {
                     'q'
                 }
             }
             0x11 => {
-                if effective_shift_for_alpha {
+                if ctrl {
+                    '\x17' // ETB (^W)
+                } else if effective_shift_for_alpha {
                     'W'
                 } else {
                     'w'
                 }
             }
             0x12 => {
-                if effective_shift_for_alpha {
+                if ctrl {
+                    '\x05' // ENQ (^E)
+                } else if effective_shift_for_alpha {
                     'E'
                 } else {
                     'e'
                 }
             }
             0x13 => {
-                if effective_shift_for_alpha {
+                if ctrl {
+                    '\x12' // DC2 (^R)
+                } else if effective_shift_for_alpha {
                     'R'
                 } else {
                     'r'
                 }
             }
             0x14 => {
-                if effective_shift_for_alpha {
+                if ctrl {
+                    '\x14' // DC4 (^T)
+                } else if effective_shift_for_alpha {
                     'T'
                 } else {
                     't'
                 }
             }
             0x15 => {
-                if effective_shift_for_alpha {
+                if ctrl {
+                    '\x19' // EM (^Y)
+                } else if effective_shift_for_alpha {
                     'Y'
                 } else {
                     'y'
                 }
             }
             0x16 => {
-                if effective_shift_for_alpha {
+                if ctrl {
+                    '\x15' // NAK (^U)
+                } else if effective_shift_for_alpha {
                     'U'
                 } else {
                     'u'
                 }
             }
             0x17 => {
-                if effective_shift_for_alpha {
+                if ctrl {
+                    '\x09' // HT (^I / Tab)
+                } else if effective_shift_for_alpha {
                     'I'
                 } else {
                     'i'
                 }
             }
             0x18 => {
-                if effective_shift_for_alpha {
+                if ctrl {
+                    '\x0F' // SI (^O)
+                } else if effective_shift_for_alpha {
                     'O'
                 } else {
                     'o'
                 }
             }
             0x19 => {
-                if effective_shift_for_alpha {
+                if ctrl {
+                    '\x10' // DLE (^P)
+                } else if effective_shift_for_alpha {
                     'P'
                 } else {
                     'p'
                 }
             }
             0x1A => {
-                if shift {
+                if ctrl {
+                    '\x1B' // ESC (^[)
+                } else if shift {
                     '{'
                 } else {
                     '['
                 }
             }
             0x1B => {
-                if shift {
+                if ctrl {
+                    '\x1D' // GS (^])
+                } else if shift {
                     '}'
                 } else {
                     ']'
@@ -448,63 +479,81 @@ impl ScancodeDecoder {
             }
             0x1C => '\n', // Enter
             0x1E => {
-                if effective_shift_for_alpha {
+                if ctrl {
+                    '\x01' // SOH (^A)
+                } else if effective_shift_for_alpha {
                     'A'
                 } else {
                     'a'
                 }
             }
             0x1F => {
-                if effective_shift_for_alpha {
+                if ctrl {
+                    '\x13' // DC3 (^S)
+                } else if effective_shift_for_alpha {
                     'S'
                 } else {
                     's'
                 }
             }
             0x20 => {
-                if effective_shift_for_alpha {
+                if ctrl {
+                    '\x04' // EOT (^D)
+                } else if effective_shift_for_alpha {
                     'D'
                 } else {
                     'd'
                 }
             }
             0x21 => {
-                if effective_shift_for_alpha {
+                if ctrl {
+                    '\x06' // ACK (^F)
+                } else if effective_shift_for_alpha {
                     'F'
                 } else {
                     'f'
                 }
             }
             0x22 => {
-                if effective_shift_for_alpha {
+                if ctrl {
+                    '\x07' // BEL (^G)
+                } else if effective_shift_for_alpha {
                     'G'
                 } else {
                     'g'
                 }
             }
             0x23 => {
-                if effective_shift_for_alpha {
+                if ctrl {
+                    '\x08' // BS (^H)
+                } else if effective_shift_for_alpha {
                     'H'
                 } else {
                     'h'
                 }
             }
             0x24 => {
-                if effective_shift_for_alpha {
+                if ctrl {
+                    '\x0A' // LF (^J)
+                } else if effective_shift_for_alpha {
                     'J'
                 } else {
                     'j'
                 }
             }
             0x25 => {
-                if effective_shift_for_alpha {
+                if ctrl {
+                    '\x0B' // VT (^K)
+                } else if effective_shift_for_alpha {
                     'K'
                 } else {
                     'k'
                 }
             }
             0x26 => {
-                if effective_shift_for_alpha {
+                if ctrl {
+                    '\x0C' // FF (^L)
+                } else if effective_shift_for_alpha {
                     'L'
                 } else {
                     'l'
@@ -532,56 +581,72 @@ impl ScancodeDecoder {
                 }
             }
             0x2B => {
-                if shift {
+                if ctrl {
+                    '\x1C' // FS (^\)
+                } else if shift {
                     '|'
                 } else {
                     '\\'
                 }
             }
             0x2C => {
-                if effective_shift_for_alpha {
+                if ctrl {
+                    '\x1A' // SUB (^Z)
+                } else if effective_shift_for_alpha {
                     'Z'
                 } else {
                     'z'
                 }
             }
             0x2D => {
-                if effective_shift_for_alpha {
+                if ctrl {
+                    '\x18' // CAN (^X)
+                } else if effective_shift_for_alpha {
                     'X'
                 } else {
                     'x'
                 }
             }
             0x2E => {
-                if effective_shift_for_alpha {
+                if ctrl {
+                    '\x03' // ETX (^C)
+                } else if effective_shift_for_alpha {
                     'C'
                 } else {
                     'c'
                 }
             }
             0x2F => {
-                if effective_shift_for_alpha {
+                if ctrl {
+                    '\x16' // SYN (^V)
+                } else if effective_shift_for_alpha {
                     'V'
                 } else {
                     'v'
                 }
             }
             0x30 => {
-                if effective_shift_for_alpha {
+                if ctrl {
+                    '\x02' // STX (^B)
+                } else if effective_shift_for_alpha {
                     'B'
                 } else {
                     'b'
                 }
             }
             0x31 => {
-                if effective_shift_for_alpha {
+                if ctrl {
+                    '\x0E' // SO (^N)
+                } else if effective_shift_for_alpha {
                     'N'
                 } else {
                     'n'
                 }
             }
             0x32 => {
-                if effective_shift_for_alpha {
+                if ctrl {
+                    '\x0D' // CR (^M)
+                } else if effective_shift_for_alpha {
                     'M'
                 } else {
                     'm'
@@ -609,7 +674,13 @@ impl ScancodeDecoder {
                 }
             }
             0x37 => '*', // Keypad *
-            0x39 => ' ', // Space
+            0x39 => {
+                if ctrl {
+                    '\0' // NUL
+                } else {
+                    ' '
+                }
+            }
             0x4A => '-', // Keypad -
             0x4E => '+', // Keypad +
             0x47 => {

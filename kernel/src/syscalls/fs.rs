@@ -527,9 +527,14 @@ pub fn sys_fcntl(frame: &mut SyscallFrame) -> SyscallResult {
         }
         F_GETFL => {
             let file = proc.fd_table.get(fd)?;
-            Ok(file.flags as usize)
+            Ok(file.flags() as usize)
         }
-        F_SETFL => Ok(0),
+        F_SETFL => {
+            let flags = arg as u32;
+            let file = proc.fd_table.get(fd)?;
+            file.set_flags(flags);
+            Ok(0)
+        }
         F_GETLK | F_SETLK | F_SETLKW | F_SETOWN | F_GETOWN => Ok(0),
         _ => Ok(0),
     }
@@ -601,9 +606,40 @@ pub fn sys_lstat(frame: &mut SyscallFrame) -> SyscallResult {
 pub fn sys_poll(frame: &mut SyscallFrame) -> SyscallResult {
     let fds_ptr = UserPtr::<PollFd>::from_u64(frame.arg1());
     let nfds = frame.arg2() as usize;
-    let _timeout = frame.arg3() as i32;
+    let timeout_ms = frame.arg3() as i32;
 
+    do_poll(fds_ptr, nfds, timeout_ms)
+}
+
+/// `sys_ppoll` (SYS_PPOLL = 271)
+pub fn sys_ppoll(frame: &mut SyscallFrame) -> SyscallResult {
+    let fds_ptr = UserPtr::<PollFd>::from_u64(frame.arg1());
+    let nfds = frame.arg2() as usize;
+    let ts_ptr = UserPtr::<crate::syscalls::time::TimeSpec>::from_u64(frame.arg3());
+
+    let timeout_ms = if ts_ptr.is_null() {
+        -1
+    } else {
+        let ts = ts_ptr.read().ok_or(SyscallError::EFAULT)?;
+        if ts.tv_sec < 0 || ts.tv_nsec < 0 {
+            return Err(SyscallError::EINVAL);
+        }
+        (ts.tv_sec * 1000 + ts.tv_nsec / 1_000_000) as i32
+    };
+
+    do_poll(fds_ptr, nfds, timeout_ms)
+}
+
+fn do_poll(fds_ptr: UserPtr<PollFd>, nfds: usize, timeout_ms: i32) -> SyscallResult {
     if nfds == 0 {
+        if timeout_ms > 0 {
+            let start_ns = crate::arch::timer::hpet::elapsed_ns();
+            let dur_ns = (timeout_ms as u64) * 1_000_000;
+            while crate::arch::timer::hpet::elapsed_ns().saturating_sub(start_ns) < dur_ns {
+                crate::arch::enable_interrupts();
+                crate::proc::thread::Thread::yield_cpu();
+            }
+        }
         return Ok(0);
     }
     if nfds > 1024 {
@@ -612,34 +648,63 @@ pub fn sys_poll(frame: &mut SyscallFrame) -> SyscallResult {
     let fds_slice = fds_ptr.as_slice_mut(nfds).ok_or(SyscallError::EFAULT)?;
 
     let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
-    let proc = proc_arc.lock();
 
-    let mut ready_count = 0;
-    for pfd in fds_slice.iter_mut() {
-        if pfd.fd < 0 {
-            pfd.revents = 0;
-            continue;
-        }
-        match proc.fd_table.get(pfd.fd) {
-            Ok(file) => {
-                let revents = file.ops.poll_events(pfd.events);
-                pfd.revents = revents;
-                if revents != 0 {
+    let start_ns = crate::arch::timer::hpet::elapsed_ns();
+    let has_timeout = timeout_ms >= 0;
+    let dur_ns = if timeout_ms > 0 {
+        (timeout_ms as u64) * 1_000_000
+    } else {
+        0
+    };
+
+    loop {
+        let proc = proc_arc.lock();
+        let mut ready_count = 0;
+        for pfd in fds_slice.iter_mut() {
+            if pfd.fd < 0 {
+                pfd.revents = 0;
+                continue;
+            }
+            match proc.fd_table.get(pfd.fd) {
+                Ok(file) => {
+                    let revents = file.ops.poll_events(pfd.events);
+                    pfd.revents = revents;
+                    if revents != 0 {
+                        ready_count += 1;
+                    }
+                }
+                Err(_) => {
+                    pfd.revents = POLLNVAL;
                     ready_count += 1;
                 }
             }
-            Err(_) => {
-                pfd.revents = POLLNVAL;
-                ready_count += 1;
+        }
+        drop(proc);
+
+        if ready_count > 0 {
+            return Ok(ready_count);
+        }
+
+        if has_timeout {
+            if timeout_ms == 0 {
+                return Ok(0);
+            }
+            if crate::arch::timer::hpet::elapsed_ns().saturating_sub(start_ns) >= dur_ns {
+                return Ok(0);
             }
         }
-    }
-    Ok(ready_count)
-}
 
-/// `sys_ppoll` (SYS_PPOLL = 271)
-pub fn sys_ppoll(frame: &mut SyscallFrame) -> SyscallResult {
-    sys_poll(frame)
+        // Check if there are pending signals interrupting poll
+        {
+            let proc = proc_arc.lock();
+            if proc.pending_signals.mask != 0 {
+                return Err(SyscallError::EINTR);
+            }
+        }
+
+        crate::arch::enable_interrupts();
+        crate::proc::thread::Thread::yield_cpu();
+    }
 }
 
 /// `sys_readv` (SYS_READV = 19)
@@ -776,12 +841,13 @@ pub fn sys_select(frame: &mut SyscallFrame) -> SyscallResult {
 
         if is_r || is_w {
             if let Ok(file) = proc.fd_table.get(fd) {
-                if is_r && crate::fs::can_read(file.flags) {
+                let flags = file.flags();
+                if is_r && crate::fs::can_read(flags) {
                     ready_count += 1;
                 } else if let Some(ref mut r) = rfds_val {
                     r.fds_bits[word] &= !bit;
                 }
-                if is_w && crate::fs::can_write(file.flags) {
+                if is_w && crate::fs::can_write(flags) {
                     ready_count += 1;
                 } else if let Some(ref mut w) = wfds_val {
                     w.fds_bits[word] &= !bit;
