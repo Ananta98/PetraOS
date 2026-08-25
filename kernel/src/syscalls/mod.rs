@@ -118,11 +118,6 @@ pub struct SyscallEntry {
 #[macro_export]
 macro_rules! define_syscall_table {
     ($( $const_name:ident = $num:expr => ($name:expr, $handler:expr) ),* $(,)?) => {
-        $(
-            #[allow(dead_code)]
-            pub const $const_name: u64 = $num;
-        )*
-
         pub static SYSCALL_TABLE: &[$crate::syscalls::SyscallEntry] = &[
             $(
                 $crate::syscalls::SyscallEntry {
