@@ -13,6 +13,9 @@ pub enum VmAreaKind {
         offset: usize,
         file_size: usize,
     },
+    Shared {
+        shmid: i32,
+    },
 }
 
 impl PartialEq for VmAreaKind {
@@ -34,6 +37,7 @@ impl PartialEq for VmAreaKind {
                     file_size: s2,
                 },
             ) => o1 == o2 && s1 == s2 && Arc::ptr_eq(f1, f2),
+            (VmAreaKind::Shared { shmid: s1 }, VmAreaKind::Shared { shmid: s2 }) => s1 == s2,
             _ => false,
         }
     }
@@ -49,6 +53,7 @@ impl core::fmt::Debug for VmAreaKind {
             VmAreaKind::File {
                 offset, file_size, ..
             } => write!(f, "File(offset={}, size={})", offset, file_size),
+            VmAreaKind::Shared { shmid } => write!(f, "Shared(shmid={})", shmid),
         }
     }
 }

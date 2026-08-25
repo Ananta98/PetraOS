@@ -86,7 +86,22 @@ pub struct IpcPerm {
     pub cgid: u32,
     pub mode: u32,
     pub seq: u32,
-    _pad: [u64; 2],
+    pub _pad: [u64; 2],
+}
+
+impl IpcPerm {
+    pub fn new(key: i32, uid: u32, gid: u32, mode: u32) -> Self {
+        Self {
+            key,
+            uid,
+            gid,
+            cuid: uid,
+            cgid: gid,
+            mode: mode & 0o777,
+            seq: 0,
+            _pad: [0; 2],
+        }
+    }
 }
 
 /// Mirrors `struct semid_ds` from userspace ABI.

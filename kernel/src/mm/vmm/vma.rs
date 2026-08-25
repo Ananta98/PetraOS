@@ -140,6 +140,20 @@ impl<P: PageTable> AddrSpace<P> {
                             return Err(AddrSpaceError::PagingError(err));
                         }
                     }
+                    VmAreaKind::Shared { .. } => {
+                        // Shared memory pages are mapped directly without COW remap.
+                        if let Err(err) = new_page_table.map(page_virt, parent_phys, area.flags) {
+                            Self::rollback_clone(
+                                &mut self.page_table,
+                                &mut new_page_table,
+                                &child_maps,
+                                &self.vm_areas,
+                            );
+                            return Err(AddrSpaceError::PagingError(err));
+                        }
+                        crate::mm::PMM.inc_ref(parent_phys);
+                        child_maps.push((page_virt, parent_phys, false));
+                    }
                 }
             }
         }
@@ -274,13 +288,18 @@ impl<P: PageTable> AddrSpace<P> {
                     }
                     frame
                 }
+                VmAreaKind::Shared { .. } => {
+                    // Shared areas should be mapped using map_shared_area with pre-allocated frames
+                    self.rollback_mapping(start, mapped_pages, &kind);
+                    return Err(AddrSpaceError::InvalidRange);
+                }
             };
 
             match self.page_table.map(page_virt, frame_phys, flags) {
                 Ok(_) => mapped_pages += 1,
                 Err(err) => {
                     self.rollback_mapping(start, mapped_pages, &kind);
-                    if matches!(kind, VmAreaKind::Anonymous | VmAreaKind::File { .. }) {
+                    if matches!(kind, VmAreaKind::Anonymous | VmAreaKind::File { .. } | VmAreaKind::Shared { .. }) {
                         crate::mm::PMM.free_page(frame_phys);
                     }
                     return Err(AddrSpaceError::PagingError(err));
@@ -301,11 +320,61 @@ impl<P: PageTable> AddrSpace<P> {
         Ok(())
     }
 
+    /// Map a contiguous range of pre-allocated physical frames for shared memory (System V IPC).
+    pub fn map_shared_area(
+        &mut self,
+        start: VirtAddr,
+        flags: PageTableFlags,
+        frames: &[PhysAddr],
+        shmid: i32,
+    ) -> Result<(), AddrSpaceError> {
+        let size = frames.len() * 4096;
+        if size == 0 || !start.is_aligned(4096u64) {
+            return Err(AddrSpaceError::InvalidRange);
+        }
+
+        let end = start + size as u64;
+        if self.check_overlap(start, end) {
+            return Err(AddrSpaceError::OverlappingArea);
+        }
+
+        let mut mapped_pages = 0;
+        for (i, &frame_phys) in frames.iter().enumerate() {
+            let page_virt = start + (i as u64 * 4096);
+            crate::mm::PMM.inc_ref(frame_phys);
+            match self.page_table.map(page_virt, frame_phys, flags) {
+                Ok(_) => mapped_pages += 1,
+                Err(err) => {
+                    for j in 0..mapped_pages {
+                        let rollback_virt = start + (j as u64 * 4096);
+                        if let Ok(frame) = self.page_table.unmap(rollback_virt) {
+                            crate::mm::PMM.free_page(frame);
+                        }
+                    }
+                    crate::mm::PMM.free_page(frame_phys);
+                    return Err(AddrSpaceError::PagingError(err));
+                }
+            }
+        }
+
+        self.vm_areas.insert(
+            start,
+            VmArea {
+                start,
+                end,
+                flags,
+                kind: VmAreaKind::Shared { shmid },
+            },
+        );
+
+        Ok(())
+    }
+
     fn rollback_mapping(&mut self, start: VirtAddr, mapped_pages: usize, kind: &VmAreaKind) {
         for j in 0..mapped_pages {
             let rollback_virt = start + (j as u64 * 4096);
             if let Ok(frame) = self.page_table.unmap(rollback_virt) {
-                if matches!(kind, VmAreaKind::Anonymous | VmAreaKind::File { .. }) {
+                if matches!(kind, VmAreaKind::Anonymous | VmAreaKind::File { .. } | VmAreaKind::Shared { .. }) {
                     crate::mm::PMM.free_page(frame);
                 }
             }
@@ -372,7 +441,7 @@ impl<P: PageTable> AddrSpace<P> {
             let page_virt = area.start + (i as u64 * 4096);
             match self.page_table.unmap(page_virt) {
                 Ok(frame) => {
-                    if matches!(area.kind, VmAreaKind::Anonymous | VmAreaKind::File { .. }) {
+                    if matches!(area.kind, VmAreaKind::Anonymous | VmAreaKind::File { .. } | VmAreaKind::Shared { .. }) {
                         crate::mm::PMM.free_page(frame);
                     }
                 }

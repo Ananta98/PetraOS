@@ -153,6 +153,14 @@ impl<P: PageTable> AddrSpace<P> {
                 }
                 frame
             }
+            VmAreaKind::Shared { shmid } => {
+                let page_index = ((page_virt - area.start) / 4096) as usize;
+                let mgr = crate::ipc::shm::SHM_MANAGER.lock();
+                let seg = mgr.segments.get(shmid).ok_or(PageFaultError::UnmappedAccess)?;
+                let frame = seg.frames.get(page_index).copied().ok_or(PageFaultError::UnmappedAccess)?;
+                crate::mm::PMM.inc_ref(frame);
+                frame
+            }
         };
 
         self.page_table

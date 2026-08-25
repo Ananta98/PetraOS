@@ -130,6 +130,10 @@ impl<P: PageTable> AddrSpace<P> {
                         file_size: *file_size,
                     },
                 ),
+                VmAreaKind::Shared { shmid } => (
+                    VmAreaKind::Shared { shmid: *shmid },
+                    VmAreaKind::Shared { shmid: *shmid },
+                ),
             };
 
             let left_vma = VmArea {
@@ -173,6 +177,7 @@ impl<P: PageTable> AddrSpace<P> {
                     file_size: s2,
                 },
             ) => Arc::ptr_eq(f1, f2) && s1 == s2 && *o2 == *o1 + (cur.end - cur.start) as usize,
+            (VmAreaKind::Shared { shmid: s1 }, VmAreaKind::Shared { shmid: s2 }) => s1 == s2,
             _ => false,
         }
     }

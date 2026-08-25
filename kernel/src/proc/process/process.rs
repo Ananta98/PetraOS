@@ -402,6 +402,9 @@ impl Process {
         self.state = ProcessState::Zombie;
         self.exit_code = Some(status);
 
+        // Detach all shared memory segments for this process
+        crate::ipc::shm::SHM_MANAGER.lock().on_process_exit(self.pid.as_u64() as u32);
+
         // Determine the TID of the currently-running thread on this CPU.
         let cpu_id = crate::arch::cpu_id();
         let current_tid = crate::sched::current_thread_on_cpu(cpu_id)
