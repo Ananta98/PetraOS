@@ -1,6 +1,7 @@
 pub mod block;
 pub mod console;
 pub mod fb;
+pub mod net;
 pub mod null;
 pub mod urandom;
 pub mod zero;
@@ -9,6 +10,7 @@ pub mod zero;
 pub use block::BlockDeviceInode;
 pub use console::ConsoleInode;
 pub use fb::FbInode;
+pub use net::NetDeviceInode;
 pub use null::NullInode;
 pub use urandom::UrandomInode;
 pub use zero::ZeroInode;

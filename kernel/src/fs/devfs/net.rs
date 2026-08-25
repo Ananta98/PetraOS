@@ -16,6 +16,7 @@ use alloc::sync::Arc;
 use alloc::vec::Vec;
 
 use crate::device::{DEVICE_MANAGER, DeviceType};
+use crate::drivers::net::intel::e1000::E1000_DEVICE;
 use crate::fs::vfs::mount::MOUNT_TABLE;
 use crate::fs::vfs::types::{FileOps, Inode, InodeOps, InodeType, O_NONBLOCK, Stat, VfsError};
 use crate::mm::UserPtr;
@@ -289,7 +290,7 @@ impl FileOps for NetDeviceFileOps {
     }
 
     fn write(&self, _offset: usize, buf: &[u8]) -> Result<usize, VfsError> {
-        if buf.is_empty() || buf.len() > BUFFER_SIZE {
+        if buf.is_empty() || buf.len() > 2048 {
             return Err(VfsError::InvalidInput);
         }
 
