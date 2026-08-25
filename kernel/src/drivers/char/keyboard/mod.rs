@@ -8,7 +8,7 @@ pub mod ps2;
 pub mod scancode;
 
 use crate::device::{CharDevice, Device, DeviceType, Driver, DriverError};
-use crate::sync::spinlock::Spinlock;
+use crate::sync::Mutex;
 use alloc::boxed::Box;
 use alloc::sync::Arc;
 use core::sync::atomic::{AtomicU64, Ordering};
@@ -21,7 +21,7 @@ pub use scancode::{KeyCode, KeyEvent, KeyState, Modifiers, ScancodeDecoder};
 static KEYBOARD_INTERRUPT_COUNT: AtomicU64 = AtomicU64::new(0);
 
 /// Global scancode decoder state.
-static SCANCODE_DECODER: Spinlock<ScancodeDecoder> = Spinlock::new(ScancodeDecoder::new());
+static SCANCODE_DECODER: Mutex<ScancodeDecoder> = Mutex::new(ScancodeDecoder::new());
 
 /// The PS/2 Character Keyboard Device.
 pub struct Ps2Keyboard;
@@ -92,7 +92,7 @@ impl Driver for Ps2KeyboardDriver {
         let mut kbd = Ps2Keyboard::new();
         kbd.init()?;
 
-        let dev_ref: Arc<Spinlock<Box<dyn Device>>> = Arc::new(Spinlock::new(Box::new(kbd)));
+        let dev_ref: Arc<Mutex<Box<dyn Device>>> = Arc::new(Mutex::new(Box::new(kbd)));
         crate::device::DEVICE_MANAGER.write().register(dev_ref);
         log::info!("[PS/2 Keyboard] Driver probed and registered to DEVICE_MANAGER.");
         Ok(())

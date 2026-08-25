@@ -5,7 +5,7 @@
 
 use crate::arch::ports::Ports;
 use crate::device::{Device, DeviceType, Driver, DriverError};
-use crate::sync::spinlock::Spinlock;
+use crate::sync::Mutex;
 use alloc::boxed::Box;
 use alloc::sync::Arc;
 use core::sync::atomic::{AtomicU64, Ordering};
@@ -207,7 +207,7 @@ impl CmosRtc {
     }
 }
 
-pub static CMOS_RTC: Spinlock<CmosRtc> = Spinlock::new(CmosRtc::new());
+pub static CMOS_RTC: Mutex<CmosRtc> = Mutex::new(CmosRtc::new());
 
 pub struct CmosRtcDeviceRef;
 
@@ -290,8 +290,8 @@ impl Driver for CmosRtcDriver {
 
     fn probe(&self) -> Result<(), DriverError> {
         init_boot_time();
-        let device_ref: Arc<Spinlock<Box<dyn Device>>> =
-            Arc::new(Spinlock::new(Box::new(CmosRtcDeviceRef)));
+        let device_ref: Arc<Mutex<Box<dyn Device>>> =
+            Arc::new(Mutex::new(Box::new(CmosRtcDeviceRef)));
         crate::device::DEVICE_MANAGER.write().register(device_ref);
         log::info!("[CMOS RTC Module] Registered CMOS Real-Time Clock to DEVICE_MANAGER");
         Ok(())

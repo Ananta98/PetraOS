@@ -240,12 +240,12 @@ impl IoApic {
     }
 }
 
-use crate::sync::spinlock::Spinlock;
+use crate::sync::Mutex;
 
-static IO_APICS: Spinlock<[Option<IoApic>; 8]> =
-    Spinlock::new([None, None, None, None, None, None, None, None]);
-static ISOS: Spinlock<([Option<InterruptSourceOverride>; 16], usize)> =
-    Spinlock::new(([None; 16], 0));
+static IO_APICS: Mutex<[Option<IoApic>; 8]> =
+    Mutex::new([None, None, None, None, None, None, None, None]);
+static ISOS: Mutex<([Option<InterruptSourceOverride>; 16], usize)> =
+    Mutex::new(([None; 16], 0));
 
 /// Register an initialized IOAPIC instance for global IRQ routing management.
 pub fn register_ioapic(ioapic: IoApic) {

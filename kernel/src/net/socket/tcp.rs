@@ -12,7 +12,7 @@ use smoltcp::wire::IpEndpoint;
 
 use crate::net::stack::{NET_STACK, current_time};
 use crate::net::types::*;
-use crate::sync::spinlock::Spinlock;
+use crate::sync::Mutex;
 use crate::syscalls::SyscallError;
 
 use super::Socket;
@@ -26,7 +26,7 @@ pub struct TcpSocket {
     pub remote_endpoint: Option<IpEndpoint>,
     pub is_listening: bool,
     pub backlog: usize,
-    pub pending_conns: VecDeque<Arc<Spinlock<Socket>>>,
+    pub pending_conns: VecDeque<Arc<Mutex<Socket>>>,
     pub nonblocking: bool,
     pub shutdown_read: bool,
     pub shutdown_write: bool,
@@ -87,7 +87,7 @@ impl TcpSocket {
     }
 
     /// Accept a newly established incoming connection.
-    pub fn accept(&mut self, nonblocking: bool) -> Result<(Arc<Spinlock<Socket>>, IpEndpoint), SyscallError> {
+    pub fn accept(&mut self, nonblocking: bool) -> Result<(Arc<Mutex<Socket>>, IpEndpoint), SyscallError> {
         if !self.is_listening {
             return Err(SyscallError::EINVAL);
         }
@@ -125,7 +125,7 @@ impl TcpSocket {
                 let new_tcp = tcp::Socket::new(new_rx_buffer, new_tx_buffer);
                 let new_handle = stack.add_socket(new_tcp);
 
-                let accepted_sock = Arc::new(Spinlock::new(Socket::Tcp(TcpSocket {
+                let accepted_sock = Arc::new(Mutex::new(Socket::Tcp(TcpSocket {
                     handle: Some(new_handle),
                     local_endpoint: Some(local),
                     remote_endpoint: Some(remote),

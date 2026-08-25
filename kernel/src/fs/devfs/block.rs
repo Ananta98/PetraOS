@@ -1,5 +1,5 @@
 use alloc::sync::Arc;
-use crate::sync::spinlock::Spinlock;
+use crate::sync::Mutex;
 use alloc::boxed::Box;
 use crate::device::{Device, DEVICE_MANAGER};
 use crate::fs::vfs::types::{FileOps, InodeOps, VfsError};
@@ -34,7 +34,7 @@ impl InodeOps for BlockDeviceInode {
 ///
 /// Holds the device reference resolved at open-time (not per-I/O lookup).
 pub struct BlockDeviceFileOps {
-    device: Arc<Spinlock<Box<dyn Device>>>,
+    device: Arc<Mutex<Box<dyn Device>>>,
 }
 
 impl FileOps for BlockDeviceFileOps {

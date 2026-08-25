@@ -5,7 +5,7 @@ use crate::fs::vfs::dentry::Dentry;
 use crate::fs::vfs::types::{
     FileOps, Inode, InodeOps, InodeType, O_RDONLY, O_WRONLY, Stat, VfsError,
 };
-use crate::sync::spinlock::Spinlock;
+use crate::sync::Mutex;
 use alloc::collections::VecDeque;
 use alloc::sync::Arc;
 use core::sync::atomic::AtomicU64;
@@ -34,7 +34,7 @@ impl PipeInner {
 
 /// Read end file operations for an anonymous pipe.
 pub struct PipeReadFileOps {
-    pipe: Arc<Spinlock<PipeInner>>,
+    pipe: Arc<Mutex<PipeInner>>,
     nonblocking: bool,
 }
 
@@ -92,7 +92,7 @@ impl Drop for PipeReadFileOps {
 
 /// Write end file operations for an anonymous pipe.
 pub struct PipeWriteFileOps {
-    pipe: Arc<Spinlock<PipeInner>>,
+    pipe: Arc<Mutex<PipeInner>>,
     nonblocking: bool,
 }
 
@@ -175,7 +175,7 @@ pub fn create_pipe(nonblocking: bool) -> Result<(Arc<File>, Arc<File>), VfsError
     static NEXT_PIPE_INO: AtomicU64 = AtomicU64::new(100_000);
     let ino = NEXT_PIPE_INO.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
 
-    let pipe = Arc::new(Spinlock::new(PipeInner::new(PIPE_BUFFER_CAPACITY)));
+    let pipe = Arc::new(Mutex::new(PipeInner::new(PIPE_BUFFER_CAPACITY)));
 
     let read_ops = Arc::new(PipeReadFileOps {
         pipe: pipe.clone(),
@@ -193,8 +193,8 @@ pub fn create_pipe(nonblocking: bool) -> Result<(Arc<File>, Arc<File>), VfsError
     let dentry = Arc::new(Dentry {
         name: alloc::string::String::from("pipe:[anon]"),
         inode,
-        parent: Spinlock::new(None),
-        children: Spinlock::new(alloc::collections::BTreeMap::new()),
+        parent: Mutex::new(None),
+        children: Mutex::new(alloc::collections::BTreeMap::new()),
     });
 
     let read_file = Arc::new(File::new(dentry.clone(), O_RDONLY, read_ops));

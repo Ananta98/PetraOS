@@ -18,7 +18,7 @@ pub mod realtime;
 use crate::arch::cpu::context::{switch_context, switch_context_to};
 use crate::arch::cpu::{msr, tss};
 use crate::proc::thread::{Thread, ThreadId, ThreadState};
-use crate::sync::spinlock::Spinlock;
+use crate::sync::Mutex;
 use alloc::sync::Arc;
 
 pub use fair::{BASE_SLICE_NS, EevdfScheduler};
@@ -44,22 +44,22 @@ static RT_QUEUES: [RtRunQueue; MAX_CPUS] = [
 ];
 
 /// Global EEVDF fair scheduler instance.
-pub static FAIR_SCHEDULER: Spinlock<EevdfScheduler> = Spinlock::new(EevdfScheduler::new());
+pub static FAIR_SCHEDULER: Mutex<EevdfScheduler> = Mutex::new(EevdfScheduler::new());
 
 /// The currently executing thread per CPU.
-static CURRENT_THREADS: [Spinlock<Option<Arc<Spinlock<Thread>>>>; MAX_CPUS] = [
-    Spinlock::new(None),
-    Spinlock::new(None),
-    Spinlock::new(None),
-    Spinlock::new(None),
-    Spinlock::new(None),
-    Spinlock::new(None),
-    Spinlock::new(None),
-    Spinlock::new(None),
+static CURRENT_THREADS: [Mutex<Option<Arc<Mutex<Thread>>>>; MAX_CPUS] = [
+    Mutex::new(None),
+    Mutex::new(None),
+    Mutex::new(None),
+    Mutex::new(None),
+    Mutex::new(None),
+    Mutex::new(None),
+    Mutex::new(None),
+    Mutex::new(None),
 ];
 
 /// Obtains the currently executing thread on `cpu_id`.
-pub fn current_thread_on_cpu(cpu_id: u32) -> Option<Arc<Spinlock<Thread>>> {
+pub fn current_thread_on_cpu(cpu_id: u32) -> Option<Arc<Mutex<Thread>>> {
     if (cpu_id as usize) < MAX_CPUS {
         crate::arch::without_interrupts(|| CURRENT_THREADS[cpu_id as usize].lock().clone())
     } else {
@@ -68,7 +68,7 @@ pub fn current_thread_on_cpu(cpu_id: u32) -> Option<Arc<Spinlock<Thread>>> {
 }
 
 /// Sets the currently executing thread on `cpu_id`.
-pub fn set_current_thread_on_cpu(cpu_id: u32, thread: Option<Arc<Spinlock<Thread>>>) {
+pub fn set_current_thread_on_cpu(cpu_id: u32, thread: Option<Arc<Mutex<Thread>>>) {
     if (cpu_id as usize) < MAX_CPUS {
         crate::arch::without_interrupts(|| {
             *CURRENT_THREADS[cpu_id as usize].lock() = thread;
@@ -80,7 +80,7 @@ pub fn set_current_thread_on_cpu(cpu_id: u32, thread: Option<Arc<Spinlock<Thread
 ///
 /// Real-time threads are enqueued locklessly into `RT_QUEUES`.
 /// Fair threads are enqueued into `FAIR_SCHEDULER`.
-pub fn add_thread(thread: Arc<Spinlock<Thread>>) {
+pub fn add_thread(thread: Arc<Mutex<Thread>>) {
     let (policy, rt_prio) = {
         let t_lock = thread.lock();
         (t_lock.sched_policy, t_lock.rt_priority)
@@ -98,7 +98,7 @@ pub fn add_thread(thread: Arc<Spinlock<Thread>>) {
 }
 
 /// Removes a thread from the scheduler run queues by its `ThreadId`.
-pub fn remove_thread(tid: ThreadId) -> Option<Arc<Spinlock<Thread>>> {
+pub fn remove_thread(tid: ThreadId) -> Option<Arc<Mutex<Thread>>> {
     crate::arch::without_interrupts(|| FAIR_SCHEDULER.lock().remove_thread(tid))
 }
 
@@ -106,7 +106,7 @@ pub fn remove_thread(tid: ThreadId) -> Option<Arc<Spinlock<Thread>>> {
 ///
 /// 1. **Real-Time (RT)**: Highest priority available in lockless `RT_QUEUES`.
 /// 2. **Fair (EEVDF)**: Earliest virtual deadline among eligible threads in `FAIR_SCHEDULER`.
-pub fn pick_next(cpu_id: u32) -> Option<Arc<Spinlock<Thread>>> {
+pub fn pick_next(cpu_id: u32) -> Option<Arc<Mutex<Thread>>> {
     // Restrict scheduling to BSP CPU 0 until secondary AP core thread stacks are configured
     if cpu_id != 0 {
         return None;

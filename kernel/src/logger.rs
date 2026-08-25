@@ -1,12 +1,12 @@
 use crate::arch::without_interrupts;
 use crate::device::{CharDevice, Device};
 use crate::drivers::serial::{PortIoBackend, SerialPort};
-use crate::sync::spinlock::Spinlock;
+use crate::sync::Mutex;
 use core::fmt::Write;
 use log::{Level, Log, Metadata, Record};
 
 struct Logger {
-    serial: Spinlock<Option<SerialPort<PortIoBackend>>>,
+    serial: Mutex<Option<SerialPort<PortIoBackend>>>,
 }
 
 struct SerialWriter<'a>(&'a mut SerialPort<PortIoBackend>);
@@ -24,7 +24,7 @@ impl Write for SerialWriter<'_> {
 }
 
 static LOGGER: Logger = Logger {
-    serial: Spinlock::new(None),
+    serial: Mutex::new(None),
 };
 
 impl Log for Logger {

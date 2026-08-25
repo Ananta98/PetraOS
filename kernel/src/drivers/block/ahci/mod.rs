@@ -8,7 +8,7 @@ use crate::drivers::pci::config;
 use crate::drivers::pci::device::PciDevice;
 use crate::mm::dma::{DmaCoherent, DmaDirection, DmaStreamer};
 use crate::mm::map_mmio;
-use crate::sync::spinlock::Spinlock;
+use crate::sync::Mutex;
 use alloc::boxed::Box;
 use alloc::sync::Arc;
 use fis::{FisRegH2D, FisType};
@@ -21,7 +21,7 @@ use hba::{
 /// Size in bytes of a single AHCI command table (FIS + PRDT region).
 const CMD_TABLE_SIZE: usize = 256;
 
-pub static AHCI_DEVICE: Spinlock<Option<AhciDriver>> = Spinlock::new(None);
+pub static AHCI_DEVICE: Mutex<Option<AhciDriver>> = Mutex::new(None);
 
 pub struct AhciDeviceRef;
 
@@ -85,7 +85,7 @@ pub struct AhciDriver {
     pci_device: PciDevice,
     hba_base: *mut HbaMem,
     pub active_port: usize,
-    pub sector_data: Spinlock<alloc::collections::BTreeMap<u64, alloc::vec::Vec<u8>>>,
+    pub sector_data: Mutex<alloc::collections::BTreeMap<u64, alloc::vec::Vec<u8>>>,
     pub cmd_list: DmaCoherent,
     pub fis_buf: DmaCoherent,
     pub cmd_table: DmaCoherent,
@@ -100,7 +100,7 @@ impl AhciDriver {
             pci_device,
             hba_base: core::ptr::null_mut(),
             active_port: 0,
-            sector_data: Spinlock::new(alloc::collections::BTreeMap::new()),
+            sector_data: Mutex::new(alloc::collections::BTreeMap::new()),
             cmd_list: DmaCoherent::alloc(1024).map_err(|_| DriverError::AllocFailed)?,
             fis_buf: DmaCoherent::alloc(256).map_err(|_| DriverError::AllocFailed)?,
             cmd_table: DmaCoherent::alloc(CMD_TABLE_SIZE).map_err(|_| DriverError::AllocFailed)?,
@@ -522,8 +522,8 @@ impl crate::device::Driver for AhciModuleDriver {
     fn probe(&self) -> Result<(), DriverError> {
         if let Some(ahci) = AhciDriver::find_and_init() {
             *AHCI_DEVICE.lock() = Some(ahci);
-            let device_ref: Arc<Spinlock<Box<dyn Device>>> =
-                Arc::new(Spinlock::new(Box::new(AhciDeviceRef)));
+            let device_ref: Arc<Mutex<Box<dyn Device>>> =
+                Arc::new(Mutex::new(Box::new(AhciDeviceRef)));
             crate::device::DEVICE_MANAGER.write().register(device_ref);
             log::info!(
                 "[AHCI Module] Probed and registered AHCI SATA Controller to DEVICE_MANAGER"

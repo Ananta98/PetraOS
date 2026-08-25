@@ -1,7 +1,7 @@
 use super::dentry::Dentry;
 use super::types::{FileOps, SeekWhence, VfsError, can_read, can_write};
 use crate::fs::vfs::types::InodeType;
-use crate::sync::spinlock::Spinlock;
+use crate::sync::Mutex;
 use alloc::sync::Arc;
 
 /// An open file description, tying a dentry to per-open state (offset, flags)
@@ -9,8 +9,8 @@ use alloc::sync::Arc;
 pub struct File {
     /// The dentry this file was opened from.
     pub dentry: Arc<Dentry>,
-    /// Current read/write offset (protected by a spinlock for safe concurrent access).
-    pub offset: Spinlock<usize>,
+    /// Current read/write offset (protected by a mutex for safe concurrent access).
+    pub offset: Mutex<usize>,
     /// Open flags (O_RDONLY, O_WRONLY, O_RDWR, etc.).
     pub flags: u32,
     /// Per-open I/O operations from the inode.
@@ -22,7 +22,7 @@ impl File {
     pub fn new(dentry: Arc<Dentry>, flags: u32, ops: Arc<dyn FileOps>) -> Self {
         Self {
             dentry,
-            offset: Spinlock::new(0),
+            offset: Mutex::new(0),
             flags,
             ops,
         }

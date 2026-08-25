@@ -20,7 +20,7 @@ use crate::ipc::semaphore::IpcPerm;
 use crate::mm::ArchPageTable;
 use crate::mm::vmm::paging::{PageTableFlags, PhysAddr, VirtAddr};
 use crate::mm::vmm::vma::AddrSpace;
-use crate::sync::spinlock::Spinlock;
+use crate::sync::Mutex;
 
 // ── IPC flags / commands ─────────────────────────────────────────────────────
 
@@ -55,7 +55,7 @@ pub const SHMMNI: usize = 4096;
 pub const SHMALL: usize = 1_048_576;
 
 /// Global shared memory manager singleton.
-pub static SHM_MANAGER: Spinlock<SharedMemoryManager> = Spinlock::new(SharedMemoryManager::new());
+pub static SHM_MANAGER: Mutex<SharedMemoryManager> = Mutex::new(SharedMemoryManager::new());
 
 // ── Error type ───────────────────────────────────────────────────────────────
 

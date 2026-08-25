@@ -1,4 +1,6 @@
 use crate::device::DriverError;
+use crate::net::socket::Socket;
+use crate::sync::Mutex;
 use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
@@ -341,7 +343,7 @@ pub trait FileOps: Send + Sync {
     }
 
     /// Cast to Socket handle if this file is a socket.
-    fn as_socket(&self) -> Option<Arc<crate::sync::spinlock::Spinlock<crate::net::socket::Socket>>> {
+    fn as_socket(&self) -> Option<Arc<Mutex<Socket>>> {
         None
     }
 }

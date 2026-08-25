@@ -1,7 +1,6 @@
 pub mod futex;
 pub mod mutex;
 pub mod rwlock;
-pub mod spinlock;
 
 pub use futex::{
     FUTEX_BITSET_MATCH_ANY, FUTEX_CLOCK_REALTIME, FUTEX_CMD_MASK, FUTEX_CMP_REQUEUE,
@@ -14,4 +13,4 @@ pub use mutex::{Mutex, MutexGuard};
 pub use rwlock::{
     RWLock, RWLockReadGuard, RWLockWriteGuard, RwLock, RwLockReadGuard, RwLockWriteGuard,
 };
-pub use spinlock::{Spinlock, SpinlockGuard};
+

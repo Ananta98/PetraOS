@@ -26,20 +26,20 @@ use crate::fs::vfs::mount::MOUNT_TABLE;
 use crate::fs::vfs::types::{
     FileOps, FileSystem, Inode, InodeOps, InodeType, Stat, SuperBlock, VfsError,
 };
-use crate::sync::spinlock::Spinlock;
+use crate::sync::Mutex;
 
 // ===== DevDirInode — Directory inode for /dev and /dev/pts =====
 
 /// Directory inode for devfs that supports dynamic device node insertion,
 /// lookup, readdir, and stat.
 pub struct DevDirInode {
-    pub entries: Spinlock<BTreeMap<String, Arc<Inode>>>,
+    pub entries: Mutex<BTreeMap<String, Arc<Inode>>>,
 }
 
 impl DevDirInode {
     pub fn new() -> Self {
         Self {
-            entries: Spinlock::new(BTreeMap::new()),
+            entries: Mutex::new(BTreeMap::new()),
         }
     }
 
@@ -76,8 +76,8 @@ impl InodeOps for DevDirInode {
 
 // ===== Global DevFS directory references =====
 
-pub static DEV_ROOT_DIR: Spinlock<Option<Arc<DevDirInode>>> = Spinlock::new(None);
-pub static DEV_PTS_DIR: Spinlock<Option<Arc<DevDirInode>>> = Spinlock::new(None);
+pub static DEV_ROOT_DIR: Mutex<Option<Arc<DevDirInode>>> = Mutex::new(None);
+pub static DEV_PTS_DIR: Mutex<Option<Arc<DevDirInode>>> = Mutex::new(None);
 
 // ===== Dynamic device node registration =====
 

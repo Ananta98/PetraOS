@@ -1,5 +1,5 @@
 use super::dentry::Dentry;
-use crate::sync::spinlock::Spinlock;
+use crate::sync::Mutex;
 use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::sync::Arc;
@@ -96,7 +96,7 @@ impl DCache {
 }
 
 /// Global thread-safe VFS dcache table instance.
-pub static DCACHE: Spinlock<DCache> = Spinlock::new(DCache::new());
+pub static DCACHE: Mutex<DCache> = Mutex::new(DCache::new());
 
 /// Query the global VFS dcache for a cached child dentry.
 pub fn dcache_lookup(parent: &Arc<Dentry>, name: &str) -> Option<Arc<Dentry>> {

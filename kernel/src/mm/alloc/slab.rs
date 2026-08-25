@@ -1,6 +1,6 @@
 use crate::mm::{PhysAddr, PMM};
 use crate::mm::alloc::freelist::{IntrusiveList, IntrusiveNode};
-use crate::sync::spinlock::Spinlock;
+use crate::sync::Mutex;
 use core::alloc::{GlobalAlloc, Layout};
 
 struct FreeBlock {
@@ -178,13 +178,13 @@ impl SlabAllocatorInner {
 }
 
 pub struct SlabAllocator {
-    inner: Spinlock<SlabAllocatorInner>,
+    inner: Mutex<SlabAllocatorInner>,
 }
 
 impl SlabAllocator {
     pub const fn new() -> Self {
         Self {
-            inner: Spinlock::new(SlabAllocatorInner::new()),
+            inner: Mutex::new(SlabAllocatorInner::new()),
         }
     }
 

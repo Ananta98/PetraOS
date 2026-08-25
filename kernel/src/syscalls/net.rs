@@ -12,11 +12,11 @@ use crate::fs::fd::FD_CLOEXEC;
 use crate::fs::vfs::types::*;
 use crate::net::socket::{Socket, UnixSocket};
 use crate::net::types::*;
-use crate::sync::spinlock::Spinlock;
+use crate::sync::Mutex;
 use crate::syscalls::{SyscallError, SyscallResult, UserPtr};
 
 /// Helper: Extract active `Socket` Arc from process file descriptor.
-fn get_socket(fd: i32) -> Result<Arc<Spinlock<Socket>>, SyscallError> {
+fn get_socket(fd: i32) -> Result<Arc<Mutex<Socket>>, SyscallError> {
     let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
     let proc = proc_arc.lock();
     let file = proc.fd_table.get(fd)?;
@@ -31,7 +31,7 @@ pub fn sys_socket(frame: &mut SyscallFrame) -> SyscallResult {
     let protocol = frame.arg3() as i32;
 
     let socket = Socket::new(domain, socket_type, protocol)?;
-    let socket_arc = Arc::new(Spinlock::new(socket));
+    let socket_arc = Arc::new(Mutex::new(socket));
 
     let file_flags = if (socket_type & SOCK_NONBLOCK) != 0 {
         crate::fs::vfs::types::O_NONBLOCK | crate::fs::vfs::types::O_RDWR
@@ -452,8 +452,8 @@ pub fn sys_socketpair(frame: &mut SyscallFrame) -> SyscallResult {
 
     let desc_flags = if cloexec { FD_CLOEXEC } else { 0 };
 
-    let file_a = create_socket_file(Arc::new(Spinlock::new(Socket::Unix(sock_a))), file_flags);
-    let file_b = create_socket_file(Arc::new(Spinlock::new(Socket::Unix(sock_b))), file_flags);
+    let file_a = create_socket_file(Arc::new(Mutex::new(Socket::Unix(sock_a))), file_flags);
+    let file_b = create_socket_file(Arc::new(Mutex::new(Socket::Unix(sock_b))), file_flags);
 
     let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
     let proc = proc_arc.lock();

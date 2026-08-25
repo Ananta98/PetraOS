@@ -6,9 +6,11 @@
 use crate::device::{Device, DeviceType, Driver, DriverError};
 use crate::fs::vfs::types::VfsError;
 use crate::limine::FRAMEBUFFER_REQUEST;
-use crate::sync::spinlock::Spinlock;
+use crate::sync::Mutex;
 use alloc::boxed::Box;
 use alloc::sync::Arc;
+
+static FB_DEVICE: Mutex<Option<FramebufferDevice>> = Mutex::new(None);
 
 /// Raw metadata describing the display framebuffer.
 #[derive(Debug, Clone, Copy, Default)]
@@ -86,8 +88,6 @@ impl Device for FramebufferDevice {
         Ok(())
     }
 }
-
-static FB_DEVICE: Spinlock<Option<FramebufferDevice>> = Spinlock::new(None);
 
 /// Query bootloader framebuffer information if available.
 pub fn get_framebuffer_info() -> Option<FramebufferInfo> {
@@ -168,7 +168,7 @@ impl Driver for FramebufferDriver {
         init();
         if let Some(info) = get_framebuffer_info() {
             let dev = FramebufferDevice::new(info);
-            let dev_ref: Arc<Spinlock<Box<dyn Device>>> = Arc::new(Spinlock::new(Box::new(dev)));
+            let dev_ref: Arc<Mutex<Box<dyn Device>>> = Arc::new(Mutex::new(Box::new(dev)));
             crate::device::DEVICE_MANAGER.write().register(dev_ref);
             log::info!(
                 "[FB] Framebuffer probed: {}x{} @ {} bpp",

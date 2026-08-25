@@ -12,7 +12,7 @@ use crate::fs::vfs::dentry::Dentry;
 use crate::fs::vfs::mount::MOUNT_TABLE;
 use crate::fs::vfs::types::{FileOps, Inode, InodeOps, InodeType, Stat, VfsError};
 use crate::mm::UserPtr;
-use crate::sync::spinlock::Spinlock;
+use crate::sync::Mutex;
 use crate::tty::termios::{
     FIONREAD, LineDiscipline, TCFLSH, TCGETS, TCSBRK, TCSETS, TCSETSF, TCSETSW, TCXONC, TIOCGPGRP,
     TIOCGPTN, TIOCGWINSZ, TIOCNOTTY, TIOCSCTTY, TIOCSPGRP, TIOCSPTLCK, TIOCSWINSZ, Termios, WinSize,
@@ -21,8 +21,8 @@ use crate::tty::termios::{
 /// Represents a single bidirectional PTY channel pair.
 pub struct PtyPair {
     pub id: u32,
-    pub master_buffer: Spinlock<VecDeque<u8>>,
-    pub slave_ldisc: Spinlock<LineDiscipline>,
+    pub master_buffer: Mutex<VecDeque<u8>>,
+    pub slave_ldisc: Mutex<LineDiscipline>,
     pub locked: AtomicBool,
     pub slave_open_count: AtomicUsize,
     pub master_open: AtomicBool,
@@ -32,8 +32,8 @@ impl PtyPair {
     pub fn new(id: u32) -> Self {
         Self {
             id,
-            master_buffer: Spinlock::new(VecDeque::with_capacity(1024)),
-            slave_ldisc: Spinlock::new(LineDiscipline::new(WinSize::default())),
+            master_buffer: Mutex::new(VecDeque::with_capacity(1024)),
+            slave_ldisc: Mutex::new(LineDiscipline::new(WinSize::default())),
             locked: AtomicBool::new(true), // Locked by default until unlocked via TIOCSPTLCK
             slave_open_count: AtomicUsize::new(0),
             master_open: AtomicBool::new(true),
@@ -43,14 +43,14 @@ impl PtyPair {
 
 /// Global PTY manager tracking active master/slave pairs.
 pub struct PtyManager {
-    pairs: Spinlock<BTreeMap<u32, Arc<PtyPair>>>,
+    pairs: Mutex<BTreeMap<u32, Arc<PtyPair>>>,
     next_id: AtomicUsize,
 }
 
 impl PtyManager {
     pub const fn new() -> Self {
         Self {
-            pairs: Spinlock::new(BTreeMap::new()),
+            pairs: Mutex::new(BTreeMap::new()),
             next_id: AtomicUsize::new(0),
         }
     }

@@ -4,7 +4,7 @@ use crate::mm::vmm::paging::PageTable;
 use crate::proc::process::cmdline::CommandLine;
 use crate::proc::process::pid::ProcessId;
 use crate::proc::process::process::Process;
-use crate::sync::spinlock::Spinlock;
+use crate::sync::Mutex;
 use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec;
@@ -15,7 +15,7 @@ pub const DEFAULT_INIT_EXEC_PATHS: &[&str] = &["/bin/bash", "/usr/bin/bash", "/u
 /// Initialize the primary user process (PID 1).
 ///
 /// Scans `DEFAULT_INIT_EXEC_PATHS` in order per POSIX specifications.
-pub fn create_init_process() -> Result<(Arc<Spinlock<Process>>, u64, u64), &'static str> {
+pub fn create_init_process() -> Result<(Arc<Mutex<Process>>, u64, u64), &'static str> {
     log::info!(
         "[Init Process] Searching for POSIX init binary in DEFAULT_INIT_EXEC_PATHS: {:?}",
         DEFAULT_INIT_EXEC_PATHS
@@ -52,11 +52,11 @@ pub fn create_init_process() -> Result<(Arc<Spinlock<Process>>, u64, u64), &'sta
                 "✔ [Init Process] Successfully resolved and loaded init binary from candidate path: '{}'",
                 candidate_path
             );
-            let proc_arc = Arc::new(Spinlock::new(proc));
+            let proc_arc = Arc::new(Mutex::new(proc));
 
             // Create and attach the primary thread for the init process
             let init_tid = crate::proc::thread::next_tid();
-            let init_thread = Arc::new(Spinlock::new(crate::proc::thread::Thread::new(
+            let init_thread = Arc::new(Mutex::new(crate::proc::thread::Thread::new(
                 init_tid,
                 String::from("init"),
                 1024,

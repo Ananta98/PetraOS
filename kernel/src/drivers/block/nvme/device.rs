@@ -1,7 +1,7 @@
 //! NVMe Device and Driver Trait Abstractions
 
 use crate::device::{BlockDevice, Device, DeviceType, DriverError};
-use crate::sync::spinlock::Spinlock;
+use crate::sync::Mutex;
 use alloc::boxed::Box;
 use alloc::sync::Arc;
 use super::NVME_DRIVER;
@@ -83,8 +83,8 @@ impl crate::device::Driver for NvmeModuleDriver {
     fn probe(&self) -> Result<(), DriverError> {
         if let Some(nvme) = super::NvmeDriver::find_and_init() {
             *NVME_DRIVER.lock() = Some(nvme);
-            let device_ref: Arc<Spinlock<Box<dyn Device>>> =
-                Arc::new(Spinlock::new(Box::new(NvmeDeviceRef)));
+            let device_ref: Arc<Mutex<Box<dyn Device>>> =
+                Arc::new(Mutex::new(Box::new(NvmeDeviceRef)));
             crate::device::DEVICE_MANAGER.write().register(device_ref);
             log::info!("[NVMe Module] Probed and registered NVMe Controller to DEVICE_MANAGER");
             Ok(())

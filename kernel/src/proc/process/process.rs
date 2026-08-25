@@ -12,7 +12,7 @@ use crate::mm::vmm::AddrSpace;
 use crate::mm::{PageTableFlags, VirtAddr};
 use crate::proc::loader::elf::Elf;
 use crate::proc::thread::{Thread, ThreadId, ThreadState};
-use crate::sync::spinlock::Spinlock;
+use crate::sync::Mutex;
 use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
 
@@ -44,7 +44,7 @@ pub struct Process {
     pub state: ProcessState,
 
     /// Virtual Address Space
-    pub address_space: Arc<Spinlock<AddrSpace<ArchPageTable>>>,
+    pub address_space: Arc<Mutex<AddrSpace<ArchPageTable>>>,
 
     /// Command line arguments and environment variables
     pub cmdline: CommandLine,
@@ -59,10 +59,10 @@ pub struct Process {
     pub pending_signals: PendingSignals,
 
     /// Children processes list
-    pub children: BTreeMap<ProcessId, Arc<Spinlock<Process>>>,
+    pub children: BTreeMap<ProcessId, Arc<Mutex<Process>>>,
 
     /// Threads running in this process
-    pub threads: BTreeMap<ThreadId, Arc<Spinlock<Thread>>>,
+    pub threads: BTreeMap<ThreadId, Arc<Mutex<Thread>>>,
 
     /// Process credentials (uid, gid, euid, egid, etc.)
     pub creds: Arc<Credentials>,
@@ -87,7 +87,7 @@ impl Process {
     pub fn new(pid: ProcessId, ppid: ProcessId) -> Result<Self, &'static str> {
         let page_table =
             ArchPageTable::new().map_err(|_| "Failed to allocate process page table")?;
-        let address_space = Arc::new(Spinlock::new(AddrSpace::new(page_table)));
+        let address_space = Arc::new(Mutex::new(AddrSpace::new(page_table)));
         Ok(Self::new_with_address_space(pid, ppid, address_space))
     }
 
@@ -95,7 +95,7 @@ impl Process {
     pub fn new_with_address_space(
         pid: ProcessId,
         ppid: ProcessId,
-        address_space: Arc<Spinlock<AddrSpace<ArchPageTable>>>,
+        address_space: Arc<Mutex<AddrSpace<ArchPageTable>>>,
     ) -> Self {
         Self {
             pid,
@@ -205,7 +205,7 @@ impl Process {
                 "ELF loading failed"
             })?;
 
-        self.address_space = Arc::new(Spinlock::new(loaded_elf.addr_space));
+        self.address_space = Arc::new(Mutex::new(loaded_elf.addr_space));
         self.cmdline = cmdline;
         self.heap_start = userspace::USER_HEAP_VBASE;
         self.heap_brk = userspace::USER_HEAP_VBASE;
@@ -220,9 +220,9 @@ impl Process {
 
     /// Fork a child process duplicating this process (POSIX fork).
     pub fn fork(
-        parent: Arc<Spinlock<Process>>,
+        parent: Arc<Mutex<Process>>,
         parent_frame: &crate::arch::syscall::SyscallFrame,
-    ) -> Result<Arc<Spinlock<Process>>, &'static str> {
+    ) -> Result<Arc<Mutex<Process>>, &'static str> {
         let mut p_lock = parent.lock();
         let child_pid = next_pid();
 
@@ -233,7 +233,7 @@ impl Process {
             .clone()
             .map_err(|_| "Failed to clone address space for child process")?;
 
-        let child_addr_space_arc = Arc::new(Spinlock::new(child_addr_space));
+        let child_addr_space_arc = Arc::new(Mutex::new(child_addr_space));
         let child_cr3 = child_addr_space_arc.lock().page_table().root().as_u64() as usize;
 
         // 2. Initialize child process structure without redundant page table allocation
@@ -251,7 +251,7 @@ impl Process {
         child_proc.mmap_bump = p_lock.mmap_bump;
         child_proc.state = p_lock.state;
 
-        let child = Arc::new(Spinlock::new(child_proc));
+        let child = Arc::new(Mutex::new(child_proc));
 
         // 3. Create child primary thread replicating the calling thread's context and user register state
         let mut child_threads = BTreeMap::new();
@@ -291,7 +291,7 @@ impl Process {
             sig_mask,
         );
 
-        let c_thread_arc = Arc::new(Spinlock::new(child_thread));
+        let c_thread_arc = Arc::new(Mutex::new(child_thread));
         child_threads.insert(child_tid, c_thread_arc.clone());
 
         crate::sched::add_thread(c_thread_arc);

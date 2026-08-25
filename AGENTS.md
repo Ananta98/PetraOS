@@ -4,7 +4,7 @@ This document defines the absolute standard of behavior, architecture, and codin
 
 ---
 
-### 1. Git Authorship, Patch Metadata & Committer Policy (Strict Human Attribution)
+### 1. Git Authorship, Patch Metadata, Committer Policy, & Kernel Driver Module (Strict Human Attribution)
 * **Human Git Committer Identity**: All git commits, patch headers, package manifests, and module metadata must attribute the human git committer / repository maintainer (from `git config user.name` and `git config user.email`), **NEVER** an AI Agent.
 * **No AI Patch Author / Email**: In patch series (`From: ...`), xbstrap configurations (`bootstrap.yml`, `packages/**/*.yml` with `patch_author` and `patch_email`), never use names like `"AI Agent"`, `"PetraOS Agent"`, `"Antigravity"`, `"ChatGPT"`, `"Claude"`, or synthetic bot emails (e.g., `agent@petraos.dev`). Always use the human committer's name and email.
 * **Module Creator & File Headers**: Any source file headers, module creator tags (`@author`), or documentation author fields must specify the human developer/maintainer as the creator, not an AI persona.
@@ -85,9 +85,8 @@ kernel/src/
 ├── security/           # Access control, credentials, UID/GID, POSIX capabilities
 ├── sync/               # Kernel synchronization primitives
 │   ├── futex.rs        # Fast Userspace Mutex (futex) wait/wake implementation
-│   ├── mutex.rs        # Kernel blocking mutex
-│   ├── rwlock.rs       # Read-Write Lock
-│   └── spinlock.rs     # Ticket / atomic spinlock
+│   ├── mutex.rs        # Kernel mutex synchronization primitive
+│   └── rwlock.rs       # Read-Write Lock
 ├── syscalls/           # System call dispatcher and handler implementations
 │   ├── arch_prctl.rs   # Architecture-specific process control (FS_BASE/GS_BASE)
 │   ├── fs.rs           # Filesystem syscalls (open, read, write, close, stat, etc.)

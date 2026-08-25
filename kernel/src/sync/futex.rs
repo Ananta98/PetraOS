@@ -8,7 +8,7 @@
 //! waiting execution contexts via the [`FutexManager`].
 
 use crate::proc::thread::{Thread, ThreadId, ThreadState};
-use crate::sync::spinlock::Spinlock;
+use crate::sync::Mutex;
 use alloc::collections::{BTreeMap, VecDeque};
 use alloc::sync::Arc;
 
@@ -58,7 +58,7 @@ pub enum FutexError {
 /// Represents a waiting thread in a futex wait queue.
 pub struct FutexWaiter {
     /// Reference to the blocked thread.
-    pub thread: Arc<Spinlock<Thread>>,
+    pub thread: Arc<Mutex<Thread>>,
     /// Bitset mask for selective wakeups (used by `FUTEX_WAIT_BITSET`).
     pub bitset: u32,
     /// Absolute monotonic deadline in nanoseconds, if a timeout was specified.
@@ -73,7 +73,7 @@ pub struct FutexManager {
 }
 
 /// Global singleton instance of the Futex Manager.
-pub static FUTEX_MANAGER: Spinlock<FutexManager> = Spinlock::new(FutexManager::new());
+pub static FUTEX_MANAGER: Mutex<FutexManager> = Mutex::new(FutexManager::new());
 
 impl FutexManager {
     /// Creates a new, empty `FutexManager`.
@@ -90,7 +90,7 @@ impl FutexManager {
     pub unsafe fn wait_prepare(
         &mut self,
         key: FutexKey,
-        thread: Arc<Spinlock<Thread>>,
+        thread: Arc<Mutex<Thread>>,
         uaddr: *const u32,
         expected_val: u32,
         bitset: u32,

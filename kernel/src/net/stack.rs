@@ -14,10 +14,10 @@ use smoltcp::wire::{
 
 use crate::drivers::net::intel::e1000::E1000_DEVICE;
 use crate::net::device::PetraNetDevice;
-use crate::sync::spinlock::Spinlock;
+use crate::sync::Mutex;
 
 /// Global network stack singleton.
-pub static NET_STACK: Spinlock<Option<NetworkStack>> = Spinlock::new(None);
+pub static NET_STACK: Mutex<Option<NetworkStack>> = Mutex::new(None);
 
 /// Return the current monotonic timestamp as a `smoltcp::time::Instant`.
 pub fn current_time() -> Instant {

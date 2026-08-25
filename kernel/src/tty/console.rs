@@ -10,7 +10,7 @@ use crate::device::{CharDevice, Device};
 use crate::drivers::char::keyboard::KEY_RING_BUFFER;
 use crate::drivers::serial::{PortIoBackend, SerialPort};
 use crate::limine::FRAMEBUFFER_REQUEST;
-use crate::sync::spinlock::Spinlock;
+use crate::sync::Mutex;
 use crate::tty::ECHO;
 use crate::tty::termios::{LineDiscipline, WinSize};
 
@@ -47,7 +47,7 @@ pub struct FlantermContext {
     ctx: *mut flanterm::sys::flanterm_context,
 }
 
-// SAFETY: All accesses to FlantermContext are guarded by a kernel spinlock.
+// SAFETY: All accesses to FlantermContext are guarded by a kernel mutex.
 unsafe impl Send for FlantermContext {}
 unsafe impl Sync for FlantermContext {}
 
@@ -234,7 +234,7 @@ impl Console {
     }
 }
 
-pub static CONSOLE: Spinlock<Option<Console>> = Spinlock::new(None);
+pub static CONSOLE: Mutex<Option<Console>> = Mutex::new(None);
 
 /// Global initialize console subsystem.
 pub fn init() {

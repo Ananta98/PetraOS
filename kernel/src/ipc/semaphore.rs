@@ -22,7 +22,7 @@ use alloc::vec::Vec;
 use core::sync::atomic::{AtomicI32, Ordering};
 
 use crate::proc::thread::{Thread, ThreadState};
-use crate::sync::spinlock::Spinlock;
+use crate::sync::Mutex;
 
 // ── IPC flags / commands ─────────────────────────────────────────────────────
 
@@ -136,9 +136,9 @@ struct SemState {
     /// PID of the last process to operate on this semaphore
     sempid: u32,
     /// Threads waiting for value > 0 (sem_op < 0 or > 0)
-    ncnt_waiters: VecDeque<Arc<Spinlock<Thread>>>,
+    ncnt_waiters: VecDeque<Arc<Mutex<Thread>>>,
     /// Threads waiting for value == 0
-    zcnt_waiters: VecDeque<Arc<Spinlock<Thread>>>,
+    zcnt_waiters: VecDeque<Arc<Mutex<Thread>>>,
 }
 
 impl SemState {
@@ -488,7 +488,7 @@ impl SemaphoreManager {
         &mut self,
         semid: i32,
         ops: &[SemBuf],
-        thread: Arc<Spinlock<Thread>>,
+        thread: Arc<Mutex<Thread>>,
         pid: u32,
         nowait: bool,
     ) -> Result<SemopResult, SemError> {
@@ -565,4 +565,4 @@ pub enum SemopResult {
 }
 
 /// Global semaphore manager singleton.
-pub static SEMAPHORE_MANAGER: Spinlock<SemaphoreManager> = Spinlock::new(SemaphoreManager::new());
+pub static SEMAPHORE_MANAGER: Mutex<SemaphoreManager> = Mutex::new(SemaphoreManager::new());

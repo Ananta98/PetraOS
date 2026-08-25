@@ -6,7 +6,7 @@ use crate::ipc::signal::{SIG_BLOCK, SIG_SETMASK, SIG_UNBLOCK, SIGKILL, SIGSTOP};
 use crate::proc::process::Process;
 use crate::sched::nice::Nice;
 use crate::sched::policy::{DEFAULT_RR_QUANTUM_NS, RtPriority, SchedPolicy};
-use crate::sync::spinlock::Spinlock;
+use crate::sync::Mutex;
 use alloc::string::String;
 use alloc::sync::{Arc, Weak};
 
@@ -33,7 +33,7 @@ pub struct Thread {
     pub name: String,
 
     /// The process this thread belongs to (Weak reference to avoid cyclic Arc dependencies)
-    pub process: Weak<Spinlock<Process>>,
+    pub process: Weak<Mutex<Process>>,
 
     /// CPU Context (Registers, RSP, RIP)
     pub context: ThreadContext,
@@ -79,7 +79,7 @@ pub struct Thread {
 }
 
 impl Thread {
-    pub fn new(tid: ThreadId, name: String, weight: u32, process: Weak<Spinlock<Process>>) -> Self {
+    pub fn new(tid: ThreadId, name: String, weight: u32, process: Weak<Mutex<Process>>) -> Self {
         let nice = Nice::default();
         let effective_weight = if weight > 0 { weight } else { nice.weight() };
         Self {
@@ -161,7 +161,7 @@ impl Thread {
     }
 
     /// Unblock the thread (transition from Sleeping to Ready).
-    pub fn unblock(thread: Arc<Spinlock<Thread>>) {
+    pub fn unblock(thread: Arc<Mutex<Thread>>) {
         let mut t = thread.lock();
         if t.state == ThreadState::Sleeping {
             t.state = ThreadState::Ready;

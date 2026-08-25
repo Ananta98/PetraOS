@@ -12,7 +12,7 @@
 
 use crate::proc::thread::{Thread, ThreadId, ThreadState};
 use crate::sched::nice::NICE_0_WEIGHT;
-use crate::sync::spinlock::Spinlock;
+use crate::sync::Mutex;
 use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
 
@@ -22,7 +22,7 @@ pub const BASE_SLICE_NS: u64 = 10_000_000;
 /// Cached scheduling entity for the EEVDF run queue.
 ///
 /// Caching scheduling parameters directly in the entity avoids acquiring
-/// individual `Thread` spinlocks during `pick_next` candidate evaluation.
+/// individual `Thread` mutexes during `pick_next` candidate evaluation.
 #[derive(Clone)]
 pub struct EevdfEntity {
     pub tid: ThreadId,
@@ -30,7 +30,7 @@ pub struct EevdfEntity {
     pub vdeadline: u64,
     pub weight: u32,
     pub slice_ns: u64,
-    pub thread: Arc<Spinlock<Thread>>,
+    pub thread: Arc<Mutex<Thread>>,
 }
 
 /// The Earliest Eligible Virtual Deadline First (EEVDF) Fair Scheduler.
@@ -54,7 +54,7 @@ impl EevdfScheduler {
     /// Adds a thread to the fair run queue.
     ///
     /// Normalizes `vruntime` against `min_vruntime` and computes its virtual deadline.
-    pub fn add_thread(&mut self, thread: Arc<Spinlock<Thread>>) {
+    pub fn add_thread(&mut self, thread: Arc<Mutex<Thread>>) {
         let mut t_lock = thread.lock();
 
         // Prevent waking threads from gaining unfair CPU time if they slept for long.
@@ -96,14 +96,14 @@ impl EevdfScheduler {
     }
 
     /// Removes a thread from the fair run queue by its `ThreadId`.
-    pub fn remove_thread(&mut self, tid: ThreadId) -> Option<Arc<Spinlock<Thread>>> {
+    pub fn remove_thread(&mut self, tid: ThreadId) -> Option<Arc<Mutex<Thread>>> {
         self.run_queue.remove(&tid).map(|e| e.thread)
     }
 
     /// Picks the next eligible fair thread with the earliest virtual deadline.
     ///
     /// Evaluation is performed directly against cached metadata without locking threads.
-    pub fn pick_next(&mut self) -> Option<Arc<Spinlock<Thread>>> {
+    pub fn pick_next(&mut self) -> Option<Arc<Mutex<Thread>>> {
         if self.run_queue.is_empty() {
             return None;
         }

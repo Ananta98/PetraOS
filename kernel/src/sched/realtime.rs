@@ -13,7 +13,7 @@
 
 use super::policy::{RtPriority, RT_PRIO_COUNT};
 use crate::proc::thread::{Thread, ThreadId};
-use crate::sync::spinlock::Spinlock;
+use crate::sync::Mutex;
 use alloc::boxed::Box;
 use alloc::sync::Arc;
 use core::sync::atomic::{AtomicPtr, AtomicU64, Ordering};
@@ -30,12 +30,12 @@ pub struct RtNode {
     /// Real-time priority assigned to this thread.
     pub priority: u8,
     /// Reference to the thread.
-    pub thread: Arc<Spinlock<Thread>>,
+    pub thread: Arc<Mutex<Thread>>,
 }
 
 impl RtNode {
     /// Creates a new `RtNode` wrapping a thread.
-    pub fn new(thread: Arc<Spinlock<Thread>>, priority: u8, tid: ThreadId) -> Self {
+    pub fn new(thread: Arc<Mutex<Thread>>, priority: u8, tid: ThreadId) -> Self {
         Self {
             next: core::ptr::null_mut(),
             atomic_next: AtomicPtr::new(core::ptr::null_mut()),
@@ -123,7 +123,7 @@ impl RtRunQueue {
     ///
     /// This method is wait-free / lock-free and safe to call from interrupt handlers
     /// and any CPU core.
-    pub fn enqueue(&self, thread: Arc<Spinlock<Thread>>, priority: RtPriority) {
+    pub fn enqueue(&self, thread: Arc<Mutex<Thread>>, priority: RtPriority) {
         let prio = priority.value();
         let tid = thread.lock().tid;
 
@@ -158,7 +158,7 @@ impl RtRunQueue {
     /// Pops the next highest-priority real-time thread (single-consumer).
     ///
     /// Returns `None` if there are no runnable real-time threads.
-    pub fn dequeue_highest(&self) -> Option<Arc<Spinlock<Thread>>> {
+    pub fn dequeue_highest(&self) -> Option<Arc<Mutex<Thread>>> {
         while let Some(prio) = self.find_highest_priority() {
             let idx = prio as usize;
 

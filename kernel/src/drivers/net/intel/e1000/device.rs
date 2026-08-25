@@ -40,7 +40,7 @@ pub struct E1000Device {
 }
 
 // SAFETY: All MMIO pointer accesses and DMA ring accesses are synchronized via
-// standard kernel locks (Spinlock / Mutex) when instantiated as a shared device.
+// standard kernel locks (Mutex) when instantiated as a shared device.
 unsafe impl Send for E1000Device {}
 unsafe impl Sync for E1000Device {}
 

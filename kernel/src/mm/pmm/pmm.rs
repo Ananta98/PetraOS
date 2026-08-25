@@ -1,15 +1,15 @@
 use crate::mm::PhysAddr;
 use crate::mm::pmm::buddy::{BuddyAllocator, Page, PageFlags};
-use crate::sync::spinlock::Spinlock;
+use crate::sync::Mutex;
 
 pub struct PhysicalMemoryManagement {
-    allocator: Spinlock<Option<BuddyAllocator>>,
+    allocator: Mutex<Option<BuddyAllocator>>,
 }
 
 impl PhysicalMemoryManagement {
     pub const fn new() -> Self {
         Self {
-            allocator: Spinlock::new(None),
+            allocator: Mutex::new(None),
         }
     }
 

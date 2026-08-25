@@ -9,7 +9,7 @@ use alloc::sync::{Arc, Weak};
 use alloc::vec::Vec;
 
 use crate::net::types::*;
-use crate::sync::spinlock::Spinlock;
+use crate::sync::Mutex;
 use crate::syscalls::SyscallError;
 
 use super::Socket;
@@ -17,8 +17,8 @@ use super::Socket;
 const UNIX_STREAM_BUF_CAPACITY: usize = 65536;
 
 /// Global path registry for filesystem-bound UNIX domain listening sockets.
-pub static UNIX_REGISTRY: Spinlock<BTreeMap<String, Weak<Spinlock<UnixSocket>>>> =
-    Spinlock::new(BTreeMap::new());
+pub static UNIX_REGISTRY: Mutex<BTreeMap<String, Weak<Mutex<UnixSocket>>>> =
+    Mutex::new(BTreeMap::new());
 
 /// Shared FIFO ring buffer for local stream sockets.
 pub struct UnixStreamBuffer {
@@ -49,11 +49,11 @@ pub struct UnixSocket {
     pub bound_path: Option<String>,
     pub is_listening: bool,
     pub backlog: usize,
-    pub pending_conns: VecDeque<Arc<Spinlock<UnixSocket>>>,
+    pub pending_conns: VecDeque<Arc<Mutex<UnixSocket>>>,
     // For connected stream sockets:
-    pub rx_buffer: Arc<Spinlock<UnixStreamBuffer>>,
-    pub tx_buffer: Arc<Spinlock<UnixStreamBuffer>>,
-    pub peer: Option<Weak<Spinlock<UnixSocket>>>,
+    pub rx_buffer: Arc<Mutex<UnixStreamBuffer>>,
+    pub tx_buffer: Arc<Mutex<UnixStreamBuffer>>,
+    pub peer: Option<Weak<Mutex<UnixSocket>>>,
     // For datagram sockets:
     pub dgram_queue: VecDeque<UnixDatagram>,
     pub nonblocking: bool,
@@ -64,10 +64,10 @@ pub struct UnixSocket {
 impl UnixSocket {
     /// Create a new unconnected UNIX domain socket.
     pub fn new(socket_type: i32, nonblocking: bool) -> Self {
-        let rx_buf = Arc::new(Spinlock::new(UnixStreamBuffer::new(
+        let rx_buf = Arc::new(Mutex::new(UnixStreamBuffer::new(
             UNIX_STREAM_BUF_CAPACITY,
         )));
-        let tx_buf = Arc::new(Spinlock::new(UnixStreamBuffer::new(
+        let tx_buf = Arc::new(Mutex::new(UnixStreamBuffer::new(
             UNIX_STREAM_BUF_CAPACITY,
         )));
 
@@ -91,15 +91,15 @@ impl UnixSocket {
     pub fn create_pair(
         socket_type: i32,
         nonblocking: bool,
-    ) -> (Arc<Spinlock<Self>>, Arc<Spinlock<Self>>) {
-        let buf_a_to_b = Arc::new(Spinlock::new(UnixStreamBuffer::new(
+    ) -> (Arc<Mutex<Self>>, Arc<Mutex<Self>>) {
+        let buf_a_to_b = Arc::new(Mutex::new(UnixStreamBuffer::new(
             UNIX_STREAM_BUF_CAPACITY,
         )));
-        let buf_b_to_a = Arc::new(Spinlock::new(UnixStreamBuffer::new(
+        let buf_b_to_a = Arc::new(Mutex::new(UnixStreamBuffer::new(
             UNIX_STREAM_BUF_CAPACITY,
         )));
 
-        let sock_a = Arc::new(Spinlock::new(Self {
+        let sock_a = Arc::new(Mutex::new(Self {
             socket_type,
             bound_path: None,
             is_listening: false,
@@ -114,7 +114,7 @@ impl UnixSocket {
             shutdown_write: false,
         }));
 
-        let sock_b = Arc::new(Spinlock::new(Self {
+        let sock_b = Arc::new(Mutex::new(Self {
             socket_type,
             bound_path: None,
             is_listening: false,
@@ -135,7 +135,7 @@ impl UnixSocket {
     }
 
     /// Bind socket to a filesystem path.
-    pub fn bind(&mut self, self_arc: &Arc<Spinlock<Self>>, path: &str) -> Result<(), SyscallError> {
+    pub fn bind(&mut self, self_arc: &Arc<Mutex<Self>>, path: &str) -> Result<(), SyscallError> {
         if self.bound_path.is_some() {
             return Err(SyscallError::EINVAL);
         }
@@ -174,7 +174,7 @@ impl UnixSocket {
     /// Connect to a listening UNIX domain socket at `path`.
     pub fn connect(
         &mut self,
-        self_arc: &Arc<Spinlock<Self>>,
+        self_arc: &Arc<Mutex<Self>>,
         path: &str,
     ) -> Result<(), SyscallError> {
         let listener_arc = {
@@ -193,14 +193,14 @@ impl UnixSocket {
             }
 
             // Create client <-> server stream buffers
-            let client_to_server = Arc::new(Spinlock::new(UnixStreamBuffer::new(
+            let client_to_server = Arc::new(Mutex::new(UnixStreamBuffer::new(
                 UNIX_STREAM_BUF_CAPACITY,
             )));
-            let server_to_client = Arc::new(Spinlock::new(UnixStreamBuffer::new(
+            let server_to_client = Arc::new(Mutex::new(UnixStreamBuffer::new(
                 UNIX_STREAM_BUF_CAPACITY,
             )));
 
-            let server_end = Arc::new(Spinlock::new(UnixSocket {
+            let server_end = Arc::new(Mutex::new(UnixSocket {
                 socket_type: SOCK_STREAM,
                 bound_path: None,
                 is_listening: false,
@@ -232,14 +232,14 @@ impl UnixSocket {
     pub fn accept(
         &mut self,
         nonblocking: bool,
-    ) -> Result<Arc<Spinlock<Socket>>, SyscallError> {
+    ) -> Result<Arc<Mutex<Socket>>, SyscallError> {
         if !self.is_listening {
             return Err(SyscallError::EINVAL);
         }
 
         loop {
             if let Some(conn) = self.pending_conns.pop_front() {
-                return Ok(Arc::new(Spinlock::new(Socket::Unix(conn))));
+                return Ok(Arc::new(Mutex::new(Socket::Unix(conn))));
             }
 
             if self.nonblocking || nonblocking {

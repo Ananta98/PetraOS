@@ -4,7 +4,7 @@
 
 use crate::arch::acpi::{Rsdp, Sdt};
 use crate::mm::{ensure_mapped, map_mmio};
-use crate::sync::spinlock::Spinlock;
+use crate::sync::Mutex;
 
 pub const HPET_DEFAULT_PHYS_BASE: u64 = 0xFED0_0000;
 
@@ -32,7 +32,7 @@ pub struct Hpet {
 unsafe impl Send for Hpet {}
 unsafe impl Sync for Hpet {}
 
-pub static HPET: Spinlock<Option<Hpet>> = Spinlock::new(None);
+pub static HPET: Mutex<Option<Hpet>> = Mutex::new(None);
 
 impl Hpet {
     /// Read a 64-bit register at the specified byte offset from HPET MMIO base.

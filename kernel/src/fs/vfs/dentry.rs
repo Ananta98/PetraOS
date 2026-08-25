@@ -1,5 +1,5 @@
 use super::types::Inode;
-use crate::sync::spinlock::Spinlock;
+use crate::sync::Mutex;
 use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::sync::{Arc, Weak};
@@ -7,8 +7,8 @@ use alloc::sync::{Arc, Weak};
 pub struct Dentry {
     pub name: String,
     pub inode: Arc<Inode>,
-    pub parent: Spinlock<Option<Weak<Dentry>>>,
-    pub children: Spinlock<BTreeMap<String, Arc<Dentry>>>,
+    pub parent: Mutex<Option<Weak<Dentry>>>,
+    pub children: Mutex<BTreeMap<String, Arc<Dentry>>>,
 }
 
 impl Dentry {
@@ -16,8 +16,8 @@ impl Dentry {
         Self {
             name,
             inode,
-            parent: Spinlock::new(None),
-            children: Spinlock::new(BTreeMap::new()),
+            parent: Mutex::new(None),
+            children: Mutex::new(BTreeMap::new()),
         }
     }
 
@@ -25,8 +25,8 @@ impl Dentry {
         let child = Arc::new(Self {
             name: name.clone(),
             inode: child_inode,
-            parent: Spinlock::new(Some(Arc::downgrade(parent))),
-            children: Spinlock::new(BTreeMap::new()),
+            parent: Mutex::new(Some(Arc::downgrade(parent))),
+            children: Mutex::new(BTreeMap::new()),
         });
         parent.children.lock().insert(name, child.clone());
         child

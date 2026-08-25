@@ -17,10 +17,10 @@ use alloc::sync::Arc;
 
 use crate::device::{Device, DeviceType, Driver, DriverError};
 use crate::drivers::bus::pci::PciBus;
-use crate::sync::spinlock::Spinlock;
+use crate::sync::Mutex;
 
 /// Global Intel e1000 active device instance.
-pub static E1000_DEVICE: Spinlock<Option<E1000Device>> = Spinlock::new(None);
+pub static E1000_DEVICE: Mutex<Option<E1000Device>> = Mutex::new(None);
 
 /// Device manager proxy wrapper for Intel e1000 controller.
 pub struct E1000DeviceRef;
@@ -106,8 +106,8 @@ impl Driver for IntelE1000Driver {
 
                         *E1000_DEVICE.lock() = Some(dev);
 
-                        let dev_ref: Arc<Spinlock<Box<dyn Device>>> =
-                            Arc::new(Spinlock::new(Box::new(E1000DeviceRef)));
+                        let dev_ref: Arc<Mutex<Box<dyn Device>>> =
+                            Arc::new(Mutex::new(Box::new(E1000DeviceRef)));
                         crate::device::DEVICE_MANAGER.write().register(dev_ref);
 
                         log::info!("[e1000] Registered device to DEVICE_MANAGER as eth0");

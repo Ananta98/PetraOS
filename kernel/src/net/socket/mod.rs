@@ -18,7 +18,7 @@ use core::mem::size_of;
 use smoltcp::wire::IpEndpoint;
 
 use crate::net::types::*;
-use crate::sync::spinlock::Spinlock;
+use crate::sync::Mutex;
 use crate::syscalls::SyscallError;
 
 /// Unified Socket representation for PetraOS.
@@ -26,7 +26,7 @@ pub enum Socket {
     Tcp(TcpSocket),
     Udp(UdpSocket),
     Raw(RawSocket),
-    Unix(Arc<Spinlock<UnixSocket>>),
+    Unix(Arc<Mutex<UnixSocket>>),
 }
 
 impl Socket {
@@ -38,7 +38,7 @@ impl Socket {
         match domain as u16 {
             AF_UNIX => match actual_type {
                 SOCK_STREAM | SOCK_DGRAM | SOCK_SEQPACKET => {
-                    let unix_sock = Arc::new(Spinlock::new(UnixSocket::new(
+                    let unix_sock = Arc::new(Mutex::new(UnixSocket::new(
                         actual_type,
                         nonblocking,
                     )));
@@ -76,7 +76,7 @@ impl Socket {
     /// Bind this socket to a local address.
     pub fn bind(
         &mut self,
-        _self_arc: &Arc<Spinlock<Socket>>,
+        _self_arc: &Arc<Mutex<Socket>>,
         addr: &SockAddrStorage,
         addr_len: usize,
     ) -> Result<(), SyscallError> {
@@ -115,7 +115,7 @@ impl Socket {
     pub fn accept(
         &mut self,
         flags: i32,
-    ) -> Result<(Arc<Spinlock<Socket>>, SockAddrStorage, usize), SyscallError> {
+    ) -> Result<(Arc<Mutex<Socket>>, SockAddrStorage, usize), SyscallError> {
         let nonblocking = (flags & SOCK_NONBLOCK) != 0;
 
         match self {
@@ -137,7 +137,7 @@ impl Socket {
     /// Connect to a remote address.
     pub fn connect(
         &mut self,
-        _self_arc: &Arc<Spinlock<Socket>>,
+        _self_arc: &Arc<Mutex<Socket>>,
         addr: &SockAddrStorage,
         addr_len: usize,
     ) -> Result<(), SyscallError> {

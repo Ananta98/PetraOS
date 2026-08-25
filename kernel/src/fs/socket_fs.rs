@@ -9,7 +9,7 @@ use crate::fs::File;
 use crate::fs::vfs::dentry::Dentry;
 use crate::fs::vfs::types::{FileOps, Inode, InodeOps, InodeType, Stat, VfsError};
 use crate::net::socket::Socket;
-use crate::sync::spinlock::Spinlock;
+use crate::sync::Mutex;
 
 /// Dummy inode operations for socket file descriptions.
 struct SocketInodeOps;
@@ -29,7 +29,7 @@ impl InodeOps for SocketInodeOps {
 
 /// VFS File operations implementation backed by a network or Unix domain socket.
 pub struct SocketFileOps {
-    pub socket: Arc<Spinlock<Socket>>,
+    pub socket: Arc<Mutex<Socket>>,
 }
 
 impl FileOps for SocketFileOps {
@@ -108,13 +108,13 @@ impl FileOps for SocketFileOps {
         revents
     }
 
-    fn as_socket(&self) -> Option<Arc<Spinlock<Socket>>> {
+    fn as_socket(&self) -> Option<Arc<Mutex<Socket>>> {
         Some(self.socket.clone())
     }
 }
 
 /// Wrap an active socket in a VFS `File` description.
-pub fn create_socket_file(socket: Arc<Spinlock<Socket>>, flags: u32) -> Arc<File> {
+pub fn create_socket_file(socket: Arc<Mutex<Socket>>, flags: u32) -> Arc<File> {
     let inode = Arc::new(Inode {
         ino: 0,
         inode_type: InodeType::File,

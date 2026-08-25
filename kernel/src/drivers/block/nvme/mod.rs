@@ -8,7 +8,7 @@ use crate::drivers::pci::config;
 use crate::drivers::pci::device::PciDevice;
 use crate::mm::dma::{DmaCoherent, DmaDirection, DmaStreamer};
 use crate::mm::map_mmio;
-use crate::sync::spinlock::Spinlock;
+use crate::sync::Mutex;
 
 pub use command::{NvmeCmdBuilder, NvmeIdentifyNamespace};
 pub use device::{NvmeDeviceRef, NvmeModuleDriver};
@@ -18,7 +18,7 @@ pub use regs::{
     NVME_CSTS_RDY, NvmeRegs,
 };
 
-pub static NVME_DRIVER: Spinlock<Option<NvmeDriver>> = Spinlock::new(None);
+pub static NVME_DRIVER: Mutex<Option<NvmeDriver>> = Mutex::new(None);
 
 pub struct NvmeDriver {
     pci_device: PciDevice,
