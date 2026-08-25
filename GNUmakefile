@@ -34,73 +34,35 @@ all-hdd: $(IMAGE_NAME).hdd
 .PHONY: run
 run: run-$(KARCH)
 
-# Userspace / Ports build system (xbstrap)
-$(call USER_VARIABLE,XBSTRAP,xbstrap)
+# ==============================================================================
+# Userspace / Ports build system (Modular xbstrap dispatcher)
+# ==============================================================================
+USER_PACKAGES := $(notdir $(patsubst %/,%,$(dir $(wildcard packages/*/*.yml))))
 
 .PHONY: xbstrap-init
 xbstrap-init:
-	@mkdir -p $(BUILD_DIR_XBSTRAP)
-	@if [ ! -f $(BUILD_DIR_XBSTRAP)/bootstrap.link ]; then \
-		(cd $(BUILD_DIR_XBSTRAP) && $(XBSTRAP) init ..); \
-	fi
-
-.PHONY: mlibc-headers
-mlibc-headers: xbstrap-init
-	(cd $(BUILD_DIR_XBSTRAP) && $(XBSTRAP) install mlibc-headers)
-
-.PHONY: mlibc
-mlibc: xbstrap-init
-	(cd $(BUILD_DIR_XBSTRAP) && $(XBSTRAP) install mlibc)
-
-.PHONY: bash
-bash: xbstrap-init mlibc
-	(cd $(BUILD_DIR_XBSTRAP) && $(XBSTRAP) install bash)
-
-.PHONY: ncurses
-ncurses: xbstrap-init mlibc
-	(cd $(BUILD_DIR_XBSTRAP) && $(XBSTRAP) install ncurses)
-
-.PHONY: readline
-readline: xbstrap-init mlibc ncurses
-	(cd $(BUILD_DIR_XBSTRAP) && $(XBSTRAP) install readline)
-
-.PHONY: automake
-automake: xbstrap-init mlibc
-	(cd $(BUILD_DIR_XBSTRAP) && $(XBSTRAP) install automake)
-
-.PHONY: libtool
-libtool: xbstrap-init mlibc
-	(cd $(BUILD_DIR_XBSTRAP) && $(XBSTRAP) install libtool)
-
-.PHONY: binutils
-binutils: xbstrap-init mlibc
-	(cd $(BUILD_DIR_XBSTRAP) && $(XBSTRAP) install binutils)
-
-.PHONY: gcc
-gcc: xbstrap-init mlibc binutils
-	(cd $(BUILD_DIR_XBSTRAP) && $(XBSTRAP) install gcc)
-
-.PHONY: coreutils
-coreutils: xbstrap-init mlibc tzdata
-	(cd $(BUILD_DIR_XBSTRAP) && $(XBSTRAP) install coreutils)
-
-.PHONY: tzdata
-tzdata: xbstrap-init mlibc
-	(cd $(BUILD_DIR_XBSTRAP) && $(XBSTRAP) install tzdata)
-
-.PHONY: pkg-config
-pkg-config: xbstrap-init mlibc
-	(cd $(BUILD_DIR_XBSTRAP) && $(XBSTRAP) install pkg-config)
+	@tools/xbstrap.sh init
 
 .PHONY: xbstrap-fetch
-xbstrap-fetch: xbstrap-init
-	(cd $(BUILD_DIR_XBSTRAP) && $(XBSTRAP) fetch --all)
+xbstrap-fetch:
+	@tools/xbstrap.sh fetch --all
+
+# Dynamic rule: automatically handles any package (nano, bash, mlibc, ncurses, etc.)
+.PHONY: $(USER_PACKAGES) mlibc-headers
+$(USER_PACKAGES) mlibc-headers: xbstrap-init
+	@tools/xbstrap.sh build $@
 
 .PHONY: userspace
-userspace: xbstrap-init mlibc bash coreutils sync-initramfs
+userspace: xbstrap-init
+	@tools/xbstrap.sh build mlibc
+	@tools/xbstrap.sh build bash
+	@tools/xbstrap.sh build coreutils
+	@$(MAKE) sync-initramfs
 
 .PHONY: userspace-all
-userspace-all: xbstrap-init xbstrap-fetch mlibc ncurses readline bash automake libtool binutils gcc coreutils tzdata pkg-config sync-initramfs
+userspace-all: xbstrap-init
+	@tools/xbstrap.sh build-all
+	@$(MAKE) sync-initramfs
 
 .PHONY: sync-initramfs
 sync-initramfs:
@@ -144,7 +106,7 @@ sync-initramfs:
 
 .PHONY: clean-userspace
 clean-userspace:
-	rm -rf $(BUILD_DIR_XBSTRAP)
+	@tools/xbstrap.sh clean
 
 .PHONY: initramfs
 initramfs: userspace $(INITRAMFS_CPIO)

@@ -16,3 +16,4 @@ imports:
   - file: packages/coreutils/coreutils.yml
   - file: packages/tzdata/tzdata.yml
   - file: packages/pkg-config/pkg-config.yml
+  - file: packages/nano/nano.yml

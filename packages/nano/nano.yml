@@ -1,0 +1,48 @@
+sources:
+  - name: nano
+    subdir: sources
+    url: 'https://ftpmirror.gnu.org/gnu/nano/nano-7.2.tar.xz'
+    format: 'tar.xz'
+    extract_path: 'nano-7.2'
+    version: '7.2'
+    patch_path_strip: 1
+    tools_required:
+      - host-automake-v1.16
+    regenerate:
+      - args: ['cp',
+               '@BUILD_ROOT@/tools/host-automake-v1.16/share/automake-1.16/config.sub',
+               '@THIS_SOURCE_DIR@/']
+
+packages:
+  - name: nano
+    architecture: x86_64
+    from_source: nano
+    tools_required:
+      - host-gcc
+    pkgs_required:
+      - mlibc
+      - ncurses
+      - pkg-config
+    configure:
+      - args:
+          - '@THIS_SOURCE_DIR@/configure'
+          - '--host=x86_64-petra'
+          - '--prefix=/usr'
+          - '--sysconfdir=/etc'
+          - '--disable-nls'
+          - '--disable-libmagic'
+          - '--enable-color'
+          - '--enable-nanorc'
+          - '--enable-multibuffer'
+          - '--enable-utf8'
+          - 'NCURSESW_CFLAGS=-I@SYSROOT_DIR@/usr/include/ncursesw -I@SYSROOT_DIR@/usr/include'
+          - 'NCURSESW_LIBS=-L@SYSROOT_DIR@/usr/lib -lncursesw -ltinfow'
+          - 'NCURSES_CFLAGS=-I@SYSROOT_DIR@/usr/include/ncursesw -I@SYSROOT_DIR@/usr/include'
+          - 'NCURSES_LIBS=-L@SYSROOT_DIR@/usr/lib -lncursesw -ltinfow'
+    build:
+      - args: ['make', '-j@PARALLELISM@']
+    install:
+      - args: ['make', 'DESTDIR=@SYSROOT_DIR@', 'install']
+      - args: |
+          mkdir -p @SYSROOT_DIR@/usr/bin
+          cp -f src/nano @SYSROOT_DIR@/usr/bin/nano

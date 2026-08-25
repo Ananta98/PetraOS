@@ -55,11 +55,14 @@ packages:
     install:
       - args: ['make', 'DESTDIR=@SYSROOT_DIR@', 'install']
       - args: |
+          cp -a lib/lib*.so*        @SYSROOT_DIR@/usr/lib/ 2>/dev/null || true
           for lib in ncurses form panel menu tinfo ; do
               rm -vf                    @SYSROOT_DIR@/usr/lib/lib${lib}.so
               echo "INPUT(-l${lib}w)" > @SYSROOT_DIR@/usr/lib/lib${lib}.so
-              ln -sfv ${lib}w.pc        @SYSROOT_DIR@/usr/lib/pkgconfig/${lib}.pc
+              ln -sfv ${lib}w.pc        @SYSROOT_DIR@/usr/lib/pkgconfig/${lib}.pc 2>/dev/null || true
           done
           rm -vf                     @SYSROOT_DIR@/usr/lib/libcursesw.so
           echo "INPUT(-lncursesw)" > @SYSROOT_DIR@/usr/lib/libcursesw.so
           ln -sfv libncurses.so      @SYSROOT_DIR@/usr/lib/libcurses.so
+          ln -sfv .                  @SYSROOT_DIR@/usr/include/ncursesw 2>/dev/null || true
+          ln -sfv .                  @SYSROOT_DIR@/usr/include/ncurses 2>/dev/null || true
