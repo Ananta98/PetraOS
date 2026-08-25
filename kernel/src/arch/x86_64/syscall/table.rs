@@ -1,7 +1,7 @@
 //! Architecture-specific system call numbering and dispatch table for x86_64 Linux ABI.
 
 use crate::define_syscall_table;
-use crate::syscalls::{arch_prctl, fs, ipc, ioctl, mm, proc, signals, sync, sys_info, time};
+use crate::syscalls::{arch_prctl, fs, ioctl, ipc, mm, net, proc, signals, sync, sys_info, time};
 
 // Entries in SYSCALL_TABLE must be kept sorted by system call number for binary search.
 define_syscall_table! {
@@ -35,6 +35,21 @@ define_syscall_table! {
     SYS_DUP2           = 33  => ("dup2",           fs::sys_dup2),
     SYS_NANOSLEEP      = 35  => ("nanosleep",      time::sys_nanosleep),
     SYS_GETPID         = 39  => ("getpid",         proc::sys_getpid),
+    SYS_SOCKET         = 41  => ("socket",         net::sys_socket),
+    SYS_CONNECT        = 42  => ("connect",        net::sys_connect),
+    SYS_ACCEPT         = 43  => ("accept",         net::sys_accept),
+    SYS_SENDTO         = 44  => ("sendto",         net::sys_sendto),
+    SYS_RECVFROM       = 45  => ("recvfrom",       net::sys_recvfrom),
+    SYS_SENDMSG        = 46  => ("sendmsg",        net::sys_sendmsg),
+    SYS_RECVMSG        = 47  => ("recvmsg",        net::sys_recvmsg),
+    SYS_SHUTDOWN       = 48  => ("shutdown",       net::sys_shutdown),
+    SYS_BIND           = 49  => ("bind",           net::sys_bind),
+    SYS_LISTEN         = 50  => ("listen",         net::sys_listen),
+    SYS_GETSOCKNAME    = 51  => ("getsockname",    net::sys_getsockname),
+    SYS_GETPEERNAME    = 52  => ("getpeername",    net::sys_getpeername),
+    SYS_SOCKETPAIR     = 53  => ("socketpair",     net::sys_socketpair),
+    SYS_SETSOCKOPT     = 54  => ("setsockopt",     net::sys_setsockopt),
+    SYS_GETSOCKOPT     = 55  => ("getsockopt",     net::sys_getsockopt),
     SYS_FORK           = 57  => ("fork",           proc::sys_fork),
     SYS_VFORK          = 58  => ("vfork",          proc::sys_vfork),
     SYS_EXECVE         = 59  => ("execve",         proc::sys_execve),
@@ -105,6 +120,7 @@ define_syscall_table! {
     SYS_PSELECT6       = 270 => ("pselect6",       fs::sys_pselect6),
     SYS_PPOLL          = 271 => ("ppoll",          fs::sys_ppoll),
     SYS_UTIMENSAT      = 280 => ("utimensat",      fs::sys_utimensat),
+    SYS_ACCEPT4        = 288 => ("accept4",        net::sys_accept4),
     SYS_DUP3           = 292 => ("dup3",           fs::sys_dup3),
     SYS_PIPE2          = 293 => ("pipe2",          fs::sys_pipe2),
     SYS_PRLIMIT64      = 302 => ("prlimit64",      proc::sys_prlimit64),

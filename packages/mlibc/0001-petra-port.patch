@@ -1,7 +1,7 @@
 From 39144cfd07563fa2587563f3afecf79648a0cc79 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sat, 15 Aug 2026 11:59:14 +0700
-Subject: [PATCH 01/16] feat(sysdeps): add PetraOS support and GCC 13
+Subject: [PATCH 01/17] feat(sysdeps): add PetraOS support and GCC 13
  compatibility
 
 ---
@@ -1739,7 +1739,7 @@ index 00000000..44587ad2
 From a75d7c4e673984be4fcb0ffbb4f7e345c56bd39d Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sun, 16 Aug 2026 17:18:00 +0700
-Subject: [PATCH 02/16] feat(sysdeps/petra): add terminal control, poll, and
+Subject: [PATCH 02/17] feat(sysdeps/petra): add terminal control, poll, and
  select sysdeps
 
 ---
@@ -1868,7 +1868,7 @@ index 44587ad2..24a2b48d 100644
 From c4434488b69469b46faf5a07bdbd51e40152d381 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sun, 16 Aug 2026 17:19:03 +0700
-Subject: [PATCH 03/16] fix(sysdeps/petra): remove linux from
+Subject: [PATCH 03/17] fix(sysdeps/petra): remove linux from
  sysdep_supported_options
 
 ---
@@ -1894,7 +1894,7 @@ index 24a2b48d..44587ad2 100644
 From 26c988ed911573e59fdc842e4463b89f0a433176 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sun, 16 Aug 2026 17:19:35 +0700
-Subject: [PATCH 04/16] feat(sysdeps/petra): declare terminal and poll tags in
+Subject: [PATCH 04/17] feat(sysdeps/petra): declare terminal and poll tags in
  PetraSysdepTags
 
 ---
@@ -1930,7 +1930,7 @@ index 5681c78f..7abf63e8 100644
 From 1b5f07719d46d788c322d248c5a36ca94d0f5a50 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sun, 16 Aug 2026 17:20:01 +0700
-Subject: [PATCH 05/16] fix(sysdeps/petra): use memset for sigset_t
+Subject: [PATCH 05/17] fix(sysdeps/petra): use memset for sigset_t
 
 ---
  sysdeps/petra/generic/generic.cpp | 2 +-
@@ -1956,7 +1956,7 @@ index 12ef809c..413db4ac 100644
 From e9bdc4ebbb80ca9fb000279f83eae7b97b10768d Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sun, 16 Aug 2026 17:21:15 +0700
-Subject: [PATCH 06/16] fix(sysdeps/petra): direct bit check in Pselect without
+Subject: [PATCH 06/17] fix(sysdeps/petra): direct bit check in Pselect without
  __FD_ISSET
 
 ---
@@ -1987,7 +1987,7 @@ index 413db4ac..a7cd878e 100644
 From 6e637c6bc5ffda81272b882d3e182f3468adbfd0 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sun, 16 Aug 2026 17:21:39 +0700
-Subject: [PATCH 07/16] fix(sysdeps/petra): use fds_bits in Pselect
+Subject: [PATCH 07/17] fix(sysdeps/petra): use fds_bits in Pselect
 
 ---
  sysdeps/petra/generic/generic.cpp | 4 ++--
@@ -2017,7 +2017,7 @@ index a7cd878e..0e3b2d30 100644
 From e67318b77642431df8bc8ee4a8af8bb8a9a94bf0 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sun, 16 Aug 2026 18:12:18 +0700
-Subject: [PATCH 08/16] feat(sysdeps/petra): implement ttyname, gethostname,
+Subject: [PATCH 08/17] feat(sysdeps/petra): implement ttyname, gethostname,
  termios fallback and pselect wrapper
 
 - Implement sys_ttyname: verify fd is a TTY via isatty, then report /dev/tty.
@@ -2212,7 +2212,7 @@ index 7abf63e8..47b92d23 100644
 From 0a4b8b6296d3c8673c702c177b6a926d1718630d Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sun, 16 Aug 2026 21:54:12 +0700
-Subject: [PATCH 09/16] feat(sysdeps/petra): implement OpenDir and ReadEntries
+Subject: [PATCH 09/17] feat(sysdeps/petra): implement OpenDir and ReadEntries
  using getdents64
 
 ---
@@ -2277,7 +2277,7 @@ index 88915e85..90885b83 100644
 From 45602e3a9d462aca3481f28fc99a9fcbcbb03ac3 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Wed, 19 Aug 2026 19:25:53 +0700
-Subject: [PATCH 10/16] feat(sysdeps/petra): implement Sysdeps<Sysconf>
+Subject: [PATCH 10/17] feat(sysdeps/petra): implement Sysdeps<Sysconf>
  handling
 
 ---
@@ -2369,7 +2369,7 @@ index f774f219..71c97380 100644
 From 9335db45d9abd4d3eff29731ba435cabcdf8fb19 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Wed, 19 Aug 2026 20:37:20 +0700
-Subject: [PATCH 11/16] feat(sysdeps/petra): implement brk, fchmodat, and
+Subject: [PATCH 11/17] feat(sysdeps/petra): implement brk, fchmodat, and
  utimensat sysdeps
 
 ---
@@ -2451,7 +2451,7 @@ index 90885b83..c6d9cbd5 100644
 From e8d6d7700a37243e47c2b6b08d94d2308c7a4d48 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Wed, 19 Aug 2026 20:47:47 +0700
-Subject: [PATCH 12/16] fix(ansi): flush stdout on read and default stdout to
+Subject: [PATCH 12/17] fix(ansi): flush stdout on read and default stdout to
  unbuffered for immediate terminal echo
 
 ---
@@ -2489,7 +2489,7 @@ index 90c31608..3c8c4926 100644
 From 179993a53e07b1e15717d1c60ecdefb337a95815 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Wed, 19 Aug 2026 20:59:14 +0700
-Subject: [PATCH 13/16] fix(stdio): default interactive terminal streams to
+Subject: [PATCH 13/17] fix(stdio): default interactive terminal streams to
  unbuffered for immediate character echoing
 
 ---
@@ -2525,7 +2525,7 @@ index 3c8c4926..e5e9d8d6 100644
 From 9025747d7f1b7a5396a69d1b3e47ef630f0c1bb9 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sat, 22 Aug 2026 10:05:46 +0700
-Subject: [PATCH 14/16] fix(sysdeps/petra): replace busy-loop Sleep with
+Subject: [PATCH 14/17] fix(sysdeps/petra): replace busy-loop Sleep with
  sys_nanosleep syscall
 
 ---
@@ -2642,7 +2642,7 @@ index b6059da8..540bbc48 100644
 From 4d8f8e521611cbab241c67b3927c767fc0240bef Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Mon, 24 Aug 2026 12:51:05 +0700
-Subject: [PATCH 15/16] feat(sysdeps/petra): implement System V semaphore
+Subject: [PATCH 15/17] feat(sysdeps/petra): implement System V semaphore
  syscall support
 
 Add kernel-facing syscall numbers and userspace Sysdeps<> implementations
@@ -3129,7 +3129,7 @@ index c6d9cbd5..44e9825e 100644
 From 1f4f7fb31575eb51b6ae944c3da62d7cbc0f50a0 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Tue, 25 Aug 2026 09:42:26 +0700
-Subject: [PATCH 16/16] feat(sysdeps/petra): implement fadvise and System V
+Subject: [PATCH 16/17] feat(sysdeps/petra): implement fadvise and System V
  shared memory sysdeps
 
 ---
@@ -3255,6 +3255,254 @@ index 44e9825e..22b2c37f 100644
  #define SYSCALL_CLOCK_GETTIME  228
  #define SYSCALL_EXIT_GROUP     231
  #define SYSCALL_OPENAT         257
+-- 
+2.43.0
+
+
+From 0a2fbd447a951d0ce7b768070dc19b4a6445a9e3 Mon Sep 17 00:00:00 2001
+From: Ananta <kusumaananta042@gmail.com>
+Date: Tue, 25 Aug 2026 10:08:11 +0700
+Subject: [PATCH 17/17] feat(sysdeps/petra): implement socket and network
+ system call sysdeps
+
+---
+ sysdeps/petra/generic/generic.cpp       | 152 ++++++++++++++++++++++++
+ sysdeps/petra/include/mlibc/sysdeps.hpp |  17 ++-
+ sysdeps/petra/include/sys/syscall.h     |  16 +++
+ 3 files changed, 184 insertions(+), 1 deletion(-)
+
+diff --git a/sysdeps/petra/generic/generic.cpp b/sysdeps/petra/generic/generic.cpp
+index c868b355..2f2160ea 100644
+--- a/sysdeps/petra/generic/generic.cpp
++++ b/sysdeps/petra/generic/generic.cpp
+@@ -23,6 +23,7 @@
+ #include <sys/resource.h>
+ #include <sys/uio.h>
+ #include <sys/shm.h>
++#include <sys/socket.h>
+ 
+ namespace mlibc {
+ 
+@@ -990,6 +991,157 @@ int Sysdeps<Shmctl>::operator()(int *idx, int shmid, int cmd, struct shmid_ds *b
+     return 0;
+ }
+ 
++int Sysdeps<Socket>::operator()(int family, int type, int protocol, int *fd) {
++    int64_t ret = __petra_syscall3(SYSCALL_SOCKET, family, type, protocol);
++    if (ret < 0) {
++        return (int)(-ret);
++    }
++    if (fd) {
++        *fd = (int)ret;
++    }
++    return 0;
++}
++
++int Sysdeps<Bind>::operator()(int fd, const struct sockaddr *addr_ptr, socklen_t addr_length) {
++    int64_t ret = __petra_syscall3(SYSCALL_BIND, fd, (int64_t)addr_ptr, addr_length);
++    if (ret < 0) {
++        return (int)(-ret);
++    }
++    return 0;
++}
++
++int Sysdeps<Connect>::operator()(int fd, const struct sockaddr *addr_ptr, socklen_t addr_length) {
++    int64_t ret = __petra_syscall3(SYSCALL_CONNECT, fd, (int64_t)addr_ptr, addr_length);
++    if (ret < 0) {
++        return (int)(-ret);
++    }
++    return 0;
++}
++
++int Sysdeps<Listen>::operator()(int fd, int backlog) {
++    int64_t ret = __petra_syscall2(SYSCALL_LISTEN, fd, backlog);
++    if (ret < 0) {
++        return (int)(-ret);
++    }
++    return 0;
++}
++
++int Sysdeps<Accept>::operator()(int fd, int *newfd, struct sockaddr *addr_ptr, socklen_t *addr_length, int flags) {
++    int64_t ret;
++    if (flags != 0) {
++        ret = __petra_syscall4(SYSCALL_ACCEPT4, fd, (int64_t)addr_ptr, (int64_t)addr_length, flags);
++    } else {
++        ret = __petra_syscall3(SYSCALL_ACCEPT, fd, (int64_t)addr_ptr, (int64_t)addr_length);
++    }
++    if (ret < 0) {
++        return (int)(-ret);
++    }
++    if (newfd) {
++        *newfd = (int)ret;
++    }
++    return 0;
++}
++
++int Sysdeps<Sendto>::operator()(int fd, const void *buffer, size_t size, int flags, const struct sockaddr *sock_addr, socklen_t addr_length, ssize_t *length) {
++    int64_t ret = __petra_syscall6(SYSCALL_SENDTO, fd, (int64_t)buffer, size, flags, (int64_t)sock_addr, addr_length);
++    if (ret < 0) {
++        return (int)(-ret);
++    }
++    if (length) {
++        *length = (ssize_t)ret;
++    }
++    return 0;
++}
++
++int Sysdeps<Recvfrom>::operator()(int fd, void *buffer, size_t size, int flags, struct sockaddr *sock_addr, socklen_t *addr_length, ssize_t *length) {
++    int64_t ret = __petra_syscall6(SYSCALL_RECVFROM, fd, (int64_t)buffer, size, flags, (int64_t)sock_addr, (int64_t)addr_length);
++    if (ret < 0) {
++        return (int)(-ret);
++    }
++    if (length) {
++        *length = (ssize_t)ret;
++    }
++    return 0;
++}
++
++int Sysdeps<MsgSend>::operator()(int fd, const struct msghdr *hdr, int flags, ssize_t *length) {
++    int64_t ret = __petra_syscall3(SYSCALL_SENDMSG, fd, (int64_t)hdr, flags);
++    if (ret < 0) {
++        return (int)(-ret);
++    }
++    if (length) {
++        *length = (ssize_t)ret;
++    }
++    return 0;
++}
++
++int Sysdeps<MsgRecv>::operator()(int fd, struct msghdr *hdr, int flags, ssize_t *length) {
++    int64_t ret = __petra_syscall3(SYSCALL_RECVMSG, fd, (int64_t)hdr, flags);
++    if (ret < 0) {
++        return (int)(-ret);
++    }
++    if (length) {
++        *length = (ssize_t)ret;
++    }
++    return 0;
++}
++
++int Sysdeps<Sockname>::operator()(int fd, struct sockaddr *addr_ptr, socklen_t max_addr_length, socklen_t *actual_length) {
++    socklen_t len = max_addr_length;
++    int64_t ret = __petra_syscall3(SYSCALL_GETSOCKNAME, fd, (int64_t)addr_ptr, (int64_t)&len);
++    if (ret < 0) {
++        return (int)(-ret);
++    }
++    if (actual_length) {
++        *actual_length = len;
++    }
++    return 0;
++}
++
++int Sysdeps<Peername>::operator()(int fd, struct sockaddr *addr_ptr, socklen_t max_addr_length, socklen_t *actual_length) {
++    socklen_t len = max_addr_length;
++    int64_t ret = __petra_syscall3(SYSCALL_GETPEERNAME, fd, (int64_t)addr_ptr, (int64_t)&len);
++    if (ret < 0) {
++        return (int)(-ret);
++    }
++    if (actual_length) {
++        *actual_length = len;
++    }
++    return 0;
++}
++
++int Sysdeps<GetSockopt>::operator()(int fd, int layer, int number, void *__restrict buffer, socklen_t *__restrict size) {
++    int64_t ret = __petra_syscall5(SYSCALL_GETSOCKOPT, fd, layer, number, (int64_t)buffer, (int64_t)size);
++    if (ret < 0) {
++        return (int)(-ret);
++    }
++    return 0;
++}
++
++int Sysdeps<SetSockopt>::operator()(int fd, int layer, int number, const void *buffer, socklen_t size) {
++    int64_t ret = __petra_syscall5(SYSCALL_SETSOCKOPT, fd, layer, number, (int64_t)buffer, size);
++    if (ret < 0) {
++        return (int)(-ret);
++    }
++    return 0;
++}
++
++int Sysdeps<Shutdown>::operator()(int sockfd, int how) {
++    int64_t ret = __petra_syscall2(SYSCALL_SHUTDOWN, sockfd, how);
++    if (ret < 0) {
++        return (int)(-ret);
++    }
++    return 0;
++}
++
++int Sysdeps<Socketpair>::operator()(int domain, int type_and_flags, int proto, int *fds) {
++    int64_t ret = __petra_syscall4(SYSCALL_SOCKETPAIR, domain, type_and_flags, proto, (int64_t)fds);
++    if (ret < 0) {
++        return (int)(-ret);
++    }
++    return 0;
++}
++
+ } // namespace mlibc
+ 
+ 
+diff --git a/sysdeps/petra/include/mlibc/sysdeps.hpp b/sysdeps/petra/include/mlibc/sysdeps.hpp
+index 076ff7db..c22a7f35 100644
+--- a/sysdeps/petra/include/mlibc/sysdeps.hpp
++++ b/sysdeps/petra/include/mlibc/sysdeps.hpp
+@@ -104,7 +104,22 @@ struct PetraSysdepTags :
+     Shmget,
+     Shmat,
+     Shmdt,
+-    Shmctl
++    Shmctl,
++    Socket,
++    Bind,
++    Connect,
++    Listen,
++    Accept,
++    Sendto,
++    Recvfrom,
++    MsgSend,
++    MsgRecv,
++    Sockname,
++    Peername,
++    GetSockopt,
++    SetSockopt,
++    Shutdown,
++    Socketpair
+ {};
+ 
+ template<typename Tag>
+diff --git a/sysdeps/petra/include/sys/syscall.h b/sysdeps/petra/include/sys/syscall.h
+index 22b2c37f..a6c79f74 100644
+--- a/sysdeps/petra/include/sys/syscall.h
++++ b/sysdeps/petra/include/sys/syscall.h
+@@ -34,6 +34,21 @@
+ #define SYSCALL_DUP2           33
+ #define SYSCALL_NANOSLEEP      35
+ #define SYSCALL_GETPID         39
++#define SYSCALL_SOCKET         41
++#define SYSCALL_CONNECT        42
++#define SYSCALL_ACCEPT         43
++#define SYSCALL_SENDTO         44
++#define SYSCALL_RECVFROM       45
++#define SYSCALL_SENDMSG        46
++#define SYSCALL_RECVMSG        47
++#define SYSCALL_SHUTDOWN       48
++#define SYSCALL_BIND           49
++#define SYSCALL_LISTEN         50
++#define SYSCALL_GETSOCKNAME    51
++#define SYSCALL_GETPEERNAME    52
++#define SYSCALL_SOCKETPAIR     53
++#define SYSCALL_SETSOCKOPT     54
++#define SYSCALL_GETSOCKOPT     55
+ #define SYSCALL_FORK           57
+ #define SYSCALL_VFORK          58
+ #define SYSCALL_EXECVE         59
+@@ -105,6 +120,7 @@
+ #define SYSCALL_PSELECT6       270
+ #define SYSCALL_PPOLL          271
+ #define SYSCALL_UTIMENSAT      280
++#define SYSCALL_ACCEPT4        288
+ #define SYSCALL_DUP3           292
+ #define SYSCALL_PIPE2          293
+ #define SYSCALL_PRLIMIT64      302
 -- 
 2.43.0
 

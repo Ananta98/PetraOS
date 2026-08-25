@@ -3,6 +3,7 @@ pub mod fs;
 pub mod ioctl;
 pub mod ipc;
 pub mod mm;
+pub mod net;
 pub mod proc;
 pub mod signals;
 pub mod sync;
@@ -41,11 +42,39 @@ pub enum SyscallError {
     ENOTTY = 25,
     ENOSPC = 28,
     ESPIPE = 29,
+    EPIPE = 32,
+    ERANGE = 34,
     ENOSYS = 38,
     ELOOP = 40,
     EIDRM = 43,
-    ERANGE = 34,
+    ENOTSOCK = 88,
+    EDESTADDRREQ = 89,
+    EMSGSIZE = 90,
+    EPROTOTYPE = 91,
+    ENOPROTOOPT = 92,
+    EPROTONOSUPPORT = 93,
+    ESOCKTNOSUPPORT = 94,
+    EOPNOTSUPP = 95,
+    EPFNOSUPPORT = 96,
+    EAFNOSUPPORT = 97,
+    EADDRINUSE = 98,
+    EADDRNOTAVAIL = 99,
+    ENETDOWN = 100,
+    ENETUNREACH = 101,
+    ENETRESET = 102,
+    ECONNABORTED = 103,
+    ECONNRESET = 104,
+    ENOBUFS = 105,
+    EISCONN = 106,
+    ENOTCONN = 107,
+    ESHUTDOWN = 108,
+    ETOOMANYREFS = 109,
     ETIMEDOUT = 110,
+    ECONNREFUSED = 111,
+    EHOSTDOWN = 112,
+    EHOSTUNREACH = 113,
+    EALREADY = 114,
+    EINPROGRESS = 115,
 }
 
 impl From<FutexError> for SyscallError {

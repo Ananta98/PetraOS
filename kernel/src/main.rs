@@ -15,6 +15,7 @@ pub mod limine;
 pub mod logger;
 pub mod mm;
 pub mod modules;
+pub mod net;
 pub mod proc;
 pub mod sched;
 pub mod sync;

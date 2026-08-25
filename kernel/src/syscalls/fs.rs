@@ -622,13 +622,7 @@ pub fn sys_poll(frame: &mut SyscallFrame) -> SyscallResult {
         }
         match proc.fd_table.get(pfd.fd) {
             Ok(file) => {
-                let mut revents = 0;
-                if (pfd.events & POLLIN) != 0 && crate::fs::can_read(file.flags) {
-                    revents |= POLLIN;
-                }
-                if (pfd.events & POLLOUT) != 0 && crate::fs::can_write(file.flags) {
-                    revents |= POLLOUT;
-                }
+                let revents = file.ops.poll_events(pfd.events);
                 pfd.revents = revents;
                 if revents != 0 {
                     ready_count += 1;

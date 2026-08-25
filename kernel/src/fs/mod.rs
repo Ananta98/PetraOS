@@ -4,9 +4,11 @@ pub mod fd;
 pub mod initramfs;
 pub mod pipefs;
 pub mod ramfs;
+pub mod socket_fs;
 pub mod vfs;
 
 pub use initramfs::Initramfs;
+pub use socket_fs::create_socket_file;
 
 pub use fd::FdTable;
 pub use vfs::dentry::Dentry;

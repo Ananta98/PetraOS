@@ -334,6 +334,16 @@ pub trait FileOps: Send + Sync {
     fn isatty(&self) -> bool {
         false
     }
+
+    /// Return ready events bitmask matching `events` (POLLIN, POLLOUT, etc.).
+    fn poll_events(&self, events: i16) -> i16 {
+        events
+    }
+
+    /// Cast to Socket handle if this file is a socket.
+    fn as_socket(&self) -> Option<Arc<crate::sync::spinlock::Spinlock<crate::net::socket::Socket>>> {
+        None
+    }
 }
 
 // ===== FileSystem Trait =====
