@@ -355,6 +355,31 @@ impl E1000Device {
         Ok(Some(len))
     }
 
+    /// Non-destructively report whether the RX ring holds an unread frame.
+    ///
+    /// Unlike [`Self::receive_packet`] this only inspects the descriptor status
+    /// bit and never advances the ring, so it is safe to call from poll paths.
+    pub fn has_pending_rx(&mut self) -> bool {
+        let idx = self.rx_cur;
+        let rx_descs_ptr = self.rx_ring.as_mut_ptr() as *const RxDesc;
+
+        // SAFETY: idx is bounded by RX_NUM_DESCS and the descriptor ring is a
+        // DMA-coherent allocation exclusively owned by this driver instance.
+        let desc = unsafe { &*rx_descs_ptr.add(idx) };
+        (desc.status & RXD_STAT_DD) != 0
+    }
+
+    /// Non-destructively report whether the TX ring has a free descriptor.
+    pub fn is_tx_ready(&mut self) -> bool {
+        let idx = self.tx_cur;
+        let tx_descs_ptr = self.tx_ring.as_mut_ptr() as *const TxDesc;
+
+        // SAFETY: idx is bounded by TX_NUM_DESCS and the descriptor ring is a
+        // DMA-coherent allocation exclusively owned by this driver instance.
+        let desc = unsafe { &*tx_descs_ptr.add(idx) };
+        (desc.status & TXD_STAT_DD) != 0
+    }
+
     /// Acknowledge and return pending interrupt causes from ICR.
     pub fn handle_interrupt(&mut self) -> u32 {
         let icr = self.read_reg(REG_ICR);
