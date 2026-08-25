@@ -35,34 +35,13 @@ all-hdd: $(IMAGE_NAME).hdd
 run: run-$(KARCH)
 
 # ==============================================================================
-# Userspace / Ports build system (Modular xbstrap dispatcher)
+# Userspace / Ports
+#
+# All xbstrap operations (workspace init, source fetching, patching, package
+# compilation and cleaning) live in tools/build_and_run_userspace.sh:
+#   ./tools/build_and_run_userspace.sh            # core userspace pipeline + QEMU
+#   ./tools/build_and_run_userspace.sh --all      # recompile ALL packages + QEMU
 # ==============================================================================
-USER_PACKAGES := $(notdir $(patsubst %/,%,$(dir $(wildcard packages/*/*.yml))))
-
-.PHONY: xbstrap-init
-xbstrap-init:
-	@tools/xbstrap.sh init
-
-.PHONY: xbstrap-fetch
-xbstrap-fetch:
-	@tools/xbstrap.sh fetch --all
-
-# Dynamic rule: automatically handles any package (nano, bash, mlibc, ncurses, etc.)
-.PHONY: $(USER_PACKAGES) mlibc-headers
-$(USER_PACKAGES) mlibc-headers: xbstrap-init
-	@tools/xbstrap.sh build $@
-
-.PHONY: userspace
-userspace: xbstrap-init
-	@tools/xbstrap.sh build mlibc
-	@tools/xbstrap.sh build bash
-	@tools/xbstrap.sh build coreutils
-	@$(MAKE) sync-initramfs
-
-.PHONY: userspace-all
-userspace-all: xbstrap-init
-	@tools/xbstrap.sh build-all
-	@$(MAKE) sync-initramfs
 
 .PHONY: sync-initramfs
 sync-initramfs:
@@ -104,18 +83,8 @@ sync-initramfs:
 		find $(INITRAMFS_ROOT)/lib $(INITRAMFS_ROOT)/usr/lib -name "*.so*" -type f -exec x86_64-linux-gnu-strip -s {} + 2>/dev/null || true; \
 	fi
 
-.PHONY: clean-userspace
-clean-userspace:
-	@tools/xbstrap.sh clean
-
 .PHONY: initramfs
-initramfs: userspace $(INITRAMFS_CPIO)
-
-.PHONY: run-userspace
-run-userspace: userspace $(INITRAMFS_CPIO) run
-
-.PHONY: run-userspace-all
-run-userspace-all: userspace-all $(INITRAMFS_CPIO) run
+initramfs: $(INITRAMFS_CPIO)
 
 $(INITRAMFS_CPIO): sync-initramfs tools/create_initramfs.sh $(shell find $(INITRAMFS_ROOT) -type f 2>/dev/null)
 	@mkdir -p $(BUILD_DIR)
