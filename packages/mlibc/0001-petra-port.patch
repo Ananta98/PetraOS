@@ -3507,15 +3507,16 @@ index 22b2c37f..a6c79f74 100644
 2.43.0
 
 
-From 73ef5308d59c11d59bc83af1209c9b47c791d862 Mon Sep 17 00:00:00 2001
+From 2c568ac29285382b263f080197c91d84375bdf3f Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Tue, 25 Aug 2026 20:04:30 +0700
 Subject: [PATCH 18/18] feat(sysdeps/petra): implement ppoll, poll, and
  terminal winsize sysdeps
 
 ---
- sysdeps/petra/generic/generic.cpp | 39 ++++++++++++++++++++++---------
- 1 file changed, 28 insertions(+), 11 deletions(-)
+ sysdeps/petra/generic/generic.cpp       | 39 ++++++++++++++++++-------
+ sysdeps/petra/include/mlibc/sysdeps.hpp |  2 ++
+ 2 files changed, 30 insertions(+), 11 deletions(-)
 
 diff --git a/sysdeps/petra/generic/generic.cpp b/sysdeps/petra/generic/generic.cpp
 index 2f2160ea..65de87b6 100644
@@ -3581,6 +3582,19 @@ index 2f2160ea..65de87b6 100644
  }
  
  #ifndef MLIBC_BUILDING_RTLD
+diff --git a/sysdeps/petra/include/mlibc/sysdeps.hpp b/sysdeps/petra/include/mlibc/sysdeps.hpp
+index c22a7f35..3befdfd3 100644
+--- a/sysdeps/petra/include/mlibc/sysdeps.hpp
++++ b/sysdeps/petra/include/mlibc/sysdeps.hpp
+@@ -59,6 +59,8 @@ struct PetraSysdepTags :
+     Sleep,
+     Tcgetattr,
+     Tcsetattr,
++    Tcgetwinsize,
++    Tcsetwinsize,
+     Ttyname,
+     GetHostname,
+     Tcsendbreak,
 -- 
 2.43.0
 

@@ -2,49 +2,325 @@
 # ==============================================================================
 # PetraOS Userspace Build & Run Script
 #
-# Automated pipeline:
-# 1. Initialize xbstrap workspace
-# 2. Download / Fetch source packages
-# 3. Build toolchain and userspace packages into sysroot
-# 4. Sync sysroot binaries/libraries into initramfs
-# 5. Build bootable ISO and launch in QEMU
+# Central engine for ALL userspace / xbstrap operations:
+#   - Initialize the xbstrap workspace
+#   - Download / fetch package source code
+#   - Verify patches (applied by xbstrap during source prepare)
+#   - Compile & install a single package or all packages into the sysroot
+#   - Clean build artifacts
+#   - Package initramfs, and launch PetraOS in QEMU
+#
+# Usage:
+#   ./tools/build_and_run_userspace.sh                  # Core pipeline (mlibc, bash, coreutils) + QEMU
+#   ./tools/build_and_run_userspace.sh --all            # Full pipeline (ALL packages) + QEMU
+#   ./tools/build_and_run_userspace.sh <action> [pkg]   # Individual operation, see help
 # ==============================================================================
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+BUILD_DIR_XBSTRAP="${ROOT_DIR}/build-xbstrap"
+SYSROOT="${BUILD_DIR_XBSTRAP}/system-root"
+SOURCES_DIR="${ROOT_DIR}/sources"
+PACKAGES_DIR="${ROOT_DIR}/packages"
 
-cd "${ROOT_DIR}"
-
-MODE="${1:-default}"
 QEMU_EXTRA_FLAGS="${QEMUFLAGS:--m 2G -serial stdio}"
 
-echo "============================================================"
-echo "          PetraOS Userspace Build & Launch Pipeline         "
-echo "============================================================"
+CORE_PACKAGES=(mlibc bash coreutils)
 
-# Step 1: Initialize xbstrap
-echo "[1/5] Initializing xbstrap workspace..."
-make xbstrap-init
+# Colors for terminal output
+BOLD="\033[1m"
+GREEN="\033[32m"
+YELLOW="\033[33m"
+BLUE="\033[34m"
+RED="\033[31m"
+RESET="\033[0m"
 
-# Step 2: Download / Fetch packages
-if [ "${MODE}" = "--all" ] || [ "${MODE}" = "all" ]; then
-    echo "[2/5] Downloading all sources via xbstrap-fetch..."
-    make xbstrap-fetch
-    echo "[3/5] Building all userspace packages..."
-    make userspace-all
-else
-    echo "[2/5] Fetching core packages (mlibc, bash)..."
-    (cd build-xbstrap && xbstrap fetch mlibc bash)
-    echo "[3/5] Building core userspace (mlibc-headers, mlibc, bash)..."
-    make userspace
-fi
+log_info() {
+    echo -e "${BLUE}[INFO]${RESET} ${1}"
+}
 
-# Step 4: Package initramfs
-echo "[4/5] Packaging initramfs cpio archive..."
-make initramfs
+log_success() {
+    echo -e "${GREEN}[SUCCESS]${RESET} ${1}"
+}
 
-# Step 5: Build ISO & launch QEMU
-echo "[5/5] Launching PetraOS in QEMU..."
-make run QEMUFLAGS="${QEMU_EXTRA_FLAGS}"
+log_warn() {
+    echo -e "${YELLOW}[WARN]${RESET} ${1}"
+}
+
+log_error() {
+    echo -e "${RED}[ERROR]${RESET} ${1}" >&2
+}
+
+ensure_xbstrap() {
+    if ! command -v xbstrap &>/dev/null; then
+        log_error "'xbstrap' command was not found in PATH."
+        log_error "Please ensure xbstrap is installed (e.g. pip install xbstrap)."
+        exit 1
+    fi
+}
+
+xbstrap_in_workspace() {
+    (cd "${BUILD_DIR_XBSTRAP}" && xbstrap "${@}")
+}
+
+# ------------------------------------------------------------------------------
+# xbstrap operations
+# ------------------------------------------------------------------------------
+
+cmd_init() {
+    ensure_xbstrap
+    if [ ! -d "${BUILD_DIR_XBSTRAP}" ] || [ ! -f "${BUILD_DIR_XBSTRAP}/bootstrap.link" ]; then
+        log_info "Initializing xbstrap workspace in ${BUILD_DIR_XBSTRAP}..."
+        mkdir -p "${BUILD_DIR_XBSTRAP}"
+        (cd "${BUILD_DIR_XBSTRAP}" && xbstrap init ..)
+        log_success "xbstrap workspace initialized."
+    else
+        log_info "xbstrap workspace already initialized."
+    fi
+}
+
+cmd_fetch() {
+    ensure_xbstrap
+    cmd_init
+    local pkg="${1:-all}"
+
+    if [ "${pkg}" = "all" ] || [ "${pkg}" = "--all" ] || [ "${pkg}" = "-a" ]; then
+        log_info "Downloading all sources defined in bootstrap.yml..."
+        xbstrap_in_workspace fetch --all
+        log_success "All package sources fetched."
+    else
+        # Check if source is already downloaded and non-empty
+        if [ -d "${SOURCES_DIR}/${pkg}" ] && [ "$(ls -A "${SOURCES_DIR}/${pkg}" 2>/dev/null)" ]; then
+            log_info "Source for '${pkg}' already exists at sources/${pkg}."
+        else
+            log_info "Downloading / fetching source for '${pkg}'..."
+            xbstrap_in_workspace fetch "${pkg}"
+            log_success "Source for '${pkg}' fetched."
+        fi
+    fi
+}
+
+cmd_patch() {
+    ensure_xbstrap
+    cmd_init
+    local pkg="${1:-}"
+    if [ -z "${pkg}" ]; then
+        log_error "Please specify a package name to patch."
+        exit 1
+    fi
+
+    local pkg_dir="${PACKAGES_DIR}/${pkg}"
+    if [ ! -d "${pkg_dir}" ]; then
+        log_error "Unknown package '${pkg}' (no packages/${pkg} directory)."
+        exit 1
+    fi
+
+    local patch_count
+    patch_count=$(find "${pkg_dir}" -maxdepth 1 -name "*.patch" | wc -l)
+    if [ "${patch_count}" -gt 0 ]; then
+        log_info "Package '${pkg}' has ${patch_count} patch file(s)."
+        find "${pkg_dir}" -maxdepth 1 -name "*.patch" -printf "  - %f\n"
+        log_info "Patches are applied by xbstrap automatically during source prepare."
+    else
+        log_info "No custom patch files found in packages/${pkg}."
+    fi
+}
+
+build_package() {
+    local pkg="${1}"
+    # Fetch source first if missing; patches are applied by xbstrap on prepare.
+    cmd_fetch "${pkg}"
+
+    log_info "Building package '${pkg}' into sysroot..."
+    xbstrap_in_workspace install "${pkg}"
+    log_success "Package '${pkg}' built and installed successfully."
+}
+
+cmd_build() {
+    ensure_xbstrap
+    cmd_init
+    local pkg="${1:-}"
+    if [ -z "${pkg}" ]; then
+        log_error "Please specify a package name to build."
+        exit 1
+    fi
+    build_package "${pkg}"
+}
+
+discover_all_packages() {
+    local packages=()
+    local yml_file pkg_name
+    # mlibc must come first as every other port links against it.
+    for yml_file in "${PACKAGES_DIR}"/*/*.yml; do
+        pkg_name="$(basename "${yml_file}" .yml)"
+        if [ "${pkg_name}" = "mlibc" ]; then
+            continue
+        fi
+        packages+=("${pkg_name}")
+    done
+    if [ -f "${PACKAGES_DIR}/mlibc/mlibc.yml" ]; then
+        echo "mlibc ${packages[*]:-}"
+    else
+        echo "${packages[*]:-}"
+    fi
+}
+
+cmd_build_all() {
+    ensure_xbstrap
+    cmd_init
+
+    log_info "Fetching all package sources..."
+    xbstrap_in_workspace fetch --all
+
+    local packages
+    read -r -a packages <<< "$(discover_all_packages)"
+    if [ "${#packages[@]}" -eq 0 ]; then
+        log_warn "No package definitions found in ${PACKAGES_DIR}."
+        return 0
+    fi
+
+    log_info "Recompiling all ${#packages[@]} packages in bootstrap.yml..."
+    local pkg
+    for pkg in "${packages[@]}"; do
+        log_info "==> Building ${pkg}..."
+        xbstrap_in_workspace install "${pkg}"
+    done
+    log_success "All packages built successfully."
+}
+
+cmd_clean() {
+    local pkg="${1:-}"
+    if [ -z "${pkg}" ] || [ "${pkg}" = "all" ] || [ "${pkg}" = "--all" ]; then
+        log_info "Cleaning full xbstrap build workspace (${BUILD_DIR_XBSTRAP})..."
+        rm -rf "${BUILD_DIR_XBSTRAP}"
+        log_success "Cleaned full xbstrap build directory."
+    else
+        log_info "Cleaning build artifacts for package '${pkg}'..."
+        rm -rf "${BUILD_DIR_XBSTRAP}/packages/${pkg}"*
+        rm -rf "${BUILD_DIR_XBSTRAP}/pkg-builds/${pkg}"*
+        rm -rf "${BUILD_DIR_XBSTRAP}/pkg-stamps/${pkg}"*
+        rm -f "${SYSROOT}/etc/xbstrap/${pkg}.installed"
+        log_success "Cleaned build artifacts for '${pkg}'."
+    fi
+}
+
+cmd_status() {
+    local pkg="${1:-}"
+    echo -e "${BOLD}PetraOS Package Status${RESET}"
+    echo "Workspace initialized: $([ -f "${BUILD_DIR_XBSTRAP}/bootstrap.link" ] && echo -e "${GREEN}Yes${RESET}" || echo -e "${RED}No${RESET}")"
+
+    if [ -n "${pkg}" ]; then
+        echo -e "\nPackage: ${BOLD}${pkg}${RESET}"
+        echo "Source downloaded : $([ -d "${SOURCES_DIR}/${pkg}" ] && echo -e "${GREEN}Yes (sources/${pkg})${RESET}" || echo -e "${YELLOW}No${RESET}")"
+        echo "Patches present   : $(find "${PACKAGES_DIR}/${pkg}" -maxdepth 1 -name "*.patch" 2>/dev/null | grep -q . && echo -e "${GREEN}Yes${RESET}" || echo "None")"
+        echo "Build directory   : $([ -d "${BUILD_DIR_XBSTRAP}/pkg-builds/${pkg}" ] && echo -e "${GREEN}Present${RESET}" || echo "Not built")"
+    fi
+}
+
+# ------------------------------------------------------------------------------
+# Full pipelines
+# ------------------------------------------------------------------------------
+
+run_pipeline() {
+    local mode="${1:-core}"
+
+    echo "============================================================"
+    echo "          PetraOS Userspace Build & Launch Pipeline         "
+    echo "============================================================"
+
+    echo "[1/5] Initializing xbstrap workspace..."
+    cmd_init
+
+    if [ "${mode}" = "all" ]; then
+        echo "[2/5] Downloading all sources via xbstrap-fetch..."
+        cmd_fetch --all
+        echo "[3/5] Building all userspace packages..."
+        cmd_build_all
+    else
+        echo "[2/5] Fetching core packages (${CORE_PACKAGES[*]})..."
+        local pkg
+        for pkg in "${CORE_PACKAGES[@]}"; do
+            cmd_fetch "${pkg}"
+        done
+        echo "[3/5] Building core userspace (mlibc-headers, mlibc, bash, coreutils)..."
+        for pkg in "${CORE_PACKAGES[@]}"; do
+            build_package "${pkg}"
+        done
+    fi
+
+    echo "[4/5] Packaging initramfs cpio archive..."
+    make initramfs
+
+    echo "[5/5] Launching PetraOS in QEMU..."
+    make run QEMUFLAGS="${QEMU_EXTRA_FLAGS}"
+}
+
+# ------------------------------------------------------------------------------
+# CLI Dispatcher
+# ------------------------------------------------------------------------------
+show_help() {
+    echo -e "${BOLD}Usage:${RESET} $0 [action] [package_name]"
+    echo ""
+    echo -e "${BOLD}Pipelines:${RESET}"
+    echo "  (no action)       Core pipeline: init, fetch, build mlibc/bash/coreutils, initramfs, run QEMU"
+    echo "  --all | all       Full pipeline: fetch and recompile ALL packages, initramfs, run QEMU"
+    echo ""
+    echo -e "${BOLD}Actions:${RESET}"
+    echo "  init              Initialize xbstrap build directory"
+    echo "  fetch <pkg|--all> Check and download package source code"
+    echo "  patch <pkg>       Inspect / verify package patches (applied by xbstrap at prepare)"
+    echo "  build <pkg>       Fetch, patch, compile and install package to sysroot"
+    echo "  install <pkg>     Alias for build"
+    echo "  build-all         Fetch and recompile all userspace packages"
+    echo "  clean [pkg]       Clean package build cache or entire xbstrap workspace"
+    echo "  status [pkg]      Show package and workspace status"
+    echo "  help              Show this help message"
+}
+
+ACTION="${1:-}"
+PKG_NAME="${2:-}"
+
+case "${ACTION}" in
+    ""|run)
+        run_pipeline core
+        ;;
+    --all|all|run-all)
+        run_pipeline all
+        ;;
+    init)
+        cmd_init
+        ;;
+    fetch)
+        cmd_fetch "${PKG_NAME:-all}"
+        ;;
+    patch)
+        cmd_patch "${PKG_NAME}"
+        ;;
+    build|install)
+        cmd_build "${PKG_NAME}"
+        ;;
+    build-all|rebuild-all)
+        cmd_build_all
+        ;;
+    clean)
+        cmd_clean "${PKG_NAME}"
+        ;;
+    status)
+        cmd_status "${PKG_NAME}"
+        ;;
+    help|--help|-h)
+        show_help
+        ;;
+    *)
+        # If first argument matches a known package name, assume "build"
+        if [ -d "${PACKAGES_DIR}/${ACTION}" ]; then
+            cmd_build "${ACTION}"
+        else
+            log_error "Unknown action or package: '${ACTION}'"
+            show_help
+            exit 1
+        fi
+        ;;
+esac
