@@ -86,6 +86,7 @@ define_syscall_table! {
     SYS_ISATTY         = 215 => ("isatty",         ioctl::sys_isatty),
     SYS_GETDENTS64     = 217 => ("getdents64",     fs::sys_getdents64),
     SYS_SEMTIMEDOP     = 220 => ("semtimedop",     ipc::sys_semtimedop),
+    SYS_FADVISE64      = 221 => ("fadvise64",      fs::sys_fadvise64),
     SYS_CLOCK_GETTIME  = 228 => ("clock_gettime",  time::sys_clock_gettime),
     SYS_EXIT_GROUP     = 231 => ("exit_group",     proc::sys_exit_group),
     SYS_OPENAT         = 257 => ("openat",         fs::sys_openat),

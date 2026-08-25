@@ -1,7 +1,7 @@
 pub mod arch_prctl;
 pub mod fs;
-pub mod ipc;
 pub mod ioctl;
+pub mod ipc;
 pub mod mm;
 pub mod proc;
 pub mod signals;
@@ -10,6 +10,7 @@ pub mod sys_info;
 pub mod time;
 
 use crate::arch::syscall::SyscallFrame;
+use crate::device::DriverError;
 use crate::fs::vfs::types::*;
 use crate::sync::futex::FutexError;
 
@@ -77,10 +78,10 @@ impl From<VfsError> for SyscallError {
             VfsError::Interrupted => SyscallError::EINTR,
             VfsError::TooManySymlinks => SyscallError::ELOOP,
             VfsError::DriverError(d) => match d {
-                crate::device::DriverError::Timeout => SyscallError::ETIMEDOUT,
-                crate::device::DriverError::NoDevice => SyscallError::ENODEV,
-                crate::device::DriverError::AllocFailed => SyscallError::ENOMEM,
-                crate::device::DriverError::Unsupported => SyscallError::ENOSYS,
+                DriverError::Timeout => SyscallError::ETIMEDOUT,
+                DriverError::NoDevice => SyscallError::ENODEV,
+                DriverError::AllocFailed => SyscallError::ENOMEM,
+                DriverError::Unsupported => SyscallError::ENOSYS,
                 _ => SyscallError::EIO,
             },
         }
