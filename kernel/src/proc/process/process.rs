@@ -141,7 +141,7 @@ impl Process {
         file_name: &str,
         cmdline: CommandLine,
     ) -> Result<(u64, u64), &'static str> {
-        log::info!(
+        log::debug!(
             "Executing process '{}' (PID {}) with {} arg(s) and {} env var(s)",
             file_name,
             self.pid,
@@ -454,7 +454,7 @@ impl Process {
 
         // Special immediate signals
         if sig == crate::ipc::signal::SIGKILL {
-            log::info!("Process PID {} terminated by SIGKILL", self.pid);
+            log::debug!("Process PID {} terminated by SIGKILL", self.pid);
             self.exit(128 + sig as i32);
             return Ok(());
         }
@@ -514,7 +514,7 @@ impl Process {
             match crate::ipc::signal::default_action(sig) {
                 crate::ipc::signal::SignalDefaultAction::Terminate
                 | crate::ipc::signal::SignalDefaultAction::CoreDump => {
-                    log::info!("Process PID {} killed by signal {}", self.pid, sig);
+                    log::debug!("Process PID {} killed by signal {}", self.pid, sig);
                     self.exit(128 + sig as i32);
                 }
                 crate::ipc::signal::SignalDefaultAction::Stop => {

@@ -35,11 +35,13 @@ pub fn create_init_process() -> Result<(Arc<Mutex<Process>>, u64, u64), &'static
         String::from("TERM=linux"),
         String::from("HOME=/"),
         String::from("USER=root"),
+        String::from("LINES=50"),
+        String::from("COLUMNS=142"),
     ];
 
     // 1. Iterate over candidate init paths and execute
     for candidate_path in DEFAULT_INIT_EXEC_PATHS {
-        log::info!(
+        log::debug!(
             "[Init Process] Checking candidate path: '{}'",
             candidate_path
         );
@@ -48,7 +50,7 @@ pub fn create_init_process() -> Result<(Arc<Mutex<Process>>, u64, u64), &'static
         let cmdline = CommandLine::new(vec![String::from(prog_name)], default_env.clone());
 
         if let Ok((entry_point, stack_top)) = proc.execute_cmdline(candidate_path, cmdline) {
-            log::info!(
+            log::debug!(
                 "✔ [Init Process] Successfully resolved and loaded init binary from candidate path: '{}'",
                 candidate_path
             );

@@ -58,7 +58,6 @@ pub fn sys_read(frame: &mut SyscallFrame) -> SyscallResult {
     if count == 0 {
         return Ok(0);
     }
-    log::info!("[DBG sys_read] fd={} count={}", fd, count);
     let user_slice = buf.as_slice_mut(count).ok_or(SyscallError::EFAULT)?;
 
     let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
@@ -1440,14 +1439,7 @@ pub fn sys_utimensat(frame: &mut SyscallFrame) -> SyscallResult {
         }
 
         let (atime, mtime) = read_utimens(times_ptr, st.atime, st.mtime)?;
-        log::info!(
-            "[DBG-utimensat-fd] fd={} atime={} mtime={}",
-            dfd,
-            atime,
-            mtime
-        );
-        file.ops.utimens(atime, mtime).or_else(|e| {
-            log::info!("[DBG-utimensat-fd] file.ops err={:?}, falling back", e);
+        file.ops.utimens(atime, mtime).or_else(|_| {
             file.dentry.inode.ops.utimens(atime, mtime)
         })?;
         return Ok(0);
@@ -1486,12 +1478,6 @@ pub fn sys_utimensat(frame: &mut SyscallFrame) -> SyscallResult {
     }
 
     let (atime, mtime) = read_utimens(times_ptr, st.atime, st.mtime)?;
-    log::info!(
-        "[DBG-utimensat] path={} atime={} mtime={}",
-        full_path,
-        atime,
-        mtime
-    );
     crate::fs::utimens(&full_path, atime, mtime)?;
     Ok(0)
 }

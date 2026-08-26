@@ -102,7 +102,6 @@ impl Driver for Ps2KeyboardDriver {
 /// Dispatches a raw scancode received from the interrupt handler.
 pub fn handle_scancode(scancode: u8) {
     KEYBOARD_INTERRUPT_COUNT.fetch_add(1, Ordering::Relaxed);
-    log::info!("[DBG scancode] {:#04x}", scancode);
 
     let (event_opt, is_alt) = {
         let mut decoder = SCANCODE_DECODER.lock();

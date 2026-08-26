@@ -72,7 +72,13 @@ pub fn extract_cpio_archive(data: &[u8]) -> Result<usize, &'static str> {
     let mut extracted_count = 0;
 
     for entry_res in archive.entries() {
-        let entry = entry_res.map_err(|_| "Failed to parse CPIO entry header")?;
+        let entry = match entry_res {
+            Ok(e) => e,
+            Err(e) => {
+                log::warn!("[Initramfs] CPIO parse error at file {}: {:?}", extracted_count, e);
+                return Err("Failed to parse CPIO entry header");
+            }
+        };
         let raw_name = entry
             .name()
             .trim_start_matches("./")

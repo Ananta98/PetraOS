@@ -180,14 +180,13 @@ impl Console {
         }
     }
 
-    /// Write output bytes through line discipline and render to flanterm + serial.
+    /// Write output bytes through line discipline and render to flanterm (or serial if headless).
     pub fn write_output(&mut self, buf: &[u8]) -> usize {
         let processed = self.ldisc.process_output_bytes(buf);
         if let Some(ref mut ft) = self.flanterm {
             ft.write_bytes(&processed);
             ft.flush();
-        }
-        if let Some(ref mut ser) = self.serial {
+        } else if let Some(ref mut ser) = self.serial {
             for &byte in &processed {
                 let _ = ser.write_byte(byte);
             }
@@ -199,7 +198,6 @@ impl Console {
     pub fn poll_input(&mut self) {
         let mut screen_needs_flush = false;
 
-        // 1. Poll keyboard hardware buffer
         while let Some(byte) = KEY_RING_BUFFER.pop() {
             let echo = self.ldisc.accept_input_byte(byte);
             if !echo.is_empty() {
@@ -207,30 +205,8 @@ impl Console {
                     ft.write_bytes(&echo);
                     screen_needs_flush = true;
                 }
-                if let Some(ref mut ser) = self.serial {
-                    for &b in &echo {
-                        let _ = ser.write_byte(b);
-                    }
-                }
             }
         }
-
-        // 2. Poll serial port for incoming bytes (e.g. from headless / serial console)
-        if let Some(ref mut ser) = self.serial {
-            while let Some(byte) = ser.try_read_byte() {
-                let echo = self.ldisc.accept_input_byte(byte);
-                if !echo.is_empty() {
-                    if let Some(ref mut ft) = self.flanterm {
-                        ft.write_bytes(&echo);
-                        screen_needs_flush = true;
-                    }
-                    for &b in &echo {
-                        let _ = ser.write_byte(b);
-                    }
-                }
-            }
-        }
-
         if screen_needs_flush {
             if let Some(ref mut ft) = self.flanterm {
                 ft.flush();

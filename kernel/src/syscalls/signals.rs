@@ -8,7 +8,7 @@ pub fn sys_kill(frame: &mut SyscallFrame) -> SyscallResult {
     let pid_raw = frame.arg1() as i32;
     let sig = frame.arg2() as u8;
 
-    log::info!("sys_kill(pid={}, sig={})", pid_raw, sig);
+    log::debug!("sys_kill(pid={}, sig={})", pid_raw, sig);
     if sig == 0 || sig > 64 {
         return Err(SyscallError::EINVAL);
     }

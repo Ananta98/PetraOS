@@ -339,7 +339,7 @@ pub fn sys_wait4(frame: &mut SyscallFrame) -> SyscallResult {
 /// Terminate the calling thread or process.
 pub fn sys_exit(frame: &mut SyscallFrame) -> SyscallResult {
     let code = frame.arg1() as i32;
-    log::info!("sys_exit called with status code {}", code);
+    log::debug!("sys_exit called with status code {}", code);
     do_exit(code)
 }
 
@@ -347,7 +347,7 @@ pub fn sys_exit(frame: &mut SyscallFrame) -> SyscallResult {
 /// Exit all threads in a process.
 pub fn sys_exit_group(frame: &mut SyscallFrame) -> SyscallResult {
     let code = frame.arg1() as i32;
-    log::info!("sys_exit_group called with status code {}", code);
+    log::debug!("sys_exit_group called with status code {}", code);
     do_exit(code)
 }
 
