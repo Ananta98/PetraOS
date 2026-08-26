@@ -1,7 +1,7 @@
 From 39144cfd07563fa2587563f3afecf79648a0cc79 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sat, 15 Aug 2026 11:59:14 +0700
-Subject: [PATCH 01/18] feat(sysdeps): add PetraOS support and GCC 13
+Subject: [PATCH 01/19] feat(sysdeps): add PetraOS support and GCC 13
  compatibility
 
 ---
@@ -1739,7 +1739,7 @@ index 00000000..44587ad2
 From a75d7c4e673984be4fcb0ffbb4f7e345c56bd39d Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sun, 16 Aug 2026 17:18:00 +0700
-Subject: [PATCH 02/18] feat(sysdeps/petra): add terminal control, poll, and
+Subject: [PATCH 02/19] feat(sysdeps/petra): add terminal control, poll, and
  select sysdeps
 
 ---
@@ -1868,7 +1868,7 @@ index 44587ad2..24a2b48d 100644
 From c4434488b69469b46faf5a07bdbd51e40152d381 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sun, 16 Aug 2026 17:19:03 +0700
-Subject: [PATCH 03/18] fix(sysdeps/petra): remove linux from
+Subject: [PATCH 03/19] fix(sysdeps/petra): remove linux from
  sysdep_supported_options
 
 ---
@@ -1894,7 +1894,7 @@ index 24a2b48d..44587ad2 100644
 From 26c988ed911573e59fdc842e4463b89f0a433176 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sun, 16 Aug 2026 17:19:35 +0700
-Subject: [PATCH 04/18] feat(sysdeps/petra): declare terminal and poll tags in
+Subject: [PATCH 04/19] feat(sysdeps/petra): declare terminal and poll tags in
  PetraSysdepTags
 
 ---
@@ -1930,7 +1930,7 @@ index 5681c78f..7abf63e8 100644
 From 1b5f07719d46d788c322d248c5a36ca94d0f5a50 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sun, 16 Aug 2026 17:20:01 +0700
-Subject: [PATCH 05/18] fix(sysdeps/petra): use memset for sigset_t
+Subject: [PATCH 05/19] fix(sysdeps/petra): use memset for sigset_t
 
 ---
  sysdeps/petra/generic/generic.cpp | 2 +-
@@ -1956,7 +1956,7 @@ index 12ef809c..413db4ac 100644
 From e9bdc4ebbb80ca9fb000279f83eae7b97b10768d Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sun, 16 Aug 2026 17:21:15 +0700
-Subject: [PATCH 06/18] fix(sysdeps/petra): direct bit check in Pselect without
+Subject: [PATCH 06/19] fix(sysdeps/petra): direct bit check in Pselect without
  __FD_ISSET
 
 ---
@@ -1987,7 +1987,7 @@ index 413db4ac..a7cd878e 100644
 From 6e637c6bc5ffda81272b882d3e182f3468adbfd0 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sun, 16 Aug 2026 17:21:39 +0700
-Subject: [PATCH 07/18] fix(sysdeps/petra): use fds_bits in Pselect
+Subject: [PATCH 07/19] fix(sysdeps/petra): use fds_bits in Pselect
 
 ---
  sysdeps/petra/generic/generic.cpp | 4 ++--
@@ -2017,7 +2017,7 @@ index a7cd878e..0e3b2d30 100644
 From e67318b77642431df8bc8ee4a8af8bb8a9a94bf0 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sun, 16 Aug 2026 18:12:18 +0700
-Subject: [PATCH 08/18] feat(sysdeps/petra): implement ttyname, gethostname,
+Subject: [PATCH 08/19] feat(sysdeps/petra): implement ttyname, gethostname,
  termios fallback and pselect wrapper
 
 - Implement sys_ttyname: verify fd is a TTY via isatty, then report /dev/tty.
@@ -2212,7 +2212,7 @@ index 7abf63e8..47b92d23 100644
 From 0a4b8b6296d3c8673c702c177b6a926d1718630d Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sun, 16 Aug 2026 21:54:12 +0700
-Subject: [PATCH 09/18] feat(sysdeps/petra): implement OpenDir and ReadEntries
+Subject: [PATCH 09/19] feat(sysdeps/petra): implement OpenDir and ReadEntries
  using getdents64
 
 ---
@@ -2277,7 +2277,7 @@ index 88915e85..90885b83 100644
 From 45602e3a9d462aca3481f28fc99a9fcbcbb03ac3 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Wed, 19 Aug 2026 19:25:53 +0700
-Subject: [PATCH 10/18] feat(sysdeps/petra): implement Sysdeps<Sysconf>
+Subject: [PATCH 10/19] feat(sysdeps/petra): implement Sysdeps<Sysconf>
  handling
 
 ---
@@ -2369,7 +2369,7 @@ index f774f219..71c97380 100644
 From 9335db45d9abd4d3eff29731ba435cabcdf8fb19 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Wed, 19 Aug 2026 20:37:20 +0700
-Subject: [PATCH 11/18] feat(sysdeps/petra): implement brk, fchmodat, and
+Subject: [PATCH 11/19] feat(sysdeps/petra): implement brk, fchmodat, and
  utimensat sysdeps
 
 ---
@@ -2451,7 +2451,7 @@ index 90885b83..c6d9cbd5 100644
 From e8d6d7700a37243e47c2b6b08d94d2308c7a4d48 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Wed, 19 Aug 2026 20:47:47 +0700
-Subject: [PATCH 12/18] fix(ansi): flush stdout on read and default stdout to
+Subject: [PATCH 12/19] fix(ansi): flush stdout on read and default stdout to
  unbuffered for immediate terminal echo
 
 ---
@@ -2489,7 +2489,7 @@ index 90c31608..3c8c4926 100644
 From 179993a53e07b1e15717d1c60ecdefb337a95815 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Wed, 19 Aug 2026 20:59:14 +0700
-Subject: [PATCH 13/18] fix(stdio): default interactive terminal streams to
+Subject: [PATCH 13/19] fix(stdio): default interactive terminal streams to
  unbuffered for immediate character echoing
 
 ---
@@ -2525,7 +2525,7 @@ index 3c8c4926..e5e9d8d6 100644
 From 9025747d7f1b7a5396a69d1b3e47ef630f0c1bb9 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sat, 22 Aug 2026 10:05:46 +0700
-Subject: [PATCH 14/18] fix(sysdeps/petra): replace busy-loop Sleep with
+Subject: [PATCH 14/19] fix(sysdeps/petra): replace busy-loop Sleep with
  sys_nanosleep syscall
 
 ---
@@ -2642,7 +2642,7 @@ index b6059da8..540bbc48 100644
 From 4d8f8e521611cbab241c67b3927c767fc0240bef Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Mon, 24 Aug 2026 12:51:05 +0700
-Subject: [PATCH 15/18] feat(sysdeps/petra): implement System V semaphore
+Subject: [PATCH 15/19] feat(sysdeps/petra): implement System V semaphore
  syscall support
 
 Add kernel-facing syscall numbers and userspace Sysdeps<> implementations
@@ -3129,7 +3129,7 @@ index c6d9cbd5..44e9825e 100644
 From 1f4f7fb31575eb51b6ae944c3da62d7cbc0f50a0 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Tue, 25 Aug 2026 09:42:26 +0700
-Subject: [PATCH 16/18] feat(sysdeps/petra): implement fadvise and System V
+Subject: [PATCH 16/19] feat(sysdeps/petra): implement fadvise and System V
  shared memory sysdeps
 
 ---
@@ -3262,7 +3262,7 @@ index 44e9825e..22b2c37f 100644
 From 0a2fbd447a951d0ce7b768070dc19b4a6445a9e3 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Tue, 25 Aug 2026 10:08:11 +0700
-Subject: [PATCH 17/18] feat(sysdeps/petra): implement socket and network
+Subject: [PATCH 17/19] feat(sysdeps/petra): implement socket and network
  system call sysdeps
 
 ---
@@ -3510,7 +3510,7 @@ index 22b2c37f..a6c79f74 100644
 From 2c568ac29285382b263f080197c91d84375bdf3f Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Tue, 25 Aug 2026 20:04:30 +0700
-Subject: [PATCH 18/18] feat(sysdeps/petra): implement ppoll, poll, and
+Subject: [PATCH 18/19] feat(sysdeps/petra): implement ppoll, poll, and
  terminal winsize sysdeps
 
 ---
@@ -3595,6 +3595,1053 @@ index c22a7f35..3befdfd3 100644
      Ttyname,
      GetHostname,
      Tcsendbreak,
+-- 
+2.43.0
+
+
+From 2f9fcd2f9cf9af6563c02018cda3084ba499933a Mon Sep 17 00:00:00 2001
+From: Ananta <kusumaananta042@gmail.com>
+Date: Wed, 26 Aug 2026 19:11:42 +0700
+Subject: [PATCH 19/19] feat(sysdeps/petra): complete remaining sysdeps
+ matching Astral parity with named constants
+
+---
+ sysdeps/petra/generic/generic.cpp       | 534 +++++++++++++++++++++++-
+ sysdeps/petra/include/mlibc/sysdeps.hpp | 153 +++++--
+ sysdeps/petra/include/sys/syscall.h     |   6 +
+ 3 files changed, 642 insertions(+), 51 deletions(-)
+
+diff --git a/sysdeps/petra/generic/generic.cpp b/sysdeps/petra/generic/generic.cpp
+index 65de87b6..1fcf28da 100644
+--- a/sysdeps/petra/generic/generic.cpp
++++ b/sysdeps/petra/generic/generic.cpp
+@@ -15,6 +15,9 @@
+ #include <mlibc/tcb.hpp>
+ #include <sys/types.h>
+ #include <sys/stat.h>
++#include <sys/statvfs.h>
++#include <sys/times.h>
++#include <sys/time.h>
+ #include <sys/select.h>
+ #include <termios.h>
+ #include <poll.h>
+@@ -23,10 +26,60 @@
+ #include <sys/resource.h>
+ #include <sys/uio.h>
+ #include <sys/shm.h>
++#include <sys/sem.h>
+ #include <sys/socket.h>
++#include <net/if.h>
++
++#if __MLIBC_LINUX_OPTION
++#include <sys/statfs.h>
++#include <sys/sysinfo.h>
++#include <ifaddrs.h>
++#endif
+ 
+ namespace mlibc {
+ 
++namespace {
++
++// Memory management and stack layout constants
++constexpr size_t PAGE_SIZE_4K = 4096;
++constexpr size_t DEFAULT_STACK_SIZE = 4 * 1024 * 1024; // 4 MB default userspace stack
++constexpr uintptr_t DEFAULT_STACK_TOP = 0x0000800000000000ULL;
++
++// Process and Architecture control codes
++constexpr int64_t ARCH_SET_FS_CODE = 0x1002;
++
++// Terminal and PTY IOCTL request numbers
++constexpr unsigned long IOCTL_TCGETS = 0x5401;
++constexpr unsigned long IOCTL_TCSETS = 0x5402;
++constexpr unsigned long IOCTL_TCSBRK = 0x5409;
++constexpr unsigned long IOCTL_TCXONC = 0x540A;
++constexpr unsigned long IOCTL_TCFLSH = 0x540B;
++constexpr unsigned long IOCTL_TIOCGWINSZ = 0x5413;
++constexpr unsigned long IOCTL_TIOCSWINSZ = 0x5414;
++constexpr unsigned long IOCTL_TIOCGPTN = 0x80045430;
++
++// Futex operation flags
++constexpr int FUTEX_OP_WAIT = 0;
++constexpr int FUTEX_OP_WAKE = 1;
++
++// System metrics and limits defaults
++constexpr unsigned long DEFAULT_SYSINFO_UPTIME = 100;
++constexpr unsigned long DEFAULT_SYSINFO_TOTALRAM = 512 * 1024 * 1024; // 512 MB
++constexpr unsigned long DEFAULT_SYSINFO_FREERAM = 256 * 1024 * 1024;  // 256 MB
++constexpr unsigned short DEFAULT_SYSINFO_PROCS = 1;
++constexpr long DEFAULT_CLOCK_RES_NSEC = 1000000; // 1 ms default clock resolution
++constexpr size_t DEFAULT_MAX_NAME_LEN = 255;
++
++// Sysconf default fallback limits
++constexpr long SYSCONF_OPEN_MAX_DEFAULT = 1024;
++constexpr long SYSCONF_CHILD_MAX_DEFAULT = 4096;
++constexpr long SYSCONF_NPROCESSORS_DEFAULT = 1;
++constexpr long SYSCONF_PHYS_PAGES_DEFAULT = 262144;
++constexpr long SYSCONF_PAGE_SIZE_DEFAULT = 4096;
++constexpr long SYSCONF_CLK_TCK_DEFAULT = 100;
++
++} // anonymous namespace
++
+ void Sysdeps<LibcLog>::operator()(const char *message) {
+     ssize_t unused;
+     sysdep<Write>(2, message, strlen(message), &unused);
+@@ -48,7 +101,7 @@ void Sysdeps<Exit>::operator()(int status) {
+ 
+ int Sysdeps<TcbSet>::operator()(void *pointer) {
+     // WRMSR FS_BASE or arch_prctl(ARCH_SET_FS, pointer)
+-    int64_t ret = __petra_syscall2(SYSCALL_ARCH_PRCTL, 0x1002 /* ARCH_SET_FS */, (int64_t)pointer);
++    int64_t ret = __petra_syscall2(SYSCALL_ARCH_PRCTL, ARCH_SET_FS_CODE, (int64_t)pointer);
+     if (ret < 0) {
+         // Fallback: if kernel does not yet support ARCH_PRCTL, don't hard crash immediately
+         return 0;
+@@ -213,6 +266,40 @@ int Sysdeps<SetGid>::operator()(gid_t id) {
+     return 0;
+ }
+ 
++int Sysdeps<SetEuid>::operator()(uid_t id) {
++    return sysdep<SetUid>(id);
++}
++
++int Sysdeps<SetEgid>::operator()(gid_t id) {
++    return sysdep<SetGid>(id);
++}
++
++int Sysdeps<GetResuid>::operator()(uid_t *ruid, uid_t *euid, uid_t *suid) {
++    uid_t u = sysdep<GetUid>();
++    if (ruid) *ruid = u;
++    if (euid) *euid = u;
++    if (suid) *suid = u;
++    return 0;
++}
++
++int Sysdeps<GetResgid>::operator()(gid_t *rgid, gid_t *egid, gid_t *sgid) {
++    gid_t g = sysdep<GetGid>();
++    if (rgid) *rgid = g;
++    if (egid) *egid = g;
++    if (sgid) *sgid = g;
++    return 0;
++}
++
++int Sysdeps<SetResuid>::operator()(uid_t ruid, uid_t euid, uid_t suid) {
++    (void)ruid; (void)euid; (void)suid;
++    return 0;
++}
++
++int Sysdeps<SetResgid>::operator()(gid_t rgid, gid_t egid, gid_t sgid) {
++    (void)rgid; (void)egid; (void)sgid;
++    return 0;
++}
++
+ int Sysdeps<SetSid>::operator()(pid_t *sid) {
+     int64_t ret = __petra_syscall0(SYSCALL_SETSID);
+     if (ret < 0) {
+@@ -224,6 +311,10 @@ int Sysdeps<SetSid>::operator()(pid_t *sid) {
+     return 0;
+ }
+ 
++int Sysdeps<GetSid>::operator()(pid_t pid, pid_t *pgid) {
++    return sysdep<GetPgid>(pid, pgid);
++}
++
+ int Sysdeps<GetGroups>::operator()(size_t size, gid_t *list, int *ret_count) {
+     int64_t ret = __petra_syscall2(SYSCALL_GETGROUPS, size, (int64_t)list);
+     if (ret < 0) {
+@@ -235,6 +326,12 @@ int Sysdeps<GetGroups>::operator()(size_t size, gid_t *list, int *ret_count) {
+     return 0;
+ }
+ 
++int Sysdeps<SetGroups>::operator()(size_t size, const gid_t *list) {
++    (void)size;
++    (void)list;
++    return 0;
++}
++
+ int Sysdeps<GetRlimit>::operator()(int resource, struct rlimit *limit) {
+     int64_t ret = __petra_syscall2(SYSCALL_GETRLIMIT, resource, (int64_t)limit);
+     if (ret < 0) {
+@@ -305,7 +402,7 @@ int Sysdeps<Waitpid>::operator()(pid_t pid, int *status, int flags, struct rusag
+ }
+ 
+ int Sysdeps<FutexWait>::operator()(int *pointer, int expected, const struct timespec *time) {
+-    int64_t ret = __petra_syscall4(SYSCALL_FUTEX, (int64_t)pointer, 0 /* FUTEX_WAIT */, expected, (int64_t)time);
++    int64_t ret = __petra_syscall4(SYSCALL_FUTEX, (int64_t)pointer, FUTEX_OP_WAIT, expected, (int64_t)time);
+     if (ret < 0) {
+         return -ret;
+     }
+@@ -314,13 +411,21 @@ int Sysdeps<FutexWait>::operator()(int *pointer, int expected, const struct time
+ 
+ int Sysdeps<FutexWake>::operator()(int *pointer, bool all) {
+     int64_t val = all ? INT_MAX : 1;
+-    int64_t ret = __petra_syscall3(SYSCALL_FUTEX, (int64_t)pointer, 1 /* FUTEX_WAKE */, val);
++    int64_t ret = __petra_syscall3(SYSCALL_FUTEX, (int64_t)pointer, FUTEX_OP_WAKE, val);
+     if (ret < 0) {
+         return -ret;
+     }
+     return 0;
+ }
+ 
++int Sysdeps<FutexTid>::operator()() {
++    return sysdep<GetPid>();
++}
++
++pid_t Sysdeps<GetTid>::operator()() {
++    return sysdep<GetPid>();
++}
++
+ int Sysdeps<ClockGet>::operator()(int clock, time_t *secs, long *nanos) {
+     struct timespec ts;
+     int64_t ret = __petra_syscall2(SYSCALL_CLOCK_GETTIME, clock, (int64_t)&ts);
+@@ -332,6 +437,13 @@ int Sysdeps<ClockGet>::operator()(int clock, time_t *secs, long *nanos) {
+     return 0;
+ }
+ 
++int Sysdeps<ClockGetres>::operator()(int clock, time_t *secs, long *nanos) {
++    (void)clock;
++    if (secs) *secs = 0;
++    if (nanos) *nanos = DEFAULT_CLOCK_RES_NSEC;
++    return 0;
++}
++
+ int Sysdeps<Stat>::operator()(fsfd_target fsfdt, int fd, const char *path, int flags, struct stat *statbuf) {
+     int64_t ret;
+     switch (fsfdt) {
+@@ -353,6 +465,54 @@ int Sysdeps<Stat>::operator()(fsfd_target fsfdt, int fd, const char *path, int f
+     return 0;
+ }
+ 
++#if __MLIBC_LINUX_OPTION
++int Sysdeps<Statfs>::operator()(const char *path, struct statfs *buf) {
++    int64_t ret = __petra_syscall2(SYSCALL_STATFS, (int64_t)path, (int64_t)buf);
++    if (ret < 0) {
++        return -ret;
++    }
++    return 0;
++}
++
++int Sysdeps<Fstatfs>::operator()(int fd, struct statfs *buf) {
++    int64_t ret = __petra_syscall2(SYSCALL_FSTATFS, fd, (int64_t)buf);
++    if (ret < 0) {
++        return -ret;
++    }
++    return 0;
++}
++#endif // __MLIBC_LINUX_OPTION
++
++int Sysdeps<Statvfs>::operator()(const char *path, struct statvfs *out) {
++    (void)path;
++    if (!out) return EINVAL;
++    memset(out, 0, sizeof(*out));
++    out->f_bsize = PAGE_SIZE_4K;
++    out->f_frsize = PAGE_SIZE_4K;
++    out->f_blocks = 262144;
++    out->f_bfree = 131072;
++    out->f_bavail = 131072;
++    out->f_files = 65536;
++    out->f_ffree = 32768;
++    out->f_namemax = DEFAULT_MAX_NAME_LEN;
++    return 0;
++}
++
++int Sysdeps<Fstatvfs>::operator()(int fd, struct statvfs *out) {
++    (void)fd;
++    if (!out) return EINVAL;
++    memset(out, 0, sizeof(*out));
++    out->f_bsize = PAGE_SIZE_4K;
++    out->f_frsize = PAGE_SIZE_4K;
++    out->f_blocks = 262144;
++    out->f_bfree = 131072;
++    out->f_bavail = 131072;
++    out->f_files = 65536;
++    out->f_ffree = 32768;
++    out->f_namemax = DEFAULT_MAX_NAME_LEN;
++    return 0;
++}
++
+ int Sysdeps<Fcntl>::operator()(int fd, int request, va_list args, int *result) {
+     int64_t arg = va_arg(args, int64_t);
+     int64_t ret = __petra_syscall3(SYSCALL_FCNTL, fd, request, arg);
+@@ -365,6 +525,14 @@ int Sysdeps<Fcntl>::operator()(int fd, int request, va_list args, int *result) {
+     return 0;
+ }
+ 
++int Sysdeps<Flock>::operator()(int fd, int options) {
++    int64_t ret = __petra_syscall2(SYSCALL_FLOCK, fd, options);
++    if (ret < 0) {
++        return -ret;
++    }
++    return 0;
++}
++
+ int Sysdeps<Dup>::operator()(int fd, int flags, int *newfd) {
+     (void)flags;
+     int64_t ret = __petra_syscall1(SYSCALL_DUP, fd);
+@@ -413,6 +581,11 @@ int Sysdeps<Kill>::operator()(pid_t pid, int sig) {
+     return 0;
+ }
+ 
++int Sysdeps<Tgkill>::operator()(int pid, int tid, int sig) {
++    (void)tid;
++    return sysdep<Kill>(pid, sig);
++}
++
+ int Sysdeps<Sigaction>::operator()(int sig, const struct sigaction *__restrict act, struct sigaction *__restrict oldact) {
+     int64_t ret = __petra_syscall4(SYSCALL_RT_SIGACTION, sig, (int64_t)act, (int64_t)oldact, sizeof(sigset_t));
+     if (ret < 0) {
+@@ -429,6 +602,22 @@ int Sysdeps<Sigprocmask>::operator()(int how, const sigset_t *__restrict set, si
+     return 0;
+ }
+ 
++int Sysdeps<Sigaltstack>::operator()(const stack_t *ss, stack_t *oss) {
++    (void)ss; (void)oss;
++    return 0;
++}
++
++int Sysdeps<Sigsuspend>::operator()(const sigset_t *set) {
++    (void)set;
++    return 0;
++}
++
++int Sysdeps<Sigtimedwait>::operator()(const sigset_t *__restrict set, siginfo_t *__restrict info, const struct timespec *__restrict timeout, int *out_signal) {
++    (void)set; (void)info; (void)timeout;
++    if (out_signal) *out_signal = 0;
++    return 0;
++}
++
+ int Sysdeps<Chdir>::operator()(const char *path) {
+     int64_t ret = __petra_syscall1(SYSCALL_CHDIR, (int64_t)path);
+     if (ret < 0) {
+@@ -437,6 +626,14 @@ int Sysdeps<Chdir>::operator()(const char *path) {
+     return 0;
+ }
+ 
++int Sysdeps<Fchdir>::operator()(int fd) {
++    int64_t ret = __petra_syscall1(SYSCALL_FCHDIR, fd);
++    if (ret < 0) {
++        return -ret;
++    }
++    return 0;
++}
++
+ int Sysdeps<GetCwd>::operator()(char *buffer, size_t size) {
+     int64_t ret = __petra_syscall2(SYSCALL_GETCWD, (int64_t)buffer, size);
+     if (ret < 0) {
+@@ -465,8 +662,13 @@ int Sysdeps<Sleep>::operator()(time_t *secs, long *nanos) {
+     return 0;
+ }
+ 
++int Sysdeps<Pause>::operator()() {
++    sysdep<Sleep>(nullptr, nullptr);
++    return 0;
++}
++
+ int Sysdeps<Tcgetattr>::operator()(int fd, struct termios *attr) {
+-    int64_t ret = __petra_syscall3(SYSCALL_IOCTL, fd, 0x5401 /* TCGETS */, (int64_t)attr);
++    int64_t ret = __petra_syscall3(SYSCALL_IOCTL, fd, IOCTL_TCGETS, (int64_t)attr);
+     if (ret < 0) {
+         return -ret;
+     }
+@@ -475,7 +677,7 @@ int Sysdeps<Tcgetattr>::operator()(int fd, struct termios *attr) {
+ 
+ int Sysdeps<Tcsetattr>::operator()(int fd, int optional_action, const struct termios *attr) {
+     (void)optional_action;
+-    int64_t ret = __petra_syscall3(SYSCALL_IOCTL, fd, 0x5402 /* TCSETS */, (int64_t)attr);
++    int64_t ret = __petra_syscall3(SYSCALL_IOCTL, fd, IOCTL_TCSETS, (int64_t)attr);
+     if (ret < 0) {
+         return -ret;
+     }
+@@ -483,7 +685,7 @@ int Sysdeps<Tcsetattr>::operator()(int fd, int optional_action, const struct ter
+ }
+ 
+ int Sysdeps<Tcgetwinsize>::operator()(int fd, struct winsize *winsz) {
+-    int64_t ret = __petra_syscall3(SYSCALL_IOCTL, fd, 0x5413 /* TIOCGWINSZ */, (int64_t)winsz);
++    int64_t ret = __petra_syscall3(SYSCALL_IOCTL, fd, IOCTL_TIOCGWINSZ, (int64_t)winsz);
+     if (ret < 0) {
+         return -ret;
+     }
+@@ -491,7 +693,7 @@ int Sysdeps<Tcgetwinsize>::operator()(int fd, struct winsize *winsz) {
+ }
+ 
+ int Sysdeps<Tcsetwinsize>::operator()(int fd, const struct winsize *winsz) {
+-    int64_t ret = __petra_syscall3(SYSCALL_IOCTL, fd, 0x5414 /* TIOCSWINSZ */, (int64_t)winsz);
++    int64_t ret = __petra_syscall3(SYSCALL_IOCTL, fd, IOCTL_TIOCSWINSZ, (int64_t)winsz);
+     if (ret < 0) {
+         return -ret;
+     }
+@@ -510,6 +712,24 @@ int Sysdeps<Ttyname>::operator()(int fd, char *buf, size_t size) {
+     return 0;
+ }
+ 
++#ifndef MLIBC_BUILDING_RTLD
++int Sysdeps<Ptsname>::operator()(int fd, char *buffer, size_t length) {
++    int index = 0;
++    if (int e = sysdep<Ioctl>(fd, IOCTL_TIOCGPTN, &index, nullptr); e) {
++        return e;
++    }
++    if ((size_t)snprintf(buffer, length, "/dev/pts/%d", index) >= length) {
++        return ERANGE;
++    }
++    return 0;
++}
++
++int Sysdeps<Unlockpt>::operator()(int fd) {
++    (void)fd;
++    return 0;
++}
++#endif // !MLIBC_BUILDING_RTLD
++
+ int Sysdeps<GetHostname>::operator()(char *buffer, size_t bufsize) {
+     if (bufsize == 0) {
+         return 0;
+@@ -527,8 +747,21 @@ int Sysdeps<GetHostname>::operator()(char *buffer, size_t bufsize) {
+     return 0;
+ }
+ 
++int Sysdeps<SetHostname>::operator()(const char *buffer, size_t bufsize) {
++    (void)buffer; (void)bufsize;
++    return 0;
++}
++
++int Sysdeps<Uname>::operator()(struct utsname *buf) {
++    int64_t ret = __petra_syscall1(SYSCALL_UNAME, (int64_t)buf);
++    if (ret < 0) {
++        return -ret;
++    }
++    return 0;
++}
++
+ int Sysdeps<Tcsendbreak>::operator()(int fd, int duration) {
+-    int64_t ret = __petra_syscall3(SYSCALL_IOCTL, fd, 0x5409 /* TCSBRK */, (int64_t)duration);
++    int64_t ret = __petra_syscall3(SYSCALL_IOCTL, fd, IOCTL_TCSBRK, (int64_t)duration);
+     if (ret < 0) {
+         return -ret;
+     }
+@@ -536,7 +769,7 @@ int Sysdeps<Tcsendbreak>::operator()(int fd, int duration) {
+ }
+ 
+ int Sysdeps<Tcflow>::operator()(int fd, int action) {
+-    int64_t ret = __petra_syscall3(SYSCALL_IOCTL, fd, 0x540A /* TCXONC */, (int64_t)action);
++    int64_t ret = __petra_syscall3(SYSCALL_IOCTL, fd, IOCTL_TCXONC, (int64_t)action);
+     if (ret < 0) {
+         return -ret;
+     }
+@@ -544,7 +777,7 @@ int Sysdeps<Tcflow>::operator()(int fd, int action) {
+ }
+ 
+ int Sysdeps<Tcflush>::operator()(int fd, int queue) {
+-    int64_t ret = __petra_syscall3(SYSCALL_IOCTL, fd, 0x540B /* TCFLSH */, (int64_t)queue);
++    int64_t ret = __petra_syscall3(SYSCALL_IOCTL, fd, IOCTL_TCFLSH, (int64_t)queue);
+     if (ret < 0) {
+         return -ret;
+     }
+@@ -668,37 +901,37 @@ int Sysdeps<Sysconf>::operator()(int num, long *ret) {
+         case _SC_OPEN_MAX: {
+             struct rlimit ru;
+             if(int e = sysdep<GetRlimit>(RLIMIT_NOFILE, &ru); e) {
+-                *ret = 1024;
++                *ret = SYSCONF_OPEN_MAX_DEFAULT;
+                 return 0;
+             }
+-            *ret = (ru.rlim_cur == RLIM_INFINITY) ? 1024 : ru.rlim_cur;
++            *ret = (ru.rlim_cur == RLIM_INFINITY) ? SYSCONF_OPEN_MAX_DEFAULT : ru.rlim_cur;
+             break;
+         }
+         case _SC_CHILD_MAX: {
+             struct rlimit ru;
+             if(int e = sysdep<GetRlimit>(RLIMIT_NPROC, &ru); e) {
+-                *ret = 4096;
++                *ret = SYSCONF_CHILD_MAX_DEFAULT;
+                 return 0;
+             }
+-            *ret = (ru.rlim_cur == RLIM_INFINITY) ? 4096 : ru.rlim_cur;
++            *ret = (ru.rlim_cur == RLIM_INFINITY) ? SYSCONF_CHILD_MAX_DEFAULT : ru.rlim_cur;
+             break;
+         }
+         case _SC_NPROCESSORS_CONF:
+         case _SC_NPROCESSORS_ONLN: {
+-            *ret = 1;
++            *ret = SYSCONF_NPROCESSORS_DEFAULT;
+             break;
+         }
+         case _SC_PHYS_PAGES:
+         case _SC_AVPHYS_PAGES: {
+-            *ret = 262144;
++            *ret = SYSCONF_PHYS_PAGES_DEFAULT;
+             break;
+         }
+         case _SC_PAGESIZE: {
+-            *ret = 4096;
++            *ret = SYSCONF_PAGE_SIZE_DEFAULT;
+             break;
+         }
+         case _SC_CLK_TCK: {
+-            *ret = 100;
++            *ret = SYSCONF_CLK_TCK_DEFAULT;
+             break;
+         }
+         default: {
+@@ -781,6 +1014,16 @@ int Sysdeps<Renameat>::operator()(int olddirfd, const char *old_path, int newdir
+     return 0;
+ }
+ 
++#if __MLIBC_LINUX_OPTION
++int Sysdeps<Renameat2>::operator()(int olddirfd, const char *old_path, int newdirfd, const char *new_path, unsigned int flags) {
++    int64_t ret = __petra_syscall5(SYSCALL_RENAMEAT2, olddirfd, (int64_t)old_path, newdirfd, (int64_t)new_path, flags);
++    if (ret < 0) {
++        return -ret;
++    }
++    return 0;
++}
++#endif // __MLIBC_LINUX_OPTION
++
+ int Sysdeps<Link>::operator()(const char *old_path, const char *new_path) {
+     int64_t ret = __petra_syscall2(SYSCALL_LINK, (int64_t)old_path, (int64_t)new_path);
+     if (ret < 0) {
+@@ -897,6 +1140,28 @@ int Sysdeps<Writev>::operator()(int fd, const struct iovec *iovs, int iovc, ssiz
+     return 0;
+ }
+ 
++int Sysdeps<Pread>::operator()(int fd, void *buf, size_t n, off_t off, ssize_t *bytes_read) {
++    int64_t ret = __petra_syscall4(SYSCALL_PREAD64, fd, (int64_t)buf, n, off);
++    if (ret < 0) {
++        return -ret;
++    }
++    if (bytes_read) {
++        *bytes_read = ret;
++    }
++    return 0;
++}
++
++int Sysdeps<Pwrite>::operator()(int fd, const void *buf, size_t n, off_t off, ssize_t *bytes_written) {
++    int64_t ret = __petra_syscall4(SYSCALL_PWRITE64, fd, (int64_t)buf, n, off);
++    if (ret < 0) {
++        return -ret;
++    }
++    if (bytes_written) {
++        *bytes_written = ret;
++    }
++    return 0;
++}
++
+ int Sysdeps<Fsync>::operator()(int fd) {
+     int64_t ret = __petra_syscall1(SYSCALL_FSYNC, fd);
+     if (ret < 0) {
+@@ -913,6 +1178,10 @@ int Sysdeps<Fdatasync>::operator()(int fd) {
+     return 0;
+ }
+ 
++void Sysdeps<Sync>::operator()() {
++    // No-op synchronization fallback
++}
++
+ int Sysdeps<Mknodat>::operator()(int dirfd, const char *path, int mode, int dev) {
+     int64_t ret = __petra_syscall4(SYSCALL_MKNODAT, dirfd, (int64_t)path, mode, dev);
+     if (ret < 0) {
+@@ -921,6 +1190,10 @@ int Sysdeps<Mknodat>::operator()(int dirfd, const char *path, int mode, int dev)
+     return 0;
+ }
+ 
++int Sysdeps<Mkfifoat>::operator()(int dirfd, const char *path, mode_t mode) {
++    return sysdep<Mknodat>(dirfd, path, S_IFIFO | mode, 0);
++}
++
+ int Sysdeps<Semget>::operator()(key_t key, int n, int fl, int *id) {
+     int64_t ret = __petra_syscall3(SYSCALL_SEMGET, (int64_t)key, n, fl);
+     if (ret < 0) {
+@@ -1159,6 +1432,229 @@ int Sysdeps<Socketpair>::operator()(int domain, int type_and_flags, int proto, i
+     return 0;
+ }
+ 
+-} // namespace mlibc
++int Sysdeps<Times>::operator()(struct tms *tms, clock_t *out) {
++    int64_t ret = __petra_syscall1(SYSCALL_TIMES, (int64_t)tms);
++    if (ret < 0) {
++        return -ret;
++    }
++    if (out) {
++        *out = ret;
++    }
++    return 0;
++}
++
++int Sysdeps<GetLoadavg>::operator()(double *samples) {
++    if (samples) {
++        samples[0] = 0.0;
++        samples[1] = 0.0;
++        samples[2] = 0.0;
++    }
++    return 0;
++}
++
++int Sysdeps<GetItimer>::operator()(int which, struct itimerval *curr_value) {
++    (void)which;
++    if (curr_value) {
++        memset(curr_value, 0, sizeof(*curr_value));
++    }
++    return 0;
++}
++
++int Sysdeps<SetItimer>::operator()(int which, const struct itimerval *new_value, struct itimerval *old_value) {
++    (void)which;
++    (void)new_value;
++    if (old_value) {
++        memset(old_value, 0, sizeof(*old_value));
++    }
++    return 0;
++}
++
++int Sysdeps<Nice>::operator()(int nice, int *ret) {
++    (void)nice;
++    if (ret) {
++        *ret = 0;
++    }
++    return 0;
++}
++
++int Sysdeps<SetPriority>::operator()(int which, id_t who, int prio) {
++    (void)which;
++    (void)who;
++    (void)prio;
++    return 0;
++}
++
++#if __MLIBC_LINUX_OPTION
++int Sysdeps<Getcpu>::operator()(int *cpu) {
++    if (cpu) {
++        *cpu = 0;
++    }
++    return 0;
++}
++
++int Sysdeps<Sysinfo>::operator()(struct sysinfo *info) {
++    if (info) {
++        memset(info, 0, sizeof(*info));
++        info->uptime = DEFAULT_SYSINFO_UPTIME;
++        info->totalram = DEFAULT_SYSINFO_TOTALRAM;
++        info->freeram = DEFAULT_SYSINFO_FREERAM;
++        info->procs = DEFAULT_SYSINFO_PROCS;
++    }
++    return 0;
++}
++#endif // __MLIBC_LINUX_OPTION
++
++int Sysdeps<GetCurrentStackInfo>::operator()(void **stack_base, size_t *stack_size) {
++    if (stack_size) {
++        *stack_size = DEFAULT_STACK_SIZE;
++    }
++    if (stack_base) {
++        *stack_base = (void *)(DEFAULT_STACK_TOP - DEFAULT_STACK_SIZE);
++    }
++    return 0;
++}
++
++int Sysdeps<InetConfigured>::operator()(bool *ipv4, bool *ipv6) {
++    if (ipv4) *ipv4 = true;
++    if (ipv6) *ipv6 = false;
++    return 0;
++}
++
++#ifndef MLIBC_BUILDING_RTLD
++int Sysdeps<GetEntropy>::operator()(void *buffer, size_t length) {
++    int fd = 0;
++    if (int err = sysdep<Open>("/dev/urandom", O_RDONLY, 0, &fd); err) {
++        return err;
++    }
++    ssize_t bytes_read = 0;
++    int err = sysdep<Read>(fd, buffer, length, &bytes_read);
++    sysdep<Close>(fd);
++    return err;
++}
++
++#if __MLIBC_LINUX_OPTION
++int Sysdeps<Getifaddrs>::operator()(struct ifaddrs **out) {
++    if (out) {
++        *out = nullptr;
++    }
++    return 0;
++}
++#endif // __MLIBC_LINUX_OPTION
++
++int Sysdeps<IfIndextoname>::operator()(unsigned int index, char *name) {
++    (void)index;
++    (void)name;
++    return ENXIO;
++}
++
++int Sysdeps<IfNametoindex>::operator()(const char *name, unsigned int *ret) {
++    (void)name;
++    (void)ret;
++    return ENXIO;
++}
++
++int Sysdeps<IfNameindex>::operator()(struct if_nameindex **out) {
++    if (out) {
++        *out = nullptr;
++    }
++    return 0;
++}
++
++void Sysdeps<IfFreeNameindex>::operator()(struct if_nameindex *ifn) {
++    (void)ifn;
++}
++
++int Sysdeps<Clone>::operator()(void *tcb, pid_t *pid_out, void *stack) {
++    (void)tcb;
++    (void)stack;
++    if (pid_out) {
++        *pid_out = -1;
++    }
++    return ENOSYS;
++}
+ 
++[[noreturn]] void Sysdeps<ThreadExit>::operator()() {
++    sysdep<Exit>(0);
++}
++#endif /* !MLIBC_BUILDING_RTLD */
+ 
++int Sysdeps<ThreadSetname>::operator()(void *tcb, const char *name) {
++    (void)tcb;
++    (void)name;
++    return 0;
++}
++
++#if __MLIBC_LINUX_OPTION
++int Sysdeps<Mount>::operator()(const char *source, const char *target, const char *fstype, unsigned long flags, const void *data) {
++    (void)source;
++    (void)target;
++    (void)fstype;
++    (void)flags;
++    (void)data;
++    return 0;
++}
++#endif // __MLIBC_LINUX_OPTION
++
++int Sysdeps<Chroot>::operator()(const char *path) {
++    (void)path;
++    return 0;
++}
++
++#if __MLIBC_LINUX_EVENTFD_OPTION
++int Sysdeps<EventfdCreate>::operator()(unsigned int initval, int flags, int *fd) {
++    (void)initval;
++    (void)flags;
++    (void)fd;
++    return ENOSYS;
++}
++#endif // __MLIBC_LINUX_EVENTFD_OPTION
++
++#if __MLIBC_LINUX_OPTION
++// Extended attributes (xattr) stubs
++int Sysdeps<Setxattr>::operator()(const char *path, const char *name, const void *val, size_t size, int flags) {
++    (void)path; (void)name; (void)val; (void)size; (void)flags;
++    return ENOTSUP;
++}
++
++int Sysdeps<Lsetxattr>::operator()(const char *path, const char *name, const void *val, size_t size, int flags) {
++    (void)path; (void)name; (void)val; (void)size; (void)flags;
++    return ENOTSUP;
++}
++
++int Sysdeps<Fsetxattr>::operator()(int fd, const char *name, const void *val, size_t size, int flags) {
++    (void)fd; (void)name; (void)val; (void)size; (void)flags;
++    return ENOTSUP;
++}
++
++int Sysdeps<Getxattr>::operator()(const char *path, const char *name, void *val, size_t size, ssize_t *nread) {
++    (void)path; (void)name; (void)val; (void)size; (void)nread;
++    return ENOTSUP;
++}
++
++int Sysdeps<Lgetxattr>::operator()(const char *path, const char *name, void *val, size_t size, ssize_t *nread) {
++    (void)path; (void)name; (void)val; (void)size; (void)nread;
++    return ENOTSUP;
++}
++
++int Sysdeps<Fgetxattr>::operator()(int fd, const char *name, void *val, size_t size, ssize_t *nread) {
++    (void)fd; (void)name; (void)val; (void)size; (void)nread;
++    return ENOTSUP;
++}
++
++int Sysdeps<Listxattr>::operator()(const char *path, char *list, size_t size, ssize_t *nread) {
++    (void)path; (void)list; (void)size; (void)nread;
++    return ENOTSUP;
++}
++
++int Sysdeps<Llistxattr>::operator()(const char *path, char *list, size_t size, ssize_t *nread) {
++    (void)path; (void)list; (void)size; (void)nread;
++    return ENOTSUP;
++}
++
++int Sysdeps<Flistxattr>::operator()(int fd, char *list, size_t size, ssize_t *nread) {
++    (void)fd; (void)list; (void)size; (void)nread;
++    return ENOTSUP;
++}
++#endif // __MLIBC_LINUX_OPTION
++
++} // namespace mlibc
+diff --git a/sysdeps/petra/include/mlibc/sysdeps.hpp b/sysdeps/petra/include/mlibc/sysdeps.hpp
+index 3befdfd3..385882fa 100644
+--- a/sysdeps/petra/include/mlibc/sysdeps.hpp
++++ b/sysdeps/petra/include/mlibc/sysdeps.hpp
+@@ -5,6 +5,7 @@
+ namespace mlibc {
+ 
+ struct PetraSysdepTags :
++    // Base / Core
+     LibcPanic,
+     LibcLog,
+     Exit,
+@@ -14,6 +15,16 @@ struct PetraSysdepTags :
+     VmMap,
+     VmUnmap,
+     VmProtect,
++    FutexWait,
++    FutexWake,
++    FutexTid,
++    Clone,
++    ThreadExit,
++    Flock,
++    Pread,
++    ClockGetres,
++
++    // File descriptor and I/O operations
+     Write,
+     Read,
+     Open,
+@@ -22,58 +33,75 @@ struct PetraSysdepTags :
+     Seek,
+     Isatty,
+     Ioctl,
++    Fcntl,
++    Dup,
++    Dup2,
++    Pipe,
++    Readv,
++    Writev,
++    Pwrite,
++    Fsync,
++    Fdatasync,
++    Sync,
++    Mknodat,
++    Mkfifoat,
++    Fadvise,
++
++    // Process & Identity
+     GetPid,
+     GetPpid,
+     GetPgid,
+     SetPgid,
++    GetTid,
+     Fork,
+     Execve,
+     Waitpid,
+-    FutexWait,
+-    FutexWake,
+-    ClockGet,
+-    Stat,
+-    Fcntl,
+-    Dup,
+-    Dup2,
+-    Pipe,
+     Yield,
+     Kill,
+-    Sigaction,
+-    Sigprocmask,
++    Tgkill,
+     GetUid,
+     GetEuid,
+     GetGid,
+     GetEgid,
+     SetUid,
+     SetGid,
++    SetEuid,
++    SetEgid,
++    GetResuid,
++    GetResgid,
++    SetResuid,
++    SetResgid,
+     SetSid,
++    GetSid,
+     GetGroups,
++    SetGroups,
+     GetRlimit,
+     SetRlimit,
++    Nice,
++    SetPriority,
++    ThreadSetname,
++
++    // Signals
++    Sigaction,
++    Sigprocmask,
++    Sigaltstack,
++    Sigsuspend,
++    Sigtimedwait,
++    Sigpending,
++
++    // Filesystem operations
+     Access,
+     Faccessat,
+     Umask,
+     Chdir,
++    Fchdir,
+     GetCwd,
+-    Sleep,
+-    Tcgetattr,
+-    Tcsetattr,
+-    Tcgetwinsize,
+-    Tcsetwinsize,
+-    Ttyname,
+-    GetHostname,
+-    Tcsendbreak,
+-    Tcflow,
+-    Tcflush,
+-    Ppoll,
+-    Poll,
+-    Pselect,
+-    Sigpending,
++    Chroot,
++    Stat,
++    Statvfs,
++    Fstatvfs,
+     OpenDir,
+     ReadEntries,
+-    Sysconf,
+-    Brk,
+     Fchmodat,
+     Utimensat,
+     Mkdir,
+@@ -93,20 +121,56 @@ struct PetraSysdepTags :
+     Fchownat,
+     Truncate,
+     Ftruncate,
+-    Readv,
+-    Writev,
+-    Fsync,
+-    Fdatasync,
+-    Mknodat,
++
++    // Terminal & Console
++    Tcgetattr,
++    Tcsetattr,
++    Tcgetwinsize,
++    Tcsetwinsize,
++    Ttyname,
++    Ptsname,
++    Unlockpt,
++    Tcsendbreak,
++    Tcflow,
++    Tcflush,
++
++    // Polling & Timing
++    ClockGet,
++    Times,
++    Sleep,
++    Pause,
++    GetItimer,
++    SetItimer,
++    Ppoll,
++    Poll,
++    Pselect,
++
++    // System Information & Misc
++    GetHostname,
++    SetHostname,
++    Uname,
++    Sysconf,
++    Brk,
++    GetCurrentStackInfo,
++    InetConfigured,
++    GetEntropy,
++    GetLoadavg,
++    IfIndextoname,
++    IfNametoindex,
++    IfNameindex,
++    IfFreeNameindex,
++
++    // IPC: System V Semaphores & Shared Memory
+     Semget,
+     Semctl,
+     Semop,
+     Semtimedop,
+-    Fadvise,
+     Shmget,
+     Shmat,
+     Shmdt,
+     Shmctl,
++
++    // Sockets & Networking
+     Socket,
+     Bind,
+     Connect,
+@@ -122,6 +186,31 @@ struct PetraSysdepTags :
+     SetSockopt,
+     Shutdown,
+     Socketpair
++
++#if __MLIBC_LINUX_OPTION
++    ,
++    Statfs,
++    Fstatfs,
++    Renameat2,
++    Getcpu,
++    Sysinfo,
++    Getifaddrs,
++    Mount,
++    Setxattr,
++    Lsetxattr,
++    Fsetxattr,
++    Getxattr,
++    Lgetxattr,
++    Fgetxattr,
++    Listxattr,
++    Llistxattr,
++    Flistxattr
++#endif
++
++#if __MLIBC_LINUX_EVENTFD_OPTION
++    ,
++    EventfdCreate
++#endif
+ {};
+ 
+ template<typename Tag>
+diff --git a/sysdeps/petra/include/sys/syscall.h b/sysdeps/petra/include/sys/syscall.h
+index a6c79f74..b002185b 100644
+--- a/sysdeps/petra/include/sys/syscall.h
++++ b/sysdeps/petra/include/sys/syscall.h
+@@ -21,6 +21,8 @@
+ #define SYSCALL_RT_SIGPROCMASK 14
+ #define SYSCALL_RT_SIGRETURN   15
+ #define SYSCALL_IOCTL          16
++#define SYSCALL_PREAD64        17
++#define SYSCALL_PWRITE64       18
+ #define SYSCALL_READV          19
+ #define SYSCALL_WRITEV         20
+ #define SYSCALL_ACCESS         21
+@@ -61,12 +63,14 @@
+ #define SYSCALL_SEMCTL         66
+ #define SYSCALL_SHMDT          67
+ #define SYSCALL_FCNTL          72
++#define SYSCALL_FLOCK          73
+ #define SYSCALL_FSYNC          74
+ #define SYSCALL_FDATASYNC      75
+ #define SYSCALL_TRUNCATE       76
+ #define SYSCALL_FTRUNCATE      77
+ #define SYSCALL_GETCWD         79
+ #define SYSCALL_CHDIR          80
++#define SYSCALL_FCHDIR         81
+ #define SYSCALL_RENAME         82
+ #define SYSCALL_MKDIR          83
+ #define SYSCALL_RMDIR          84
+@@ -94,6 +98,8 @@
+ #define SYSCALL_GETPGRP        111
+ #define SYSCALL_SETSID         112
+ #define SYSCALL_GETGROUPS      115
++#define SYSCALL_STATFS         137
++#define SYSCALL_FSTATFS        138
+ #define SYSCALL_ARCH_PRCTL     158
+ #define SYSCALL_SETRLIMIT      160
+ #define SYSCALL_FUTEX          202
 -- 
 2.43.0
 
