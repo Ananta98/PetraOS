@@ -50,9 +50,8 @@ pub fn tty_read(buf: &mut [u8], non_blocking: bool) -> Result<usize, VfsError> {
             }
         }
 
-        // Yield CPU until the next scheduler tick or keyboard interrupt
-        crate::arch::enable_interrupts();
-        crate::proc::thread::Thread::yield_cpu();
+        // Atomically enable interrupts and halt CPU until the next hardware interrupt (keyboard or timer)
+        crate::arch::enable_and_hlt();
     }
 }
 

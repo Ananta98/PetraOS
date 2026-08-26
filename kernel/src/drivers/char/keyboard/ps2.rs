@@ -45,7 +45,6 @@ impl Ps2Controller {
             if (status & STATUS_INPUT_BUFFER_FULL) == 0 {
                 return Ok(());
             }
-            core::hint::spin_loop();
         }
         Err(DriverError::WriteFailed)
     }
@@ -58,7 +57,6 @@ impl Ps2Controller {
             if (status & STATUS_OUTPUT_BUFFER_FULL) != 0 {
                 return Ok(());
             }
-            core::hint::spin_loop();
         }
         Err(DriverError::ReadFailed)
     }
@@ -75,7 +73,6 @@ impl Ps2Controller {
             unsafe {
                 let _ = Ports::inb(DATA_PORT);
             }
-            core::hint::spin_loop();
         }
     }
 

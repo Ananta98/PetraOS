@@ -4,6 +4,7 @@ use crate::fs::File;
 use crate::fs::vfs::types::{InodeType, LinuxStat, SeekWhence, Stat, StatFs};
 use alloc::string::String;
 use alloc::sync::Arc;
+use alloc::vec::Vec;
 
 pub const AT_FDCWD: i32 = -100;
 
@@ -510,7 +511,9 @@ pub fn sys_getcwd(frame: &mut SyscallFrame) -> SyscallResult {
     }
 
     buf.write_slice(cwd_bytes).ok_or(SyscallError::EFAULT)?;
-    buf.offset(cwd_bytes.len()).write(0).ok_or(SyscallError::EFAULT)?;
+    buf.offset(cwd_bytes.len())
+        .write(0)
+        .ok_or(SyscallError::EFAULT)?;
 
     Ok(buf.as_u64() as usize)
 }
@@ -802,28 +805,41 @@ fn do_poll(fds_ptr: UserPtr<PollFd>, nfds: usize, timeout_ms: i32) -> SyscallRes
     };
 
     loop {
-        let proc = proc_arc.lock();
+        // Retrieve file handles under proc lock, then drop proc lock before polling events
+        let files: Vec<Option<Arc<File>>> = {
+            let proc = proc_arc.lock();
+            fds_slice
+                .iter()
+                .map(|pfd| {
+                    if pfd.fd >= 0 {
+                        proc.fd_table.get(pfd.fd).ok()
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        };
+
         let mut ready_count = 0;
-        for pfd in fds_slice.iter_mut() {
+        for (pfd, file_opt) in fds_slice.iter_mut().zip(files.iter()) {
             if pfd.fd < 0 {
                 pfd.revents = 0;
                 continue;
             }
-            match proc.fd_table.get(pfd.fd) {
-                Ok(file) => {
+            match file_opt {
+                Some(file) => {
                     let revents = file.ops.poll_events(pfd.events);
                     pfd.revents = revents;
                     if revents != 0 {
                         ready_count += 1;
                     }
                 }
-                Err(_) => {
+                None => {
                     pfd.revents = POLLNVAL;
                     ready_count += 1;
                 }
             }
         }
-        drop(proc);
 
         if ready_count > 0 {
             return Ok(ready_count);
@@ -846,8 +862,7 @@ fn do_poll(fds_ptr: UserPtr<PollFd>, nfds: usize, timeout_ms: i32) -> SyscallRes
             }
         }
 
-        crate::arch::enable_interrupts();
-        crate::proc::thread::Thread::yield_cpu();
+        crate::arch::enable_and_hlt();
     }
 }
 
@@ -879,7 +894,9 @@ pub fn sys_readv(frame: &mut SyscallFrame) -> SyscallResult {
             continue;
         }
         let base_ptr = UserPtr::<u8>::from_u64(iov.iov_base);
-        let user_slice = base_ptr.as_slice_mut(iov.iov_len).ok_or(SyscallError::EFAULT)?;
+        let user_slice = base_ptr
+            .as_slice_mut(iov.iov_len)
+            .ok_or(SyscallError::EFAULT)?;
         let n = file.read(user_slice)?;
         total_read += n;
         if n < iov.iov_len {
@@ -1439,9 +1456,9 @@ pub fn sys_utimensat(frame: &mut SyscallFrame) -> SyscallResult {
         }
 
         let (atime, mtime) = read_utimens(times_ptr, st.atime, st.mtime)?;
-        file.ops.utimens(atime, mtime).or_else(|_| {
-            file.dentry.inode.ops.utimens(atime, mtime)
-        })?;
+        file.ops
+            .utimens(atime, mtime)
+            .or_else(|_| file.dentry.inode.ops.utimens(atime, mtime))?;
         return Ok(0);
     }
 
@@ -1583,7 +1600,7 @@ pub fn sys_getdents64(frame: &mut SyscallFrame) -> SyscallResult {
     let entries = file.dentry.inode.ops.readdir()?;
 
     // Construct full entry list with "." and ".." if not already explicitly returned
-    let mut all_entries: alloc::vec::Vec<(String, u64, u8)> = alloc::vec::Vec::new();
+    let mut all_entries: Vec<(String, u64, u8)> = Vec::new();
 
     let has_dot = entries.iter().any(|e| e == ".");
     let has_dotdot = entries.iter().any(|e| e == "..");
@@ -1642,11 +1659,21 @@ pub fn sys_getdents64(frame: &mut SyscallFrame) -> SyscallResult {
 
         let dest = dirp.offset(written_bytes);
         dest.cast::<u64>().write(ino).ok_or(SyscallError::EFAULT)?;
-        dest.offset(8).cast::<i64>().write(off).ok_or(SyscallError::EFAULT)?;
-        dest.offset(16).cast::<u16>().write(reclen as u16).ok_or(SyscallError::EFAULT)?;
+        dest.offset(8)
+            .cast::<i64>()
+            .write(off)
+            .ok_or(SyscallError::EFAULT)?;
+        dest.offset(16)
+            .cast::<u16>()
+            .write(reclen as u16)
+            .ok_or(SyscallError::EFAULT)?;
         dest.offset(18).write(d_type).ok_or(SyscallError::EFAULT)?;
-        dest.offset(19).write_slice(name_bytes).ok_or(SyscallError::EFAULT)?;
-        dest.offset(19 + name_bytes.len()).write(0).ok_or(SyscallError::EFAULT)?;
+        dest.offset(19)
+            .write_slice(name_bytes)
+            .ok_or(SyscallError::EFAULT)?;
+        dest.offset(19 + name_bytes.len())
+            .write(0)
+            .ok_or(SyscallError::EFAULT)?;
 
         let pad_start = 19 + name_bytes.len() + 1;
         for p in pad_start..reclen {

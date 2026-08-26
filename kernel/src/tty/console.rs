@@ -186,10 +186,6 @@ impl Console {
         if let Some(ref mut ft) = self.flanterm {
             ft.write_bytes(&processed);
             ft.flush();
-        } else if let Some(ref mut ser) = self.serial {
-            for &byte in &processed {
-                let _ = ser.write_byte(byte);
-            }
         }
         buf.len()
     }
