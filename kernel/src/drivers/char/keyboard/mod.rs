@@ -102,70 +102,52 @@ impl Driver for Ps2KeyboardDriver {
 /// Dispatches a raw scancode received from the interrupt handler.
 pub fn handle_scancode(scancode: u8) {
     KEYBOARD_INTERRUPT_COUNT.fetch_add(1, Ordering::Relaxed);
+    log::info!("[DBG scancode] {:#04x}", scancode);
 
-    let event_opt = SCANCODE_DECODER.lock().process_scancode(scancode);
+    let (event_opt, is_alt) = {
+        let mut decoder = SCANCODE_DECODER.lock();
+        let event = decoder.process_scancode(scancode);
+        let alt = decoder.modifiers().alt;
+        (event, alt)
+    };
 
     if let Some(event) = event_opt {
         if event.state == KeyState::Pressed {
             if let Some(ch) = event.ascii {
+                if is_alt {
+                    KEY_RING_BUFFER.push(0x1B);
+                }
                 KEY_RING_BUFFER.push(ch as u8);
             } else {
-                match event.code {
-                    KeyCode::Up => {
-                        KEY_RING_BUFFER.push(0x1B);
-                        KEY_RING_BUFFER.push(b'[');
-                        KEY_RING_BUFFER.push(b'A');
+                let seq: Option<&'static [u8]> = match event.code {
+                    KeyCode::Up => Some(b"\x1b[A"),
+                    KeyCode::Down => Some(b"\x1b[B"),
+                    KeyCode::Right => Some(b"\x1b[C"),
+                    KeyCode::Left => Some(b"\x1b[D"),
+                    KeyCode::Home => Some(b"\x1b[H"),
+                    KeyCode::End => Some(b"\x1b[F"),
+                    KeyCode::PageUp => Some(b"\x1b[5~"),
+                    KeyCode::PageDown => Some(b"\x1b[6~"),
+                    KeyCode::Insert => Some(b"\x1b[2~"),
+                    KeyCode::Delete => Some(b"\x1b[3~"),
+                    KeyCode::F1 => Some(b"\x1bOP"),
+                    KeyCode::F2 => Some(b"\x1bOQ"),
+                    KeyCode::F3 => Some(b"\x1bOR"),
+                    KeyCode::F4 => Some(b"\x1bOS"),
+                    KeyCode::F5 => Some(b"\x1b[15~"),
+                    KeyCode::F6 => Some(b"\x1b[17~"),
+                    KeyCode::F7 => Some(b"\x1b[18~"),
+                    KeyCode::F8 => Some(b"\x1b[19~"),
+                    KeyCode::F9 => Some(b"\x1b[20~"),
+                    KeyCode::F10 => Some(b"\x1b[21~"),
+                    KeyCode::F11 => Some(b"\x1b[23~"),
+                    KeyCode::F12 => Some(b"\x1b[24~"),
+                    _ => None,
+                };
+                if let Some(bytes) = seq {
+                    for &b in bytes {
+                        KEY_RING_BUFFER.push(b);
                     }
-                    KeyCode::Down => {
-                        KEY_RING_BUFFER.push(0x1B);
-                        KEY_RING_BUFFER.push(b'[');
-                        KEY_RING_BUFFER.push(b'B');
-                    }
-                    KeyCode::Right => {
-                        KEY_RING_BUFFER.push(0x1B);
-                        KEY_RING_BUFFER.push(b'[');
-                        KEY_RING_BUFFER.push(b'C');
-                    }
-                    KeyCode::Left => {
-                        KEY_RING_BUFFER.push(0x1B);
-                        KEY_RING_BUFFER.push(b'[');
-                        KEY_RING_BUFFER.push(b'D');
-                    }
-                    KeyCode::Home => {
-                        KEY_RING_BUFFER.push(0x1B);
-                        KEY_RING_BUFFER.push(b'[');
-                        KEY_RING_BUFFER.push(b'H');
-                    }
-                    KeyCode::End => {
-                        KEY_RING_BUFFER.push(0x1B);
-                        KEY_RING_BUFFER.push(b'[');
-                        KEY_RING_BUFFER.push(b'F');
-                    }
-                    KeyCode::PageUp => {
-                        KEY_RING_BUFFER.push(0x1B);
-                        KEY_RING_BUFFER.push(b'[');
-                        KEY_RING_BUFFER.push(b'5');
-                        KEY_RING_BUFFER.push(b'~');
-                    }
-                    KeyCode::PageDown => {
-                        KEY_RING_BUFFER.push(0x1B);
-                        KEY_RING_BUFFER.push(b'[');
-                        KEY_RING_BUFFER.push(b'6');
-                        KEY_RING_BUFFER.push(b'~');
-                    }
-                    KeyCode::Insert => {
-                        KEY_RING_BUFFER.push(0x1B);
-                        KEY_RING_BUFFER.push(b'[');
-                        KEY_RING_BUFFER.push(b'2');
-                        KEY_RING_BUFFER.push(b'~');
-                    }
-                    KeyCode::Delete => {
-                        KEY_RING_BUFFER.push(0x1B);
-                        KEY_RING_BUFFER.push(b'[');
-                        KEY_RING_BUFFER.push(b'3');
-                        KEY_RING_BUFFER.push(b'~');
-                    }
-                    _ => {}
                 }
             }
         }

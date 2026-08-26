@@ -32,6 +32,12 @@ pub fn tty_read(buf: &mut [u8], non_blocking: bool) -> Result<usize, VfsError> {
             c.poll_input();
             let bytes_read = c.ldisc.read_bytes(buf);
             if bytes_read > 0 {
+                log::info!(
+                    "[DBG tty_read] got {} bytes, canon={} first={:#x}",
+                    bytes_read,
+                    (c.ldisc.termios.c_lflag & crate::tty::termios::ICANON) != 0,
+                    buf[0]
+                );
                 return Ok(bytes_read);
             }
             if non_blocking {

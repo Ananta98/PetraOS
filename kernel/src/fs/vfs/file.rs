@@ -68,6 +68,24 @@ impl File {
         Ok(bytes_written)
     }
 
+    /// Read from the file at a specific offset without updating the file offset (POSIX `pread`).
+    pub fn pread(&self, buf: &mut [u8], offset: usize) -> Result<usize, VfsError> {
+        let flags = self.flags();
+        if !can_read(flags) {
+            return Err(VfsError::PermissionDenied);
+        }
+        self.ops.read_with_flags(offset, buf, flags)
+    }
+
+    /// Write to the file at a specific offset without updating the file offset (POSIX `pwrite`).
+    pub fn pwrite(&self, buf: &[u8], offset: usize) -> Result<usize, VfsError> {
+        let flags = self.flags();
+        if !can_write(flags) {
+            return Err(VfsError::PermissionDenied);
+        }
+        self.ops.write_with_flags(offset, buf, flags)
+    }
+
     /// Seek to an absolute offset directly (no `O_*` flag checks).
     pub fn seek(&self, new_offset: usize) {
         *self.offset.lock() = new_offset;

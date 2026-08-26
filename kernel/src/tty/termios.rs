@@ -122,6 +122,28 @@ pub const TCSETS2: u64 = 0x402C542B;
 pub const TCSETSW2: u64 = 0x402C542C;
 pub const TCSETSF2: u64 = 0x402C542D;
 
+pub const KDGETMODE: u64 = 0x4B3B;
+pub const KDSETMODE: u64 = 0x4B3C;
+pub const KDGKBMODE: u64 = 0x4B44;
+pub const KDSKBMODE: u64 = 0x4B45;
+
+pub const KD_TEXT: usize = 0x00;
+pub const KD_GRAPHICS: usize = 0x01;
+
+pub const K_RAW: usize = 0x00;
+pub const K_XLATE: usize = 0x01;
+pub const K_MEDIUMRAW: usize = 0x02;
+pub const K_UNICODE: usize = 0x03;
+pub const K_OFF: usize = 0x04;
+
+pub const VT_OPENQRY: u64 = 0x5600;
+pub const VT_GETMODE: u64 = 0x5601;
+pub const VT_SETMODE: u64 = 0x5602;
+pub const VT_GETSTATE: u64 = 0x5603;
+pub const VT_ACTIVATE: u64 = 0x5606;
+pub const VT_WAITACTIVE: u64 = 0x5607;
+pub const TIOCLINUX: u64 = 0x541C;
+
 // Flow control actions (TCXONC)
 pub const TCOOFF: usize = 0;
 pub const TCOON: usize = 1;
@@ -181,7 +203,76 @@ impl Default for Termios {
     }
 }
 
+/// Linux `struct termios2` (used by modern glibc/musl/mlibc for arbitrary baud rates).
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Termios2 {
+    pub c_iflag: u32,
+    pub c_oflag: u32,
+    pub c_cflag: u32,
+    pub c_lflag: u32,
+    pub c_line: u8,
+    pub c_cc: [u8; NCCS],
+    pub c_ispeed: u32,
+    pub c_ospeed: u32,
+}
 
+impl From<Termios> for Termios2 {
+    fn from(t: Termios) -> Self {
+        Self {
+            c_iflag: t.c_iflag,
+            c_oflag: t.c_oflag,
+            c_cflag: t.c_cflag,
+            c_lflag: t.c_lflag,
+            c_line: t.c_line,
+            c_cc: t.c_cc,
+            c_ispeed: t.c_ispeed,
+            c_ospeed: t.c_ospeed,
+        }
+    }
+}
+
+impl From<Termios2> for Termios {
+    fn from(t: Termios2) -> Self {
+        Self {
+            c_iflag: t.c_iflag,
+            c_oflag: t.c_oflag,
+            c_cflag: t.c_cflag,
+            c_lflag: t.c_lflag,
+            c_line: t.c_line,
+            c_cc: t.c_cc,
+            c_ispeed: t.c_ispeed,
+            c_ospeed: t.c_ospeed,
+        }
+    }
+}
+
+/// Legacy Linux `struct termio` (16-bit flags).
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Termio {
+    pub c_iflag: u16,
+    pub c_oflag: u16,
+    pub c_cflag: u16,
+    pub c_lflag: u16,
+    pub c_line: u8,
+    pub c_cc: [u8; 8],
+}
+
+impl From<Termios> for Termio {
+    fn from(t: Termios) -> Self {
+        let mut cc = [0u8; 8];
+        cc[..8.min(NCCS)].copy_from_slice(&t.c_cc[..8.min(NCCS)]);
+        Self {
+            c_iflag: t.c_iflag as u16,
+            c_oflag: t.c_oflag as u16,
+            c_cflag: t.c_cflag as u16,
+            c_lflag: t.c_lflag as u16,
+            c_line: t.c_line,
+            c_cc: cc,
+        }
+    }
+}
 
 /// POSIX terminal window size structure.
 #[repr(C)]
@@ -209,6 +300,8 @@ pub struct LineDiscipline {
     pub termios: Termios,
     pub winsize: WinSize,
     pub foreground_pgid: i32,
+    pub literal_next: bool,
+    pub output_stopped: bool,
     canon_buffer: Vec<u8>,
     read_queue: VecDeque<u8>,
 }
@@ -219,6 +312,8 @@ impl LineDiscipline {
             termios: Termios::default(),
             winsize,
             foreground_pgid: 1,
+            literal_next: false,
+            output_stopped: false,
             canon_buffer: Vec::with_capacity(256),
             read_queue: VecDeque::with_capacity(1024),
         }
@@ -229,11 +324,42 @@ impl LineDiscipline {
     pub fn accept_input_byte(&mut self, byte: u8) -> Vec<u8> {
         let mut echo_bytes = Vec::new();
 
+        // If previous character was VLNEXT (Ctrl+V), treat this byte literally
+        if self.literal_next {
+            self.literal_next = false;
+            if (self.termios.c_lflag & ICANON) != 0 {
+                self.canon_buffer.push(byte);
+                if (self.termios.c_lflag & ECHO) != 0 {
+                    echo_bytes.push(byte);
+                }
+            } else {
+                self.input_raw(byte, &mut echo_bytes);
+            }
+            return echo_bytes;
+        }
+
         // 1. Input preprocessing (c_iflag)
         let mut processed_byte = byte;
         if (self.termios.c_iflag & ISTRIP) != 0 {
             processed_byte &= 0x7F;
         }
+
+        // Software flow control (c_iflag & IXON)
+        if (self.termios.c_iflag & IXON) != 0 {
+            if processed_byte == self.termios.c_cc[VSTOP] && self.termios.c_cc[VSTOP] != 0 {
+                self.output_stopped = true;
+                return echo_bytes;
+            }
+            if (processed_byte == self.termios.c_cc[VSTART] && self.termios.c_cc[VSTART] != 0)
+                || (self.output_stopped && (self.termios.c_iflag & IXANY) != 0)
+            {
+                self.output_stopped = false;
+                if processed_byte == self.termios.c_cc[VSTART] {
+                    return echo_bytes;
+                }
+            }
+        }
+
         if processed_byte == b'\r' {
             if (self.termios.c_iflag & IGNCR) != 0 {
                 return echo_bytes;
@@ -247,7 +373,7 @@ impl LineDiscipline {
 
         // 2. Signal generation (c_lflag & ISIG)
         if (self.termios.c_lflag & ISIG) != 0 {
-            if processed_byte == self.termios.c_cc[VINTR] {
+            if processed_byte == self.termios.c_cc[VINTR] && self.termios.c_cc[VINTR] != 0 {
                 self.send_signal_to_fg(crate::ipc::signal::SIGINT);
                 if (self.termios.c_lflag & NOFLSH) == 0 {
                     self.canon_buffer.clear();
@@ -258,7 +384,7 @@ impl LineDiscipline {
                 }
                 return echo_bytes;
             }
-            if processed_byte == self.termios.c_cc[VQUIT] {
+            if processed_byte == self.termios.c_cc[VQUIT] && self.termios.c_cc[VQUIT] != 0 {
                 self.send_signal_to_fg(crate::ipc::signal::SIGQUIT);
                 if (self.termios.c_lflag & NOFLSH) == 0 {
                     self.canon_buffer.clear();
@@ -269,7 +395,7 @@ impl LineDiscipline {
                 }
                 return echo_bytes;
             }
-            if processed_byte == self.termios.c_cc[VSUSP] {
+            if processed_byte == self.termios.c_cc[VSUSP] && self.termios.c_cc[VSUSP] != 0 {
                 self.send_signal_to_fg(crate::ipc::signal::SIGTSTP);
                 if (self.termios.c_lflag & ECHO) != 0 {
                     echo_bytes.extend_from_slice(b"^Z\n");
@@ -292,17 +418,85 @@ impl LineDiscipline {
 
     pub fn input_canon(&mut self, byte: u8, echo_bytes: &mut Vec<u8>) {
         let processed_byte = byte;
-        if processed_byte == self.termios.c_cc[VERASE] || processed_byte == 0x08 {
+
+        // Literal Next Escape (VLNEXT - Ctrl+V)
+        if (self.termios.c_lflag & IEXTEN) != 0
+            && self.termios.c_cc[VLNEXT] != 0
+            && processed_byte == self.termios.c_cc[VLNEXT]
+        {
+            self.literal_next = true;
+            if (self.termios.c_lflag & ECHO) != 0 {
+                echo_bytes.extend_from_slice(b"^\x08");
+            }
+            return;
+        }
+
+        // Word Erase (VWERASE - Ctrl+W)
+        if (self.termios.c_lflag & IEXTEN) != 0
+            && self.termios.c_cc[VWERASE] != 0
+            && processed_byte == self.termios.c_cc[VWERASE]
+        {
+            // 1. Erase trailing whitespace
+            while let Some(&last) = self.canon_buffer.last() {
+                if last == b' ' || last == b'\t' {
+                    self.canon_buffer.pop();
+                    if (self.termios.c_lflag & ECHO) != 0 && (self.termios.c_lflag & ECHOE) != 0 {
+                        echo_bytes.extend_from_slice(b"\x08 \x08");
+                    }
+                } else {
+                    break;
+                }
+            }
+            // 2. Erase non-whitespace word characters
+            while let Some(&last) = self.canon_buffer.last() {
+                if last != b' ' && last != b'\t' {
+                    self.canon_buffer.pop();
+                    if (self.termios.c_lflag & ECHO) != 0 && (self.termios.c_lflag & ECHOE) != 0 {
+                        echo_bytes.extend_from_slice(b"\x08 \x08");
+                    }
+                } else {
+                    break;
+                }
+            }
+            return;
+        }
+
+        // Reprint Line (VREPRINT - Ctrl+R)
+        if (self.termios.c_lflag & IEXTEN) != 0
+            && self.termios.c_cc[VREPRINT] != 0
+            && processed_byte == self.termios.c_cc[VREPRINT]
+        {
+            if (self.termios.c_lflag & ECHO) != 0 {
+                echo_bytes.extend_from_slice(b"^R\n");
+                echo_bytes.extend_from_slice(&self.canon_buffer);
+            }
+            return;
+        }
+
+        if processed_byte == self.termios.c_cc[VERASE] || processed_byte == 0x08 || processed_byte == 0x7F {
             if let Some(removed) = self.canon_buffer.pop() {
+                let mut erase_count = 1;
+                // If IUTF8 is enabled, continue popping UTF-8 continuation bytes (0b10xxxxxx)
+                if (self.termios.c_iflag & IUTF8) != 0 && (removed & 0xC0) == 0x80 {
+                    while let Some(&next) = self.canon_buffer.last() {
+                        self.canon_buffer.pop();
+                        if (next & 0xC0) != 0x80 {
+                            break; // Reached leading byte of multi-byte codepoint
+                        }
+                    }
+                }
+
                 if (self.termios.c_lflag & ECHO) != 0 && (self.termios.c_lflag & ECHOE) != 0 {
                     // Visual erase: backspace, space, backspace
-                    echo_bytes.extend_from_slice(b"\x08 \x08");
-                    if removed < 0x20 && (self.termios.c_lflag & ECHOCTL) != 0 {
+                    for _ in 0..erase_count {
                         echo_bytes.extend_from_slice(b"\x08 \x08");
+                        if removed < 0x20 && (self.termios.c_lflag & ECHOCTL) != 0 {
+                            echo_bytes.extend_from_slice(b"\x08 \x08");
+                        }
                     }
                 }
             }
-        } else if processed_byte == self.termios.c_cc[VKILL] {
+        } else if processed_byte == self.termios.c_cc[VKILL] && self.termios.c_cc[VKILL] != 0 {
             while let Some(removed) = self.canon_buffer.pop() {
                 if (self.termios.c_lflag & ECHO) != 0 && (self.termios.c_lflag & ECHOK) != 0 {
                     echo_bytes.extend_from_slice(b"\x08 \x08");
@@ -311,12 +505,15 @@ impl LineDiscipline {
                     }
                 }
             }
-        } else if processed_byte == self.termios.c_cc[VEOF] {
+        } else if processed_byte == self.termios.c_cc[VEOF] && self.termios.c_cc[VEOF] != 0 {
             // Flush line buffer to read queue without including the EOF byte
             for b in self.canon_buffer.drain(..) {
                 self.read_queue.push_back(b);
             }
-        } else if processed_byte == b'\n' || processed_byte == self.termios.c_cc[VEOL] {
+        } else if processed_byte == b'\n'
+            || (self.termios.c_cc[VEOL] != 0 && processed_byte == self.termios.c_cc[VEOL])
+            || (self.termios.c_cc[VEOL2] != 0 && processed_byte == self.termios.c_cc[VEOL2])
+        {
             self.canon_buffer.push(processed_byte);
             if (self.termios.c_lflag & ECHO) != 0 || (self.termios.c_lflag & ECHONL) != 0 {
                 if (self.termios.c_oflag & OPOST) != 0 && (self.termios.c_oflag & ONLCR) != 0 {
@@ -362,7 +559,7 @@ impl LineDiscipline {
         count
     }
 
-    /// Check if bytes are ready for reading.
+    /// Check if bytes are ready for reading based on canonical vs non-canonical mode.
     pub fn available_read_bytes(&self) -> usize {
         self.read_queue.len()
     }
@@ -376,7 +573,7 @@ impl LineDiscipline {
                 self.read_queue.clear();
             }
             1 => {
-                // TCOFLUSH: Output queue flush (line discipline streams directly)
+                // TCOFLUSH: Output queue flush
             }
             2 => {
                 self.canon_buffer.clear();

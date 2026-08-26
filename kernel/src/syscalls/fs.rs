@@ -1,7 +1,7 @@
 use super::{SyscallError, SyscallResult, UserCStr, UserPtr};
 use crate::arch::syscall::syscall::SyscallFrame;
 use crate::fs::File;
-use crate::fs::vfs::types::{InodeType, LinuxStat, SeekWhence, Stat};
+use crate::fs::vfs::types::{InodeType, LinuxStat, SeekWhence, Stat, StatFs};
 use alloc::string::String;
 use alloc::sync::Arc;
 
@@ -58,6 +58,7 @@ pub fn sys_read(frame: &mut SyscallFrame) -> SyscallResult {
     if count == 0 {
         return Ok(0);
     }
+    log::info!("[DBG sys_read] fd={} count={}", fd, count);
     let user_slice = buf.as_slice_mut(count).ok_or(SyscallError::EFAULT)?;
 
     let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
@@ -92,6 +93,58 @@ pub fn sys_write(frame: &mut SyscallFrame) -> SyscallResult {
     drop(proc);
 
     let bytes_written = file.write(user_slice)?;
+    Ok(bytes_written)
+}
+
+/// `sys_pread64` (SYS_PREAD64 = 17)
+/// Read from a file descriptor at a specified offset without changing the file position.
+pub fn sys_pread64(frame: &mut SyscallFrame) -> SyscallResult {
+    let fd = frame.arg1() as i32;
+    let buf = UserPtr::<u8>::from_u64(frame.arg2());
+    let count = frame.arg3() as usize;
+    let offset = frame.arg4() as usize;
+
+    if fd < 0 {
+        return Err(SyscallError::EBADF);
+    }
+    if count == 0 {
+        return Ok(0);
+    }
+    let user_slice = buf.as_slice_mut(count).ok_or(SyscallError::EFAULT)?;
+
+    let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
+    let proc = proc_arc.lock();
+
+    let file = proc.fd_table.get(fd)?;
+    drop(proc);
+
+    let bytes_read = file.pread(user_slice, offset)?;
+    Ok(bytes_read)
+}
+
+/// `sys_pwrite64` (SYS_PWRITE64 = 18)
+/// Write to a file descriptor at a specified offset without changing the file position.
+pub fn sys_pwrite64(frame: &mut SyscallFrame) -> SyscallResult {
+    let fd = frame.arg1() as i32;
+    let buf = UserPtr::<u8>::from_u64(frame.arg2());
+    let count = frame.arg3() as usize;
+    let offset = frame.arg4() as usize;
+
+    if fd < 0 {
+        return Err(SyscallError::EBADF);
+    }
+    if count == 0 {
+        return Ok(0);
+    }
+    let user_slice = buf.as_slice(count).ok_or(SyscallError::EFAULT)?;
+
+    let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
+    let proc = proc_arc.lock();
+
+    let file = proc.fd_table.get(fd)?;
+    drop(proc);
+
+    let bytes_written = file.pwrite(user_slice, offset)?;
     Ok(bytes_written)
 }
 
@@ -538,6 +591,98 @@ pub fn sys_fcntl(frame: &mut SyscallFrame) -> SyscallResult {
         F_GETLK | F_SETLK | F_SETLKW | F_SETOWN | F_GETOWN => Ok(0),
         _ => Ok(0),
     }
+}
+
+/// `sys_flock` (SYS_FLOCK = 73)
+/// Apply or remove an advisory lock on an open file.
+pub fn sys_flock(frame: &mut SyscallFrame) -> SyscallResult {
+    let fd = frame.arg1() as i32;
+    let _operation = frame.arg2() as i32;
+
+    if fd < 0 {
+        return Err(SyscallError::EBADF);
+    }
+
+    let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
+    let proc = proc_arc.lock();
+    let _file = proc.fd_table.get(fd)?;
+    drop(proc);
+
+    // Advisory file locking
+    Ok(0)
+}
+
+/// `sys_fchdir` (SYS_FCHDIR = 81)
+/// Change working directory using an open directory file descriptor.
+pub fn sys_fchdir(frame: &mut SyscallFrame) -> SyscallResult {
+    let fd = frame.arg1() as i32;
+    if fd < 0 {
+        return Err(SyscallError::EBADF);
+    }
+
+    let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
+    let mut proc = proc_arc.lock();
+
+    let file = proc.fd_table.get(fd)?;
+    if file.dentry.inode.inode_type != InodeType::Directory {
+        return Err(SyscallError::ENOTDIR);
+    }
+
+    proc.cwd = file.dentry.full_path();
+    Ok(0)
+}
+
+const RAMFS_MAGIC: i64 = 0x858458f6;
+
+fn make_statfs() -> StatFs {
+    StatFs {
+        f_type: RAMFS_MAGIC,
+        f_bsize: 4096,
+        f_blocks: 262144, // ~1GB
+        f_bfree: 200000,
+        f_bavail: 200000,
+        f_files: 65536,
+        f_ffree: 60000,
+        f_fsid: [0, 0],
+        f_namelen: 255,
+        f_frsize: 4096,
+        f_flags: 0,
+        f_spare: [0; 4],
+    }
+}
+
+/// `sys_statfs` (SYS_STATFS = 137)
+/// Get filesystem statistics by pathname.
+pub fn sys_statfs(frame: &mut SyscallFrame) -> SyscallResult {
+    let path = UserCStr::from_u64(frame.arg1()).to_string(256)?;
+    let buf_ptr = UserPtr::<StatFs>::from_u64(frame.arg2());
+
+    let full_path = resolve_at_path(AT_FDCWD, &path)?;
+    let _dentry = crate::fs::resolve_path(&full_path)?;
+
+    let statfs = make_statfs();
+    buf_ptr.write(statfs).ok_or(SyscallError::EFAULT)?;
+    Ok(0)
+}
+
+/// `sys_fstatfs` (SYS_FSTATFS = 138)
+/// Get filesystem statistics by open file descriptor.
+pub fn sys_fstatfs(frame: &mut SyscallFrame) -> SyscallResult {
+    let fd = frame.arg1() as i32;
+    let buf_ptr = UserPtr::<StatFs>::from_u64(frame.arg2());
+
+    if fd < 0 {
+        return Err(SyscallError::EBADF);
+    }
+
+    let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
+    let proc = proc_arc.lock();
+    let _file = proc.fd_table.get(fd)?;
+    drop(proc);
+
+    let statfs = make_statfs();
+    buf_ptr.write(statfs).ok_or(SyscallError::EFAULT)?;
+    Ok(0)
 }
 
 /// `sys_access` (SYS_ACCESS = 21)

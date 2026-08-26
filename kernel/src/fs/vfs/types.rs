@@ -143,6 +143,24 @@ pub struct LinuxStat {
     pub __glibc_reserved: [i64; 3],
 }
 
+/// Linux `struct statfs` (x86_64 ABI layout).
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct StatFs {
+    pub f_type: i64,
+    pub f_bsize: i64,
+    pub f_blocks: u64,
+    pub f_bfree: u64,
+    pub f_bavail: u64,
+    pub f_files: u64,
+    pub f_ffree: u64,
+    pub f_fsid: [i32; 2],
+    pub f_namelen: i64,
+    pub f_frsize: i64,
+    pub f_flags: i64,
+    pub f_spare: [i64; 4],
+}
+
 // ===== Seek =====
 
 /// Seek directive for `lseek`.
