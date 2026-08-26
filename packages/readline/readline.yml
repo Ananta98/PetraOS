@@ -2,8 +2,8 @@ sources:
   - name: readline
     subdir: sources
     git: 'https://git.savannah.gnu.org/git/readline.git'
-    tag: 'readline-8.1'
-    version: '8.1'
+    tag: 'readline-8.2'
+    version: '8.2'
     patch_path_strip: 1
     tools_required:
       - host-autoconf-v2.69
@@ -33,3 +33,7 @@ packages:
       - args: ['make', '-j1']
     install:
       - args: ['make', 'DESTDIR=@SYSROOT_DIR@', 'install']
+      - args: ['cp', '-f', 'shlib/libreadline.so.8', '@SYSROOT_DIR@/usr/lib/libreadline.so.8']
+      - args: ['cp', '-f', 'shlib/libhistory.so.8', '@SYSROOT_DIR@/usr/lib/libhistory.so.8']
+      - args: ['ln', '-sf', 'libreadline.so.8', '@SYSROOT_DIR@/usr/lib/libreadline.so']
+      - args: ['ln', '-sf', 'libhistory.so.8', '@SYSROOT_DIR@/usr/lib/libhistory.so']

@@ -3,18 +3,30 @@ From: Ananta <kusumaananta042@gmail.com>
 Date: Sat, 15 Aug 2026 21:28:00 +0700
 Subject: [PATCH] feat(petra): add PetraOS support to GNU Bash 5.2
 
+Signed-off-by: Ananta <kusumaananta042@gmail.com>
 ---
- lib/readline/display.c     | 27 +++++++++++++++++++++------
- lib/readline/input.c       | 22 +++++++++++-----------
- lib/readline/posixselect.h |  6 +-----
- lib/readline/readline.c    |  6 ++++++
- lib/readline/rltty.c       |  2 +-
- lib/readline/terminal.c    | 46 ++++++++++++++++++++++++++++++++------
- lib/readline/text.c        |  2 +-
- lib/sh/random.c            |  4 ++++
- support/config.sub         |  1 +
- 9 files changed, 84 insertions(+), 32 deletions(-)
+ externs.h          | 2 +-
+ lib/sh/random.c    | 4 ++++
+ subst.c            | 1 +
+ support/config.sub | 1 +
+ support/shobj-conf | 4 ++++
+ 5 files changed, 11 insertions(+), 1 deletion(-)
 
+diff --git a/externs.h b/externs.h
+index 47b80f6..063912f 100644
+--- a/externs.h
++++ b/externs.h
+@@ -308,7 +308,7 @@ extern int getdtablesize (void);
+ #endif /* !HAVE_GETDTABLESIZE */
+ 
+ #if !defined (HAVE_GETHOSTNAME)
+-extern int gethostname (char *, int);
++extern int gethostname (char *, size_t);
+ #endif /* !HAVE_GETHOSTNAME */
+ 
+ extern int getmaxgroups (void);
+diff --git a/lib/sh/random.c b/lib/sh/random.c
+index a1b2c3d..e4f5a6b 100644
 --- a/lib/sh/random.c
 +++ b/lib/sh/random.c
 @@ -26,6 +26,10 @@
@@ -28,6 +40,20 @@ Subject: [PATCH] feat(petra): add PetraOS support to GNU Bash 5.2
  #if defined (HAVE_UNISTD_H)
  #  include <unistd.h>
  #endif
+diff --git a/subst.c b/subst.c
+index e9d3e75..f787665 100644
+--- a/subst.c
++++ b/subst.c
+@@ -32,6 +32,7 @@
+ #endif
+ #include <signal.h>
+ #include <errno.h>
++#include <limits.h>
+ 
+ #if defined (HAVE_UNISTD_H)
+ #  include <unistd.h>
+diff --git a/support/config.sub b/support/config.sub
+index 1754a1b..1754c2d 100755
 --- a/support/config.sub
 +++ b/support/config.sub
 @@ -1754,6 +1754,7 @@ case $os in
@@ -38,365 +64,20 @@ Subject: [PATCH] feat(petra): add PetraOS support to GNU Bash 5.2
  	     | fiwix* )
  		;;
  	# This one is extra strict with allowed versions
---- a/lib/readline/display.c
-+++ b/lib/readline/display.c
-@@ -1609,7 +1609,11 @@ putc_face (int c, int face, char *cur_face)
-       *cur_face = face;
-     }
-   if (c != EOF)
--    putc (c, rl_outstream);
-+    {
-+      putc (c, rl_outstream);
-+      if (rl_outstream)
-+       fflush (rl_outstream);
-+    }
- }
+diff --git a/support/shobj-conf b/support/shobj-conf
+index c3df351..0576089 100755
+--- a/support/shobj-conf
++++ b/support/shobj-conf
+@@ -79,6 +79,10 @@ nsk-cc-tandem|nsk-c99-tandem)
+ 	SHOBJ_LDFLAGS='-shared -bglobalized -unres_symbols ignore'
+ 	;;
  
- static void
-@@ -1621,6 +1625,8 @@ puts_face (const char *str, const char *face, int n)
-   for (cur_face = FACE_NORMAL, i = 0; i < n; i++)
-     putc_face ((unsigned char) str[i], face[i], &cur_face);
-   putc_face (EOF, FACE_NORMAL, &cur_face);
-+  if (rl_outstream)
-+    fflush (rl_outstream);
- }
- 
- static void
-@@ -3180,11 +3186,18 @@ _rl_erase_at_end_of_line (int l)
-   register int i;
- 
-   _rl_backspace (l);
--  for (i = 0; i < l; i++)
--    putc (' ', rl_outstream);
--  _rl_backspace (l);
-+  if (_rl_term_clreol && *_rl_term_clreol)
-+    tputs (_rl_term_clreol, 1, _rl_output_character_function);
-+  else
-+    {
-+      for (i = 0; i < l; i++)
-+       _rl_output_character_function (' ');
-+      _rl_backspace (l);
-+    }
-   for (i = 0; i < l; i++)
-     visible_line[--_rl_last_c_pos] = '\0';
-+  if (rl_outstream)
-+    fflush (rl_outstream);
-   rl_display_fixed++;
- }
- 
-@@ -3211,9 +3224,11 @@ space_to_eol (int count)
-   register int i;
- 
-   for (i = 0; i < count; i++)
--    putc (' ', rl_outstream);
-+    _rl_output_character_function (' ');
- 
-   _rl_last_c_pos += count;
-+  if (rl_outstream)
-+    fflush (rl_outstream);
- }
- 
- void
-@@ -3308,7 +3323,7 @@ _rl_update_final (void)
- {
-   int full_lines, woff, botline_length;
- 
--  if (line_structures_initialized == 0)
-+  if (_rl_echoing_p == 0 || line_structures_initialized == 0)
-     return;
- 
-   full_lines = 0;
---- a/lib/readline/input.c
-+++ b/lib/readline/input.c
-@@ -79,7 +79,7 @@ extern int errno;
- #  define O_NDELAY O_NONBLOCK  /* Posix style */
- #endif
- 
--#if defined (HAVE_PSELECT) || defined (HAVE_SELECT)
-+#if 0
- extern sigset_t _rl_orig_sigset;
- #endif
- 
-@@ -257,7 +257,7 @@ rl_gather_tyi (void)
-   input = 0;
-   tty = fileno (rl_instream);
- 
--#if defined (HAVE_PSELECT) || defined (HAVE_SELECT)
-+#if 0
-   FD_ZERO (&readfds);
-   FD_ZERO (&exceptfds);
-   FD_SET (tty, &readfds);
-@@ -274,7 +274,7 @@ rl_gather_tyi (void)
- 
-   result = -1;
-   errno = 0;
--#if defined (FIONREAD)
-+#if 1
-   result = ioctl (tty, FIONREAD, &chars_avail);
-   if (result == -1 && errno == EIO)
-     return -1;
-@@ -368,11 +368,11 @@ rl_set_keyboard_input_timeout (int u)
- int
- _rl_input_available (void)
- {
--#if defined (HAVE_PSELECT) || defined (HAVE_SELECT)
-+#if 0
-   fd_set readfds, exceptfds;
-   struct timeval timeout;
- #endif
--#if !defined (HAVE_SELECT) && defined (FIONREAD)
-+#if 1
-   int chars_avail;
- #endif
-   int tty;
-@@ -382,7 +382,7 @@ _rl_input_available (void)
- 
-   tty = fileno (rl_instream);
- 
--#if defined (HAVE_PSELECT) || defined (HAVE_SELECT)
-+#if 0
-   FD_ZERO (&readfds);
-   FD_ZERO (&exceptfds);
-   FD_SET (tty, &readfds);
-@@ -395,7 +395,7 @@ _rl_input_available (void)
- #  endif
- #else
- 
--#if defined (FIONREAD)
-+#if 1
-   if (ioctl (tty, FIONREAD, &chars_avail) == 0)
-     return (chars_avail);
- #endif
-@@ -417,7 +417,7 @@ _rl_nchars_available ()
-   
-   chars_avail = 0;
-      
--#if defined (FIONREAD)
-+#if 1
-   fd = fileno (rl_instream);
-   errno = 0;    
-   result = ioctl (fd, FIONREAD, &chars_avail);    
-@@ -805,7 +805,7 @@ rl_getc (FILE *stream)
-   int result;
-   unsigned char c;
-   int fd;
--#if defined (HAVE_PSELECT)
-+#if 0
-   sigset_t empty_set;
-   fd_set readfds;
- #endif
-@@ -818,11 +818,11 @@ rl_getc (FILE *stream)
-       /* We know at this point that _rl_caught_signal == 0 */
- 
- #if defined (__MINGW32__)
--      if (isatty (fd)
-+      if (isatty (fd))
-        return (_getch ());     /* "There is no error return." */
- #endif
-       result = 0;
--#if defined (HAVE_PSELECT) || defined (HAVE_SELECT)
-+#if 0
-       /* At this point, if we have pselect, we're using select/pselect for the
-         timeouts. We handled MinGW above. */
-       FD_ZERO (&readfds);
---- a/lib/readline/posixselect.h
-+++ b/lib/readline/posixselect.h
-@@ -21,11 +21,7 @@
- #ifndef _POSIXSELECT_H_
- #define _POSIXSELECT_H_
- 
--#if defined (FD_SET) && !defined (HAVE_SELECT)
--#  define HAVE_SELECT 1
--#endif
--
--#if defined (HAVE_SELECT)
-+#if 0
- #  if !defined (HAVE_SYS_SELECT_H) || !defined (M_UNIX)
- #    include <sys/time.h>
- #  endif
---- a/lib/readline/readline.c
-+++ b/lib/readline/readline.c
-@@ -1371,6 +1371,12 @@ bind_arrow_keys_internal (Keymap map)
-   rl_bind_keyseq_if_unbound ("\033[D", rl_backward_char);
-   rl_bind_keyseq_if_unbound ("\033[H", rl_beg_of_line);
-   rl_bind_keyseq_if_unbound ("\033[F", rl_end_of_line);
-+  rl_bind_keyseq_if_unbound ("\033[3~", rl_delete);
-+  rl_bind_keyseq_if_unbound ("\033[2~", rl_overwrite_mode);
-+  rl_bind_keyseq_if_unbound ("\033[1~", rl_beg_of_line);
-+  rl_bind_keyseq_if_unbound ("\033[4~", rl_end_of_line);
-+  rl_bind_keyseq_if_unbound ("\033[5~", rl_history_search_backward);
-+  rl_bind_keyseq_if_unbound ("\033[6~", rl_history_search_forward);
- 
-   rl_bind_keyseq_if_unbound ("\033OA", rl_get_previous_history);
-   rl_bind_keyseq_if_unbound ("\033OB", rl_get_next_history);
---- a/lib/readline/rltty.c
-+++ b/lib/readline/rltty.c
-@@ -505,7 +505,7 @@ prepare_terminal_settings (int meta_flag, TIOTYPE oldtio, TIOTYPE *tiop)
-   int sc;
-   Keymap kmap;
- 
--  _rl_echoing_p = (oldtio.c_lflag & ECHO);
-+  _rl_echoing_p = 1;
- #if defined (ECHOCTL)
-   _rl_echoctl = (oldtio.c_lflag & ECHOCTL);
- #endif
---- a/lib/readline/terminal.c
-+++ b/lib/readline/terminal.c
-@@ -553,17 +553,32 @@ _rl_init_terminal_io (const char *terminal_name)
-       /* Everything below here is used by the redisplay code (tputs). */
-       _rl_screenchars = _rl_screenwidth * _rl_screenheight;
-       _rl_term_cr = "\r";
-+      _rl_term_backspace = "\b";
-+      _rl_term_clreol = "\033[K";
-+      _rl_term_clrpag = "\033[H\033[2J";
-+      _rl_term_up = "\033[A";
-+      _rl_term_dc = (char *)NULL;
-+      _rl_term_forward_char = "\033[C";
-+      _rl_term_ku = "\033[A";
-+      _rl_term_kd = "\033[B";
-+      _rl_term_kr = "\033[C";
-+      _rl_term_kl = "\033[D";
-+      _rl_term_kh = "\033[H";
-+      _rl_term_at7 = "\033[F";
-+      _rl_term_kD = "\033[3~";
-+      _rl_term_kI = "\033[2~";
-+      _rl_term_kN = "\033[6~";
-+      _rl_term_kP = "\033[5~";
-+      _rl_term_autowrap = 1;
-+      _rl_terminal_can_insert = 1;
-       _rl_term_im = _rl_term_ei = _rl_term_ic = _rl_term_IC = (char *)NULL;
--      _rl_term_up = _rl_term_dc = _rl_term_DC = _rl_visible_bell = (char *)NULL;
--      _rl_term_ku = _rl_term_kd = _rl_term_kl = _rl_term_kr = (char *)NULL;
--      _rl_term_kh = _rl_term_kH = _rl_term_kI = _rl_term_kD = (char *)NULL;
--      _rl_term_ks = _rl_term_ke = _rl_term_at7 = (char *)NULL;
--      _rl_term_kN = _rl_term_kP = (char *)NULL;
-+      _rl_term_DC = _rl_visible_bell = (char *)NULL;
-+      _rl_term_kH = (char *)NULL;
-+      _rl_term_ks = _rl_term_ke = (char *)NULL;
-       _rl_term_mm = _rl_term_mo = (char *)NULL;
-       _rl_term_ve = _rl_term_vs = (char *)NULL;
--      _rl_term_forward_char = (char *)NULL;
-       _rl_term_so = _rl_term_se = (char *)NULL;
--      _rl_terminal_can_insert = term_has_meta = 0;
-+      term_has_meta = 0;
- 
-       /* Assume generic unknown terminal can't handle the enable/disable
-         escape sequences */
-@@ -663,28 +678,36 @@ bind_termcap_arrow_keys (Keymap map)
-   xkeymap = _rl_keymap;
-   _rl_keymap = map;
- 
--  rl_bind_keyseq_if_unbound (_rl_term_ku, rl_get_previous_history);
--  rl_bind_keyseq_if_unbound (_rl_term_kd, rl_get_next_history);
--  rl_bind_keyseq_if_unbound (_rl_term_kr, rl_forward_char);
--  rl_bind_keyseq_if_unbound (_rl_term_kl, rl_backward_char);
-+  rl_bind_keyseq (_rl_term_ku, rl_get_previous_history);
-+  rl_bind_keyseq (_rl_term_kd, rl_get_next_history);
-+  rl_bind_keyseq (_rl_term_kr, rl_forward_char);
-+  rl_bind_keyseq (_rl_term_kl, rl_backward_char);
- 
--  rl_bind_keyseq_if_unbound (_rl_term_kh, rl_beg_of_line);	/* Home */
--  rl_bind_keyseq_if_unbound (_rl_term_at7, rl_end_of_line);	/* End */
-+  rl_bind_keyseq (_rl_term_kh, rl_beg_of_line);	/* Home */
-+  rl_bind_keyseq (_rl_term_at7, rl_end_of_line);	/* End */
- 
--  rl_bind_keyseq_if_unbound (_rl_term_kD, rl_delete);
--  rl_bind_keyseq_if_unbound (_rl_term_kI, rl_overwrite_mode);	/* Insert */
-+  rl_bind_keyseq (_rl_term_kD, rl_delete);
-+  rl_bind_keyseq (_rl_term_kI, rl_overwrite_mode);	/* Insert */
- 
--  rl_bind_keyseq_if_unbound (_rl_term_kN, rl_history_search_forward);	/* Page Down */
--  rl_bind_keyseq_if_unbound (_rl_term_kP, rl_history_search_backward);	/* Page Up */
-+  rl_bind_keyseq (_rl_term_kN, rl_history_search_forward);	/* Page Down */
-+  rl_bind_keyseq (_rl_term_kP, rl_history_search_backward);	/* Page Up */
++petra*-*gcc*)
++	SHOBJ_CFLAGS=-fpic
++	;;
 +
-+  rl_bind_keyseq ("\033[1~", rl_beg_of_line);
-+  rl_bind_keyseq ("\033[4~", rl_end_of_line);
-+  rl_bind_keyseq ("\033[H", rl_beg_of_line);
-+  rl_bind_keyseq ("\033[F", rl_end_of_line);
-+  rl_bind_keyseq ("\033OH", rl_beg_of_line);
-+  rl_bind_keyseq ("\033OF", rl_end_of_line);
-+  rl_bind_keyseq ("\033[3~", rl_delete);
-+  rl_bind_keyseq ("\033[2~", rl_overwrite_mode);
- 
-   _rl_keymap = xkeymap;
- }
- 
-@@ -701,7 +724,10 @@ _rl_output_character_function (int c)
- int
- _rl_output_character_function (int c)
- {
--  return putc (c, _rl_out_stream);
-+  int res = putc (c, _rl_out_stream);
-+  if (_rl_out_stream)
-+    fflush (_rl_out_stream);
-+  return res;
- }
- #endif /* !_MINIX */
- 
-@@ -710,6 +736,8 @@ void
- _rl_output_some_chars (const char *string, int count)
- {
-   fwrite (string, 1, count, _rl_out_stream);
-+  if (_rl_out_stream)
-+    fflush (_rl_out_stream);
- }
- 
- /* Move the cursor back. */
-@@ -719,13 +747,13 @@ _rl_backspace (int count)
-   register int i;
- 
- #ifndef __MSDOS__
--  if (_rl_term_backspace)
-+  if (_rl_term_backspace && *_rl_term_backspace)
-     for (i = 0; i < count; i++)
-       tputs (_rl_term_backspace, 1, _rl_output_character_function);
-   else
- #endif
-     for (i = 0; i < count; i++)
--      putc ('\b', _rl_out_stream);
-+      _rl_output_character_function ('\b');
-   return 0;
- }
- 
-@@ -734,10 +762,11 @@ int
- rl_crlf (void)
- {
- #if defined (NEW_TTY_DRIVER) || defined (__MINT__)
--  if (_rl_term_cr)
-+  if (_rl_term_cr && *_rl_term_cr)
-     tputs (_rl_term_cr, 1, _rl_output_character_function);
- #endif /* NEW_TTY_DRIVER || __MINT__ */
--  putc ('\n', _rl_out_stream);
-+  _rl_output_character_function ('\r');
-+  _rl_output_character_function ('\n');
-   return 0;
- }
- 
-@@ -745,9 +774,12 @@ void
- _rl_cr (void)
- {
- #if defined (__MSDOS__)
--  putc ('\r', rl_outstream);
-+  _rl_output_character_function ('\r');
- #else
--  tputs (_rl_term_cr, 1, _rl_output_character_function);
-+  if (_rl_term_cr && *_rl_term_cr)
-+    tputs (_rl_term_cr, 1, _rl_output_character_function);
-+  else
-+    _rl_output_character_function ('\r');
- #endif
- }
---- a/lib/readline/text.c
-+++ b/lib/readline/text.c
-@@ -71,7 +71,7 @@ static int _rl_char_search_callback (_rl_callback_generic_arg *);
-    rl_insert_text.  Text blocks larger than this are divided. */
- #define TEXT_COUNT_MAX 1024
- 
--int _rl_optimize_typeahead = 1;        /* rl_insert tries to read typeahead */
-+int _rl_optimize_typeahead = 0;        /* rl_insert tries to read typeahead */
- 
- /* **************************************************************** */
- /*                                                                 */
+ sunos4*-*gcc*)
+ 	SHOBJ_CFLAGS=-fpic
+ 	SHOBJ_LD=/usr/bin/ld
 -- 
 2.43.0
