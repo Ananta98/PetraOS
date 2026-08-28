@@ -33,3 +33,6 @@ config/ovmf/
 kernel/target/
 kernel/kernel
 kernel/bin-*/
+
+graphify-out/
+.venv/

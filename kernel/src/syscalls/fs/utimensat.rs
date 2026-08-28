@@ -28,8 +28,13 @@ pub fn sys_utimensat(frame: &mut SyscallFrame) -> SyscallResult {
         drop(proc);
         let st = file.ops.stat().or_else(|_| file.dentry.inode.ops.stat())?;
 
-        if creds.euid != 0 && creds.euid != st.uid {
+        let has_write_access = (file.flags() & 0x3) == crate::fs::O_WRONLY
+            || (file.flags() & 0x3) == crate::fs::O_RDWR;
+        let is_now = times_ptr.is_null();
+        if !is_now && creds.euid != 0 && creds.euid != st.uid {
             return Err(SyscallError::EPERM);
+        } else if is_now && creds.euid != 0 && creds.euid != st.uid && !has_write_access {
+            return Err(SyscallError::EACCES);
         }
 
         let (atime, mtime) = read_utimens(times_ptr, st.atime, st.mtime)?;
@@ -51,8 +56,13 @@ pub fn sys_utimensat(frame: &mut SyscallFrame) -> SyscallResult {
         drop(proc);
         let st = file.ops.stat().or_else(|_| file.dentry.inode.ops.stat())?;
 
-        if creds.euid != 0 && creds.euid != st.uid {
+        let has_write_access = (file.flags() & 0x3) == crate::fs::O_WRONLY
+            || (file.flags() & 0x3) == crate::fs::O_RDWR;
+        let is_now = times_ptr.is_null();
+        if !is_now && creds.euid != 0 && creds.euid != st.uid {
             return Err(SyscallError::EPERM);
+        } else if is_now && creds.euid != 0 && creds.euid != st.uid && !has_write_access {
+            return Err(SyscallError::EACCES);
         }
 
         let (atime, mtime) = read_utimens(times_ptr, st.atime, st.mtime)?;
@@ -67,7 +77,8 @@ pub fn sys_utimensat(frame: &mut SyscallFrame) -> SyscallResult {
     let creds = { Arc::clone(&proc_arc.lock().creds) };
     let st = crate::fs::stat(&full_path)?;
 
-    if creds.euid != 0 && creds.euid != st.uid {
+    let is_now = times_ptr.is_null();
+    if !is_now && creds.euid != 0 && creds.euid != st.uid {
         return Err(SyscallError::EPERM);
     }
 

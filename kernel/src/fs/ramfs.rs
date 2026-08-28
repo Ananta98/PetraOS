@@ -30,13 +30,14 @@ pub struct InodeMetadata {
 impl InodeMetadata {
     /// Create default metadata carrying the given full mode.
     fn new(mode: u32) -> Self {
+        let now = now_secs();
         Self {
             mode,
             uid: 0,
             gid: 0,
-            atime: 0,
-            mtime: 0,
-            ctime: 0,
+            atime: now,
+            mtime: now,
+            ctime: now,
         }
     }
 }

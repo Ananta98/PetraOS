@@ -198,6 +198,7 @@ pub fn create_file(path: &str) -> Result<Arc<Dentry>, VfsError> {
 
     let child_inode = parent_dentry.inode.ops.create(file_name)?;
     let child_dentry = Dentry::add_child(&parent_dentry, file_name.into(), child_inode);
+    dcache_insert(&parent_dentry, file_name, child_dentry.clone());
     Ok(child_dentry)
 }
 
@@ -211,6 +212,7 @@ pub fn mkdir(path: &str) -> Result<Arc<Dentry>, VfsError> {
 
     let child_inode = parent_dentry.inode.ops.mkdir(dir_name)?;
     let child_dentry = Dentry::add_child(&parent_dentry, dir_name.into(), child_inode);
+    dcache_insert(&parent_dentry, dir_name, child_dentry.clone());
     Ok(child_dentry)
 }
 
@@ -237,6 +239,7 @@ pub fn symlink(path: &str, target: &str) -> Result<Arc<Dentry>, VfsError> {
     let (parent_dentry, link_name) = resolve_parent_and_name(path)?;
     let child_inode = parent_dentry.inode.ops.symlink(link_name, target)?;
     let child_dentry = Dentry::add_child(&parent_dentry, link_name.into(), child_inode);
+    dcache_insert(&parent_dentry, link_name, child_dentry.clone());
     Ok(child_dentry)
 }
 
