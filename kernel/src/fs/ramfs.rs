@@ -250,15 +250,18 @@ pub struct RamDirInode {
     pub meta: SharedMetadata,
     /// Shared inode number allocator from the mounted SuperBlock.
     next_ino: Arc<AtomicU64>,
+    /// Inode number of this directory.
+    pub ino: u64,
 }
 
 impl RamDirInode {
     /// Create a new directory inode with a shared inode counter.
-    pub fn new(next_ino: Arc<AtomicU64>) -> Self {
+    pub fn new(ino: u64, next_ino: Arc<AtomicU64>) -> Self {
         Self {
             entries: RwLock::new(BTreeMap::new()),
             meta: Arc::new(Mutex::new(InodeMetadata::new(0o040755))),
             next_ino,
+            ino,
         }
     }
 
@@ -310,7 +313,7 @@ impl InodeOps for RamDirInode {
         let inode = Arc::new(Inode {
             ino,
             inode_type: InodeType::Directory,
-            ops: Arc::new(RamDirInode::new(self.next_ino.clone())),
+            ops: Arc::new(RamDirInode::new(ino, self.next_ino.clone())),
         });
         entries.insert(name.into(), inode.clone());
         Ok(inode)
@@ -378,16 +381,35 @@ impl InodeOps for RamDirInode {
     fn rename(
         &self,
         old_name: &str,
-        _new_dir: &Arc<Inode>,
+        new_dir: &Arc<Inode>,
         new_name: &str,
     ) -> Result<(), VfsError> {
-        // In-memory rename: move the entry within this directory's own BTreeMap.
-        // Cross-directory rename is handled by VFS path.rs which calls rename on
-        // the source directory and then moves the dentry tree node itself.
-        let mut entries = self.entries.write();
-        let inode = entries.remove(old_name).ok_or(VfsError::NotFound)?;
-        entries.insert(new_name.into(), inode);
-        Ok(())
+        if self.ino == new_dir.ino {
+            if old_name == new_name {
+                return Ok(());
+            }
+            let mut entries = self.entries.write();
+            let inode = entries.remove(old_name).ok_or(VfsError::NotFound)?;
+            entries.insert(new_name.into(), inode);
+            Ok(())
+        } else {
+            let inode = {
+                let mut entries = self.entries.write();
+                entries.remove(old_name).ok_or(VfsError::NotFound)?
+            };
+            if let Ok(existing) = new_dir.ops.lookup(new_name) {
+                if existing.inode_type == InodeType::Directory {
+                    self.entries.write().insert(old_name.into(), inode);
+                    return Err(VfsError::IsDirectory);
+                }
+                let _ = new_dir.ops.unlink(new_name);
+            }
+            if let Err(e) = new_dir.ops.link(new_name, &inode) {
+                self.entries.write().insert(old_name.into(), inode);
+                return Err(e);
+            }
+            Ok(())
+        }
     }
 
     fn chmod(&self, mode: u32) -> Result<(), VfsError> {
@@ -471,7 +493,7 @@ impl FileSystem for RamFs {
         let root_inode = Arc::new(Inode {
             ino,
             inode_type: InodeType::Directory,
-            ops: Arc::new(RamDirInode::new(next_ino.clone())),
+            ops: Arc::new(RamDirInode::new(ino, next_ino.clone())),
         });
 
         Ok(SuperBlock {

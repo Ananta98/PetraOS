@@ -256,11 +256,18 @@ pub fn rename(old_path: &str, new_path: &str) -> Result<(), VfsError> {
         .ops
         .rename(old_name, &new_parent_dentry.inode, new_name)?;
 
-    if let Some(child_dentry) = old_parent_dentry.children.lock().remove(old_name) {
-        new_parent_dentry
-            .children
-            .lock()
-            .insert(new_name.into(), child_dentry);
+    // Evict old entry from old parent dentry cache and global dcache
+    Dentry::remove_child(&old_parent_dentry, old_name);
+    dcache_evict(&old_parent_dentry, old_name);
+
+    // Evict overwritten new entry from new parent dentry cache and global dcache (if any)
+    Dentry::remove_child(&new_parent_dentry, new_name);
+    dcache_evict(&new_parent_dentry, new_name);
+
+    // Insert new dentry into new parent cache and global dcache
+    if let Ok(new_inode) = new_parent_dentry.inode.ops.lookup(new_name) {
+        let child_dentry = Dentry::add_child(&new_parent_dentry, new_name.into(), new_inode);
+        dcache_insert(&new_parent_dentry, new_name, child_dentry);
     }
 
     Ok(())

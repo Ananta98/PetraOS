@@ -168,7 +168,7 @@ pub fn dispatch(frame: &mut SyscallFrame) -> u64 {
     let result = match table.binary_search_by_key(&sys_num, |entry| entry.num) {
         Ok(idx) => {
             let entry = &table[idx];
-            log::trace!("Dispatching sys_{} (nr={})", entry.name, entry.num);
+            log::trace!("Dispatching syscall {} (nr: {})", entry.name, entry.num);
             (entry.handler)(frame)
         }
         Err(_) => {
