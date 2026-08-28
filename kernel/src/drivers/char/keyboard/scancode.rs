@@ -119,7 +119,14 @@ impl ScancodeDecoder {
         };
 
         let (code, ascii) = match make_code {
-            0x1C => (KeyCode::Enter, if !is_release { Some('\n') } else { None }), // Keypad enter
+            0x1C => (
+                KeyCode::Enter,
+                if !is_release {
+                    Some(if self.modifiers.ctrl { '\n' } else { '\r' })
+                } else {
+                    None
+                },
+            ), // Keypad enter
             0x1D => {
                 self.modifiers.ctrl = !is_release;
                 (KeyCode::RightCtrl, None)
@@ -477,7 +484,13 @@ impl ScancodeDecoder {
                     ']'
                 }
             }
-            0x1C => '\n', // Enter
+            0x1C => {
+                if ctrl {
+                    '\n' // Ctrl+Enter is LF (^J)
+                } else {
+                    '\r' // Enter is CR (^M)
+                }
+            }
             0x1E => {
                 if ctrl {
                     '\x01' // SOH (^A)
