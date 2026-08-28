@@ -42,7 +42,39 @@ run: run-$(KARCH)
 # compilation and cleaning) live in tools/build_and_run_userspace.sh:
 #   ./tools/build_and_run_userspace.sh            # core userspace pipeline + QEMU
 #   ./tools/build_and_run_userspace.sh --all      # recompile ALL packages + QEMU
+#
+# For convenience, long-running operations are also exposed as make targets:
+#   make build-userspace      - fetch + compile + install ALL packages (incl. htop)
+#   make fetch-userspace      - fetch all sources only (no compile)
+#   make compile-userspace    - alias for build-userspace
+#   make install-userspace    - alias for build-userspace
+#   make clean-userspace      - clean xbstrap workspace
+#   make build-userspace-htop - build only htop
+# See also kernel/GNUmakefile for the same targets when running `make -C kernel`.
 # ==============================================================================
+
+.PHONY: build-userspace
+build-userspace:
+	@echo "==> Building all userspace packages (this may take a long time)..."
+	@bash tools/build_and_run_userspace.sh build-all
+
+.PHONY: build-userspace-htop
+build-userspace-htop:
+	@bash tools/build_and_run_userspace.sh build htop
+
+.PHONY: fetch-userspace
+fetch-userspace:
+	@bash tools/build_and_run_userspace.sh fetch --all
+
+.PHONY: compile-userspace
+compile-userspace: build-userspace
+
+.PHONY: install-userspace
+install-userspace: build-userspace
+
+.PHONY: clean-userspace
+clean-userspace:
+	@bash tools/build_and_run_userspace.sh clean --all
 
 .PHONY: sync-initramfs
 sync-initramfs:
@@ -219,12 +251,6 @@ endif
 ifeq ($(KARCH),aarch64)
 	mcopy -i $(IMAGE_NAME).hdd@@1M $(LIMINE_DIR)/BOOTAA64.EFI ::/EFI/BOOT
 	mcopy -i $(IMAGE_NAME).hdd@@1M $(LIMINE_DIR)/BOOTAA64.EFI ::/EFI/BOOT
-endif
-ifeq ($(KARCH),riscv64)
-	mcopy -i $(IMAGE_NAME).hdd@@1M $(LIMINE_DIR)/BOOTRISCV64.EFI ::/EFI/BOOT
-endif
-ifeq ($(KARCH),loongarch64)
-	mcopy -i $(IMAGE_NAME).hdd@@1M $(LIMINE_DIR)/BOOTLOONGARCH64.EFI ::/EFI/BOOT
 endif
 
 .PHONY: clean

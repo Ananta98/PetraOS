@@ -152,13 +152,81 @@ cmd_build() {
 discover_all_packages() {
     local packages=()
     local yml_file pkg_name
-    # mlibc must come first as every other port links against it.
+
+    # Try authoritative list from xbstrap if workspace is initialized.
+    if [ -f "${BUILD_DIR_XBSTRAP}/bootstrap.link" ] && command -v xbstrap &>/dev/null; then
+        local xb_pkgs
+        xb_pkgs="$( (cd "${BUILD_DIR_XBSTRAP}" && xbstrap list-pkgs 2>/dev/null) || true )"
+        if [ -n "${xb_pkgs}" ]; then
+            # Ensure mlibc (and mlibc-headers) come first
+            local ordered=()
+            if echo "${xb_pkgs}" | grep -qw "mlibc"; then
+                ordered+=("mlibc")
+            fi
+            local pkg
+            while read -r pkg; do
+                # xbstrap list-pkgs prints one package per line; handle space-separated too
+                for pkg in ${pkg}; do
+                    if [ "${pkg}" = "mlibc" ] || [ "${pkg}" = "mlibc-headers" ]; then
+                        continue
+                    fi
+                    # avoid duplicates
+                    if [[ " ${ordered[*]} " != *" ${pkg} "* ]]; then
+                        ordered+=("${pkg}")
+                    fi
+                done
+            done <<< "${xb_pkgs}"
+            # Also ensure mlibc-headers is early if present
+            if echo "${xb_pkgs}" | grep -qw "mlibc-headers"; then
+                # insert after mlibc
+                local tmp=()
+                for pkg in "${ordered[@]}"; do
+                    tmp+=("${pkg}")
+                    if [ "${pkg}" = "mlibc" ]; then
+                        tmp+=("mlibc-headers")
+                    fi
+                done
+                # deduplicate mlibc-headers if already there
+                ordered=()
+                local seen=""
+                for pkg in "${tmp[@]}"; do
+                    if [[ "${seen}" != *"|${pkg}|"* ]]; then
+                        ordered+=("${pkg}")
+                        seen="${seen}|${pkg}|"
+                    fi
+                done
+            fi
+            echo "${ordered[*]:-}"
+            return 0
+        fi
+    fi
+
+    # Fallback: scan YML files that actually define a packages: section.
+    # This avoids tool-only ports (e.g. autoconf before fix) and source-only
+    # ports (e.g. gnulib) being treated as installable packages.
     for yml_file in "${PACKAGES_DIR}"/*/*.yml; do
+        if ! grep -qE '^[[:space:]]*packages:' "${yml_file}" 2>/dev/null; then
+            continue
+        fi
         pkg_name="$(basename "${yml_file}" .yml)"
         if [ "${pkg_name}" = "mlibc" ]; then
             continue
         fi
-        packages+=("${pkg_name}")
+        # Only add if the yml defines a package with that exact name,
+        # or at least defines any package (for mlibc which defines mlibc-headers/mlibc)
+        if grep -qE "name:[[:space:]]+${pkg_name}([[:space:]]|$)" "${yml_file}" 2>/dev/null || \
+           grep -qE "name:[[:space:]]+mlibc" "${yml_file}" 2>/dev/null; then
+            packages+=("${pkg_name}")
+        else
+            # Generic fallback: if file has packages: but name mismatch (e.g. mlibc.yml defines mlibc-headers),
+            # extract first package name and use pkg_name if it seems intentional.
+            # For now skip ambiguous entries and rely on xbstrap list-pkgs when possible.
+            # Keep pkg_name if packages: exists — allows newly added target packages
+            # (like autoconf) to be discovered even before xbstrap cache refresh.
+            if grep -qE '^[[:space:]]*-[[:space:]]*name:' "${yml_file}" 2>/dev/null; then
+                packages+=("${pkg_name}")
+            fi
+        fi
     done
     if [ -f "${PACKAGES_DIR}/mlibc/mlibc.yml" ]; then
         echo "mlibc ${packages[*]:-}"

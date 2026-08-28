@@ -1,0 +1,47 @@
+From 1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b Mon Sep 17 00:00:00 2001
+From: Ananta <kusumaananta042@gmail.com>
+Date: Fri, 28 Aug 2026 19:25:00 +0700
+Subject: [PATCH] fix(unsupported): fix compilation errors in unsupported platform
+
+Signed-off-by: Ananta <kusumaananta042@gmail.com>
+---
+ unsupported/UnsupportedProcess.h      | 1 +
+ unsupported/UnsupportedProcessTable.c | 4 ++--
+ 2 files changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/unsupported/UnsupportedProcess.h b/unsupported/UnsupportedProcess.h
+index b755054..852c002 100644
+--- a/unsupported/UnsupportedProcess.h
++++ b/unsupported/UnsupportedProcess.h
+@@ -8,6 +8,7 @@ in the source distribution for its full text.
+ */
+ 
+ #include "Machine.h"
++#include "Process.h"
+ 
+ 
+ typedef struct UnsupportedProcess_ {
+diff --git a/unsupported/UnsupportedProcessTable.c b/unsupported/UnsupportedProcessTable.c
+index aee7477..177e7a8 100644
+--- a/unsupported/UnsupportedProcessTable.c
++++ b/unsupported/UnsupportedProcessTable.c
+@@ -23,7 +23,7 @@ ProcessTable* ProcessTable_new(Machine* host, Hashtable* pidMatchList) {
+    ProcessTable* super = &this->super;
+    ProcessTable_init(super, Class(Process), host, pidMatchList);
+ 
+-   return this;
++   return super;
+ }
+ 
+ void ProcessTable_delete(Object* cast) {
+@@ -48,7 +48,7 @@ void ProcessTable_goThroughEntries(ProcessTable* super) {
+    Process_updateCmdline(proc, "<unsupported architecture>", 0, 0);
+    Process_updateExe(proc, "/path/to/executable");
+ 
+-   const Settings* settings = proc->host->settings;
++   const Settings* settings = proc->super.host->settings;
+    if (settings->ss->flags & PROCESS_FLAG_CWD) {
+       free_and_xStrdup(&proc->procCwd, "/current/working/directory");
+    }
+-- 
+2.43.0
