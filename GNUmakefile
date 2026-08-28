@@ -78,17 +78,19 @@ clean-userspace:
 
 .PHONY: sync-initramfs
 sync-initramfs:
-	@mkdir -p $(INITRAMFS_ROOT)/bin $(INITRAMFS_ROOT)/sbin $(INITRAMFS_ROOT)/lib $(INITRAMFS_ROOT)/usr/bin $(INITRAMFS_ROOT)/usr/lib $(INITRAMFS_ROOT)/usr/sbin $(INITRAMFS_ROOT)/usr/libexec $(INITRAMFS_ROOT)/usr/include $(INITRAMFS_ROOT)/usr/share $(INITRAMFS_ROOT)/etc
+	@mkdir -p $(INITRAMFS_ROOT)/bin $(INITRAMFS_ROOT)/sbin $(INITRAMFS_ROOT)/lib $(INITRAMFS_ROOT)/libexec $(INITRAMFS_ROOT)/usr/bin $(INITRAMFS_ROOT)/usr/lib $(INITRAMFS_ROOT)/usr/sbin $(INITRAMFS_ROOT)/usr/libexec $(INITRAMFS_ROOT)/usr/include $(INITRAMFS_ROOT)/usr/share $(INITRAMFS_ROOT)/etc $(INITRAMFS_ROOT)/tmp $(INITRAMFS_ROOT)/var/tmp
 	@if [ -d $(SYSROOT)/lib ]; then cp -rf $(SYSROOT)/lib/* $(INITRAMFS_ROOT)/lib/ 2>/dev/null || true; fi
 	@if [ -d $(SYSROOT)/usr/lib ]; then \
 		cp -rf $(SYSROOT)/usr/lib/* $(INITRAMFS_ROOT)/usr/lib/ 2>/dev/null || true; \
-		cp -rf $(SYSROOT)/usr/lib/*.so* $(INITRAMFS_ROOT)/lib/ 2>/dev/null || true; \
+		cp -rf $(SYSROOT)/usr/lib/* $(INITRAMFS_ROOT)/lib/ 2>/dev/null || true; \
 	fi
 	@if [ -d $(SYSROOT)/usr/libexec ]; then \
 		cp -rf $(SYSROOT)/usr/libexec/* $(INITRAMFS_ROOT)/usr/libexec/ 2>/dev/null || true; \
+		cp -rf $(SYSROOT)/usr/libexec/* $(INITRAMFS_ROOT)/libexec/ 2>/dev/null || true; \
 	fi
 	@if [ -d $(SYSROOT)/usr/include ]; then \
 		cp -rf $(SYSROOT)/usr/include/* $(INITRAMFS_ROOT)/usr/include/ 2>/dev/null || true; \
+		cp -rf $(SYSROOT)/usr/include/* $(INITRAMFS_ROOT)/include/ 2>/dev/null || true; \
 	fi
 	@if [ -d $(SYSROOT)/usr/share ]; then \
 		cp -rf $(SYSROOT)/usr/share/* $(INITRAMFS_ROOT)/usr/share/ 2>/dev/null || true; \

@@ -87,6 +87,7 @@ define_syscall_table! {
     SYS_UMASK          = 95  => ("umask",          fs::sys_umask),
     SYS_GETTIMEOFDAY   = 96  => ("gettimeofday",   time::sys_gettimeofday),
     SYS_GETRLIMIT      = 97  => ("getrlimit",      proc::sys_getrlimit),
+    SYS_GETRUSAGE      = 98  => ("getrusage",      proc::sys_getrusage),
     SYS_TIMES          = 100 => ("times",          time::sys_times),
     SYS_GETUID         = 102 => ("getuid",         proc::sys_getuid),
     SYS_GETGID         = 104 => ("getgid",         proc::sys_getgid),

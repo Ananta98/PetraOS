@@ -379,12 +379,7 @@ impl InodeOps for RamDirInode {
         Ok(())
     }
 
-    fn rename(
-        &self,
-        old_name: &str,
-        new_dir: &Arc<Inode>,
-        new_name: &str,
-    ) -> Result<(), VfsError> {
+    fn rename(&self, old_name: &str, new_dir: &Arc<Inode>, new_name: &str) -> Result<(), VfsError> {
         if self.ino == new_dir.ino {
             if old_name == new_name {
                 return Ok(());
@@ -476,6 +471,9 @@ impl RamFs {
         let _ = crate::fs::vfs::path::mkdir("/dev");
         let _ = crate::fs::vfs::path::mkdir("/proc");
         let _ = crate::fs::vfs::path::mkdir("/mnt");
+        let _ = crate::fs::vfs::path::mkdir("/tmp");
+        let _ = crate::fs::vfs::path::mkdir("/var");
+        let _ = crate::fs::vfs::path::mkdir("/var/tmp");
 
         log::info!("[RamFS] Root RamFS mounted at /.");
         Ok(())

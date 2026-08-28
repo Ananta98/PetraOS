@@ -120,6 +120,6 @@ packages:
       - args: ['make', '-j@PARALLELISM@', 'all-gcc', 'all-target-libgcc']
     install:
       - args: ['make', 'DESTDIR=@SYSROOT_DIR@', 'install-gcc', 'install-target-libgcc']
-      - args: ['sh', '-c', 'cp -rv @BUILD_ROOT@/tools/host-gcc/x86_64-petra/lib/* @SYSROOT_DIR@/usr/lib/ || true']
+      - args: ['sh', '-c', 'cp -rv @BUILD_ROOT@/tools/host-gcc/lib/gcc/x86_64-petra/12.1.0/* @SYSROOT_DIR@/usr/lib/gcc/x86_64-petra/12.1.0/ || true']
       - args: ['sh', '-c', 'cp -rv @BUILD_ROOT@/tools/host-gcc/x86_64-petra/include/* @SYSROOT_DIR@/usr/include/ || true']
       - args: ['ln', '-sf', '/usr/bin/gcc', '@SYSROOT_DIR@/usr/bin/cc']
