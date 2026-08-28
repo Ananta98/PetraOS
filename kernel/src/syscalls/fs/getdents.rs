@@ -1,14 +1,20 @@
-//! sys_getdents64 system call handler.
+//! System calls for reading directory entries (`getdents64`).
 
 use super::*;
-use crate::syscalls::{SyscallError, SyscallResult, UserPtr};
 use crate::arch::syscall::syscall::SyscallFrame;
-use crate::fs::File;
-use crate::fs::vfs::types::{InodeType, LinuxStat, SeekWhence, Stat, StatFs};
+use crate::fs::vfs::types::InodeType;
+use crate::syscalls::{SyscallError, SyscallResult, UserPtr};
 use alloc::string::String;
-use alloc::sync::Arc;
 use alloc::vec::Vec;
 
+pub const DT_UNKNOWN: u8 = 0;
+pub const DT_FIFO: u8 = 1;
+pub const DT_CHR: u8 = 2;
+pub const DT_DIR: u8 = 4;
+pub const DT_BLK: u8 = 6;
+pub const DT_REG: u8 = 8;
+pub const DT_LNK: u8 = 10;
+pub const DT_SOCK: u8 = 12;
 
 /// `sys_getdents64` (SYS_GETDENTS64 = 217)
 /// Get directory entries in 64-bit Linux dirent format.

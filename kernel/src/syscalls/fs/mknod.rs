@@ -1,16 +1,11 @@
-//! sys_mknodat system call handler.
+//! System calls for creating special or generic filesystem nodes (`mknodat`).
 
 use super::*;
-use crate::syscalls::{SyscallResult, UserCStr};
 use crate::arch::syscall::syscall::SyscallFrame;
-use crate::fs::File;
-use crate::fs::vfs::types::{InodeType, LinuxStat, SeekWhence, Stat, StatFs};
-use alloc::string::String;
-use alloc::sync::Arc;
-use alloc::vec::Vec;
-
+use crate::syscalls::{SyscallResult, UserCStr};
 
 /// `sys_mknodat` (SYS_MKNODAT = 259)
+/// Create a special or ordinary file relative to a directory file descriptor.
 pub fn sys_mknodat(frame: &mut SyscallFrame) -> SyscallResult {
     let dfd = frame.arg1() as i32;
     let _mode = frame.arg3() as u32;

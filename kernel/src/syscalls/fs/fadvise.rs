@@ -1,14 +1,8 @@
-//! sys_fadvise64 system call handler.
+//! System calls for predeclaring file access patterns (`fadvise64`).
 
 use super::*;
-use crate::syscalls::{SyscallError, SyscallResult};
 use crate::arch::syscall::syscall::SyscallFrame;
-use crate::fs::File;
-use crate::fs::vfs::types::{InodeType, LinuxStat, SeekWhence, Stat, StatFs};
-use alloc::string::String;
-use alloc::sync::Arc;
-use alloc::vec::Vec;
-
+use crate::syscalls::{SyscallError, SyscallResult};
 
 /// `sys_fadvise64` (SYS_FADVISE64 = 221)
 /// Predeclare an access pattern for file data.
