@@ -186,3 +186,11 @@ Code quality must be production-ready. Readability is paramount.
 * **File Size & Separation**: If a module grows large (e.g., exceeding ~300-500 lines) or handles multiple distinct responsibilities (e.g., driver initialization vs. I/O processing vs. interrupt handling), split it into submodules and individual files.
 * **Avoid Monolithic Files**: Do not dump all subsystem logic inside a single file (like `mod.rs` or `lib.rs`). Use Rust's module hierarchy and subdirectory layout to split components cleanly (e.g., `arch/x86_64/gdt.rs` and `arch/x86_64/idt.rs` instead of one giant file).
 * **Clean Encapsulation & APIs**: Expose only the necessary minimal interface using `pub` or `pub(crate)`. Keep private implementation details hidden to facilitate easier debugging, testing, and isolated modifications.
+
+### 6. Text Search & Indexing
+Before running sequential text search commands (`grep`, `rg`, `find`, `ls`), you MUST consult the project's structural knowledge graph.
+
+1. Use `/graphify query "<your intent>"` to find connected files or architecture hubs.
+2. Use `/graphify path "<ComponentA>" "<ComponentB>"` to trace dependencies.
+3. Fall back to `grep` ONLY if you are looking up an exact explicit string or symbol you already know by name.
+---
