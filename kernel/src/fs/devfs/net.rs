@@ -12,15 +12,16 @@
 //!
 //! NOTE: Frames consumed through a raw node bypass the smoltcp network stack.
 
+use alloc::boxed::Box;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 
-use crate::device::{DEVICE_MANAGER, DeviceType};
-use crate::drivers::net::intel::e1000::E1000_DEVICE;
+use crate::device::{Device, DeviceType, DEVICE_MANAGER};
 use crate::fs::vfs::mount::MOUNT_TABLE;
 use crate::fs::vfs::types::{FileOps, Inode, InodeOps, InodeType, O_NONBLOCK, Stat, VfsError};
 use crate::mm::UserPtr;
 use crate::net::NET_STACK;
+use crate::sync::Mutex;
 
 /// Maximum network interface name length (including NUL), per Linux ABI.
 pub const IFNAMSIZ: usize = 16;
@@ -226,14 +227,15 @@ pub struct NetDeviceInode {
 
 impl InodeOps for NetDeviceInode {
     fn open(&self) -> Result<Arc<dyn FileOps>, VfsError> {
-        // Existence check at open time; raw I/O state lives behind the driver
-        // globals (E1000_DEVICE / NET_STACK), not behind this proxy reference.
-        let dm = DEVICE_MANAGER.read();
-        if dm.get_by_name(self.iface_name).is_none() {
-            return Err(VfsError::NotFound);
-        }
+        let device = DEVICE_MANAGER
+            .read()
+            .get_by_name(self.iface_name)
+            .ok_or(VfsError::NotFound)?;
 
-        Ok(Arc::new(NetDeviceFileOps))
+        Ok(Arc::new(NetDeviceFileOps {
+            device,
+            iface_name: self.iface_name,
+        }))
     }
 
     fn stat(&self) -> Result<Stat, VfsError> {
@@ -247,10 +249,11 @@ impl InodeOps for NetDeviceInode {
 
 /// Per-open file operations for a network interface device node.
 ///
-/// All state is resolved from the driver globals (`E1000_DEVICE`, `NET_STACK`)
-/// at call time; the open-time DEVICE_MANAGER lookup on the inode only gates
-/// access to interfaces that are actually registered.
-pub struct NetDeviceFileOps;
+/// Holds the device reference resolved at open-time from DEVICE_MANAGER.
+pub struct NetDeviceFileOps {
+    device: Arc<Mutex<Box<dyn Device>>>,
+    iface_name: &'static str,
+}
 
 impl FileOps for NetDeviceFileOps {
     fn read_with_flags(
@@ -268,8 +271,8 @@ impl FileOps for NetDeviceFileOps {
 
         loop {
             {
-                let mut dev_guard = E1000_DEVICE.lock();
-                let dev = dev_guard.as_mut().ok_or(VfsError::NotFound)?;
+                let mut dev_guard = self.device.lock();
+                let dev = dev_guard.as_net_device_mut().ok_or(VfsError::NotFound)?;
                 if let Some(len) = dev.receive_packet(&mut frame).map_err(VfsError::from)? {
                     // Truncate frames larger than the caller's buffer,
                     // matching packet-socket semantics.
@@ -294,8 +297,8 @@ impl FileOps for NetDeviceFileOps {
             return Err(VfsError::InvalidInput);
         }
 
-        let mut dev_guard = E1000_DEVICE.lock();
-        let dev = dev_guard.as_mut().ok_or(VfsError::NotFound)?;
+        let mut dev_guard = self.device.lock();
+        let dev = dev_guard.as_net_device_mut().ok_or(VfsError::NotFound)?;
         dev.send_packet(buf).map_err(VfsError::from)?;
         Ok(buf.len())
     }
@@ -303,8 +306,8 @@ impl FileOps for NetDeviceFileOps {
     fn poll_events(&self, events: i16) -> i16 {
         let mut revents = 0;
 
-        let mut dev_guard = E1000_DEVICE.lock();
-        if let Some(dev) = dev_guard.as_mut() {
+        let mut dev_guard = self.device.lock();
+        if let Some(dev) = dev_guard.as_net_device_mut() {
             if (events & crate::syscalls::fs::POLLIN) != 0 && dev.has_pending_rx() {
                 revents |= crate::syscalls::fs::POLLIN;
             }
@@ -345,14 +348,24 @@ impl FileOps for NetDeviceFileOps {
             }
             SIOCGIFFLAGS => {
                 let mut req = req_ptr.read().ok_or(VfsError::InvalidInput)?;
-                resolve_index(&req.name).ok_or(VfsError::NotFound)?;
+                let iface_idx = resolve_index(&req.name).ok_or(VfsError::NotFound)?;
+                let names = interface_names();
+                let target_name = names.get(iface_idx).ok_or(VfsError::NotFound)?;
 
-                let link_up = {
-                    let mut dev_guard = E1000_DEVICE.lock();
-                    match dev_guard.as_mut() {
-                        Some(dev) => dev.is_link_up(),
-                        None => false,
-                    }
+                let link_up = if *target_name == self.iface_name {
+                    let mut dev_guard = self.device.lock();
+                    dev_guard
+                        .as_net_device_mut()
+                        .map(|d| d.is_link_up())
+                        .unwrap_or(false)
+                } else if let Some(target_dev) = DEVICE_MANAGER.read().get_by_name(target_name) {
+                    let mut dev_guard = target_dev.lock();
+                    dev_guard
+                        .as_net_device_mut()
+                        .map(|d| d.is_link_up())
+                        .unwrap_or(false)
+                } else {
+                    false
                 };
 
                 let mut flags = IFF_UP | IFF_BROADCAST | IFF_MULTICAST;
@@ -365,14 +378,24 @@ impl FileOps for NetDeviceFileOps {
             }
             SIOCGIFHWADDR => {
                 let mut req = req_ptr.read().ok_or(VfsError::InvalidInput)?;
-                resolve_index(&req.name).ok_or(VfsError::NotFound)?;
+                let iface_idx = resolve_index(&req.name).ok_or(VfsError::NotFound)?;
+                let names = interface_names();
+                let target_name = names.get(iface_idx).ok_or(VfsError::NotFound)?;
 
-                let mac = {
-                    let dev_guard = E1000_DEVICE.lock();
-                    match dev_guard.as_ref() {
-                        Some(dev) => dev.mac_address(),
-                        None => return Err(VfsError::NotFound),
-                    }
+                let mac = if *target_name == self.iface_name {
+                    let dev_guard = self.device.lock();
+                    dev_guard
+                        .as_net_device()
+                        .map(|d| d.mac_address())
+                        .ok_or(VfsError::NotFound)?
+                } else if let Some(target_dev) = DEVICE_MANAGER.read().get_by_name(target_name) {
+                    let dev_guard = target_dev.lock();
+                    dev_guard
+                        .as_net_device()
+                        .map(|d| d.mac_address())
+                        .ok_or(VfsError::NotFound)?
+                } else {
+                    return Err(VfsError::NotFound);
                 };
                 req.set_hwaddr(IfSockAddr::ether(mac));
                 req_ptr.write(req).ok_or(VfsError::InvalidInput)?;

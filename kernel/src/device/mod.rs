@@ -6,6 +6,6 @@ pub mod driver;
 pub mod manager;
 
 pub use bus::Bus;
-pub use device::{BlockDevice, CharDevice, Device, DeviceType, Major, Minor};
+pub use device::{BlockDevice, CharDevice, Device, DeviceType, Major, Minor, NetDevice};
 pub use driver::{Driver, DriverError};
 pub use manager::{DEVICE_MANAGER, DeviceManager};

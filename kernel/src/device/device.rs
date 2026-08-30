@@ -69,6 +69,16 @@ pub trait Device: Send + Sync {
     fn as_char_device_mut(&mut self) -> Option<&mut dyn CharDevice> {
         None
     }
+
+    /// Cast to `NetDevice` for network I/O (returns `None` if unsupported).
+    fn as_net_device(&self) -> Option<&dyn NetDevice> {
+        None
+    }
+
+    /// Cast to `NetDevice` mutably for network I/O (returns `None` if unsupported).
+    fn as_net_device_mut(&mut self) -> Option<&mut dyn NetDevice> {
+        None
+    }
 }
 
 // ===== CharDevice Trait =====
@@ -102,4 +112,30 @@ pub trait BlockDevice: Device {
 
     /// Block (sector) size in bytes.
     fn block_size(&self) -> usize;
+}
+
+// ===== NetDevice Trait =====
+
+/// Network interface I/O interface for network controllers (e.g. Intel e1000, VirtIO-Net).
+pub trait NetDevice: Device {
+    /// Return the 6-byte Ethernet MAC address of this interface.
+    fn mac_address(&self) -> [u8; 6];
+
+    /// Return `true` if physical link is established.
+    fn is_link_up(&mut self) -> bool;
+
+    /// Transmit an Ethernet frame.
+    fn send_packet(&mut self, data: &[u8]) -> Result<(), super::driver::DriverError>;
+
+    /// Receive a pending Ethernet frame into `buf` if available.
+    fn receive_packet(
+        &mut self,
+        buf: &mut [u8],
+    ) -> Result<Option<usize>, super::driver::DriverError>;
+
+    /// Non-destructively report whether the RX ring holds an unread frame.
+    fn has_pending_rx(&mut self) -> bool;
+
+    /// Non-destructively report whether the TX ring has a free descriptor.
+    fn is_tx_ready(&mut self) -> bool;
 }

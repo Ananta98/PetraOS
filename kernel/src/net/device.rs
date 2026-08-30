@@ -1,19 +1,22 @@
-//! Smoltcp PHY Device Adapter for PetraOS Network Drivers
+//! Smoltcp PHY Device Adapter for Network Drivers
 //!
-//! Connects smoltcp's PHY abstraction layer to kernel network drivers (Intel e1000).
+//! Connects smoltcp's PHY abstraction layer to generic kernel network devices (`NetDevice`).
 
+use alloc::boxed::Box;
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 use smoltcp::phy::{Device, DeviceCapabilities, Medium, RxToken, TxToken};
 use smoltcp::time::Instant;
 
-use crate::drivers::net::intel::e1000::E1000_DEVICE;
+use crate::device::Device as KernelDevice;
+use crate::sync::Mutex;
 
 /// Device token for consuming a received Ethernet frame.
-pub struct E1000RxToken {
+pub struct NetRxToken {
     buffer: Vec<u8>,
 }
 
-impl RxToken for E1000RxToken {
+impl RxToken for NetRxToken {
     fn consume<R, F>(self, f: F) -> R
     where
         F: FnOnce(&[u8]) -> R,
@@ -23,9 +26,11 @@ impl RxToken for E1000RxToken {
 }
 
 /// Device token for transmitting an Ethernet frame.
-pub struct E1000TxToken;
+pub struct NetTxToken {
+    device: Arc<Mutex<Box<dyn KernelDevice>>>,
+}
 
-impl TxToken for E1000TxToken {
+impl TxToken for NetTxToken {
     fn consume<R, F>(self, len: usize, f: F) -> R
     where
         F: FnOnce(&mut [u8]) -> R,
@@ -33,40 +38,62 @@ impl TxToken for E1000TxToken {
         let mut buffer = alloc::vec![0u8; len];
         let result = f(&mut buffer[..]);
 
-        if let Some(ref mut e1000) = *E1000_DEVICE.lock() {
-            let _ = e1000.send_packet(&buffer);
+        let mut dev_guard = self.device.lock();
+        if let Some(net_dev) = dev_guard.as_net_device_mut() {
+            let _ = net_dev.send_packet(&buffer);
         }
 
         result
     }
 }
 
-/// Smoltcp device adapter wrapping the active kernel network controller.
-pub struct PetraNetDevice;
+/// Smoltcp PHY device adapter wrapping a generic kernel network controller.
+pub struct NetDeviceAdapter {
+    device: Arc<Mutex<Box<dyn KernelDevice>>>,
+}
 
-impl Device for PetraNetDevice {
-    type RxToken<'a> = E1000RxToken where Self: 'a;
-    type TxToken<'a> = E1000TxToken where Self: 'a;
+impl NetDeviceAdapter {
+    /// Create a new PHY adapter wrapping the given network device.
+    pub fn new(device: Arc<Mutex<Box<dyn KernelDevice>>>) -> Self {
+        Self { device }
+    }
+
+    /// Access the underlying kernel device handle.
+    pub fn device(&self) -> &Arc<Mutex<Box<dyn KernelDevice>>> {
+        &self.device
+    }
+}
+
+impl Device for NetDeviceAdapter {
+    type RxToken<'a> = NetRxToken where Self: 'a;
+    type TxToken<'a> = NetTxToken where Self: 'a;
 
     fn receive(&mut self, _timestamp: Instant) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
         let mut temp_buf = [0u8; 2048];
-        let maybe_len = if let Some(ref mut e1000) = *E1000_DEVICE.lock() {
-            e1000.receive_packet(&mut temp_buf).ok().flatten()
-        } else {
-            None
-        };
+        let mut dev_guard = self.device.lock();
+        let maybe_len = dev_guard
+            .as_net_device_mut()
+            .and_then(|dev| dev.receive_packet(&mut temp_buf).ok().flatten());
+        drop(dev_guard);
 
         if let Some(len) = maybe_len {
             let mut packet = alloc::vec![0u8; len];
             packet.copy_from_slice(&temp_buf[..len]);
-            Some((E1000RxToken { buffer: packet }, E1000TxToken))
+            Some((
+                NetRxToken { buffer: packet },
+                NetTxToken {
+                    device: self.device.clone(),
+                },
+            ))
         } else {
             None
         }
     }
 
     fn transmit(&mut self, _timestamp: Instant) -> Option<Self::TxToken<'_>> {
-        Some(E1000TxToken)
+        Some(NetTxToken {
+            device: self.device.clone(),
+        })
     }
 
     fn capabilities(&self) -> DeviceCapabilities {
@@ -76,3 +103,4 @@ impl Device for PetraNetDevice {
         caps
     }
 }
+

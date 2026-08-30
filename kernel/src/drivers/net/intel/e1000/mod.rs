@@ -15,37 +15,9 @@ pub use registers::*;
 use alloc::boxed::Box;
 use alloc::sync::Arc;
 
-use crate::device::{Device, DeviceType, Driver, DriverError};
+use crate::device::{Device, Driver, DriverError};
 use crate::drivers::bus::pci::PciBus;
 use crate::sync::Mutex;
-
-/// Global Intel e1000 active device instance.
-pub static E1000_DEVICE: Mutex<Option<E1000Device>> = Mutex::new(None);
-
-/// Device manager proxy wrapper for Intel e1000 controller.
-pub struct E1000DeviceRef;
-
-impl Device for E1000DeviceRef {
-    fn dev_type(&self) -> DeviceType {
-        DeviceType::Network
-    }
-
-    fn name(&self) -> &'static str {
-        "Intel e1000 Gigabit Ethernet"
-    }
-
-    fn dev_name(&self) -> Option<&'static str> {
-        Some("eth0")
-    }
-
-    fn init(&mut self) -> Result<(), DriverError> {
-        if let Some(ref mut dev) = *E1000_DEVICE.lock() {
-            dev.init_hardware()
-        } else {
-            Err(DriverError::NoDevice)
-        }
-    }
-}
 
 /// Known Intel e1000 PCI Vendor and Device IDs
 pub const INTEL_VENDOR_ID: u16 = 0x8086;
@@ -104,11 +76,9 @@ impl Driver for IntelE1000Driver {
                             mac[5]
                         );
 
-                        *E1000_DEVICE.lock() = Some(dev);
-
-                        let dev_ref: Arc<Mutex<Box<dyn Device>>> =
-                            Arc::new(Mutex::new(Box::new(E1000DeviceRef)));
-                        crate::device::DEVICE_MANAGER.write().register(dev_ref);
+                        let dev_arc: Arc<Mutex<Box<dyn Device>>> =
+                            Arc::new(Mutex::new(Box::new(dev)));
+                        crate::device::DEVICE_MANAGER.write().register(dev_arc);
 
                         log::info!("[e1000] Registered device to DEVICE_MANAGER as eth0");
                         return Ok(());

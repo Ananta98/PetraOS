@@ -6,7 +6,7 @@
 use alloc::vec::Vec;
 use core::mem::size_of;
 
-use crate::device::DriverError;
+use crate::device::{Device, DeviceType, DriverError, NetDevice};
 use crate::drivers::bus::pci::device::PciDevice;
 use crate::drivers::pci::config;
 use crate::mm::dma::DmaCoherent;
@@ -389,3 +389,56 @@ impl E1000Device {
         icr
     }
 }
+
+impl Device for E1000Device {
+    fn dev_type(&self) -> DeviceType {
+        DeviceType::Network
+    }
+
+    fn name(&self) -> &'static str {
+        "Intel e1000 Gigabit Ethernet"
+    }
+
+    fn dev_name(&self) -> Option<&'static str> {
+        Some("eth0")
+    }
+
+    fn init(&mut self) -> Result<(), DriverError> {
+        self.init_hardware()
+    }
+
+    fn as_net_device(&self) -> Option<&dyn NetDevice> {
+        Some(self)
+    }
+
+    fn as_net_device_mut(&mut self) -> Option<&mut dyn NetDevice> {
+        Some(self)
+    }
+}
+
+impl NetDevice for E1000Device {
+    fn mac_address(&self) -> [u8; 6] {
+        self.mac_address()
+    }
+
+    fn is_link_up(&mut self) -> bool {
+        self.is_link_up()
+    }
+
+    fn send_packet(&mut self, data: &[u8]) -> Result<(), DriverError> {
+        self.send_packet(data)
+    }
+
+    fn receive_packet(&mut self, buf: &mut [u8]) -> Result<Option<usize>, DriverError> {
+        self.receive_packet(buf)
+    }
+
+    fn has_pending_rx(&mut self) -> bool {
+        self.has_pending_rx()
+    }
+
+    fn is_tx_ready(&mut self) -> bool {
+        self.is_tx_ready()
+    }
+}
+

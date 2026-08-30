@@ -1,8 +1,10 @@
 //! Global smoltcp Network Stack Manager
 //!
 //! Maintains network interface state, IP routing table, socket sets, and
-//! coordinates packet processing across PetraOS network drivers.
+//! coordinates packet processing across kernel network drivers.
 
+use alloc::boxed::Box;
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 use smoltcp::iface::{Config, Interface, SocketHandle, SocketSet};
 use smoltcp::socket::AnySocket;
@@ -12,8 +14,8 @@ use smoltcp::wire::{
     Ipv6Address, Ipv6Cidr,
 };
 
-use crate::drivers::net::intel::e1000::E1000_DEVICE;
-use crate::net::device::PetraNetDevice;
+use crate::device::{Device, DeviceType, DEVICE_MANAGER};
+use crate::net::device::NetDeviceAdapter;
 use crate::sync::Mutex;
 
 /// Global network stack singleton.
@@ -25,26 +27,36 @@ pub fn current_time() -> Instant {
     Instant::from_micros((elapsed_ns / 1_000) as i64)
 }
 
-/// The core PetraOS network stack state.
+/// The core network stack state.
 pub struct NetworkStack {
     pub iface: Interface,
     pub sockets: SocketSet<'static>,
-    pub device: PetraNetDevice,
+    pub device: NetDeviceAdapter,
 }
 
 impl NetworkStack {
-    /// Initialize the network stack with the MAC address from the active network controller.
+    /// Initialize the network stack with the first available network device in DEVICE_MANAGER.
     pub fn new() -> Option<Self> {
-        let mac = if let Some(ref dev) = *E1000_DEVICE.lock() {
-            dev.mac_address()
-        } else {
-            return None;
+        let net_devices = DEVICE_MANAGER
+            .read()
+            .get_by_type(DeviceType::Network);
+
+        let dev_arc = net_devices.first()?.clone();
+        Self::with_device(dev_arc)
+    }
+
+    /// Initialize the network stack using a specific network device.
+    pub fn with_device(dev_arc: Arc<Mutex<Box<dyn Device>>>) -> Option<Self> {
+        let mac = {
+            let mut dev_guard = dev_arc.lock();
+            let net_dev = dev_guard.as_net_device_mut()?;
+            net_dev.mac_address()
         };
 
         let ethernet_addr = EthernetAddress(mac);
         let hw_addr = HardwareAddress::Ethernet(ethernet_addr);
 
-        let mut device = PetraNetDevice;
+        let mut device = NetDeviceAdapter::new(dev_arc);
         let mut config = Config::new(hw_addr);
         config.random_seed = crate::arch::timer::hpet::elapsed_ns();
 
@@ -98,3 +110,4 @@ pub fn poll() {
         stack.poll();
     }
 }
+

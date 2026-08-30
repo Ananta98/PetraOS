@@ -1,6 +1,6 @@
 //! Network Subsystem for PetraOS
 //!
-//! Integrates smoltcp TCP/IP stack, Intel e1000 device drivers, UNIX domain sockets,
+//! Integrates smoltcp TCP/IP stack, generic network device drivers, UNIX domain sockets,
 //! and network socket lifecycle.
 
 pub mod device;
@@ -8,6 +8,7 @@ pub mod socket;
 pub mod stack;
 pub mod types;
 
+pub use device::NetDeviceAdapter;
 pub use socket::Socket;
 pub use stack::{NET_STACK, NetworkStack, current_time, poll};
 pub use types::*;
