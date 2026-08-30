@@ -1,11 +1,8 @@
-//! sys_yield system call handler.
+//! CPU yield system call (`yield`).
 
 use super::*;
-use crate::syscalls::{SyscallResult};
 use crate::arch::syscall::syscall::SyscallFrame;
-use crate::mm::vmm::paging::PageTable;
-use crate::proc::ProcessId;
-
+use crate::syscalls::SyscallResult;
 
 /// `sys_yield` (SYS_YIELD = 24)
 /// Yield the CPU to another runnable thread.

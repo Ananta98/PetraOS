@@ -1,11 +1,8 @@
-//! sys_wait4 system call handler.
+//! Process wait system call (`wait4`).
 
 use super::*;
-use crate::syscalls::{SyscallError, SyscallResult, UserPtr};
 use crate::arch::syscall::syscall::SyscallFrame;
-use crate::mm::vmm::paging::PageTable;
-use crate::proc::ProcessId;
-
+use crate::syscalls::{SyscallError, SyscallResult, UserPtr};
 
 /// `sys_wait4` (SYS_WAIT4 = 61)
 /// Wait for process state change.

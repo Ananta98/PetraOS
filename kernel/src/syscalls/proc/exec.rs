@@ -1,11 +1,9 @@
-//! sys_execve system call handler.
+//! Program execution system call (`execve`).
 
 use super::*;
-use crate::syscalls::{SyscallError, SyscallResult, UserCStr};
 use crate::arch::syscall::syscall::SyscallFrame;
 use crate::mm::vmm::paging::PageTable;
-use crate::proc::ProcessId;
-
+use crate::syscalls::{SyscallError, SyscallResult, UserCStr};
 
 /// `sys_execve` (SYS_EXECVE = 59)
 /// Execute program file.
