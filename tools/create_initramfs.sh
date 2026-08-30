@@ -115,7 +115,7 @@ package_cpio() {
 
     (
         cd "${root_dir}"
-        find . -mindepth 1 ! -name 'st*' | sort | cpio -o -H newc -R 0:0 > "${output_cpio_abs}.tmp"
+        find . -mindepth 1 | sort | cpio -o -H newc -R 0:0 > "${output_cpio_abs}.tmp"
         mv "${output_cpio_abs}.tmp" "${output_cpio_abs}"
     )
 
