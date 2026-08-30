@@ -4,7 +4,7 @@
 //! Unix epoch timestamp conversion, and wall-clock time offset calculation.
 
 use crate::arch::ports::Ports;
-use crate::device::{Device, DeviceType, Driver, DriverError};
+use crate::device::{CharDevice, Device, DeviceType, Driver, DriverError};
 use crate::sync::Mutex;
 use alloc::boxed::Box;
 use alloc::sync::Arc;
@@ -28,6 +28,8 @@ const REG_CENTURY: u8 = 0x32;
 static BOOT_EPOCH_SEC: AtomicU64 = AtomicU64::new(0);
 /// HPET elapsed nanoseconds timestamp taken when BOOT_EPOCH_SEC was recorded
 static BOOT_HPET_NS: AtomicU64 = AtomicU64::new(0);
+
+pub static CMOS_RTC: Mutex<CmosRtc> = Mutex::new(CmosRtc::new());
 
 /// Date and time structure read from CMOS RTC.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -207,11 +209,7 @@ impl CmosRtc {
     }
 }
 
-pub static CMOS_RTC: Mutex<CmosRtc> = Mutex::new(CmosRtc::new());
-
-pub struct CmosRtcDeviceRef;
-
-impl Device for CmosRtcDeviceRef {
+impl Device for CmosRtc {
     fn dev_type(&self) -> DeviceType {
         DeviceType::Char
     }
@@ -220,7 +218,30 @@ impl Device for CmosRtcDeviceRef {
         "CMOS Real-Time Clock"
     }
 
+    fn dev_name(&self) -> Option<&'static str> {
+        Some("rtc0")
+    }
+
     fn init(&mut self) -> Result<(), DriverError> {
+        Ok(())
+    }
+
+    fn as_char_device(&self) -> Option<&dyn CharDevice> {
+        Some(self)
+    }
+
+    fn as_char_device_mut(&mut self) -> Option<&mut dyn CharDevice> {
+        Some(self)
+    }
+}
+
+impl CharDevice for CmosRtc {
+    fn read_byte(&mut self) -> Result<u8, DriverError> {
+        let time = CmosRtc::read_hardware_time();
+        Ok(time.second)
+    }
+
+    fn write_byte(&mut self, _byte: u8) -> Result<(), DriverError> {
         Ok(())
     }
 }
@@ -291,7 +312,7 @@ impl Driver for CmosRtcDriver {
     fn probe(&self) -> Result<(), DriverError> {
         init_boot_time();
         let device_ref: Arc<Mutex<Box<dyn Device>>> =
-            Arc::new(Mutex::new(Box::new(CmosRtcDeviceRef)));
+            Arc::new(Mutex::new(Box::new(CmosRtc::new())));
         crate::device::DEVICE_MANAGER.write().register(device_ref);
         log::info!("[CMOS RTC Module] Registered CMOS Real-Time Clock to DEVICE_MANAGER");
         Ok(())

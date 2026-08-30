@@ -1,27 +1,40 @@
 pub mod block;
+pub mod char;
 pub mod console;
 pub mod fb;
+pub mod full;
+pub mod kbd;
+pub mod kmsg;
 pub mod net;
 pub mod null;
+pub mod rtc;
+pub mod serial;
 pub mod urandom;
 pub mod zero;
 
 // Explicit re-exports (no globs) — public API surface is intentional.
 pub use block::BlockDeviceInode;
+pub use char::GenericCharDeviceInode;
 pub use console::ConsoleInode;
 pub use fb::FbInode;
+pub use full::FullInode;
+pub use kbd::KbdInode;
+pub use kmsg::KmsgInode;
 pub use net::NetDeviceInode;
 pub use null::NullInode;
+pub use rtc::RtcInode;
+pub use serial::SerialInode;
 pub use urandom::UrandomInode;
 pub use zero::ZeroInode;
 
+use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::sync::atomic::AtomicU64;
 
-use crate::device::{DeviceType, DEVICE_MANAGER};
+use crate::device::{DEVICE_MANAGER, Device, DeviceType};
 use crate::fs::ramfs::RamDirFileOps;
 use crate::fs::vfs::dentry::Dentry;
 use crate::fs::vfs::mount::MOUNT_TABLE;
@@ -30,7 +43,13 @@ use crate::fs::vfs::types::{
 };
 use crate::sync::Mutex;
 
-// ===== DevDirInode — Directory inode for /dev and /dev/pts =====
+// ===== Global DevFS directory references =====
+
+pub static DEV_ROOT_DIR: Mutex<Option<Arc<DevDirInode>>> = Mutex::new(None);
+pub static DEV_PTS_DIR: Mutex<Option<Arc<DevDirInode>>> = Mutex::new(None);
+pub static DEV_INPUT_DIR: Mutex<Option<Arc<DevDirInode>>> = Mutex::new(None);
+
+// ===== DevDirInode — Directory inode for /dev, /dev/pts, /dev/input =====
 
 /// Directory inode for devfs that supports dynamic device node insertion,
 /// lookup, readdir, and stat.
@@ -76,11 +95,6 @@ impl InodeOps for DevDirInode {
     }
 }
 
-// ===== Global DevFS directory references =====
-
-pub static DEV_ROOT_DIR: Mutex<Option<Arc<DevDirInode>>> = Mutex::new(None);
-pub static DEV_PTS_DIR: Mutex<Option<Arc<DevDirInode>>> = Mutex::new(None);
-
 // ===== Dynamic device node registration =====
 
 /// Register a device node dynamically in `/dev`.
@@ -106,6 +120,79 @@ pub fn register_pts_node(name: &str, inode: Arc<Inode>) {
         } else {
             Dentry::add_child(&mount.root_dentry, name.into(), inode);
         }
+    }
+}
+
+/// Register an input device node in `/dev/input`.
+pub fn register_input_node(name: &str, inode: Arc<Inode>) {
+    if let Some(input_dir) = DEV_INPUT_DIR.lock().as_ref() {
+        input_dir.insert(name, inode.clone());
+    }
+    let mt = MOUNT_TABLE.read();
+    if let Some((mount, _)) = mt.lookup("/dev") {
+        if let Some(input_dentry) = mount.root_dentry.children.lock().get("input").cloned() {
+            Dentry::add_child(&input_dentry, name.into(), inode);
+        } else {
+            Dentry::add_child(&mount.root_dentry, name.into(), inode);
+        }
+    }
+}
+
+/// Dynamically sync a device registered in `DEVICE_MANAGER` to `/dev`.
+pub fn sync_device_to_devfs(device: &Arc<Mutex<Box<dyn Device>>>) {
+    if DEV_ROOT_DIR.lock().is_none() {
+        return;
+    }
+
+    let mt = MOUNT_TABLE.read();
+    let (mount, _) = match mt.lookup("/dev") {
+        Some(m) => m,
+        None => return,
+    };
+
+    let dev_lock = device.lock();
+    let vfs_name = match dev_lock.dev_name() {
+        Some(n) => n,
+        None => return,
+    };
+    let dev_name = dev_lock.name();
+    let dev_type = dev_lock.dev_type();
+    drop(dev_lock);
+
+    // Check if node already exists in root_dir
+    if let Some(root_dir) = DEV_ROOT_DIR.lock().as_ref() {
+        if root_dir.entries.lock().contains_key(vfs_name) {
+            return;
+        }
+    }
+
+    let ino = mount.superblock.alloc_ino();
+    match dev_type {
+        DeviceType::Block => {
+            let inode = Arc::new(Inode {
+                ino,
+                inode_type: InodeType::BlockDevice,
+                ops: Arc::new(BlockDeviceInode {
+                    device_name: dev_name,
+                }),
+            });
+            drop(mt);
+            register_dev_node(vfs_name, inode);
+            log::info!("[DevFS] Registered block device /dev/{}", vfs_name);
+        }
+        DeviceType::Char | DeviceType::Gpu | DeviceType::Network | DeviceType::Audio => {
+            let inode = Arc::new(Inode {
+                ino,
+                inode_type: InodeType::CharDevice,
+                ops: Arc::new(GenericCharDeviceInode {
+                    device_name: dev_name,
+                }),
+            });
+            drop(mt);
+            register_dev_node(vfs_name, inode);
+            log::info!("[DevFS] Registered character device /dev/{}", vfs_name);
+        }
+        _ => {}
     }
 }
 
@@ -169,8 +256,8 @@ impl DevFs {
             Dentry::add_child(&dev_mount.root_dentry, name.into(), inode);
         };
 
-        // Declarative list of static core device nodes.
-        let core_nodes: [DevNode; 8] = [
+        // Declarative list of standard UNIX core pseudo and hardware device nodes.
+        let core_nodes: [DevNode; 15] = [
             DevNode {
                 name: "console",
                 inode_type: InodeType::CharDevice,
@@ -185,6 +272,11 @@ impl DevFs {
                 name: "tty0",
                 inode_type: InodeType::CharDevice,
                 ops: Arc::new(ConsoleInode),
+            },
+            DevNode {
+                name: "ttyS0",
+                inode_type: InodeType::CharDevice,
+                ops: Arc::new(SerialInode),
             },
             DevNode {
                 name: "fb0",
@@ -207,9 +299,39 @@ impl DevFs {
                 ops: Arc::new(ZeroInode),
             },
             DevNode {
+                name: "full",
+                inode_type: InodeType::CharDevice,
+                ops: Arc::new(FullInode),
+            },
+            DevNode {
                 name: "urandom",
                 inode_type: InodeType::CharDevice,
                 ops: Arc::new(UrandomInode),
+            },
+            DevNode {
+                name: "random",
+                inode_type: InodeType::CharDevice,
+                ops: Arc::new(UrandomInode),
+            },
+            DevNode {
+                name: "kmsg",
+                inode_type: InodeType::CharDevice,
+                ops: Arc::new(KmsgInode),
+            },
+            DevNode {
+                name: "rtc0",
+                inode_type: InodeType::CharDevice,
+                ops: Arc::new(RtcInode),
+            },
+            DevNode {
+                name: "rtc",
+                inode_type: InodeType::CharDevice,
+                ops: Arc::new(RtcInode),
+            },
+            DevNode {
+                name: "kbd",
+                inode_type: InodeType::CharDevice,
+                ops: Arc::new(KbdInode),
             },
         ];
 
@@ -234,40 +356,48 @@ impl DevFs {
         });
         register_node("pts", pts_dir_inode);
 
-        // Register discovered block devices from DEVICE_MANAGER.
-        drop(mt);
-        Self::register_block_devices(&dev_mount.superblock, register_node);
+        // Create /dev/input input subsystem directory.
+        let input_dir = Arc::new(DevDirInode::new());
+        *DEV_INPUT_DIR.lock() = Some(input_dir.clone());
+        let input_dir_ino = dev_mount.superblock.alloc_ino();
+        let input_dir_inode = Arc::new(Inode {
+            ino: input_dir_ino,
+            inode_type: InodeType::Directory,
+            ops: input_dir.clone(),
+        });
+        register_node("input", input_dir_inode);
 
-        log::info!("[DevFS] Mounted /dev successfully.");
+        // Register /dev/input/event0
+        let event0_ino = dev_mount.superblock.alloc_ino();
+        let event0_inode = Arc::new(Inode {
+            ino: event0_ino,
+            inode_type: InodeType::CharDevice,
+            ops: Arc::new(KbdInode),
+        });
+        input_dir.insert("event0", event0_inode.clone());
+        if let Some(input_dentry) = dev_mount.root_dentry.children.lock().get("input").cloned() {
+            Dentry::add_child(&input_dentry, "event0".into(), event0_inode);
+        }
+
+        log::info!("[DevFS] Mounted /dev successfully with core UNIX device nodes.");
         Ok(())
     }
-
-    /// Scan DEVICE_MANAGER for block devices and register them as /dev nodes.
-    fn register_block_devices<F>(superblock: &SuperBlock, mut register_node: F)
-    where
-        F: FnMut(&str, Arc<Inode>),
-    {
-        let dm = DEVICE_MANAGER.read();
-        for dev_arc in dm.get_by_type(DeviceType::Block) {
-            let dev_lock = dev_arc.lock();
-            let dev_name = dev_lock.name();
-            let vfs_name = match dev_lock.dev_name() {
-                Some(name) => name,
-                None => continue,
-            };
-
-            let block_ino = superblock.alloc_ino();
-            let block_inode = Arc::new(Inode {
-                ino: block_ino,
-                inode_type: InodeType::BlockDevice,
-                ops: Arc::new(BlockDeviceInode {
-                    device_name: dev_name,
-                }),
-            });
-            register_node(vfs_name, block_inode);
-        }
-    }
 }
+
+/// Scan `DEVICE_MANAGER` for all active devices and ensure their `/dev` nodes exist.
+///
+/// Runs as a late initcall so that all hardware drivers probed during `device_initcall`
+/// are properly synchronized into `/dev`.
+fn register_all_devices() -> Result<(), &'static str> {
+    let dm = DEVICE_MANAGER.read();
+    for dev_arc in dm.devices() {
+        sync_device_to_devfs(dev_arc);
+    }
+    log::info!("[DevFS] All kernel devices verified and synchronized to /dev.");
+    Ok(())
+}
+
+crate::late_initcall!(register_all_devices);
 
 /// Legacy wrapper for mounting devfs (kept for compatibility).
 pub fn mount_devfs() {

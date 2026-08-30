@@ -84,6 +84,10 @@ impl Device for FramebufferDevice {
         "Limine Linear Framebuffer"
     }
 
+    fn dev_name(&self) -> Option<&'static str> {
+        Some("fb0")
+    }
+
     fn init(&mut self) -> Result<(), DriverError> {
         Ok(())
     }

@@ -4,8 +4,9 @@
 //! Devices are stored by registration order and keyed by name for fast lookup.
 
 use super::device::{Device, DeviceType};
-use crate::sync::rwlock::RwLock;
+use crate::fs::devfs;
 use crate::sync::Mutex;
+use crate::sync::rwlock::RwLock;
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
@@ -36,7 +37,8 @@ impl DeviceManager {
     pub fn register(&mut self, device: Arc<Mutex<Box<dyn Device>>>) {
         let name = device.lock().name();
         self.by_name.entry(name).or_insert_with(|| device.clone());
-        self.devices.push(device);
+        self.devices.push(device.clone());
+        devfs::sync_device_to_devfs(&device);
     }
 
     /// Borrow the ordered slice of all registered devices.
@@ -47,18 +49,12 @@ impl DeviceManager {
     }
 
     /// Look up a device by its unique name in O(log n).
-    pub fn get_by_name(
-        &self,
-        name: &'static str,
-    ) -> Option<Arc<Mutex<Box<dyn Device>>>> {
+    pub fn get_by_name(&self, name: &'static str) -> Option<Arc<Mutex<Box<dyn Device>>>> {
         self.by_name.get(name).cloned()
     }
 
     /// Return all devices of the given type.
-    pub fn get_by_type(
-        &self,
-        dev_type: DeviceType,
-    ) -> Vec<Arc<Mutex<Box<dyn Device>>>> {
+    pub fn get_by_type(&self, dev_type: DeviceType) -> Vec<Arc<Mutex<Box<dyn Device>>>> {
         self.devices
             .iter()
             .filter(|d| d.lock().dev_type() == dev_type)

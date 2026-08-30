@@ -79,6 +79,8 @@ pub enum VfsError {
     TooManySymlinks,
     /// Resource temporarily unavailable / operation would block (EAGAIN/EWOULDBLOCK).
     WouldBlock,
+    /// No space left on device (ENOSPC).
+    NoSpace,
     /// An underlying device driver error occurred.
     DriverError(DriverError),
 }

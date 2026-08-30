@@ -41,6 +41,10 @@ impl Device for Ps2Keyboard {
         "PS/2 Keyboard"
     }
 
+    fn dev_name(&self) -> Option<&'static str> {
+        Some("kbd")
+    }
+
     fn init(&mut self) -> Result<(), DriverError> {
         Ps2Controller::init_keyboard()?;
         crate::arch::interrupt::ioapic::unmask_isa_irq(1);
