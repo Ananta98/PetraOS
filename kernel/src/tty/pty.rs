@@ -15,7 +15,8 @@ use crate::mm::UserPtr;
 use crate::sync::Mutex;
 use crate::tty::termios::{
     FIONREAD, LineDiscipline, TCFLSH, TCGETS, TCSBRK, TCSETS, TCSETSF, TCSETSW, TCXONC, TIOCGPGRP,
-    TIOCGPTN, TIOCGWINSZ, TIOCNOTTY, TIOCSCTTY, TIOCSPGRP, TIOCSPTLCK, TIOCSWINSZ, Termios, WinSize,
+    TIOCGPTN, TIOCGWINSZ, TIOCNOTTY, TIOCSCTTY, TIOCSPGRP, TIOCSPTLCK, TIOCSWINSZ, Termios,
+    WinSize,
 };
 
 /// Represents a single bidirectional PTY channel pair.
@@ -147,10 +148,7 @@ impl FileOps for PtyMasterFileOps {
                 return Ok(0);
             }
             drop(mb);
-            #[cfg(target_arch = "x86_64")]
             crate::arch::enable_and_hlt();
-            #[cfg(not(target_arch = "x86_64"))]
-            crate::proc::thread::Thread::yield_cpu();
         }
     }
 

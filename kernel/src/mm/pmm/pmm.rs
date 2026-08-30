@@ -136,8 +136,6 @@ impl PhysicalMemoryManagement {
             allocator.free_pages()
         );
 
-        allocator.debug_dump();
-
         *self.allocator.lock() = Some(allocator);
     }
 
@@ -249,14 +247,6 @@ impl PhysicalMemoryManagement {
             allocator.free_pages()
         } else {
             0
-        }
-    }
-
-    /// Debug dump the allocator status.
-    pub fn debug_dump(&self) {
-        let guard = self.allocator.lock();
-        if let Some(ref allocator) = *guard {
-            allocator.debug_dump();
         }
     }
 }

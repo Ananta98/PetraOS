@@ -4,6 +4,7 @@ pub mod queue;
 pub mod regs;
 
 use crate::device::{BlockDevice, Device, DeviceType, DriverError};
+use crate::drivers::pci::bus::PciBus;
 use crate::drivers::pci::config;
 use crate::drivers::pci::device::PciDevice;
 use crate::mm::dma::{DmaCoherent, DmaDirection, DmaStreamer};
@@ -58,7 +59,7 @@ impl NvmeDriver {
     }
 
     pub fn find_and_init() -> Option<Self> {
-        let discovery = crate::drivers::pci::bus::PciBus::enumerate();
+        let discovery = PciBus::enumerate();
         for dev in &discovery.devices[..discovery.count] {
             if dev.class_code == 0x01 && dev.subclass == 0x08 {
                 // Mass Storage Controller / NVMe Subclass
@@ -271,12 +272,17 @@ impl BlockDevice for NvmeDriver {
             return Err(DriverError::Unsupported);
         }
 
-        let mut streamer =
-            DmaStreamer::new(buf.len(), DmaDirection::FromDevice).map_err(|_| DriverError::ReadFailed)?;
+        let mut streamer = DmaStreamer::new(buf.len(), DmaDirection::FromDevice)
+            .map_err(|_| DriverError::ReadFailed)?;
 
         let cid = self.next_cid();
-        let read_cmd =
-            NvmeCmdBuilder::read(cid, 1, block_id, block_count as u16, streamer.phys().as_u64());
+        let read_cmd = NvmeCmdBuilder::read(
+            cid,
+            1,
+            block_id,
+            block_count as u16,
+            streamer.phys().as_u64(),
+        );
 
         let result = if let Some(ref mut io_q) = self.io_queue {
             io_q.submit_and_wait(read_cmd)
@@ -303,15 +309,20 @@ impl BlockDevice for NvmeDriver {
             return Err(DriverError::Unsupported);
         }
 
-        let mut streamer =
-            DmaStreamer::new(buf.len(), DmaDirection::ToDevice).map_err(|_| DriverError::WriteFailed)?;
+        let mut streamer = DmaStreamer::new(buf.len(), DmaDirection::ToDevice)
+            .map_err(|_| DriverError::WriteFailed)?;
 
         // Stage the caller's data into the bounce buffer before the transfer.
         streamer.sync_for_device(buf);
 
         let cid = self.next_cid();
-        let write_cmd =
-            NvmeCmdBuilder::write(cid, 1, block_id, block_count as u16, streamer.phys().as_u64());
+        let write_cmd = NvmeCmdBuilder::write(
+            cid,
+            1,
+            block_id,
+            block_count as u16,
+            streamer.phys().as_u64(),
+        );
 
         let result = if let Some(ref mut io_q) = self.io_queue {
             io_q.submit_and_wait(write_cmd)

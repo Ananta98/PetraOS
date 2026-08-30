@@ -196,8 +196,13 @@ impl BuddyAllocator {
         let mut page_idx = self.get_page_index(paddr);
 
         // Guard: never insert a non-usable page into the free list.
-        if page_idx >= self.page_map.len() || !self.page_map[page_idx].flags.contains(PageFlags::USABLE) {
-            log::error!("free_block_internal: attempted to free non-usable page at {:#x}", paddr.as_u64());
+        if page_idx >= self.page_map.len()
+            || !self.page_map[page_idx].flags.contains(PageFlags::USABLE)
+        {
+            log::error!(
+                "free_block_internal: attempted to free non-usable page at {:#x}",
+                paddr.as_u64()
+            );
             return;
         }
 
@@ -265,34 +270,6 @@ impl BuddyAllocator {
                 self.free_block_internal(paddr, order);
             }
             cur += 1 << order;
-        }
-    }
-
-    /// Log the current list of free blocks at each order for diagnostic purposes.
-    pub fn debug_dump(&self) {
-        log::info!("PMM Buddy Free List Status:");
-        for order in 0..MAX_ORDER {
-            let mut count = 0;
-            let mut curr = self.free_lists[order].head;
-            while !curr.is_null() {
-                count += 1;
-                unsafe {
-                    curr = (*curr).next;
-                }
-            }
-            if count > 0 {
-                let size_kb = (1 << order) * 4;
-                if size_kb >= 1024 {
-                    log::info!(
-                        "  Order {:2}: {:4} blocks ({} MB)",
-                        order,
-                        count,
-                        size_kb / 1024
-                    );
-                } else {
-                    log::info!("  Order {:2}: {:4} blocks ({} KB)", order, count, size_kb);
-                }
-            }
         }
     }
 }
