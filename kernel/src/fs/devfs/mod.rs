@@ -91,7 +91,28 @@ impl InodeOps for DevDirInode {
     }
 
     fn open(&self) -> Result<Arc<dyn FileOps>, VfsError> {
-        Ok(Arc::new(RamDirFileOps))
+        Ok(Arc::new(DevDirFileOps))
+    }
+}
+
+pub struct DevDirFileOps;
+
+impl FileOps for DevDirFileOps {
+    fn read(&self, _offset: usize, _buf: &mut [u8]) -> Result<usize, VfsError> {
+        Err(VfsError::IsDirectory)
+    }
+
+    fn write(&self, _offset: usize, _buf: &[u8]) -> Result<usize, VfsError> {
+        Err(VfsError::IsDirectory)
+    }
+
+    fn stat(&self) -> Result<Stat, VfsError> {
+        Ok(Stat {
+            size: 0,
+            mode: 0o040755,
+            nlink: 2,
+            ..Default::default()
+        })
     }
 }
 

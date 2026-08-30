@@ -79,12 +79,14 @@ fn apply_utimens(meta: &SharedMetadata, atime: u64, mtime: u64) -> Result<(), Vf
 /// Build a [`Stat`] from shared metadata plus the caller-supplied size/link/block info.
 fn metadata_stat(
     meta: &SharedMetadata,
+    ino: u64,
     size: u64,
     nlink: u32,
     blocks: u64,
 ) -> Result<Stat, VfsError> {
     let metadata = meta.lock();
     Ok(Stat {
+        ino,
         mode: metadata.mode,
         nlink,
         uid: metadata.uid,
@@ -95,7 +97,6 @@ fn metadata_stat(
         ctime: metadata.ctime,
         blocks,
         blksize: 4096,
-        ..Default::default()
     })
 }
 
@@ -105,6 +106,7 @@ fn metadata_stat(
 pub struct RamFileOps {
     pub content: Arc<RwLock<Vec<u8>>>,
     pub meta: SharedMetadata,
+    pub ino: u64,
 }
 
 impl FileOps for RamFileOps {
@@ -147,7 +149,7 @@ impl FileOps for RamFileOps {
 
     fn stat(&self) -> Result<Stat, VfsError> {
         let size = self.content.read().len() as u64;
-        metadata_stat(&self.meta, size, 1, (size + 511) / 512)
+        metadata_stat(&self.meta, self.ino, size, 1, (size + 511) / 512)
     }
 }
 
@@ -157,13 +159,15 @@ impl FileOps for RamFileOps {
 pub struct RamFileInode {
     pub content: Arc<RwLock<Vec<u8>>>,
     pub meta: SharedMetadata,
+    pub ino: u64,
 }
 
 impl RamFileInode {
-    pub fn new() -> Self {
+    pub fn new(ino: u64) -> Self {
         Self {
             content: Arc::new(RwLock::new(Vec::new())),
             meta: Arc::new(Mutex::new(InodeMetadata::new(0o100644))),
+            ino,
         }
     }
 }
@@ -173,12 +177,13 @@ impl InodeOps for RamFileInode {
         Ok(Arc::new(RamFileOps {
             content: self.content.clone(),
             meta: self.meta.clone(),
+            ino: self.ino,
         }))
     }
 
     fn stat(&self) -> Result<Stat, VfsError> {
         let size = self.content.read().len() as u64;
-        metadata_stat(&self.meta, size, 1, (size + 511) / 512)
+        metadata_stat(&self.meta, self.ino, size, 1, (size + 511) / 512)
     }
 
     fn truncate(&self, size: usize) -> Result<(), VfsError> {
@@ -205,13 +210,15 @@ impl InodeOps for RamFileInode {
 pub struct RamSymlinkInode {
     pub target: String,
     pub meta: SharedMetadata,
+    pub ino: u64,
 }
 
 impl RamSymlinkInode {
-    pub fn new(target: String) -> Self {
+    pub fn new(ino: u64, target: String) -> Self {
         Self {
             target,
             meta: Arc::new(Mutex::new(InodeMetadata::new(0o120777))),
+            ino,
         }
     }
 }
@@ -222,7 +229,7 @@ impl InodeOps for RamSymlinkInode {
     }
 
     fn stat(&self) -> Result<Stat, VfsError> {
-        metadata_stat(&self.meta, self.target.len() as u64, 1, 0)
+        metadata_stat(&self.meta, self.ino, self.target.len() as u64, 1, 0)
     }
 
     fn chmod(&self, mode: u32) -> Result<(), VfsError> {
@@ -329,7 +336,7 @@ impl InodeOps for RamDirInode {
         let inode = Arc::new(Inode {
             ino,
             inode_type: InodeType::File,
-            ops: Arc::new(RamFileInode::new()),
+            ops: Arc::new(RamFileInode::new(ino)),
         });
         entries.insert(name.into(), inode.clone());
         Ok(inode)
@@ -353,7 +360,7 @@ impl InodeOps for RamDirInode {
         let inode = Arc::new(Inode {
             ino,
             inode_type: InodeType::Symlink,
-            ops: Arc::new(RamSymlinkInode::new(target.into())),
+            ops: Arc::new(RamSymlinkInode::new(ino, target.into())),
         });
         entries.insert(name.into(), inode.clone());
         Ok(inode)
@@ -422,17 +429,23 @@ impl InodeOps for RamDirInode {
 
     fn stat(&self) -> Result<Stat, VfsError> {
         let entry_count = self.entries.read().len() as u64;
-        metadata_stat(&self.meta, entry_count, 2, 1)
+        metadata_stat(&self.meta, self.ino, entry_count, 2, 1)
     }
 
     fn open(&self) -> Result<Arc<dyn FileOps>, VfsError> {
-        Ok(Arc::new(RamDirFileOps))
+        Ok(Arc::new(RamDirFileOps {
+            meta: self.meta.clone(),
+            ino: self.ino,
+        }))
     }
 }
 
 // ===== RamDirFileOps — file ops for directories =====
 
-pub struct RamDirFileOps;
+pub struct RamDirFileOps {
+    pub meta: SharedMetadata,
+    pub ino: u64,
+}
 
 impl FileOps for RamDirFileOps {
     fn read(&self, _offset: usize, _buf: &mut [u8]) -> Result<usize, VfsError> {
@@ -444,12 +457,7 @@ impl FileOps for RamDirFileOps {
     }
 
     fn stat(&self) -> Result<crate::fs::vfs::types::Stat, VfsError> {
-        Ok(crate::fs::vfs::types::Stat {
-            size: 0,
-            mode: 0o040755,
-            nlink: 2,
-            ..Default::default()
-        })
+        metadata_stat(&self.meta, self.ino, 0, 2, 1)
     }
 }
 

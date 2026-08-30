@@ -315,13 +315,21 @@ pub fn utimens(path: &str, atime: u64, mtime: u64) -> Result<(), VfsError> {
 /// Fetch metadata stat structure for the file/directory at `path`.
 pub fn stat(path: &str) -> Result<super::types::Stat, VfsError> {
     let dentry = resolve_path(path)?;
-    dentry.inode.ops.stat()
+    let mut stat = dentry.inode.ops.stat()?;
+    if stat.ino == 0 {
+        stat.ino = dentry.inode.ino;
+    }
+    Ok(stat)
 }
 
 /// Fetch metadata stat without following the final symbolic link component.
 pub fn lstat(path: &str) -> Result<super::types::Stat, VfsError> {
     let dentry = resolve_path_nofollow(path)?;
-    dentry.inode.ops.stat()
+    let mut stat = dentry.inode.ops.stat()?;
+    if stat.ino == 0 {
+        stat.ino = dentry.inode.ino;
+    }
+    Ok(stat)
 }
 
 /// Resolve path without following the final symlink component.

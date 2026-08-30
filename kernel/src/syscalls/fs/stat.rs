@@ -64,6 +64,10 @@ pub fn sys_fstat(frame: &mut SyscallFrame) -> SyscallResult {
     drop(proc);
 
     let vfs_stat = file.ops.stat().or_else(|_| file.dentry.inode.ops.stat())?;
+    let mut vfs_stat = vfs_stat;
+    if vfs_stat.ino == 0 {
+        vfs_stat.ino = file.dentry.inode.ino;
+    }
     let linux_stat = copy_to_linux_stat(&vfs_stat);
 
     statbuf.write(linux_stat).ok_or(SyscallError::EFAULT)?;
