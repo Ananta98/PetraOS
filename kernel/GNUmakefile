@@ -87,3 +87,17 @@ clean-userspace:
 .PHONY: userspace-status
 userspace-status:
 	@bash $(USERSPACE_SCRIPT) status htop
+
+# ------------------------------------------------------------------------------
+# Initramfs helpers (delegates to ../tools/create_initramfs.sh)
+# ------------------------------------------------------------------------------
+INITRAMFS_SCRIPT := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))../tools/create_initramfs.sh)
+
+.PHONY: sync-initramfs sync_ramfs
+sync-initramfs sync_ramfs:
+	@bash $(INITRAMFS_SCRIPT) --sync-only
+
+.PHONY: initramfs
+initramfs:
+	@bash $(INITRAMFS_SCRIPT)
+

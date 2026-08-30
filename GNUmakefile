@@ -76,55 +76,19 @@ install-userspace: build-userspace
 clean-userspace:
 	@bash tools/build_and_run_userspace.sh clean --all
 
-.PHONY: sync-initramfs
-sync-initramfs:
-	@mkdir -p $(INITRAMFS_ROOT)/bin $(INITRAMFS_ROOT)/sbin $(INITRAMFS_ROOT)/lib $(INITRAMFS_ROOT)/libexec $(INITRAMFS_ROOT)/usr/bin $(INITRAMFS_ROOT)/usr/lib $(INITRAMFS_ROOT)/usr/sbin $(INITRAMFS_ROOT)/usr/libexec $(INITRAMFS_ROOT)/usr/include $(INITRAMFS_ROOT)/usr/share $(INITRAMFS_ROOT)/etc $(INITRAMFS_ROOT)/tmp $(INITRAMFS_ROOT)/var/tmp
-	@if [ -d $(SYSROOT)/lib ]; then cp -rf $(SYSROOT)/lib/* $(INITRAMFS_ROOT)/lib/ 2>/dev/null || true; fi
-	@if [ -d $(SYSROOT)/usr/lib ]; then \
-		cp -rf $(SYSROOT)/usr/lib/* $(INITRAMFS_ROOT)/usr/lib/ 2>/dev/null || true; \
-		cp -rf $(SYSROOT)/usr/lib/* $(INITRAMFS_ROOT)/lib/ 2>/dev/null || true; \
-	fi
-	@if [ -d $(SYSROOT)/usr/libexec ]; then \
-		cp -rf $(SYSROOT)/usr/libexec/* $(INITRAMFS_ROOT)/usr/libexec/ 2>/dev/null || true; \
-		cp -rf $(SYSROOT)/usr/libexec/* $(INITRAMFS_ROOT)/libexec/ 2>/dev/null || true; \
-	fi
-	@if [ -d $(SYSROOT)/usr/include ]; then \
-		cp -rf $(SYSROOT)/usr/include/* $(INITRAMFS_ROOT)/usr/include/ 2>/dev/null || true; \
-		cp -rf $(SYSROOT)/usr/include/* $(INITRAMFS_ROOT)/include/ 2>/dev/null || true; \
-	fi
-	@if [ -d $(SYSROOT)/usr/share ]; then \
-		cp -rf $(SYSROOT)/usr/share/* $(INITRAMFS_ROOT)/usr/share/ 2>/dev/null || true; \
-	fi
-	@if [ -d /usr/share/terminfo ]; then \
-		mkdir -p $(INITRAMFS_ROOT)/usr/share/terminfo $(INITRAMFS_ROOT)/etc/terminfo; \
-		cp -rf /usr/share/terminfo/* $(INITRAMFS_ROOT)/usr/share/terminfo/ 2>/dev/null || true; \
-		cp -rf /usr/share/terminfo/* $(INITRAMFS_ROOT)/etc/terminfo/ 2>/dev/null || true; \
-	fi
-	@if [ -d $(SYSROOT)/bin ]; then cp -rf $(SYSROOT)/bin/* $(INITRAMFS_ROOT)/bin/ 2>/dev/null || true; fi
-	@if [ -d $(SYSROOT)/sbin ]; then cp -rf $(SYSROOT)/sbin/* $(INITRAMFS_ROOT)/sbin/ 2>/dev/null || true; fi
-	@if [ -d $(SYSROOT)/usr/bin ]; then \
-		cp -rf $(SYSROOT)/usr/bin/* $(INITRAMFS_ROOT)/usr/bin/ 2>/dev/null || true; \
-		cp -rf $(SYSROOT)/usr/bin/* $(INITRAMFS_ROOT)/bin/ 2>/dev/null || true; \
-	fi
-	@if [ -d $(SYSROOT)/usr/sbin ]; then \
-		cp -rf $(SYSROOT)/usr/sbin/* $(INITRAMFS_ROOT)/usr/sbin/ 2>/dev/null || true; \
-		cp -rf $(SYSROOT)/usr/sbin/* $(INITRAMFS_ROOT)/sbin/ 2>/dev/null || true; \
-	fi
-	@if [ -d $(SYSROOT)/etc ]; then cp -rf $(SYSROOT)/etc/* $(INITRAMFS_ROOT)/etc/ 2>/dev/null || true; fi
-	@if [ -d $(INITRAMFS_ROOT)/bin ]; then \
-		find $(INITRAMFS_ROOT)/bin $(INITRAMFS_ROOT)/usr/bin $(INITRAMFS_ROOT)/usr/libexec -type f -exec x86_64-linux-gnu-strip -s {} + 2>/dev/null || true; \
-	fi
-	@if [ -d $(INITRAMFS_ROOT)/lib ]; then \
-		find $(INITRAMFS_ROOT)/lib $(INITRAMFS_ROOT)/usr/lib -name "*.so*" -type f -exec x86_64-linux-gnu-strip -s {} + 2>/dev/null || true; \
+.PHONY: sync-initramfs sync_ramfs
+sync-initramfs sync_ramfs:
+	@if [ -f tools/create_initramfs.sh ]; then \
+		chmod +x tools/create_initramfs.sh && ./tools/create_initramfs.sh --sync-only $(INITRAMFS_ROOT) $(SYSROOT); \
 	fi
 
 .PHONY: initramfs
 initramfs: $(INITRAMFS_CPIO)
 
-$(INITRAMFS_CPIO): sync-initramfs tools/create_initramfs.sh $(shell find $(INITRAMFS_ROOT) -type f 2>/dev/null)
+$(INITRAMFS_CPIO): tools/create_initramfs.sh
 	@mkdir -p $(BUILD_DIR)
 	@if [ -f tools/create_initramfs.sh ]; then \
-		chmod +x tools/create_initramfs.sh && ./tools/create_initramfs.sh $(INITRAMFS_ROOT) $(INITRAMFS_CPIO); \
+		chmod +x tools/create_initramfs.sh && ./tools/create_initramfs.sh $(INITRAMFS_ROOT) $(INITRAMFS_CPIO) $(SYSROOT); \
 	fi
 
 .PHONY: run-hdd
