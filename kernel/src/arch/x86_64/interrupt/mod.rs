@@ -3,6 +3,7 @@ pub mod interrupts;
 pub mod ioapic;
 pub mod lapic;
 pub mod pic;
+pub mod table;
 
 use crate::arch::acpi;
 use crate::mm::map_mmio;

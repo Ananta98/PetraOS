@@ -16,6 +16,7 @@ pub mod logger;
 pub mod mm;
 pub mod modules;
 pub mod net;
+pub mod panic;
 pub mod proc;
 pub mod sched;
 pub mod sync;
@@ -32,12 +33,6 @@ unsafe extern "C" fn kmain() -> ! {
     modules::init();
     proc::process::init_proc::run_init_process();
     log::info!("PetraOS Kernel booted successfully.");
-    hcf();
-}
-
-#[panic_handler]
-fn rust_panic(info: &core::panic::PanicInfo) -> ! {
-    log::error!("{}", info);
     hcf();
 }
 
