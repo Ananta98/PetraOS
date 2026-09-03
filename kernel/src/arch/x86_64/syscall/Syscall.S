@@ -14,35 +14,47 @@ syscall_entry:
   push r11                 # user RFLAGS (saved by CPU in r11)
   push 0x1B                # user CS (USER_CS with RPL=3)
   push rcx                 # user RIP (saved by CPU in rcx)
-  swapgs                   # restore user GS
 
-  # 3. Save general purpose registers matching SyscallFrame layout
+  # 3. Save all general purpose registers up to r15 (15 pushes = 120 bytes)
+  # Plus 5 iretq pushes (40 bytes), total 160 bytes. Stack is 16-byte aligned.
   push rax
-  push rbp
-  push rdi
-  push rsi
-  push rdx
+  push rbx
   push rcx
+  push rdx
+  push rsi
+  push rdi
+  push rbp
   push r8
   push r9
   push r10
   push r11
+  push r12
+  push r13
+  push r14
+  push r15
 
   # 4. Pass pointer to SyscallFrame in RDI
   mov rdi, rsp
   call do_syscall
 
   # 5. Restore registers
+  pop r15
+  pop r14
+  pop r13
+  pop r12
   pop r11
   pop r10
   pop r9
   pop r8
-  pop rcx
-  pop rdx
-  pop rsi
-  pop rdi
   pop rbp
+  pop rdi
+  pop rsi
+  pop rdx
+  pop rcx
+  pop rbx
   pop rax
 
   # 6. Return to user mode via iretq
+  swapgs                   # restore user GS
   iretq
+

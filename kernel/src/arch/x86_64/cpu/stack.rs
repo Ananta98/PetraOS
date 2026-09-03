@@ -1,14 +1,32 @@
 // ── Stack Frame Layout ────────────────────────────────────────────────────────
-use super::context::thread_bootstrapper;
 use crate::arch::syscall::SyscallFrame;
 use crate::arch::userspace::{USER_CS, USER_DS};
 use crate::mm::pmm::PMM;
 use crate::mm::{PhysAddr, VirtAddr, hhdm_offset};
 
-core::arch::global_asm!(include_str!("Fork.S"));
-
-unsafe extern "C" {
-    pub fn fork_child_return() -> !;
+/// Restores general purpose registers up to r15 from `SyscallFrame`,
+/// restores user GS base via `swapgs`, and returns to user space via `iretq`.
+#[unsafe(naked)]
+pub unsafe extern "C" fn interrupt_return() -> ! {
+    core::arch::naked_asm!(
+        "pop r15",
+        "pop r14",
+        "pop r13",
+        "pop r12",
+        "pop r11",
+        "pop r10",
+        "pop r9",
+        "pop r8",
+        "pop rbp",
+        "pop rdi",
+        "pop rsi",
+        "pop rdx",
+        "pop rcx",
+        "pop rbx",
+        "pop rax",
+        "swapgs",
+        "iretq",
+    );
 }
 
 /// The layout of the context saved on the thread's stack during a context switch on x86_64.
@@ -75,35 +93,10 @@ impl Drop for KernelStack {
     }
 }
 
-/// Initialize the stack frame for a new x86_64 thread.
-pub fn init_stack(stack: &mut [u8], entry: extern "C" fn(*mut u8), arg: *mut u8) -> u64 {
-    let stack_top = stack.as_ptr() as u64 + stack.len() as u64;
-    let stack_top = stack_top & !15; // 16-byte align stack top
-
-    let frame_size = core::mem::size_of::<StackFrame>() as u64;
-    let rsp = stack_top - frame_size;
-    let frame_ptr = rsp as *mut StackFrame;
-
-    // SAFETY: frame_ptr is within the allocated stack bounds.
-    unsafe {
-        frame_ptr.write(StackFrame {
-            r15: 0,
-            r14: 0,
-            r13: arg as u64,   // Argument for entry (stored in callee-saved r13)
-            r12: entry as u64, // Entry point function (stored in callee-saved r12)
-            rbx: 0,
-            rbp: 0,
-            rip: thread_bootstrapper as *const () as u64,
-        });
-    }
-
-    rsp
-}
-
 /// Initialize the kernel stack for a child thread created via `fork`.
 ///
 /// Sets up the child's `SyscallFrame` at the top of the stack with `rax = 0` (child return value)
-/// and user segment selectors, followed by a `StackFrame` pointing to `fork_child_return`.
+/// and user segment selectors, followed by a `StackFrame` pointing to `interrupt_return`.
 pub fn init_fork_stack(kstack: &mut KernelStack, parent_frame: &SyscallFrame) -> u64 {
     let kstack_top = kstack.top().as_u64();
     let syscall_frame_size = core::mem::size_of::<SyscallFrame>() as u64;
@@ -133,7 +126,7 @@ pub fn init_fork_stack(kstack: &mut KernelStack, parent_frame: &SyscallFrame) ->
             r12: 0,
             rbx: 0,
             rbp: 0,
-            rip: fork_child_return as *const () as u64,
+            rip: interrupt_return as *const () as u64,
         });
     }
 

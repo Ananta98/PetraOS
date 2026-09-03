@@ -93,7 +93,7 @@ pub fn cpu_id() -> u32 {
 
 /// Initialize execution stack for a new thread context.
 pub fn init_stack(stack: &mut [u8], entry: extern "C" fn(*mut u8), arg: *mut u8) -> u64 {
-    cpu::stack::init_stack(stack, entry, arg)
+    cpu::context::init(stack, entry, arg)
 }
 
 /// Switch CPU stack and execution context between two threads.

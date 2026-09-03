@@ -31,9 +31,9 @@ impl core::fmt::Debug for InterruptStackFrame {
     }
 }
 
-pub type HandlerFunc = extern "x86-interrupt" fn(&mut InterruptStackFrame);
-pub type HandlerFuncWithErrCode = extern "x86-interrupt" fn(&mut InterruptStackFrame, u64);
-pub type PageFaultHandlerFunc = extern "x86-interrupt" fn(&mut InterruptStackFrame, u64);
+pub type HandlerFunc = extern "C" fn(&mut InterruptStackFrame);
+pub type HandlerFuncWithErrCode = extern "C" fn(&mut InterruptStackFrame, u64);
+pub type PageFaultHandlerFunc = extern "C" fn(&mut InterruptStackFrame, u64);
 
 #[derive(Debug, Clone, Copy)]
 #[repr(C, packed)]

@@ -8,7 +8,7 @@
 use crate::arch::idt::InterruptStackFrame;
 use super::kill_user_process;
 
-pub extern "x86-interrupt" fn divide_by_zero_handler(stack_frame: &mut InterruptStackFrame) {
+pub extern "C" fn divide_by_zero_handler(stack_frame: &mut InterruptStackFrame) {
     if (stack_frame.code_segment & 3) == 3 {
         log::warn!(
             "User process divide by zero (#DE) at RIP {:#x}",
@@ -19,19 +19,19 @@ pub extern "x86-interrupt" fn divide_by_zero_handler(stack_frame: &mut Interrupt
     panic!("CPU EXCEPTION: DIVIDE BY ZERO (#DE)\n{}", stack_frame);
 }
 
-pub extern "x86-interrupt" fn debug_handler(stack_frame: &mut InterruptStackFrame) {
+pub extern "C" fn debug_handler(stack_frame: &mut InterruptStackFrame) {
     log::warn!("EXCEPTION: DEBUG (#DB)\n{}", stack_frame);
 }
 
-pub extern "x86-interrupt" fn nmi_handler(stack_frame: &mut InterruptStackFrame) {
+pub extern "C" fn nmi_handler(stack_frame: &mut InterruptStackFrame) {
     panic!("EXCEPTION: NON-MASKABLE INTERRUPT (#NMI)\n{}", stack_frame);
 }
 
-pub extern "x86-interrupt" fn breakpoint_handler(stack_frame: &mut InterruptStackFrame) {
+pub extern "C" fn breakpoint_handler(stack_frame: &mut InterruptStackFrame) {
     log::warn!("EXCEPTION: BREAKPOINT (#BP)\n{}", stack_frame);
 }
 
-pub extern "x86-interrupt" fn overflow_handler(stack_frame: &mut InterruptStackFrame) {
+pub extern "C" fn overflow_handler(stack_frame: &mut InterruptStackFrame) {
     if (stack_frame.code_segment & 3) == 3 {
         log::warn!(
             "User process overflow (#OF) at RIP {:#x}",
@@ -42,7 +42,7 @@ pub extern "x86-interrupt" fn overflow_handler(stack_frame: &mut InterruptStackF
     panic!("CPU EXCEPTION: OVERFLOW (#OF)\n{}", stack_frame);
 }
 
-pub extern "x86-interrupt" fn bound_range_handler(stack_frame: &mut InterruptStackFrame) {
+pub extern "C" fn bound_range_handler(stack_frame: &mut InterruptStackFrame) {
     if (stack_frame.code_segment & 3) == 3 {
         log::warn!(
             "User process bound range exceeded (#BR) at RIP {:#x}",
@@ -53,7 +53,7 @@ pub extern "x86-interrupt" fn bound_range_handler(stack_frame: &mut InterruptSta
     panic!("CPU EXCEPTION: BOUND RANGE EXCEEDED (#BR)\n{}", stack_frame);
 }
 
-pub extern "x86-interrupt" fn invalid_opcode_handler(stack_frame: &mut InterruptStackFrame) {
+pub extern "C" fn invalid_opcode_handler(stack_frame: &mut InterruptStackFrame) {
     if (stack_frame.code_segment & 3) == 3 {
         log::warn!(
             "User process invalid opcode (#UD) at RIP {:#x}",
@@ -64,11 +64,11 @@ pub extern "x86-interrupt" fn invalid_opcode_handler(stack_frame: &mut Interrupt
     panic!("CPU EXCEPTION: INVALID OPCODE (#UD)\n{}", stack_frame);
 }
 
-pub extern "x86-interrupt" fn device_not_available_handler(stack_frame: &mut InterruptStackFrame) {
+pub extern "C" fn device_not_available_handler(stack_frame: &mut InterruptStackFrame) {
     panic!("CPU EXCEPTION: DEVICE NOT AVAILABLE (#NM)\n{}", stack_frame);
 }
 
-pub extern "x86-interrupt" fn double_fault_handler(
+pub extern "C" fn double_fault_handler(
     stack_frame: &mut InterruptStackFrame,
     error_code: u64,
 ) {
@@ -79,7 +79,7 @@ pub extern "x86-interrupt" fn double_fault_handler(
     );
 }
 
-pub extern "x86-interrupt" fn invalid_tss_handler(
+pub extern "C" fn invalid_tss_handler(
     stack_frame: &mut InterruptStackFrame,
     error_code: u64,
 ) {
@@ -90,7 +90,7 @@ pub extern "x86-interrupt" fn invalid_tss_handler(
     );
 }
 
-pub extern "x86-interrupt" fn segment_not_present_handler(
+pub extern "C" fn segment_not_present_handler(
     stack_frame: &mut InterruptStackFrame,
     error_code: u64,
 ) {
@@ -101,7 +101,7 @@ pub extern "x86-interrupt" fn segment_not_present_handler(
     );
 }
 
-pub extern "x86-interrupt" fn stack_segment_fault_handler(
+pub extern "C" fn stack_segment_fault_handler(
     stack_frame: &mut InterruptStackFrame,
     error_code: u64,
 ) {
@@ -112,7 +112,7 @@ pub extern "x86-interrupt" fn stack_segment_fault_handler(
     );
 }
 
-pub extern "x86-interrupt" fn general_protection_fault_handler(
+pub extern "C" fn general_protection_fault_handler(
     stack_frame: &mut InterruptStackFrame,
     error_code: u64,
 ) {
@@ -131,7 +131,7 @@ pub extern "x86-interrupt" fn general_protection_fault_handler(
     );
 }
 
-pub extern "x86-interrupt" fn x87_floating_point_handler(stack_frame: &mut InterruptStackFrame) {
+pub extern "C" fn x87_floating_point_handler(stack_frame: &mut InterruptStackFrame) {
     if (stack_frame.code_segment & 3) == 3 {
         log::warn!(
             "User process x87 FPU error (#MF) at RIP {:#x}",
@@ -142,7 +142,7 @@ pub extern "x86-interrupt" fn x87_floating_point_handler(stack_frame: &mut Inter
     panic!("CPU EXCEPTION: x87 FPU FLOATING POINT ERROR (#MF)\n{}", stack_frame);
 }
 
-pub extern "x86-interrupt" fn alignment_check_handler(
+pub extern "C" fn alignment_check_handler(
     stack_frame: &mut InterruptStackFrame,
     error_code: u64,
 ) {
@@ -161,11 +161,11 @@ pub extern "x86-interrupt" fn alignment_check_handler(
     );
 }
 
-pub extern "x86-interrupt" fn machine_check_handler(stack_frame: &mut InterruptStackFrame) {
+pub extern "C" fn machine_check_handler(stack_frame: &mut InterruptStackFrame) {
     panic!("CPU EXCEPTION: MACHINE CHECK (#MC)\n{}", stack_frame);
 }
 
-pub extern "x86-interrupt" fn simd_floating_point_handler(stack_frame: &mut InterruptStackFrame) {
+pub extern "C" fn simd_floating_point_handler(stack_frame: &mut InterruptStackFrame) {
     if (stack_frame.code_segment & 3) == 3 {
         log::warn!(
             "User process SIMD exception (#XM) at RIP {:#x}",
@@ -179,13 +179,13 @@ pub extern "x86-interrupt" fn simd_floating_point_handler(stack_frame: &mut Inte
     );
 }
 
-pub extern "x86-interrupt" fn virtualization_exception_handler(
+pub extern "C" fn virtualization_exception_handler(
     stack_frame: &mut InterruptStackFrame,
 ) {
     panic!("CPU EXCEPTION: VIRTUALIZATION EXCEPTION (#VE)\n{}", stack_frame);
 }
 
-pub extern "x86-interrupt" fn control_protection_handler(
+pub extern "C" fn control_protection_handler(
     stack_frame: &mut InterruptStackFrame,
     error_code: u64,
 ) {

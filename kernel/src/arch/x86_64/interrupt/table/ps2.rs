@@ -11,7 +11,7 @@ use crate::drivers::char::keyboard;
 pub const KEYBOARD_VECTOR: u8 = 33;
 
 /// PS/2 Keyboard interrupt handler.
-pub extern "x86-interrupt" fn keyboard_handler(_stack_frame: &mut InterruptStackFrame) {
+pub extern "C" fn keyboard_handler(_stack_frame: &mut InterruptStackFrame) {
     // Drain pending bytes from 8042 controller output buffer.
     // Bit 0 of port 0x64 (OBF): Output buffer full
     // Bit 5 of port 0x64 (AUX): 0 = Keyboard (Port 1), 1 = Mouse (Port 2)

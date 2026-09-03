@@ -10,7 +10,7 @@ use crate::ipc::signal::SIGSEGV;
 use crate::mm::{PageFaultErrorCode, VirtAddr};
 use super::kill_user_process;
 
-pub extern "x86-interrupt" fn page_fault_handler(
+pub extern "C" fn page_fault_handler(
     stack_frame: &mut InterruptStackFrame,
     error_code: u64,
 ) {
