@@ -29,7 +29,9 @@ unsafe extern "C" fn ap_entry(cpu: &limine::mp::Cpu) -> ! {
     // SAFETY: called once per AP before any other hardware access.
     let tss_addr = gdt::init_per_cpu();
     unsafe {
-        CPU_TSS_POINTERS[lapic_id] = tss_addr;
+        if lapic_id < crate::arch::tss::MAX_CPUS {
+            CPU_TSS_POINTERS[lapic_id] = tss_addr;
+        }
         super::enable_sse();
     }
 

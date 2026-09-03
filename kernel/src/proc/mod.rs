@@ -4,10 +4,10 @@ pub mod thread;
 
 pub use loader::elf::{Elf, LoadedElf};
 pub use process::{
-    find_process, find_processes_by_pgid, next_pid, register_process, unregister_process,
-    Process, ProcessId, ProcessState, ProcessTable, PROCESS_TABLE,
+    PROCESS_TABLE, Process, ProcessId, ProcessState, ProcessTable, find_process,
+    find_processes_by_pgid, next_pid, register_process, unregister_process,
 };
-pub use thread::{thread_exit, Thread, ThreadContext, ThreadId, ThreadState};
+pub use thread::{Thread, ThreadContext, ThreadId, ThreadState};
 
 use crate::sync::Mutex;
 use alloc::sync::Arc;

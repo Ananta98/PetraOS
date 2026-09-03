@@ -2,6 +2,7 @@ pub mod acpi;
 pub mod cpu;
 pub mod interrupt;
 pub mod paging;
+pub mod sched;
 pub mod signal;
 pub mod syscall;
 pub mod timer;
@@ -16,6 +17,7 @@ pub use interrupt::idt;
 pub use interrupt::interrupts;
 pub use interrupt::lapic;
 pub use paging::ArchPageTable;
+pub use sched::{ThreadContext, arch_switch_context, switch_context, switch_context_to};
 pub use timer::lapic_timer;
 
 use core::arch::asm;
@@ -91,23 +93,13 @@ pub fn cpu_id() -> u32 {
     }
 }
 
-/// Initialize execution stack for a new thread context.
-pub fn init_stack(stack: &mut [u8], entry: extern "C" fn(*mut u8), arg: *mut u8) -> u64 {
-    cpu::context::init(stack, entry, arg)
-}
-
-/// Switch CPU stack and execution context between two threads.
-pub unsafe fn switch_context(prev_rsp_ptr: *mut u64, next_rsp: u64) {
-    unsafe {
-        cpu::context::switch_context(prev_rsp_ptr, next_rsp);
-    }
-}
-
-/// Switch CPU stack context to a target thread without saving previous context.
-pub unsafe fn switch_context_to(next_rsp: u64) -> ! {
-    unsafe {
-        cpu::context::switch_context_to(next_rsp);
-    }
+/// Returns the total number of CPU cores detected on the system.
+pub fn cpu_count() -> u32 {
+    crate::limine::MP_REQUEST
+        .get_response()
+        .map(|r| r.cpus().len() as u32)
+        .unwrap_or(1)
+        .max(1)
 }
 
 /// Main architecture hardware initialization entry point.

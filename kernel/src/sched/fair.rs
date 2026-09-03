@@ -35,8 +35,11 @@ pub struct EevdfEntity {
 
 /// The Earliest Eligible Virtual Deadline First (EEVDF) Fair Scheduler.
 pub struct EevdfScheduler {
-    /// The run queue of ready fair threads indexed by `ThreadId`.
-    run_queue: BTreeMap<ThreadId, EevdfEntity>,
+    /// Ordered run queue keyed by `(vdeadline, ThreadId)` for O(1)/O(log N) pick_next.
+    timeline: BTreeMap<(u64, ThreadId), EevdfEntity>,
+
+    /// Secondary index mapping `ThreadId` to `vdeadline` for O(log N) dequeue.
+    by_tid: BTreeMap<ThreadId, u64>,
 
     /// Monotonic system virtual time baseline.
     pub min_vruntime: u64,
@@ -46,7 +49,8 @@ impl EevdfScheduler {
     /// Creates a new, empty `EevdfScheduler`.
     pub const fn new() -> Self {
         Self {
-            run_queue: BTreeMap::new(),
+            timeline: BTreeMap::new(),
+            by_tid: BTreeMap::new(),
             min_vruntime: 0,
         }
     }
@@ -92,85 +96,124 @@ impl EevdfScheduler {
             thread,
         };
 
-        self.run_queue.insert(tid, entity);
+        self.timeline.insert((vdeadline, tid), entity);
+        self.by_tid.insert(tid, vdeadline);
     }
 
     /// Removes a thread from the fair run queue by its `ThreadId`.
     pub fn remove_thread(&mut self, tid: ThreadId) -> Option<Arc<Mutex<Thread>>> {
-        self.run_queue.remove(&tid).map(|e| e.thread)
+        let vdeadline = self.by_tid.remove(&tid)?;
+        self.timeline.remove(&(vdeadline, tid)).map(|e| e.thread)
     }
 
     /// Picks the next eligible fair thread with the earliest virtual deadline.
-    ///
-    /// Evaluation is performed directly against cached metadata without locking threads.
     pub fn pick_next(&mut self) -> Option<Arc<Mutex<Thread>>> {
-        if self.run_queue.is_empty() {
+        if self.timeline.is_empty() {
             return None;
         }
 
-        // Step 1: Find min vruntime across all queued threads to advance system virtual time if needed.
-        let mut min_rq_vruntime = u64::MAX;
-        for entity in self.run_queue.values() {
-            if entity.vruntime < min_rq_vruntime {
-                min_rq_vruntime = entity.vruntime;
-            }
-        }
-
-        if min_rq_vruntime != u64::MAX && self.min_vruntime < min_rq_vruntime {
+        // Advance min_vruntime if all queued threads have advanced past it
+        let min_rq_vruntime = self.timeline.values().map(|e| e.vruntime).min().unwrap_or(self.min_vruntime);
+        if min_rq_vruntime > self.min_vruntime {
             self.min_vruntime = min_rq_vruntime;
         }
 
-        // Step 2: Select the eligible thread with the earliest virtual deadline.
-        // Eligibility criterion: vruntime <= self.min_vruntime
-        let mut best_tid: Option<ThreadId> = None;
-        let mut best_deadline = u64::MAX;
-        let mut best_vruntime = u64::MAX;
-
-        for entity in self.run_queue.values() {
-            let is_eligible = entity.vruntime <= self.min_vruntime;
-
-            if is_eligible
-                && (entity.vdeadline < best_deadline
-                    || (entity.vdeadline == best_deadline && entity.vruntime < best_vruntime))
-            {
-                best_deadline = entity.vdeadline;
-                best_vruntime = entity.vruntime;
-                best_tid = Some(entity.tid);
+        // Find the eligible thread (vruntime <= min_vruntime) with earliest virtual deadline.
+        // Since timeline is ordered by vdeadline, the first eligible candidate has the earliest deadline.
+        let mut chosen_key = None;
+        for (&(vdeadline, tid), entity) in self.timeline.iter() {
+            if entity.vruntime <= self.min_vruntime {
+                chosen_key = Some((vdeadline, tid));
+                break;
             }
         }
 
-        // Fallback: If no thread was strictly eligible due to discrete tick advancement,
-        // select the one with the earliest deadline.
-        if best_tid.is_none() {
-            for entity in self.run_queue.values() {
-                if entity.vdeadline < best_deadline
-                    || (entity.vdeadline == best_deadline && entity.vruntime < best_vruntime)
-                {
-                    best_deadline = entity.vdeadline;
-                    best_vruntime = entity.vruntime;
-                    best_tid = Some(entity.tid);
-                }
-            }
+        // If no strictly eligible entity is found, pick the one with earliest deadline
+        let key = chosen_key.or_else(|| self.timeline.keys().next().copied())?;
+        let entity = self.timeline.remove(&key)?;
+        self.by_tid.remove(&entity.tid);
+
+        // Advance min_vruntime monotonically
+        if entity.vruntime > self.min_vruntime {
+            self.min_vruntime = entity.vruntime;
         }
 
-        let selected_tid = best_tid?;
-        let selected_entity = self.run_queue.remove(&selected_tid)?;
-
-        let mut t_lock = selected_entity.thread.lock();
-        t_lock.state = ThreadState::Running;
-        let selected_vruntime = t_lock.vruntime;
-        drop(t_lock);
-
-        // Advance system virtual time monotonically to selected thread's vruntime
-        if selected_vruntime > self.min_vruntime {
-            self.min_vruntime = selected_vruntime;
-        }
-
-        Some(selected_entity.thread)
+        Some(entity.thread)
     }
 
-    /// Checks if the fair run queue is empty.
+    /// Returns the number of runnable fair entities.
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.timeline.len()
+    }
+
+    /// Checks whether the fair run queue is empty.
+    #[inline]
     pub fn is_empty(&self) -> bool {
-        self.run_queue.is_empty()
+        self.timeline.is_empty()
+    }
+}
+
+/// Fair Scheduling Class Run Queue wrapper.
+pub struct FairClassRq {
+    pub scheduler: EevdfScheduler,
+}
+
+impl FairClassRq {
+    /// Creates a new `FairClassRq`.
+    pub const fn new() -> Self {
+        Self {
+            scheduler: EevdfScheduler::new(),
+        }
+    }
+
+    /// Returns the human-readable name of this scheduling class.
+    pub fn name(&self) -> &'static str {
+        "Fair"
+    }
+
+    /// Enqueues a runnable thread into this scheduling class run queue.
+    pub fn enqueue(&mut self, thread: Arc<Mutex<Thread>>) {
+        self.scheduler.add_thread(thread);
+    }
+
+    /// Removes a thread from the run queue by its `ThreadId`.
+    pub fn dequeue(&mut self, tid: ThreadId) -> Option<Arc<Mutex<Thread>>> {
+        self.scheduler.remove_thread(tid)
+    }
+
+    /// Picks the next thread to execute according to this class's policy.
+    pub fn pick_next(&mut self) -> Option<Arc<Mutex<Thread>>> {
+        self.scheduler.pick_next()
+    }
+
+    /// Returns the number of runnable threads queued in this class.
+    pub fn len(&self) -> usize {
+        self.scheduler.len()
+    }
+
+    /// Checks if this class run queue is empty.
+    pub fn is_empty(&self) -> bool {
+        self.scheduler.is_empty()
+    }
+
+    /// Updates virtual runtime and returns true if preemption should be triggered.
+    pub fn update_current(&mut self, thread: &mut Thread, delta_ns: u64) -> bool {
+        let weight = if thread.weight > 0 {
+            thread.weight
+        } else {
+            NICE_0_WEIGHT
+        };
+        let vruntime_delta = (delta_ns * NICE_0_WEIGHT as u64) / weight as u64;
+        thread.vruntime = thread.vruntime.saturating_add(vruntime_delta);
+
+        // Preempt when thread's accumulated virtual runtime reaches or exceeds its virtual deadline
+        thread.vruntime >= thread.vdeadline
+    }
+}
+
+impl Default for FairClassRq {
+    fn default() -> Self {
+        Self::new()
     }
 }

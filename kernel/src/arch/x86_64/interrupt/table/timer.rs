@@ -5,7 +5,7 @@
 use crate::arch::idt::InterruptStackFrame;
 
 /// LAPIC Timer interrupt handler.
-pub extern "C" fn timer_handler(_stack_frame: &mut InterruptStackFrame) {
+pub extern "C" fn timer_handler(stack_frame: &mut InterruptStackFrame) {
     let cpu_id = unsafe { crate::arch::interrupt::lapic::get_lapic().id() };
 
     // SAFETY: LAPIC is initialized and must acknowledge the timer tick with an EOI.
@@ -13,8 +13,13 @@ pub extern "C" fn timer_handler(_stack_frame: &mut InterruptStackFrame) {
         crate::arch::interrupt::lapic::get_lapic().end_of_interrupt();
     }
 
-    crate::sched::tick(cpu_id, 10_000_000);
-    crate::sched::schedule(true);
+    // Only allow preemption if interrupted in user space (Ring 3) or if kernel preemption is safe.
+    let is_user = (stack_frame.code_segment & 3) != 0;
+    let safe_to_preempt = is_user || crate::sched::can_preempt();
+
+    if safe_to_preempt {
+        crate::sched::tick(cpu_id, 10_000_000);
+    }
 }
 
 /// Spurious APIC interrupt handler.

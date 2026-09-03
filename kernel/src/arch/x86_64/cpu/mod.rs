@@ -1,4 +1,3 @@
-pub mod context;
 pub mod gdt;
 pub mod msr;
 pub mod ports;

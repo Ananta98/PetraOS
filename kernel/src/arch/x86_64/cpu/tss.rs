@@ -40,10 +40,10 @@ const STACK_SIZE: usize = 4096 * 5; // 20 KiB stack
 #[repr(align(16))]
 struct Stack([u8; STACK_SIZE]);
 
-static mut DOUBLE_FAULT_STACK: Stack = Stack([0; STACK_SIZE]);
-static mut EXCEPTION_STACK: Stack = Stack([0; STACK_SIZE]);
-
 pub const MAX_CPUS: usize = 8;
+
+static mut DOUBLE_FAULT_STACKS: [Stack; MAX_CPUS] = [const { Stack([0; STACK_SIZE]) }; MAX_CPUS];
+static mut EXCEPTION_STACKS: [Stack; MAX_CPUS] = [const { Stack([0; STACK_SIZE]) }; MAX_CPUS];
 
 pub static mut TSS: TaskStateSegment = TaskStateSegment::new();
 
@@ -68,18 +68,25 @@ impl CpuLocal {
 
 pub static mut CPU_LOCALS: [CpuLocal; MAX_CPUS] = [CpuLocal::new(); MAX_CPUS];
 
+/// Configure IST1 (Double Fault) and IST2 (Exception) for a specific CPU core.
+pub fn init_ist_for_cpu(cpu_id: usize, tss: &mut TaskStateSegment) {
+    if cpu_id < MAX_CPUS {
+        unsafe {
+            let df_stack_start = core::ptr::addr_of!(DOUBLE_FAULT_STACKS[cpu_id]) as u64;
+            let df_stack_end = df_stack_start + STACK_SIZE as u64;
+            tss.interrupt_stack_table[0] = VirtAddr::new(df_stack_end);
+
+            let exc_stack_start = core::ptr::addr_of!(EXCEPTION_STACKS[cpu_id]) as u64;
+            let exc_stack_end = exc_stack_start + STACK_SIZE as u64;
+            tss.interrupt_stack_table[1] = VirtAddr::new(exc_stack_end);
+        }
+    }
+}
+
 pub fn init() {
     unsafe {
-        let df_stack_start = core::ptr::addr_of!(DOUBLE_FAULT_STACK) as u64;
-        let df_stack_end = df_stack_start + STACK_SIZE as u64;
-        // IST1 is index 0
         let tss_mut = &mut *core::ptr::addr_of_mut!(TSS);
-        tss_mut.interrupt_stack_table[0] = VirtAddr::new(df_stack_end);
-
-        let exc_stack_start = core::ptr::addr_of!(EXCEPTION_STACK) as u64;
-        let exc_stack_end = exc_stack_start + STACK_SIZE as u64;
-        // IST2 is index 1
-        tss_mut.interrupt_stack_table[1] = VirtAddr::new(exc_stack_end);
+        init_ist_for_cpu(0, tss_mut);
 
         let bsp_tss_addr = core::ptr::addr_of!(TSS) as u64;
         let tss_ptrs = core::ptr::addr_of_mut!(CPU_TSS_POINTERS);
@@ -93,19 +100,19 @@ pub fn init() {
 pub fn set_rsp0(rsp: u64) {
     unsafe {
         let cpu_id = crate::arch::cpu_id() as usize;
-        if cpu_id < MAX_CPUS {
-            let tss_ptrs = core::ptr::addr_of_mut!(CPU_TSS_POINTERS);
-            let tss_addr = (*tss_ptrs)[cpu_id];
-            if tss_addr != 0 {
-                let tss_ptr = tss_addr as *mut TaskStateSegment;
-                (*tss_ptr).privilege_stack_table[0] = VirtAddr::new(rsp);
-            } else {
-                let tss_mut = &mut *core::ptr::addr_of_mut!(TSS);
-                tss_mut.privilege_stack_table[0] = VirtAddr::new(rsp);
-            }
+        let target_cpu = if cpu_id < MAX_CPUS { cpu_id } else { 0 };
 
-            let locals = core::ptr::addr_of_mut!(CPU_LOCALS);
-            (*locals)[cpu_id].kernel_rsp = rsp;
+        let tss_ptrs = core::ptr::addr_of_mut!(CPU_TSS_POINTERS);
+        let tss_addr = (*tss_ptrs)[target_cpu];
+        if tss_addr != 0 {
+            let tss_ptr = tss_addr as *mut TaskStateSegment;
+            (*tss_ptr).privilege_stack_table[0] = VirtAddr::new(rsp);
+        } else {
+            let tss_mut = &mut *core::ptr::addr_of_mut!(TSS);
+            tss_mut.privilege_stack_table[0] = VirtAddr::new(rsp);
         }
+
+        let locals = core::ptr::addr_of_mut!(CPU_LOCALS);
+        (*locals)[target_cpu].kernel_rsp = rsp;
     }
 }

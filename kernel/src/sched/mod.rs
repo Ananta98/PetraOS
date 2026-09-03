@@ -1,6 +1,6 @@
-//! Modular Hybrid Scheduler Subsystem for PetraOS.
+//! Modular Object-Oriented Per-CPU Scheduler Subsystem for PetraOS.
 //!
-//! Features a two-tier scheduling hierarchy:
+//! Features a two-tier scheduling hierarchy per CPU core:
 //! 1. **Real-Time (RT) Class**: Fixed-priority (`SCHED_FIFO`) and round-robin (`SCHED_RR`)
 //!    with 100 distinct priority levels (0..=99). Managed via lockless O(1) MPSC queues.
 //!    Real-time tasks strictly preempt fair tasks with zero lock contention on enqueue.
@@ -8,334 +8,327 @@
 //!    for normal tasks (`SCHED_OTHER` / `SCHED_NORMAL`), scaled by nice values (-20..19).
 //!
 //! Scheduling decisions avoid holding inner thread locks during queue traversal to
-//! completely prevent lock-inversion deadlocks.
+//! completely prevent lock-inversion deadlocks. Architecture context switching is
+//! cleanly abstracted into `crate::arch::sched`.
 
 pub mod fair;
 pub mod nice;
+pub mod percpu;
 pub mod policy;
+pub mod preempt;
 pub mod realtime;
 
-use crate::arch::cpu::context::{switch_context, switch_context_to};
-use crate::arch::cpu::{msr, tss};
-use crate::proc::thread::{Thread, ThreadId, ThreadState};
+use crate::proc::thread::{Thread, ThreadId};
 use crate::sync::Mutex;
 use alloc::sync::Arc;
+use alloc::vec::Vec;
 
-pub use fair::{BASE_SLICE_NS, EevdfScheduler};
+pub use fair::{BASE_SLICE_NS, EevdfEntity, EevdfScheduler, FairClassRq};
 pub use nice::{MAX_NICE, MIN_NICE, NICE_0_WEIGHT, Nice, nice_to_weight};
+pub use percpu::PerCpuRunQueue;
 pub use policy::{
     DEFAULT_RR_QUANTUM_NS, MAX_RT_PRIO, MIN_RT_PRIO, RT_PRIO_COUNT, RtPriority, SchedPolicy,
 };
-pub use realtime::{RtNode, RtRunQueue};
+pub use preempt::{
+    MAX_PREEMPT_CPUS, PreemptGuard, can_preempt, preempt_count, preempt_disable, preempt_enable,
+};
+pub use realtime::{RtClassRq, RtRunQueue};
 
-/// Maximum number of CPUs supported.
-pub const MAX_CPUS: usize = 8;
+/// Object-Oriented Per-CPU Scheduler manager.
+///
+/// Holds dynamically-allocated per-CPU run queues sized to the detected hardware CPU count.
+pub struct PerCpuScheduler {
+    /// Dynamically-managed per-CPU run queues.
+    queues: Mutex<Vec<Arc<Mutex<PerCpuRunQueue>>>>,
+}
 
-/// Lockless real-time run queues per CPU.
-static RT_QUEUES: [RtRunQueue; MAX_CPUS] = [
-    RtRunQueue::new(),
-    RtRunQueue::new(),
-    RtRunQueue::new(),
-    RtRunQueue::new(),
-    RtRunQueue::new(),
-    RtRunQueue::new(),
-    RtRunQueue::new(),
-    RtRunQueue::new(),
-];
+impl PerCpuScheduler {
+    /// Creates a new `PerCpuScheduler`. Run queues are populated lazily or via `init()`.
+    pub const fn new() -> Self {
+        Self {
+            queues: Mutex::new(Vec::new()),
+        }
+    }
 
-/// Global EEVDF fair scheduler instance.
-pub static FAIR_SCHEDULER: Mutex<EevdfScheduler> = Mutex::new(EevdfScheduler::new());
+    /// Explicitly pre-initializes run queues for all detected CPUs.
+    pub fn init(&self) {
+        let total = crate::arch::cpu_count() as usize;
+        let mut q = self.queues.lock();
+        if q.len() < total {
+            for i in q.len()..total {
+                q.push(Arc::new(Mutex::new(PerCpuRunQueue::new(i as u32))));
+            }
+        }
+    }
 
-/// The currently executing thread per CPU.
-static CURRENT_THREADS: [Mutex<Option<Arc<Mutex<Thread>>>>; MAX_CPUS] = [
-    Mutex::new(None),
-    Mutex::new(None),
-    Mutex::new(None),
-    Mutex::new(None),
-    Mutex::new(None),
-    Mutex::new(None),
-    Mutex::new(None),
-    Mutex::new(None),
-];
+    /// Obtains (or lazily initializes) the run queue for `cpu_id`.
+    #[inline]
+    fn queue_for_cpu(&self, cpu_id: u32) -> Arc<Mutex<PerCpuRunQueue>> {
+        let mut q = self.queues.lock();
+        let idx = cpu_id as usize;
+        if idx >= q.len() {
+            let target_len = (idx + 1).max(crate::arch::cpu_count() as usize);
+            for i in q.len()..target_len {
+                q.push(Arc::new(Mutex::new(PerCpuRunQueue::new(i as u32))));
+            }
+        }
+        q[idx].clone()
+    }
+
+    /// Obtains the currently executing thread on `cpu_id`.
+    pub fn current_thread_on_cpu(&self, cpu_id: u32) -> Option<Arc<Mutex<Thread>>> {
+        let rq = self.queue_for_cpu(cpu_id);
+        crate::arch::without_interrupts(|| rq.lock().current())
+    }
+
+    /// Sets the currently executing thread on `cpu_id`.
+    pub fn set_current_thread_on_cpu(&self, cpu_id: u32, thread: Option<Arc<Mutex<Thread>>>) {
+        let rq = self.queue_for_cpu(cpu_id);
+        crate::arch::without_interrupts(|| {
+            rq.lock().set_current(thread);
+        });
+    }
+
+    /// Enqueues a thread into the appropriate per-CPU run queue based on its policy.
+    pub fn add_thread(&self, thread: Arc<Mutex<Thread>>) {
+        let cpu_id = crate::arch::cpu_id();
+        let rq = self.queue_for_cpu(cpu_id);
+
+        crate::arch::without_interrupts(|| {
+            rq.lock().enqueue(thread);
+        });
+    }
+
+    /// Removes a thread from all scheduler run queues by its `ThreadId`.
+    pub fn remove_thread(&self, tid: ThreadId) -> Option<Arc<Mutex<Thread>>> {
+        let queues: Vec<Arc<Mutex<PerCpuRunQueue>>> = {
+            let mut q = self.queues.lock();
+            let total = crate::arch::cpu_count() as usize;
+            if q.len() < total {
+                for i in q.len()..total {
+                    q.push(Arc::new(Mutex::new(PerCpuRunQueue::new(i as u32))));
+                }
+            }
+            q.clone()
+        };
+
+        crate::arch::without_interrupts(|| {
+            for rq in queues {
+                if let Some(thread) = rq.lock().dequeue(tid) {
+                    return Some(thread);
+                }
+            }
+            None
+        })
+    }
+
+    /// Picks the next thread to run on `cpu_id` according to the class hierarchy:
+    ///
+    /// 1. **Real-Time (RT)**: Highest priority available in `RtClassRq`.
+    /// 2. **Fair (EEVDF)**: Earliest virtual deadline among eligible threads in `FairClassRq`.
+    pub fn pick_next(&self, cpu_id: u32) -> Option<Arc<Mutex<Thread>>> {
+        let rq = self.queue_for_cpu(cpu_id);
+        crate::arch::without_interrupts(|| rq.lock().pick_next())
+    }
+
+    /// Updates scheduling accounting on timer ticks.
+    pub fn tick(&self, cpu_id: u32, delta_ns: u64) {
+        let rq = self.queue_for_cpu(cpu_id);
+        let should_preempt = crate::arch::without_interrupts(|| {
+            rq.lock().tick(delta_ns)
+        });
+
+        if should_preempt {
+            self.schedule(true);
+        }
+    }
+
+    /// Voluntarily yields the current thread on `cpu_id`.
+    pub fn yield_current(&self, cpu_id: u32) {
+        let rq = self.queue_for_cpu(cpu_id);
+        crate::arch::without_interrupts(|| {
+            rq.lock().yield_current();
+        });
+    }
+
+    /// The main scheduling entry point.
+    ///
+    /// - If `yielding` is `true`: the current thread is returned to its run queue.
+    /// - If `yielding` is `false`: the current thread is blocked/exited and removed.
+    pub fn schedule(&self, yielding: bool) {
+        // Disable interrupts on local CPU during scheduling to prevent interrupt re-entry
+        let saved_flags = crate::arch::disable_interrupts();
+        let cpu_id = crate::arch::cpu_id();
+        let rq_arc = self.queue_for_cpu(cpu_id);
+
+        let mut rq = rq_arc.lock();
+        let prev = rq.current();
+
+        if yielding {
+            rq.yield_current();
+        } else {
+            rq.set_current(None);
+        }
+
+        let next = rq.pick_next();
+
+        match (prev, next) {
+            (Some(prev_thread), Some(next_thread)) => {
+                if Arc::ptr_eq(&prev_thread, &next_thread) {
+                    rq.set_current(Some(prev_thread));
+                    drop(rq);
+                    if saved_flags {
+                        crate::arch::enable_interrupts();
+                    }
+                    return;
+                }
+
+                rq.set_current(Some(next_thread.clone()));
+
+                // Extract next thread execution state
+                let (next_rsp, next_cr3, next_kstack_top, next_fs_base) = {
+                    let n = next_thread.lock();
+                    (
+                        n.context.rsp as u64,
+                        n.context.cr3 as u64,
+                        n.kernel_stack_top(),
+                        n.context.fs_base,
+                    )
+                };
+
+                // Save prev thread state and get pointer to save new RSP
+                let prev_rsp_ptr = {
+                    let mut p = prev_thread.lock();
+                    p.context.fs_base = crate::arch::cpu::msr::read_fs_base();
+                    &mut p.context.rsp as *mut usize as *mut u64
+                };
+
+                drop(rq);
+
+                // SAFETY: Context switch between two valid thread execution stacks.
+                unsafe {
+                    crate::arch::arch_switch_context(
+                        prev_rsp_ptr,
+                        next_rsp,
+                        next_cr3,
+                        next_kstack_top,
+                        next_fs_base,
+                    );
+                }
+
+                if saved_flags {
+                    crate::arch::enable_interrupts();
+                }
+            }
+
+            (None, Some(next_thread)) => {
+                rq.set_current(Some(next_thread.clone()));
+
+                let (next_rsp, next_cr3, next_kstack_top, next_fs_base) = {
+                    let n = next_thread.lock();
+                    (
+                        n.context.rsp as u64,
+                        n.context.cr3 as u64,
+                        n.kernel_stack_top(),
+                        n.context.fs_base,
+                    )
+                };
+
+                drop(rq);
+
+                // SAFETY: Context switch into initial thread stack.
+                unsafe {
+                    crate::arch::arch_switch_context(
+                        core::ptr::null_mut(),
+                        next_rsp,
+                        next_cr3,
+                        next_kstack_top,
+                        next_fs_base,
+                    );
+                }
+            }
+
+            (Some(prev_thread), None) => {
+                if yielding {
+                    // If yielding and no other thread is runnable, keep running the current thread
+                    rq.set_current(Some(prev_thread));
+                    drop(rq);
+                    if saved_flags {
+                        crate::arch::enable_interrupts();
+                    }
+                    return;
+                }
+
+                drop(rq);
+                // If blocked/exited and no runnable threads remain, wait for next interrupt
+                if saved_flags {
+                    crate::arch::enable_interrupts();
+                }
+                crate::arch::sched::idle();
+            }
+
+            (None, None) => {
+                drop(rq);
+                if saved_flags {
+                    crate::arch::enable_interrupts();
+                }
+            }
+        }
+    }
+}
+
+impl Default for PerCpuScheduler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Global Per-CPU Scheduler instance.
+pub static SCHEDULER: PerCpuScheduler = PerCpuScheduler::new();
+
+/// Initializes the global per-CPU scheduler for all detected CPUs.
+pub fn init() {
+    SCHEDULER.init();
+}
+
+// ── Public Scheduler API ──────────────────────────────────────────────────────
 
 /// Obtains the currently executing thread on `cpu_id`.
 pub fn current_thread_on_cpu(cpu_id: u32) -> Option<Arc<Mutex<Thread>>> {
-    if (cpu_id as usize) < MAX_CPUS {
-        crate::arch::without_interrupts(|| CURRENT_THREADS[cpu_id as usize].lock().clone())
-    } else {
-        None
-    }
+    SCHEDULER.current_thread_on_cpu(cpu_id)
 }
 
 /// Sets the currently executing thread on `cpu_id`.
 pub fn set_current_thread_on_cpu(cpu_id: u32, thread: Option<Arc<Mutex<Thread>>>) {
-    if (cpu_id as usize) < MAX_CPUS {
-        crate::arch::without_interrupts(|| {
-            *CURRENT_THREADS[cpu_id as usize].lock() = thread;
-        });
-    }
+    SCHEDULER.set_current_thread_on_cpu(cpu_id, thread);
 }
 
-/// Enqueues a thread into the appropriate scheduling class based on its policy.
-///
-/// Real-time threads are enqueued locklessly into `RT_QUEUES`.
-/// Fair threads are enqueued into `FAIR_SCHEDULER`.
+/// Enqueues a thread into the appropriate per-CPU scheduling class.
 pub fn add_thread(thread: Arc<Mutex<Thread>>) {
-    let (policy, rt_prio) = {
-        let t_lock = thread.lock();
-        (t_lock.sched_policy, t_lock.rt_priority)
-    };
-
-    if policy.is_realtime() {
-        let cpu_id = crate::arch::cpu_id() as usize;
-        let target_cpu = if cpu_id < MAX_CPUS { cpu_id } else { 0 };
-        RT_QUEUES[target_cpu].enqueue(thread, rt_prio);
-    } else {
-        crate::arch::without_interrupts(|| {
-            FAIR_SCHEDULER.lock().add_thread(thread);
-        });
-    }
+    SCHEDULER.add_thread(thread);
 }
 
 /// Removes a thread from the scheduler run queues by its `ThreadId`.
 pub fn remove_thread(tid: ThreadId) -> Option<Arc<Mutex<Thread>>> {
-    crate::arch::without_interrupts(|| FAIR_SCHEDULER.lock().remove_thread(tid))
+    SCHEDULER.remove_thread(tid)
 }
 
-/// Picks the next thread to run on `cpu_id` according to the class hierarchy:
-///
-/// 1. **Real-Time (RT)**: Highest priority available in lockless `RT_QUEUES`.
-/// 2. **Fair (EEVDF)**: Earliest virtual deadline among eligible threads in `FAIR_SCHEDULER`.
+/// Picks the next thread to run on `cpu_id`.
 pub fn pick_next(cpu_id: u32) -> Option<Arc<Mutex<Thread>>> {
-    // Restrict scheduling to BSP CPU 0 until secondary AP core thread stacks are configured
-    if cpu_id != 0 {
-        return None;
-    }
-
-    let cpu_idx = cpu_id as usize;
-
-    // 1. Try real-time run queue first (strictly preempts fair scheduling)
-    if let Some(rt_thread) = RT_QUEUES[cpu_idx].dequeue_highest() {
-        let mut t_lock = rt_thread.lock();
-        t_lock.state = ThreadState::Running;
-        drop(t_lock);
-        return Some(rt_thread);
-    }
-
-    // 2. Fall back to EEVDF fair scheduler
-    FAIR_SCHEDULER.lock().pick_next()
+    SCHEDULER.pick_next(cpu_id)
 }
 
 /// Updates scheduling accounting on timer ticks.
-///
-/// For `SCHED_RR`: decrements time quantum and triggers preemption if expired.
-/// For `SCHED_OTHER`: advances virtual runtime in EEVDF.
 pub fn tick(cpu_id: u32, delta_ns: u64) {
-    if let Some(thread) = current_thread_on_cpu(cpu_id) {
-        let mut t_lock = thread.lock();
-        match t_lock.sched_policy {
-            SchedPolicy::RoundRobin => {
-                if t_lock.rr_remaining_ns <= delta_ns {
-                    t_lock.rr_remaining_ns = DEFAULT_RR_QUANTUM_NS;
-                    drop(t_lock);
-                    // Quantum expired, yield CPU
-                    schedule(true);
-                } else {
-                    t_lock.rr_remaining_ns -= delta_ns;
-                }
-            }
-            SchedPolicy::Fair => {
-                let weight = if t_lock.weight > 0 {
-                    t_lock.weight
-                } else {
-                    NICE_0_WEIGHT
-                };
-                let vruntime_delta = (delta_ns * NICE_0_WEIGHT as u64) / weight as u64;
-                t_lock.vruntime = t_lock.vruntime.saturating_add(vruntime_delta);
-            }
-            SchedPolicy::Fifo => {
-                // SCHED_FIFO runs until voluntary yield, block, or preemption by higher RT priority.
-            }
-        }
-    }
+    SCHEDULER.tick(cpu_id, delta_ns);
 }
 
 /// Voluntarily yields the current thread on `cpu_id`.
 pub fn yield_current(cpu_id: u32) {
-    if let Some(thread) = current_thread_on_cpu(cpu_id) {
-        set_current_thread_on_cpu(cpu_id, None);
-
-        let mut t_lock = thread.lock();
-        let policy = t_lock.sched_policy;
-        let rt_prio = t_lock.rt_priority;
-
-        match policy {
-            SchedPolicy::Fair => {
-                let weight = if t_lock.weight > 0 {
-                    t_lock.weight
-                } else {
-                    NICE_0_WEIGHT
-                };
-                let slice_ns = if t_lock.slice_ns > 0 {
-                    t_lock.slice_ns
-                } else {
-                    BASE_SLICE_NS
-                };
-                let vslice = (slice_ns * NICE_0_WEIGHT as u64) / weight as u64;
-
-                let min_vr = FAIR_SCHEDULER.lock().min_vruntime;
-                t_lock.vruntime = t_lock.vruntime.max(min_vr).saturating_add(vslice);
-                t_lock.vdeadline = t_lock.vruntime.saturating_add(vslice);
-                t_lock.state = ThreadState::Ready;
-                drop(t_lock);
-
-                FAIR_SCHEDULER.lock().add_thread(thread);
-            }
-            SchedPolicy::RoundRobin => {
-                t_lock.rr_remaining_ns = DEFAULT_RR_QUANTUM_NS;
-                t_lock.state = ThreadState::Ready;
-                drop(t_lock);
-
-                RT_QUEUES[cpu_id as usize].enqueue(thread, rt_prio);
-            }
-            SchedPolicy::Fifo => {
-                t_lock.state = ThreadState::Ready;
-                drop(t_lock);
-
-                RT_QUEUES[cpu_id as usize].enqueue(thread, rt_prio);
-            }
-        }
-    }
+    SCHEDULER.yield_current(cpu_id);
 }
 
 /// The main scheduling entry point.
-///
-/// - If `yielding` is `true`: the current thread is returned to its run queue.
-/// - If `yielding` is `false`: the current thread is blocked/exited and removed.
 pub fn schedule(yielding: bool) {
-    // Disable interrupts on local CPU during scheduling to prevent interrupt re-entry
-    let saved_flags = crate::arch::disable_interrupts();
-    let cpu_id = crate::arch::cpu_id();
-
-    let prev_thread = current_thread_on_cpu(cpu_id);
-
-    if yielding {
-        yield_current(cpu_id);
-    } else {
-        set_current_thread_on_cpu(cpu_id, None);
-    }
-
-    let next_thread = pick_next(cpu_id);
-
-    match (prev_thread, next_thread) {
-        (Some(prev), Some(next)) => {
-            if Arc::ptr_eq(&prev, &next) {
-                set_current_thread_on_cpu(cpu_id, Some(prev));
-                if saved_flags {
-                    crate::arch::enable_interrupts();
-                }
-                return;
-            }
-
-            set_current_thread_on_cpu(cpu_id, Some(next.clone()));
-
-            let prev_rsp_ptr = {
-                let mut p = prev.lock();
-                p.context.fs_base = crate::arch::cpu::msr::read_fs_base();
-                &mut p.context.rsp as *mut usize as *mut u64
-            };
-
-            let (next_rsp, next_cr3, next_kstack_top, next_fs_base) = {
-                let n = next.lock();
-                (
-                    n.context.rsp as u64,
-                    n.context.cr3 as u64,
-                    n.kernel_stack_top(),
-                    n.context.fs_base,
-                )
-            };
-
-            // Switch address space if needed
-            if next_cr3 != 0 {
-                let active_cr3 = crate::arch::active_address_space_root();
-                if next_cr3 != active_cr3 {
-                    // SAFETY: next_cr3 is a verified PML4 address space root.
-                    unsafe {
-                        crate::arch::set_address_space_root(next_cr3);
-                    }
-                }
-            }
-
-            // Restore TLS base register
-            msr::write_fs_base(next_fs_base);
-
-            // Update TSS RSP0 for Ring 3 transitions
-            if next_kstack_top != 0 {
-                tss::set_rsp0(next_kstack_top);
-            }
-
-            // SAFETY: Context switch between two valid thread execution stacks.
-            unsafe { switch_context(prev_rsp_ptr, next_rsp) };
-
-            if saved_flags {
-                crate::arch::enable_interrupts();
-            }
-        }
-
-        (None, Some(next)) => {
-            set_current_thread_on_cpu(cpu_id, Some(next.clone()));
-
-            let (next_rsp, next_cr3, next_kstack_top, next_fs_base) = {
-                let n = next.lock();
-                (
-                    n.context.rsp as u64,
-                    n.context.cr3 as u64,
-                    n.kernel_stack_top(),
-                    n.context.fs_base,
-                )
-            };
-
-            if next_cr3 != 0 {
-                let active_cr3 = crate::arch::active_address_space_root();
-                if next_cr3 != active_cr3 {
-                    // SAFETY: next_cr3 is a verified PML4 address space root.
-                    unsafe {
-                        crate::arch::set_address_space_root(next_cr3);
-                    }
-                }
-            }
-
-            msr::write_fs_base(next_fs_base);
-
-            if next_kstack_top != 0 {
-                tss::set_rsp0(next_kstack_top);
-            }
-
-            // SAFETY: Context switch into initial thread stack.
-            unsafe { switch_context_to(next_rsp) };
-        }
-
-        (Some(prev), None) => {
-            if yielding {
-                // If yielding and no other thread is runnable, keep running the current thread
-                set_current_thread_on_cpu(cpu_id, Some(prev));
-                if saved_flags {
-                    crate::arch::enable_interrupts();
-                }
-                return;
-            }
-
-            // If blocked/exited and no runnable threads remain, wait for next interrupt
-            if saved_flags {
-                crate::arch::enable_interrupts();
-            }
-            crate::arch::idle();
-        }
-
-        (None, None) => {
-            if saved_flags {
-                crate::arch::enable_interrupts();
-            }
-        }
-    }
+    SCHEDULER.schedule(yielding);
 }

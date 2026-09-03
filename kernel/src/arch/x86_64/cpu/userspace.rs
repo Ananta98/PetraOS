@@ -30,14 +30,6 @@ pub unsafe fn jump_to_userspace(
     kernel_rsp0: u64,
     cr3: u64,
 ) -> ! {
-    log::info!(
-        "[Userspace Jump] Transitioning CPU to Ring 3: RIP={:#x}, RSP={:#x}, Kernel RSP0={:#x}, CR3={:#x}",
-        entry_point,
-        stack_pointer,
-        kernel_rsp0,
-        cr3
-    );
-
     // Configure TSS RSP0 for user mode interrupts and syscalls
     super::tss::set_rsp0(kernel_rsp0);
 
@@ -67,5 +59,3 @@ pub unsafe fn jump_to_userspace(
         );
     }
 }
-
-

@@ -28,6 +28,7 @@ unsafe extern "C" fn kmain() -> ! {
     logger::init();
     mm::init();
     arch::init();
+    sched::init();
     tty::init();
     modules::init();
     proc::process::init_proc::run_init_process();
