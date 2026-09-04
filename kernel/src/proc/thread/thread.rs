@@ -71,6 +71,9 @@ pub struct Thread {
     /// Pending signals directed to this specific thread
     pub pending_signals: PendingSignals,
 
+    /// CPU affinity mask (bitmask of allowed CPUs, default !0 = all CPUs)
+    pub affinity: u64,
+
     /// State of the thread
     pub state: ThreadState,
 
@@ -98,6 +101,7 @@ impl Thread {
             weight: effective_weight,
             sig_mask: 0,
             pending_signals: PendingSignals::new(),
+            affinity: !0u64,
             state: ThreadState::Creating,
             exit_code: None,
         }

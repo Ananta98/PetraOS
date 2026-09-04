@@ -1,7 +1,7 @@
 //! Architecture-specific system call numbering and dispatch table for x86_64 Linux ABI.
 
 use crate::define_syscall_table;
-use crate::syscalls::{arch_prctl, fs, ioctl, ipc, mm, net, proc, signals, sync, sys_info, time};
+use crate::syscalls::{arch_prctl, fs, ioctl, ipc, mm, net, proc, sched, signals, sync, sys_info, time};
 
 // Entries in SYSCALL_TABLE must be kept sorted by system call number for binary search.
 define_syscall_table! {
@@ -102,9 +102,17 @@ define_syscall_table! {
     SYS_GETGROUPS      = 115 => ("getgroups",      proc::sys_getgroups),
     SYS_STATFS         = 137 => ("statfs",         fs::sys_statfs),
     SYS_FSTATFS        = 138 => ("fstatfs",        fs::sys_fstatfs),
+    SYS_SCHED_SETPARAM = 142 => ("sched_setparam", sched::sys_sched_setparam),
+    SYS_SCHED_GETPARAM = 143 => ("sched_getparam", sched::sys_sched_getparam),
+    SYS_SCHED_SETSCHEDULER = 144 => ("sched_setscheduler", sched::sys_sched_setscheduler),
+    SYS_SCHED_GETSCHEDULER = 145 => ("sched_getscheduler", sched::sys_sched_getscheduler),
+    SYS_SCHED_GET_PRIORITY_MAX = 146 => ("sched_get_priority_max", sched::sys_sched_get_priority_max),
+    SYS_SCHED_GET_PRIORITY_MIN = 147 => ("sched_get_priority_min", sched::sys_sched_get_priority_min),
     SYS_ARCH_PRCTL     = 158 => ("arch_prctl",     arch_prctl::sys_arch_prctl),
     SYS_SETRLIMIT      = 160 => ("setrlimit",      proc::sys_setrlimit),
     SYS_FUTEX          = 202 => ("futex",          sync::sys_futex),
+    SYS_SCHED_SETAFFINITY = 203 => ("sched_setaffinity", sched::sys_sched_setaffinity),
+    SYS_SCHED_GETAFFINITY = 204 => ("sched_getaffinity", sched::sys_sched_getaffinity),
     SYS_ISATTY         = 215 => ("isatty",         ioctl::sys_isatty),
     SYS_GETDENTS64     = 217 => ("getdents64",     fs::sys_getdents64),
     SYS_SEMTIMEDOP     = 220 => ("semtimedop",     ipc::sys_semtimedop),
@@ -131,5 +139,7 @@ define_syscall_table! {
     SYS_DUP3           = 292 => ("dup3",           fs::sys_dup3),
     SYS_PIPE2          = 293 => ("pipe2",          fs::sys_pipe2),
     SYS_PRLIMIT64      = 302 => ("prlimit64",      proc::sys_prlimit64),
+    SYS_SCHED_SETATTR  = 314 => ("sched_setattr",  sched::sys_sched_setattr),
+    SYS_SCHED_GETATTR  = 315 => ("sched_getattr",  sched::sys_sched_getattr),
     SYS_RENAMEAT2      = 316 => ("renameat2",      fs::sys_renameat2),
 }

@@ -10,7 +10,7 @@ pub use init_proc::{DEFAULT_INIT_EXEC_PATHS, create_init_process, run_init_proce
 pub use pid::{next_pid, ProcessId};
 pub use process::{Process, ProcessState};
 pub use process_table::{
-    find_process, find_processes_by_pgid, register_process, unregister_process, ProcessTable,
-    PROCESS_TABLE,
+    all_processes, find_process, find_processes_by_pgid, register_process, unregister_process,
+    ProcessTable, PROCESS_TABLE,
 };
 

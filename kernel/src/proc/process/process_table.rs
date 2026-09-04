@@ -43,6 +43,11 @@ impl ProcessTable {
             .cloned()
             .collect()
     }
+
+    /// Return all active processes in the system.
+    pub fn all(&self) -> Vec<Arc<Mutex<Process>>> {
+        self.table.lock().values().cloned().collect()
+    }
 }
 
 /// Global static instance of the ProcessTable.
@@ -66,4 +71,9 @@ pub fn find_process(pid: ProcessId) -> Option<Arc<Mutex<Process>>> {
 /// Find all processes belonging to a process group.
 pub fn find_processes_by_pgid(pgid: ProcessId) -> Vec<Arc<Mutex<Process>>> {
     PROCESS_TABLE.find_by_pgid(pgid)
+}
+
+/// Return all active processes in the global process table.
+pub fn all_processes() -> Vec<Arc<Mutex<Process>>> {
+    PROCESS_TABLE.all()
 }

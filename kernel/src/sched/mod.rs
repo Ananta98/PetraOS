@@ -89,10 +89,26 @@ impl PerCpuScheduler {
         });
     }
 
-    /// Enqueues a thread into the appropriate per-CPU run queue based on its policy.
+    /// Enqueues a thread into the appropriate per-CPU run queue based on its policy and CPU affinity.
     pub fn add_thread(&self, thread: Arc<Mutex<Thread>>) {
-        let cpu_id = crate::arch::cpu_id();
-        let rq = self.queue_for_cpu(cpu_id);
+        let total_cpus = crate::arch::cpu_count();
+        let current_cpu = crate::arch::cpu_id();
+        let affinity = thread.lock().affinity;
+
+        let target_cpu = if (affinity & (1u64 << current_cpu)) != 0 {
+            current_cpu
+        } else {
+            let mut chosen = current_cpu;
+            for i in 0..total_cpus {
+                if (affinity & (1u64 << i)) != 0 {
+                    chosen = i;
+                    break;
+                }
+            }
+            chosen
+        };
+
+        let rq = self.queue_for_cpu(target_cpu);
 
         crate::arch::without_interrupts(|| {
             rq.lock().enqueue(thread);

@@ -4,8 +4,8 @@ pub mod thread;
 
 pub use loader::elf::{Elf, LoadedElf};
 pub use process::{
-    PROCESS_TABLE, Process, ProcessId, ProcessState, ProcessTable, find_process,
-    find_processes_by_pgid, next_pid, register_process, unregister_process,
+    all_processes, find_process, find_processes_by_pgid, next_pid, register_process,
+    unregister_process, Process, ProcessId, ProcessState, ProcessTable, PROCESS_TABLE,
 };
 pub use thread::{Thread, ThreadContext, ThreadId, ThreadState};
 
