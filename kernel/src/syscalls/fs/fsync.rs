@@ -1,6 +1,5 @@
 //! System calls for synchronizing file data with storage (`fsync`, `fdatasync`).
 
-use super::*;
 use crate::arch::syscall::syscall::SyscallFrame;
 use crate::syscalls::{SyscallError, SyscallResult};
 

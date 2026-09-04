@@ -1,9 +1,7 @@
 //! sys_rt_sigreturn system call handler.
 
-use super::*;
 use crate::syscalls::{SyscallError, SyscallResult};
 use crate::arch::syscall::syscall::SyscallFrame;
-use crate::ipc::signal::{is_uncatchable, SigAction, SigSet};
 
 
 /// `sys_rt_sigreturn` (SYS_RT_SIGRETURN = 15)

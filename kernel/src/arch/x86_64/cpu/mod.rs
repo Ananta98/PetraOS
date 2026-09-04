@@ -1,3 +1,4 @@
+pub mod control;
 pub mod gdt;
 pub mod msr;
 pub mod ports;
@@ -6,6 +7,7 @@ pub mod smp;
 pub mod stack;
 pub mod tss;
 pub mod userspace;
+
 
 use core::arch::asm;
 

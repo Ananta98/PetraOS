@@ -35,7 +35,6 @@ use alloc::vec::Vec;
 use core::sync::atomic::AtomicU64;
 
 use crate::device::{DEVICE_MANAGER, Device, DeviceType};
-use crate::fs::ramfs::RamDirFileOps;
 use crate::fs::vfs::dentry::Dentry;
 use crate::fs::vfs::mount::MOUNT_TABLE;
 use crate::fs::vfs::types::{

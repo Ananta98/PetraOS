@@ -1,13 +1,7 @@
 //! sys_umask system call handler.
 
-use super::*;
 use crate::syscalls::{SyscallError, SyscallResult};
 use crate::arch::syscall::syscall::SyscallFrame;
-use crate::fs::File;
-use crate::fs::vfs::types::{InodeType, LinuxStat, SeekWhence, Stat, StatFs};
-use alloc::string::String;
-use alloc::sync::Arc;
-use alloc::vec::Vec;
 
 
 /// `sys_umask` (SYS_UMASK = 95)

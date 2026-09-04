@@ -138,30 +138,81 @@ macro_rules! make_interrupt_stub_err {
 }
 
 // Stubs for CPU exceptions (0..=7)
-make_interrupt_stub!(stub_divide_by_zero, super::table::exceptions::divide_by_zero_handler);
+make_interrupt_stub!(
+    stub_divide_by_zero,
+    super::table::exceptions::divide_by_zero_handler
+);
 make_interrupt_stub!(stub_debug, super::table::exceptions::debug_handler);
 make_interrupt_stub!(stub_nmi, super::table::exceptions::nmi_handler);
-make_interrupt_stub!(stub_breakpoint, super::table::exceptions::breakpoint_handler);
+make_interrupt_stub!(
+    stub_breakpoint,
+    super::table::exceptions::breakpoint_handler
+);
 make_interrupt_stub!(stub_overflow, super::table::exceptions::overflow_handler);
-make_interrupt_stub!(stub_bound_range, super::table::exceptions::bound_range_handler);
-make_interrupt_stub!(stub_invalid_opcode, super::table::exceptions::invalid_opcode_handler);
-make_interrupt_stub!(stub_device_not_available, super::table::exceptions::device_not_available_handler);
+make_interrupt_stub!(
+    stub_bound_range,
+    super::table::exceptions::bound_range_handler
+);
+make_interrupt_stub!(
+    stub_invalid_opcode,
+    super::table::exceptions::invalid_opcode_handler
+);
+make_interrupt_stub!(
+    stub_device_not_available,
+    super::table::exceptions::device_not_available_handler
+);
 
 // Stubs for CPU exceptions with error code
-make_interrupt_stub_err!(stub_double_fault, super::table::exceptions::double_fault_handler);
-make_interrupt_stub_err!(stub_invalid_tss, super::table::exceptions::invalid_tss_handler);
-make_interrupt_stub_err!(stub_segment_not_present, super::table::exceptions::segment_not_present_handler);
-make_interrupt_stub_err!(stub_stack_segment_fault, super::table::exceptions::stack_segment_fault_handler);
-make_interrupt_stub_err!(stub_general_protection_fault, super::table::exceptions::general_protection_fault_handler);
-make_interrupt_stub_err!(stub_page_fault, super::table::page_fault::page_fault_handler);
+make_interrupt_stub_err!(
+    stub_double_fault,
+    super::table::exceptions::double_fault_handler
+);
+make_interrupt_stub_err!(
+    stub_invalid_tss,
+    super::table::exceptions::invalid_tss_handler
+);
+make_interrupt_stub_err!(
+    stub_segment_not_present,
+    super::table::exceptions::segment_not_present_handler
+);
+make_interrupt_stub_err!(
+    stub_stack_segment_fault,
+    super::table::exceptions::stack_segment_fault_handler
+);
+make_interrupt_stub_err!(
+    stub_general_protection_fault,
+    super::table::exceptions::general_protection_fault_handler
+);
+make_interrupt_stub_err!(
+    stub_page_fault,
+    super::table::page_fault::page_fault_handler
+);
 
 // Architecture exceptions (16..=21)
-make_interrupt_stub!(stub_x87_floating_point, super::table::exceptions::x87_floating_point_handler);
-make_interrupt_stub_err!(stub_alignment_check, super::table::exceptions::alignment_check_handler);
-make_interrupt_stub!(stub_machine_check, super::table::exceptions::machine_check_handler);
-make_interrupt_stub!(stub_simd_floating_point, super::table::exceptions::simd_floating_point_handler);
-make_interrupt_stub!(stub_virtualization_exception, super::table::exceptions::virtualization_exception_handler);
-make_interrupt_stub_err!(stub_control_protection, super::table::exceptions::control_protection_handler);
+make_interrupt_stub!(
+    stub_x87_floating_point,
+    super::table::exceptions::x87_floating_point_handler
+);
+make_interrupt_stub_err!(
+    stub_alignment_check,
+    super::table::exceptions::alignment_check_handler
+);
+make_interrupt_stub!(
+    stub_machine_check,
+    super::table::exceptions::machine_check_handler
+);
+make_interrupt_stub!(
+    stub_simd_floating_point,
+    super::table::exceptions::simd_floating_point_handler
+);
+make_interrupt_stub!(
+    stub_virtualization_exception,
+    super::table::exceptions::virtualization_exception_handler
+);
+make_interrupt_stub_err!(
+    stub_control_protection,
+    super::table::exceptions::control_protection_handler
+);
 
 // Hardware IRQs
 make_interrupt_stub!(stub_timer, super::table::timer::timer_handler);

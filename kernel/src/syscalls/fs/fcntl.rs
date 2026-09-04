@@ -1,6 +1,5 @@
 //! System calls for file control and locking (`fcntl`, `flock`).
 
-use super::*;
 use crate::arch::syscall::syscall::SyscallFrame;
 use crate::syscalls::{SyscallError, SyscallResult};
 

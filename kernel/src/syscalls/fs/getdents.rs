@@ -1,6 +1,5 @@
 //! System calls for reading directory entries (`getdents64`).
 
-use super::*;
 use crate::arch::syscall::syscall::SyscallFrame;
 use crate::fs::vfs::types::InodeType;
 use crate::syscalls::{SyscallError, SyscallResult, UserPtr};

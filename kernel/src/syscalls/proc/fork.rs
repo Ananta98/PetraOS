@@ -1,6 +1,5 @@
 //! Process creation system calls (`fork`, `vfork`).
 
-use super::*;
 use crate::arch::syscall::syscall::SyscallFrame;
 use crate::syscalls::{SyscallError, SyscallResult};
 

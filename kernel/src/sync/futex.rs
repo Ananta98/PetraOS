@@ -7,7 +7,7 @@
 //! the kernel. When contention occurs, threads invoke `sys_futex` to block or wake
 //! waiting execution contexts via the [`FutexManager`].
 
-use crate::proc::thread::{Thread, ThreadId, ThreadState};
+use crate::proc::thread::{Thread, ThreadId};
 use crate::sync::Mutex;
 use alloc::collections::{BTreeMap, VecDeque};
 use alloc::sync::Arc;

@@ -1,7 +1,5 @@
 //! System call handler for `arch_prctl` (x86_64 architecture-specific control).
 
-use crate::arch::syscall::SyscallFrame;
-use crate::syscalls::{SyscallError, SyscallResult, UserPtr};
 
 // ── Modular syscall submodules ──────────────────────────────────────────
 pub mod arch_prctl;

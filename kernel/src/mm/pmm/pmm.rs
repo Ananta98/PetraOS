@@ -124,18 +124,6 @@ impl PhysicalMemoryManagement {
             allocator.free_initial_region(start, num_pages);
         }
 
-        log::info!("Physical Memory Manager (PMM) Initialized.");
-        log::info!(
-            "  Total Usable Memory: {} MB ({} pages)",
-            allocator.total_pages() * 4 / 1024,
-            allocator.total_pages()
-        );
-        log::info!(
-            "  Free Memory:         {} MB ({} pages)",
-            allocator.free_pages() * 4 / 1024,
-            allocator.free_pages()
-        );
-
         *self.allocator.lock() = Some(allocator);
     }
 

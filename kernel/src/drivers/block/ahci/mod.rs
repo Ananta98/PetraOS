@@ -201,7 +201,7 @@ impl AhciDriver {
         }
 
         let byte_count = sector_count as u32 * 512;
-        let mut streamer = DmaStreamer::new(byte_count as usize, DmaDirection::FromDevice)
+        let streamer = DmaStreamer::new(byte_count as usize, DmaDirection::FromDevice)
             .map_err(|_| DriverError::ReadFailed)?;
 
         let hba = unsafe { &mut *self.hba_base };

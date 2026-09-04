@@ -1,6 +1,5 @@
 //! Process termination system calls (`exit`, `exit_group`).
 
-use super::*;
 use crate::arch::syscall::syscall::SyscallFrame;
 use crate::syscalls::SyscallResult;
 

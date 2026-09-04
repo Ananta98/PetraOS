@@ -21,7 +21,7 @@ use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::sync::atomic::{AtomicI32, Ordering};
 
-use crate::proc::thread::{Thread, ThreadState};
+use crate::proc::thread::Thread;
 use crate::sync::Mutex;
 
 // ── IPC flags / commands ─────────────────────────────────────────────────────

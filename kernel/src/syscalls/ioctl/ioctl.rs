@@ -1,6 +1,5 @@
 //! sys_ioctl system call handler.
 
-use super::*;
 use crate::syscalls::{SyscallError, SyscallResult};
 use crate::fs::vfs::types::VfsError::{BadFd, InvalidInput, NotSupported};
 use crate::arch::syscall::syscall::SyscallFrame;

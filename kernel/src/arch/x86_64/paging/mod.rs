@@ -7,8 +7,7 @@ pub mod flush;
 pub mod helpers;
 pub mod table;
 
-pub use flush::{flush_all, invlpg};
-pub use helpers::{active_cr3, enable_nxe, ensure_mapped, map_mmio, read_cr2};
+pub use helpers::{active_cr3, ensure_mapped, map_mmio, read_cr2};
 pub use table::ArchPageTable;
 
 /// Checks if CPU hardware supports 5-level (57-bit) linear address paging via CPUID.(EAX=7, ECX=0):ECX[bit 16].

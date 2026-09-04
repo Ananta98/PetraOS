@@ -4,7 +4,6 @@ use super::file::Ext2FileOps;
 pub use super::ondisk::Ext2Inode;
 pub use super::reader::BlockDeviceReader;
 use super::superblock::{Ext2BlockGroupDescriptor, Ext2Superblock};
-use crate::drivers::time::cmos_rtc;
 use crate::fs::vfs::types::{
     FileOps, Inode, InodeOps, InodeType, MODE_PERM_BITS, MODE_TYPE_BITS, Stat, VfsError,
 };

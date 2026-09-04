@@ -3,14 +3,7 @@
 use super::*;
 use crate::syscalls::{SyscallError, SyscallResult, UserPtr};
 use crate::arch::syscall::syscall::SyscallFrame;
-use crate::arch::timer::hpet;
-use crate::ipc::semaphore::SemaphoreManager;
-use crate::ipc::semaphore::{
-    GETALL, GETNCNT, GETPID, GETVAL, GETZCNT, IPC_RMID, IPC_SET, IPC_STAT,
-    SEMAPHORE_MANAGER, SETALL, SETVAL, SemBuf, SemError, SemidDs, SemopResult,
-};
-use crate::ipc::shm::{SHM_MANAGER, ShmError, ShmidDs, ShmInfo};
-use crate::proc::thread::ThreadState;
+use crate::ipc::shm::{SHM_MANAGER, ShmidDs, ShmInfo};
 
 
 pub fn sys_shmctl(frame: &mut SyscallFrame) -> SyscallResult {

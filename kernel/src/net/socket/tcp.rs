@@ -5,12 +5,11 @@
 
 use alloc::collections::VecDeque;
 use alloc::sync::Arc;
-use alloc::vec::Vec;
 use smoltcp::iface::SocketHandle;
 use smoltcp::socket::tcp::{self, State};
 use smoltcp::wire::IpEndpoint;
 
-use crate::net::stack::{NET_STACK, current_time};
+use crate::net::stack::NET_STACK;
 use crate::net::types::*;
 use crate::sync::Mutex;
 use crate::syscalls::SyscallError;

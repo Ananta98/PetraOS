@@ -1,13 +1,7 @@
 //! sys_close system call handler.
 
-use super::*;
 use crate::syscalls::{SyscallError, SyscallResult};
 use crate::arch::syscall::syscall::SyscallFrame;
-use crate::fs::File;
-use crate::fs::vfs::types::{InodeType, LinuxStat, SeekWhence, Stat, StatFs};
-use alloc::string::String;
-use alloc::sync::Arc;
-use alloc::vec::Vec;
 
 
 /// `sys_close` (SYS_CLOSE = 3)

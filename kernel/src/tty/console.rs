@@ -6,12 +6,11 @@
 use core::alloc::Layout;
 use core::ffi::c_void;
 
-use crate::device::{CharDevice, Device};
+use crate::device::Device;
 use crate::drivers::char::keyboard::KEY_RING_BUFFER;
 use crate::drivers::serial::{PortIoBackend, SerialPort};
 use crate::limine::FRAMEBUFFER_REQUEST;
 use crate::sync::Mutex;
-use crate::tty::ECHO;
 use crate::tty::termios::{LineDiscipline, WinSize};
 
 // Memory allocation callbacks required by flanterm C library.
@@ -147,7 +146,7 @@ impl FlantermContext {
 /// Unified Console manager integrating Flanterm display, Line Discipline, and Serial fallback.
 pub struct Console {
     flanterm: Option<FlantermContext>,
-    serial: Option<SerialPort<PortIoBackend>>,
+    _serial: Option<SerialPort<PortIoBackend>>,
     pub ldisc: LineDiscipline,
 }
 
@@ -175,7 +174,7 @@ impl Console {
 
         Self {
             flanterm: flanterm_opt,
-            serial: serial_opt,
+            _serial: serial_opt,
             ldisc: LineDiscipline::new(winsize),
         }
     }

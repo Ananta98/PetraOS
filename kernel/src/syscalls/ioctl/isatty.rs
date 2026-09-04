@@ -1,8 +1,7 @@
 //! sys_isatty system call handler.
 
-use super::*;
 use crate::syscalls::{SyscallError, SyscallResult};
-use crate::fs::vfs::types::VfsError::{BadFd, InvalidInput, NotSupported};
+use crate::fs::vfs::types::VfsError::BadFd;
 use crate::arch::syscall::syscall::SyscallFrame;
 
 

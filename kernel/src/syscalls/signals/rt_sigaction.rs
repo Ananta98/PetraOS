@@ -1,9 +1,8 @@
 //! sys_rt_sigaction system call handler.
 
-use super::*;
 use crate::syscalls::{SyscallError, SyscallResult, UserPtr};
 use crate::arch::syscall::syscall::SyscallFrame;
-use crate::ipc::signal::{is_uncatchable, SigAction, SigSet};
+use crate::ipc::signal::{is_uncatchable, SigAction};
 
 
 /// `sys_rt_sigaction` (SYS_RT_SIGACTION = 13)

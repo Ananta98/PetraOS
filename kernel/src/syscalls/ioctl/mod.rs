@@ -1,6 +1,3 @@
-use super::{SyscallError, SyscallResult};
-use crate::fs::vfs::types::VfsError::{BadFd, InvalidInput, NotSupported};
-use crate::arch::syscall::syscall::SyscallFrame;
 
 // ── Modular syscall submodules ──────────────────────────────────────────
 pub mod ioctl;

@@ -1,6 +1,5 @@
 //! Program execution system call (`execve`).
 
-use super::*;
 use crate::arch::syscall::syscall::SyscallFrame;
 use crate::mm::vmm::paging::PageTable;
 use crate::syscalls::{SyscallError, SyscallResult, UserCStr};

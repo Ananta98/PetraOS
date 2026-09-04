@@ -1,10 +1,8 @@
 //! sys_mmap system call handler.
 
-use super::*;
-use crate::syscalls::{SyscallError, SyscallResult};
 use crate::arch::syscall::syscall::SyscallFrame;
-use crate::mm::{PageTable, PageTableFlags, VirtAddr, VmAreaKind};
-
+use crate::mm::{PageTableFlags, VirtAddr, VmAreaKind};
+use crate::syscalls::{SyscallError, SyscallResult};
 
 /// `sys_mmap` (SYS_MMAP = 9)
 /// Map files or devices into memory.
@@ -65,12 +63,7 @@ pub fn sys_mmap(frame: &mut SyscallFrame) -> SyscallResult {
 
     let mut addr_space = proc.address_space.lock();
     if addr_space
-        .map_area(
-            VirtAddr::new(target_vaddr),
-            aligned_len,
-            map_flags,
-            kind,
-        )
+        .map_area(VirtAddr::new(target_vaddr), aligned_len, map_flags, kind)
         .is_err()
     {
         return Err(SyscallError::ENOMEM);

@@ -1,6 +1,5 @@
 //! System calls for predeclaring file access patterns (`fadvise64`).
 
-use super::*;
 use crate::arch::syscall::syscall::SyscallFrame;
 use crate::syscalls::{SyscallError, SyscallResult};
 

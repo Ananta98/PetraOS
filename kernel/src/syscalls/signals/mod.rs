@@ -1,6 +1,3 @@
-use super::{SyscallError, SyscallResult, UserPtr};
-use crate::arch::syscall::syscall::SyscallFrame;
-use crate::ipc::signal::{is_uncatchable, SigAction, SigSet};
 
 // ── Modular syscall submodules ──────────────────────────────────────────
 pub mod kill;

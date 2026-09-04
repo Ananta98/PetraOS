@@ -52,8 +52,7 @@ impl FileOps for ConsoleFileOps {
     }
 
     fn write(&self, _offset: usize, buf: &[u8]) -> Result<usize, VfsError> {
-        tty_write(buf);
-        Ok(buf.len())
+        tty_write(buf)
     }
 
     fn isatty(&self) -> bool {

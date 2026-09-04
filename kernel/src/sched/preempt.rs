@@ -53,27 +53,3 @@ pub fn preempt_count() -> u32 {
         1
     }
 }
-
-/// RAII guard that disables preemption for its lexical scope.
-pub struct PreemptGuard {
-    _private: (),
-}
-
-impl PreemptGuard {
-    pub fn new() -> Self {
-        preempt_disable();
-        Self { _private: () }
-    }
-}
-
-impl Default for PreemptGuard {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Drop for PreemptGuard {
-    fn drop(&mut self) {
-        preempt_enable();
-    }
-}

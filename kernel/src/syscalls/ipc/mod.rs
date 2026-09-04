@@ -10,16 +10,12 @@
 //! - `sys_shmdt`     (SYS_SHMDT     = 67):  detach shared memory segment
 //! - `sys_semtimedop`(SYS_SEMTIMEDOP = 220): `semop` with timeout
 
-use super::{SyscallError, SyscallResult, UserPtr};
-use crate::arch::syscall::syscall::SyscallFrame;
-use crate::arch::timer::hpet;
+use super::{SyscallError, UserPtr};
 use crate::ipc::semaphore::SemaphoreManager;
 use crate::ipc::semaphore::{
-    GETALL, GETNCNT, GETPID, GETVAL, GETZCNT, IPC_RMID, IPC_SET, IPC_STAT,
-    SEMAPHORE_MANAGER, SETALL, SETVAL, SemBuf, SemError, SemidDs, SemopResult,
+    SemBuf, SemError,
 };
-use crate::ipc::shm::{SHM_MANAGER, ShmError, ShmidDs, ShmInfo};
-use crate::proc::thread::ThreadState;
+use crate::ipc::shm::ShmError;
 
 // ── Modular syscall submodules ──────────────────────────────────────────
 pub mod semget;

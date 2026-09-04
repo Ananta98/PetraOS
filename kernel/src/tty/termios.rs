@@ -475,7 +475,7 @@ impl LineDiscipline {
 
         if processed_byte == self.termios.c_cc[VERASE] || processed_byte == 0x08 || processed_byte == 0x7F {
             if let Some(removed) = self.canon_buffer.pop() {
-                let mut erase_count = 1;
+                let erase_count = 1;
                 // If IUTF8 is enabled, continue popping UTF-8 continuation bytes (0b10xxxxxx)
                 if (self.termios.c_iflag & IUTF8) != 0 && (removed & 0xC0) == 0x80 {
                     while let Some(&next) = self.canon_buffer.last() {

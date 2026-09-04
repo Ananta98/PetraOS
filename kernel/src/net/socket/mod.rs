@@ -298,7 +298,7 @@ impl Socket {
                 let (storage, len) = conv::endpoint_to_sockaddr_storage(ep);
                 Ok((ep, storage, len))
             }
-            Socket::Unix(u) => {
+            Socket::Unix(_) => {
                 let mut storage = SockAddrStorage::default();
                 storage.ss_family = AF_UNIX;
                 let ep = IpEndpoint::new(smoltcp::wire::IpAddress::Ipv4(smoltcp::wire::Ipv4Address::UNSPECIFIED), 0);

@@ -1,10 +1,8 @@
 //! sys_brk system call handler.
 
-use super::*;
-use crate::syscalls::{SyscallError, SyscallResult};
 use crate::arch::syscall::syscall::SyscallFrame;
-use crate::mm::{PageTable, PageTableFlags, VirtAddr, VmAreaKind};
-
+use crate::mm::{PageTableFlags, VirtAddr, VmAreaKind};
+use crate::syscalls::{SyscallError, SyscallResult};
 
 /// `sys_brk` (SYS_BRK = 12)
 /// Change data segment size (heap break pointer).

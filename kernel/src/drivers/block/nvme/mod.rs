@@ -272,7 +272,7 @@ impl BlockDevice for NvmeDriver {
             return Err(DriverError::Unsupported);
         }
 
-        let mut streamer = DmaStreamer::new(buf.len(), DmaDirection::FromDevice)
+        let streamer = DmaStreamer::new(buf.len(), DmaDirection::FromDevice)
             .map_err(|_| DriverError::ReadFailed)?;
 
         let cid = self.next_cid();

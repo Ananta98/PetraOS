@@ -5,7 +5,6 @@
 //! its Local APIC, and then spins in `hlt`.
 
 use crate::arch::enable_interrupts;
-use crate::arch::idle;
 use crate::arch::tss::*;
 use crate::arch::{gdt, interrupts, lapic, lapic_timer};
 use crate::mm::map_mmio;
@@ -73,7 +72,7 @@ unsafe extern "C" fn ap_entry(cpu: &limine::mp::Cpu) -> ! {
     crate::arch::enable_interrupts();
 
     // Park this AP in a low-power halt loop.
-    idle()
+    crate::arch::idle()
 }
 
 /// Start all Application Processors discovered by Limine.

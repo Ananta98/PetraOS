@@ -1,6 +1,5 @@
 //! CPU yield system call (`yield`).
 
-use super::*;
 use crate::arch::syscall::syscall::SyscallFrame;
 use crate::syscalls::SyscallResult;
 

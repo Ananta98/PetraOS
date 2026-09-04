@@ -1,10 +1,7 @@
 //! sys_mprotect system call handler.
-
-use super::*;
-use crate::syscalls::{SyscallError, SyscallResult};
 use crate::arch::syscall::syscall::SyscallFrame;
-use crate::mm::{PageTable, PageTableFlags, VirtAddr, VmAreaKind};
-
+use crate::mm::{PageTableFlags, VirtAddr};
+use crate::syscalls::{SyscallError, SyscallResult};
 
 /// `sys_mprotect` (SYS_MPROTECT = 10)
 /// Set protection on a region of memory.
@@ -27,7 +24,7 @@ pub fn sys_mprotect(frame: &mut SyscallFrame) -> SyscallResult {
     }
 
     let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
-    let mut proc = proc_arc.lock();
+    let proc = proc_arc.lock();
 
     let mut flags = PageTableFlags::USER_ACCESSIBLE;
     if prot != 0 {

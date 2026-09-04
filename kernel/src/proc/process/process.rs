@@ -9,7 +9,6 @@ use crate::ipc::signal::{MAX_SIGNALS, PendingSignals, SigAction};
 use crate::mm::ArchPageTable;
 use crate::mm::PageTable;
 use crate::mm::vmm::AddrSpace;
-use crate::mm::{PageTableFlags, VirtAddr};
 use crate::proc::loader::elf::Elf;
 use crate::proc::thread::{Thread, ThreadId, ThreadState};
 use crate::sync::Mutex;

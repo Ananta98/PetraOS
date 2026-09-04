@@ -1,9 +1,8 @@
 //! sys_rt_sigprocmask system call handler.
 
-use super::*;
 use crate::syscalls::{SyscallError, SyscallResult, UserPtr};
 use crate::arch::syscall::syscall::SyscallFrame;
-use crate::ipc::signal::{is_uncatchable, SigAction, SigSet};
+use crate::ipc::signal::SigSet;
 
 
 /// `sys_rt_sigprocmask` (SYS_RT_SIGPROCMASK = 14)

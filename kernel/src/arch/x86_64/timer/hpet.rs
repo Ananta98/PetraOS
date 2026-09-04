@@ -2,8 +2,8 @@
 //!
 //! Provides high-resolution timing, elapsed time measurements, and microsecond/millisecond busy-wait delays.
 
-use crate::arch::acpi::{Rsdp, Sdt};
-use crate::mm::{ensure_mapped, map_mmio};
+use crate::arch::acpi;
+use crate::mm::map_mmio;
 use crate::sync::Mutex;
 
 pub const HPET_DEFAULT_PHYS_BASE: u64 = 0xFED0_0000;
@@ -79,41 +79,24 @@ impl Hpet {
 
 /// Parse ACPI tables to locate the HPET base physical address.
 pub fn parse_hpet_base() -> Option<u64> {
-    let rsdp_response = crate::limine::RSDP_REQUEST.get_response()?;
-    let rsdp_phys = rsdp_response.address() as *const u8 as u64;
+    let child_table = acpi::find_table(b"HPET")?;
     let hhdm = crate::mm::hhdm_offset();
-    let rsdp_addr = (rsdp_phys + hhdm) as *const u8;
 
-    ensure_mapped(rsdp_phys, 36);
-    let rsdp = Rsdp::new(rsdp_addr);
-    let use_64bit = rsdp.revision() >= 2;
-    let parent_table_phys = if use_64bit {
-        rsdp.xsdt_physical_address()
+    // ACPI HPET table layout:
+    // Header: 36 bytes
+    // Hardware Block ID: 4 bytes (offset 36)
+    // Base Address GAS structure: 12 bytes (offset 40)
+    // Physical Address field is at offset 44 (GAS address field)
+    let base_addr_ptr =
+        (child_table.length() >= 52).then(|| (child_table.phys_addr() + hhdm + 44) as *const u64)?;
+
+    // SAFETY: HPET table is mapped and base_addr_ptr is within the table bounds.
+    let phys_addr = unsafe { core::ptr::read_unaligned(base_addr_ptr) };
+    if phys_addr != 0 {
+        Some(phys_addr)
     } else {
-        rsdp.rsdt_physical_address()
-    };
-
-    let parent_table = Sdt::new(parent_table_phys);
-
-    // Search RSDT/XSDT child tables for "HPET" signature
-    for child_phys in parent_table.table_pointers(use_64bit) {
-        let child_table = Sdt::new(child_phys);
-        if &child_table.signature() == b"HPET" {
-            // ACPI HPET table layout:
-            // Header: 36 bytes
-            // Hardware Block ID: 4 bytes (offset 36)
-            // Base Address GAS structure: 12 bytes (offset 40)
-            // Physical Address field is at offset 44 (GAS address field)
-            let base_addr_ptr =
-                (child_table.length() >= 52).then(|| (child_phys + hhdm + 44) as *const u64)?;
-            let phys_addr = unsafe { core::ptr::read_unaligned(base_addr_ptr) };
-            if phys_addr != 0 {
-                return Some(phys_addr);
-            }
-        }
+        None
     }
-
-    None
 }
 
 /// Initialize High Precision Event Timer hardware.

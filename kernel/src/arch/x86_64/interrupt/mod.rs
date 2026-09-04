@@ -1,9 +1,12 @@
+pub mod flags;
 pub mod idt;
 pub mod interrupts;
 pub mod ioapic;
 pub mod lapic;
 pub mod pic;
 pub mod table;
+
+pub use flags::enable_interrupts;
 
 use crate::arch::acpi;
 use crate::mm::map_mmio;

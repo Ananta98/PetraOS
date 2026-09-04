@@ -59,7 +59,7 @@ pub use utimensat::{sys_futimesat, sys_utimensat, LinuxTimespec};
 pub use write::{sys_pwrite64, sys_write, sys_writev};
 
 // ── Common filesystem syscall types & constants ─────────────────────────────
-use crate::syscalls::{SyscallError, SyscallResult};
+use crate::syscalls::SyscallError;
 use alloc::string::String;
 
 pub const AT_FDCWD: i32 = -100;

@@ -4,13 +4,11 @@
 //! connection management, datagram and stream I/O, addresses, and socket options.
 
 use alloc::sync::Arc;
-use core::mem::size_of;
 
-use crate::arch::syscall::SyscallFrame;
 use crate::fs::create_socket_file;
 use crate::fs::fd::FD_CLOEXEC;
 use crate::fs::vfs::types::*;
-use crate::net::socket::{Socket, UnixSocket};
+use crate::net::socket::Socket;
 use crate::net::types::*;
 use crate::sync::Mutex;
 use crate::syscalls::{SyscallError, SyscallResult, UserPtr};

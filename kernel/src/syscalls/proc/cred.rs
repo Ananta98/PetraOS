@@ -4,7 +4,6 @@
 //! - Process IDs & Session: `getpid`, `getppid`, `getpgrp`, `setpgid`, `setsid`
 //! - User & Group IDs: `getuid`, `getgid`, `setuid`, `setgid`, `geteuid`, `getegid`, `getgroups`
 
-use super::*;
 use crate::arch::syscall::syscall::SyscallFrame;
 use crate::proc::ProcessId;
 use crate::syscalls::{SyscallError, SyscallResult, UserPtr};

@@ -1,5 +1,3 @@
-use super::{SyscallError, SyscallResult, UserPtr};
-use crate::arch::syscall::syscall::SyscallFrame;
 
 // ── Modular syscall submodules ──────────────────────────────────────────
 pub mod uname;

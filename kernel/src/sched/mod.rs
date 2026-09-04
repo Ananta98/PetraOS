@@ -18,6 +18,8 @@ pub mod policy;
 pub mod preempt;
 pub mod realtime;
 
+use crate::arch::cpu::msr;
+
 use crate::proc::thread::{Thread, ThreadId};
 use crate::sync::Mutex;
 use alloc::sync::Arc;
@@ -29,9 +31,7 @@ pub use percpu::PerCpuRunQueue;
 pub use policy::{
     DEFAULT_RR_QUANTUM_NS, MAX_RT_PRIO, MIN_RT_PRIO, RT_PRIO_COUNT, RtPriority, SchedPolicy,
 };
-pub use preempt::{
-    MAX_PREEMPT_CPUS, PreemptGuard, can_preempt, preempt_count, preempt_disable, preempt_enable,
-};
+pub use preempt::{MAX_PREEMPT_CPUS, can_preempt, preempt_count, preempt_disable, preempt_enable};
 pub use realtime::{RtClassRq, RtRunQueue};
 
 /// Object-Oriented Per-CPU Scheduler manager.
@@ -134,9 +134,7 @@ impl PerCpuScheduler {
     /// Updates scheduling accounting on timer ticks.
     pub fn tick(&self, cpu_id: u32, delta_ns: u64) {
         let rq = self.queue_for_cpu(cpu_id);
-        let should_preempt = crate::arch::without_interrupts(|| {
-            rq.lock().tick(delta_ns)
-        });
+        let should_preempt = crate::arch::without_interrupts(|| rq.lock().tick(delta_ns));
 
         if should_preempt {
             self.schedule(true);
@@ -199,7 +197,7 @@ impl PerCpuScheduler {
                 // Save prev thread state and get pointer to save new RSP
                 let prev_rsp_ptr = {
                     let mut p = prev_thread.lock();
-                    p.context.fs_base = crate::arch::cpu::msr::read_fs_base();
+                    p.context.fs_base = msr::read_fs_base();
                     &mut p.context.rsp as *mut usize as *mut u64
                 };
 
@@ -264,7 +262,7 @@ impl PerCpuScheduler {
                 if saved_flags {
                     crate::arch::enable_interrupts();
                 }
-                crate::arch::sched::idle();
+                crate::arch::idle();
             }
 
             (None, None) => {

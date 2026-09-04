@@ -8,7 +8,6 @@ use alloc::format;
 use alloc::sync::Arc;
 use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
-use crate::fs::vfs::dentry::Dentry;
 use crate::fs::vfs::mount::MOUNT_TABLE;
 use crate::fs::vfs::types::{FileOps, Inode, InodeOps, InodeType, Stat, VfsError};
 use crate::mm::UserPtr;

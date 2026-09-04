@@ -3,16 +3,9 @@
 //! Provides the POSIX `sys_futex` system call (Syscall #202 on x86_64) for userspace
 //! fast synchronization primitives (mutexes, condition variables, semaphores, barriers).
 
-use super::{SyscallError, SyscallResult, UserPtr};
-use crate::arch::syscall::syscall::SyscallFrame;
+use super::{SyscallError, UserPtr};
 use crate::mm::{PageTable, VirtAddr};
-use crate::proc::thread::ThreadState;
-use crate::sync::futex::{
-    FutexKey, FUTEX_BITSET_MATCH_ANY, FUTEX_CLOCK_REALTIME, FUTEX_CMD_MASK, FUTEX_CMP_REQUEUE,
-    FUTEX_CMP_REQUEUE_PI, FUTEX_FD, FUTEX_LOCK_PI, FUTEX_MANAGER, FUTEX_PRIVATE_FLAG,
-    FUTEX_REQUEUE, FUTEX_TRYLOCK_PI, FUTEX_UNLOCK_PI, FUTEX_WAIT, FUTEX_WAIT_BITSET,
-    FUTEX_WAIT_REQUEUE_PI, FUTEX_WAKE, FUTEX_WAKE_BITSET, FUTEX_WAKE_OP,
-};
+use crate::sync::futex::FutexKey;
 
 // ── Modular syscall submodules ──────────────────────────────────────────
 pub mod futex;

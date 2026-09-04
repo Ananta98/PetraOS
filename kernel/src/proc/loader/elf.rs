@@ -288,7 +288,7 @@ impl<'a> Elf<'a> {
         let mut cur_sp = stack_top.as_u64();
 
         // Helper closure to copy byte slice onto the stack at decremented SP
-        let mut write_user_bytes = |sp: &mut u64, bytes: &[u8]| -> Result<u64, &'static str> {
+        let write_user_bytes = |sp: &mut u64, bytes: &[u8]| -> Result<u64, &'static str> {
             *sp -= bytes.len() as u64;
             let target_vaddr = *sp;
 
@@ -364,7 +364,7 @@ impl<'a> Elf<'a> {
         }
 
         // Helper to push a single u64 value
-        let mut write_u64 = |sp: &mut u64, val: u64| -> Result<(), &'static str> {
+        let write_u64 = |sp: &mut u64, val: u64| -> Result<(), &'static str> {
             let bytes = val.to_ne_bytes();
             write_user_bytes(sp, &bytes)?;
             Ok(())

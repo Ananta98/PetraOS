@@ -32,10 +32,4 @@ unsafe extern "C" fn kmain() -> ! {
     tty::init();
     modules::init();
     proc::process::init_proc::run_init_process();
-    log::info!("PetraOS Kernel booted successfully.");
-    hcf();
-}
-
-fn hcf() -> ! {
-    arch::idle()
 }

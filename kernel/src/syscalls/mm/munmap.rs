@@ -1,9 +1,8 @@
 //! sys_munmap system call handler.
 
-use super::*;
 use crate::syscalls::{SyscallError, SyscallResult};
 use crate::arch::syscall::syscall::SyscallFrame;
-use crate::mm::{PageTable, PageTableFlags, VirtAddr, VmAreaKind};
+use crate::mm::VirtAddr;
 
 
 /// `sys_munmap` (SYS_MUNMAP = 11)

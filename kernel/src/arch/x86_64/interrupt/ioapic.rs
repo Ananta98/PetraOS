@@ -8,16 +8,15 @@
 //! and applying Interrupt Source Override (ISO) entries from the ACPI MADT.
 
 use super::acpi::InterruptSourceOverride;
+use crate::sync::Mutex;
 use core::ptr;
 
 /// IOAPIC register indices accessed via the indirect register select mechanism.
-mod register {
-    pub const ID: u32 = 0x00;
-    pub const VERSION: u32 = 0x01;
-    /// Redirection table entries start at register 0x10.
-    /// Each entry is 64 bits wide, occupying two consecutive 32-bit registers.
-    pub const REDIRECTION_TABLE_BASE: u32 = 0x10;
-}
+const ID: u32 = 0x00;
+const VERSION: u32 = 0x01;
+/// Redirection table entries start at register 0x10.
+/// Each entry is 64 bits wide, occupying two consecutive 32-bit registers.
+const REDIRECTION_TABLE_BASE: u32 = 0x10;
 
 /// Delivery mode for IOAPIC redirection entries.
 #[derive(Debug, Clone, Copy)]
@@ -69,12 +68,12 @@ impl IoApic {
 
     /// Read the IOAPIC ID.
     pub fn id(&self) -> u32 {
-        (self.read_register(register::ID) >> 24) & 0xF
+        (self.read_register(ID) >> 24) & 0xF
     }
 
     /// Read the maximum number of redirection entries supported (0-indexed).
     pub fn max_redirection_entries(&self) -> u32 {
-        ((self.read_register(register::VERSION) >> 16) & 0xFF) + 1
+        ((self.read_register(VERSION) >> 16) & 0xFF) + 1
     }
 
     /// Route an IRQ to a specific LAPIC with the given vector and settings.
@@ -203,7 +202,7 @@ impl IoApic {
 
     /// Read a 64-bit redirection table entry for the given IRQ.
     fn read_redirection_entry(&self, irq: u32) -> u64 {
-        let reg_low = register::REDIRECTION_TABLE_BASE + irq * 2;
+        let reg_low = REDIRECTION_TABLE_BASE + irq * 2;
         let reg_high = reg_low + 1;
 
         let low = self.read_register(reg_low) as u64;
@@ -214,7 +213,7 @@ impl IoApic {
 
     /// Write a 64-bit redirection table entry for the given IRQ.
     fn write_redirection_entry(&self, irq: u32, entry: u64) {
-        let reg_low = register::REDIRECTION_TABLE_BASE + irq * 2;
+        let reg_low = REDIRECTION_TABLE_BASE + irq * 2;
         let reg_high = reg_low + 1;
 
         self.write_register(reg_low, entry as u32);
@@ -240,12 +239,9 @@ impl IoApic {
     }
 }
 
-use crate::sync::Mutex;
-
 static IO_APICS: Mutex<[Option<IoApic>; 8]> =
     Mutex::new([None, None, None, None, None, None, None, None]);
-static ISOS: Mutex<([Option<InterruptSourceOverride>; 16], usize)> =
-    Mutex::new(([None; 16], 0));
+static ISOS: Mutex<([Option<InterruptSourceOverride>; 16], usize)> = Mutex::new(([None; 16], 0));
 
 /// Register an initialized IOAPIC instance for global IRQ routing management.
 pub fn register_ioapic(ioapic: IoApic) {
@@ -338,4 +334,3 @@ pub fn mask_gsi(gsi: u32) {
     }
     log::warn!("IOAPIC: No controller found for GSI {}", gsi);
 }
-

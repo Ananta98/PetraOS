@@ -1,6 +1,5 @@
 //! Resource limit and resource usage system calls (`getrlimit`, `setrlimit`, `prlimit64`, `getrusage`).
 
-use super::*;
 use crate::arch::syscall::syscall::SyscallFrame;
 use crate::syscalls::time::TimeVal;
 use crate::syscalls::{SyscallError, SyscallResult, UserPtr};
