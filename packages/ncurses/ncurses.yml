@@ -32,6 +32,7 @@ packages:
     from_source: ncurses
     tools_required:
       - host-gcc
+      - host-binutils
       - host-tic
     pkgs_required:
       - mlibc
@@ -57,6 +58,13 @@ packages:
     install:
       - args: ['make', 'DESTDIR=@SYSROOT_DIR@', 'install']
       - args: |
+          mkdir -p @SYSROOT_DIR@/usr/bin
+          for prog in clear infocmp tabs tic toe tput tset ; do
+              if [ -f progs/${prog} ]; then
+                  cp -vf progs/${prog} @SYSROOT_DIR@/usr/bin/
+              fi
+          done
+          ln -sfv tset @SYSROOT_DIR@/usr/bin/reset 2>/dev/null || true
           cp -a lib/lib*.so*        @SYSROOT_DIR@/usr/lib/ 2>/dev/null || true
           for lib in ncurses form panel menu tinfo ; do
               rm -vf                    @SYSROOT_DIR@/usr/lib/lib${lib}.so
