@@ -1,6 +1,6 @@
 use super::tid::ThreadId;
-use crate::arch::sched::ThreadContext;
 use crate::arch::cpu::stack::KernelStack;
+use crate::arch::sched::ThreadContext;
 use crate::ipc::signal::{PendingSignals, SigSet};
 use crate::ipc::signal::{SIG_BLOCK, SIG_SETMASK, SIG_UNBLOCK, SIGKILL, SIGSTOP};
 use crate::proc::process::Process;
@@ -128,7 +128,7 @@ impl Thread {
         cr3: usize,
         fs_base: u64,
         gs_base: u64,
-        sig_mask: crate::ipc::signal::SigSet,
+        sig_mask: SigSet,
     ) {
         self.context.rsp = child_rsp as usize;
         self.context.cr3 = cr3;

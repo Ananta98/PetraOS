@@ -25,21 +25,23 @@ use crate::sync::Mutex;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 
-pub use fair::{BASE_SLICE_NS, EevdfEntity, EevdfScheduler, FairClassRq};
+pub use fair::{BASE_SLICE_NS, EevdfEntity, EevdfScheduler};
 pub use nice::{MAX_NICE, MIN_NICE, NICE_0_WEIGHT, Nice, nice_to_weight};
 pub use percpu::PerCpuRunQueue;
 pub use policy::{
     DEFAULT_RR_QUANTUM_NS, MAX_RT_PRIO, MIN_RT_PRIO, RT_PRIO_COUNT, RtPriority, SchedPolicy,
 };
 pub use preempt::{MAX_PREEMPT_CPUS, can_preempt, preempt_count, preempt_disable, preempt_enable};
-pub use realtime::{RtClassRq, RtRunQueue};
+pub use realtime::RtRunQueue;
 
 /// Object-Oriented Per-CPU Scheduler manager.
 ///
 /// Holds dynamically-allocated per-CPU run queues sized to the detected hardware CPU count.
 pub struct PerCpuScheduler {
-    /// Dynamically-managed per-CPU run queues.
-    queues: Mutex<Vec<Arc<Mutex<PerCpuRunQueue>>>>,
+    /// Per-CPU run queues, one entry per logical CPU.
+    /// A single `Mutex` guards the whole `Vec`; no inner `Arc<Mutex<>>` needed
+    /// because scheduling decisions always hold this lock for the duration.
+    queues: Mutex<Vec<PerCpuRunQueue>>,
 }
 
 impl PerCpuScheduler {
@@ -56,36 +58,34 @@ impl PerCpuScheduler {
         let mut q = self.queues.lock();
         if q.len() < total {
             for i in q.len()..total {
-                q.push(Arc::new(Mutex::new(PerCpuRunQueue::new(i as u32))));
+                q.push(PerCpuRunQueue::new(i as u32));
             }
         }
     }
 
-    /// Obtains (or lazily initializes) the run queue for `cpu_id`.
+    /// Ensures the queue vector has an entry for `cpu_id`, growing it if necessary.
     #[inline]
-    fn queue_for_cpu(&self, cpu_id: u32) -> Arc<Mutex<PerCpuRunQueue>> {
+    fn ensure_cpu(&self, cpu_id: u32) {
         let mut q = self.queues.lock();
-        let idx = cpu_id as usize;
-        if idx >= q.len() {
-            let target_len = (idx + 1).max(crate::arch::cpu_count() as usize);
-            for i in q.len()..target_len {
-                q.push(Arc::new(Mutex::new(PerCpuRunQueue::new(i as u32))));
-            }
+        let target_len = (cpu_id as usize + 1).max(crate::arch::cpu_count() as usize);
+        for i in q.len()..target_len {
+            q.push(PerCpuRunQueue::new(i as u32));
         }
-        q[idx].clone()
     }
 
     /// Obtains the currently executing thread on `cpu_id`.
     pub fn current_thread_on_cpu(&self, cpu_id: u32) -> Option<Arc<Mutex<Thread>>> {
-        let rq = self.queue_for_cpu(cpu_id);
-        crate::arch::without_interrupts(|| rq.lock().current())
+        self.ensure_cpu(cpu_id);
+        crate::arch::without_interrupts(|| {
+            self.queues.lock()[cpu_id as usize].current()
+        })
     }
 
     /// Sets the currently executing thread on `cpu_id`.
     pub fn set_current_thread_on_cpu(&self, cpu_id: u32, thread: Option<Arc<Mutex<Thread>>>) {
-        let rq = self.queue_for_cpu(cpu_id);
+        self.ensure_cpu(cpu_id);
         crate::arch::without_interrupts(|| {
-            rq.lock().set_current(thread);
+            self.queues.lock()[cpu_id as usize].set_current(thread);
         });
     }
 
@@ -98,39 +98,23 @@ impl PerCpuScheduler {
         let target_cpu = if (affinity & (1u64 << current_cpu)) != 0 {
             current_cpu
         } else {
-            let mut chosen = current_cpu;
-            for i in 0..total_cpus {
-                if (affinity & (1u64 << i)) != 0 {
-                    chosen = i;
-                    break;
-                }
-            }
-            chosen
+            (0..total_cpus)
+                .find(|&i| (affinity & (1u64 << i)) != 0)
+                .unwrap_or(current_cpu)
         };
 
-        let rq = self.queue_for_cpu(target_cpu);
-
+        self.ensure_cpu(target_cpu);
         crate::arch::without_interrupts(|| {
-            rq.lock().enqueue(thread);
+            self.queues.lock()[target_cpu as usize].enqueue(thread);
         });
     }
 
     /// Removes a thread from all scheduler run queues by its `ThreadId`.
     pub fn remove_thread(&self, tid: ThreadId) -> Option<Arc<Mutex<Thread>>> {
-        let queues: Vec<Arc<Mutex<PerCpuRunQueue>>> = {
-            let mut q = self.queues.lock();
-            let total = crate::arch::cpu_count() as usize;
-            if q.len() < total {
-                for i in q.len()..total {
-                    q.push(Arc::new(Mutex::new(PerCpuRunQueue::new(i as u32))));
-                }
-            }
-            q.clone()
-        };
-
         crate::arch::without_interrupts(|| {
-            for rq in queues {
-                if let Some(thread) = rq.lock().dequeue(tid) {
+            let mut q = self.queues.lock();
+            for rq in q.iter_mut() {
+                if let Some(thread) = rq.dequeue(tid) {
                     return Some(thread);
                 }
             }
@@ -140,18 +124,21 @@ impl PerCpuScheduler {
 
     /// Picks the next thread to run on `cpu_id` according to the class hierarchy:
     ///
-    /// 1. **Real-Time (RT)**: Highest priority available in `RtClassRq`.
-    /// 2. **Fair (EEVDF)**: Earliest virtual deadline among eligible threads in `FairClassRq`.
+    /// 1. **Real-Time (RT)**: Highest priority available in `RtRunQueue`.
+    /// 2. **Fair (EEVDF)**: Earliest virtual deadline among eligible threads in `EevdfScheduler`.
     pub fn pick_next(&self, cpu_id: u32) -> Option<Arc<Mutex<Thread>>> {
-        let rq = self.queue_for_cpu(cpu_id);
-        crate::arch::without_interrupts(|| rq.lock().pick_next())
+        self.ensure_cpu(cpu_id);
+        crate::arch::without_interrupts(|| {
+            self.queues.lock()[cpu_id as usize].pick_next()
+        })
     }
 
     /// Updates scheduling accounting on timer ticks.
     pub fn tick(&self, cpu_id: u32, delta_ns: u64) {
-        let rq = self.queue_for_cpu(cpu_id);
-        let should_preempt = crate::arch::without_interrupts(|| rq.lock().tick(delta_ns));
-
+        self.ensure_cpu(cpu_id);
+        let should_preempt = crate::arch::without_interrupts(|| {
+            self.queues.lock()[cpu_id as usize].tick(delta_ns)
+        });
         if should_preempt {
             self.schedule(true);
         }
@@ -159,9 +146,9 @@ impl PerCpuScheduler {
 
     /// Voluntarily yields the current thread on `cpu_id`.
     pub fn yield_current(&self, cpu_id: u32) {
-        let rq = self.queue_for_cpu(cpu_id);
+        self.ensure_cpu(cpu_id);
         crate::arch::without_interrupts(|| {
-            rq.lock().yield_current();
+            self.queues.lock()[cpu_id as usize].yield_current();
         });
     }
 
@@ -170,36 +157,44 @@ impl PerCpuScheduler {
     /// - If `yielding` is `true`: the current thread is returned to its run queue.
     /// - If `yielding` is `false`: the current thread is blocked/exited and removed.
     pub fn schedule(&self, yielding: bool) {
-        // Disable interrupts on local CPU during scheduling to prevent interrupt re-entry
+        // Disable interrupts on local CPU during scheduling to prevent interrupt re-entry.
         let saved_flags = crate::arch::disable_interrupts();
         let cpu_id = crate::arch::cpu_id();
-        let rq_arc = self.queue_for_cpu(cpu_id);
+        self.ensure_cpu(cpu_id);
 
-        let mut rq = rq_arc.lock();
-        let prev = rq.current();
+        // ── Critical section: queue manipulation only ──────────────────────
+        // We must release the Mutex *before* arch_switch_context so that the
+        // new thread can re-acquire it on its first schedule() call.
+        let (prev, next) = {
+            let mut rq_guard = self.queues.lock();
+            let rq = &mut rq_guard[cpu_id as usize];
 
-        if yielding {
-            rq.yield_current();
-        } else {
-            rq.set_current(None);
-        }
-
-        let next = rq.pick_next();
+            let prev = rq.current();
+            if yielding {
+                rq.yield_current();
+            } else {
+                rq.set_current(None);
+            }
+            let next = rq.pick_next();
+            if let Some(ref t) = next {
+                rq.set_current(Some(t.clone()));
+            }
+            (prev, next)
+            // `rq_guard` drops here, releasing the Mutex.
+        };
 
         match (prev, next) {
             (Some(prev_thread), Some(next_thread)) => {
                 if Arc::ptr_eq(&prev_thread, &next_thread) {
-                    rq.set_current(Some(prev_thread));
-                    drop(rq);
+                    // Same thread — restore current and return without switching.
+                    self.queues.lock()[cpu_id as usize].set_current(Some(prev_thread));
                     if saved_flags {
                         crate::arch::enable_interrupts();
                     }
                     return;
                 }
 
-                rq.set_current(Some(next_thread.clone()));
-
-                // Extract next thread execution state
+                // Extract next thread execution state.
                 let (next_rsp, next_cr3, next_kstack_top, next_fs_base) = {
                     let n = next_thread.lock();
                     (
@@ -210,16 +205,15 @@ impl PerCpuScheduler {
                     )
                 };
 
-                // Save prev thread state and get pointer to save new RSP
+                // Save prev thread FS base and get pointer to save new RSP.
                 let prev_rsp_ptr = {
                     let mut p = prev_thread.lock();
                     p.context.fs_base = msr::read_fs_base();
                     &mut p.context.rsp as *mut usize as *mut u64
                 };
 
-                drop(rq);
-
                 // SAFETY: Context switch between two valid thread execution stacks.
+                // The Mutex is already released; no deadlock on re-entry.
                 unsafe {
                     crate::arch::arch_switch_context(
                         prev_rsp_ptr,
@@ -236,8 +230,6 @@ impl PerCpuScheduler {
             }
 
             (None, Some(next_thread)) => {
-                rq.set_current(Some(next_thread.clone()));
-
                 let (next_rsp, next_cr3, next_kstack_top, next_fs_base) = {
                     let n = next_thread.lock();
                     (
@@ -248,9 +240,7 @@ impl PerCpuScheduler {
                     )
                 };
 
-                drop(rq);
-
-                // SAFETY: Context switch into initial thread stack.
+                // SAFETY: Context switch into initial thread stack with no previous frame.
                 unsafe {
                     crate::arch::arch_switch_context(
                         core::ptr::null_mut(),
@@ -264,17 +254,15 @@ impl PerCpuScheduler {
 
             (Some(prev_thread), None) => {
                 if yielding {
-                    // If yielding and no other thread is runnable, keep running the current thread
-                    rq.set_current(Some(prev_thread));
-                    drop(rq);
+                    // No other thread is runnable — keep running the current thread.
+                    self.queues.lock()[cpu_id as usize].set_current(Some(prev_thread));
                     if saved_flags {
                         crate::arch::enable_interrupts();
                     }
                     return;
                 }
 
-                drop(rq);
-                // If blocked/exited and no runnable threads remain, wait for next interrupt
+                // Blocked/exited and no runnable threads remain — wait for next interrupt.
                 if saved_flags {
                     crate::arch::enable_interrupts();
                 }
@@ -282,7 +270,6 @@ impl PerCpuScheduler {
             }
 
             (None, None) => {
-                drop(rq);
                 if saved_flags {
                     crate::arch::enable_interrupts();
                 }
@@ -290,6 +277,7 @@ impl PerCpuScheduler {
         }
     }
 }
+
 
 impl Default for PerCpuScheduler {
     fn default() -> Self {
