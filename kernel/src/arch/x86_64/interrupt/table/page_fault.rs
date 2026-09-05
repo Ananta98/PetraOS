@@ -31,8 +31,16 @@ pub extern "C" fn page_fault_handler(stack_frame: &mut InterruptStackFrame, erro
     if (stack_frame.code_segment & 3) == 3
         || fault_virt.as_u64() <= crate::syscalls::USER_SPACE_MAX_ADDR
     {
+        let pid = crate::proc::current_process()
+            .map(|p| p.lock().pid.as_u64())
+            .unwrap_or(0);
+        let comm = crate::proc::current_process()
+            .map(|p| p.lock().cmdline.args.first().cloned().unwrap_or_default())
+            .unwrap_or_default();
         log::warn!(
-            "User process page fault (SIGSEGV) at {:#x}, Error Code: {:#x} [{:?}], RIP={:#x}, CS={:#x}, RSP={:#x}",
+            "User process page fault (SIGSEGV) PID {} comm '{}' at {:#x}, Error Code: {:#x} [{:?}], RIP={:#x}, CS={:#x}, RSP={:#x}",
+            pid,
+            comm,
             fault_virt.as_u64(),
             error_code,
             fault_code,

@@ -27,6 +27,7 @@ unsafe impl<T: ?Sized + Send> Sync for Mutex<T> {}
 /// When this guard is dropped, the mutex is automatically released.
 pub struct MutexGuard<'a, T: ?Sized> {
     lock: &'a Mutex<T>,
+    was_enabled: bool,
 }
 
 // SAFETY: A `MutexGuard` represents exclusive access to the underlying data.
@@ -53,6 +54,7 @@ impl<T: ?Sized> Mutex<T> {
     /// Returns an RAII [`MutexGuard`] that grants exclusive mutable access
     /// to the protected data until dropped.
     pub fn lock(&self) -> MutexGuard<'_, T> {
+        let was_enabled = crate::arch::disable_interrupts();
         while self
             .lock
             .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed)
@@ -60,20 +62,30 @@ impl<T: ?Sized> Mutex<T> {
         {
             core::hint::spin_loop();
         }
-        MutexGuard { lock: self }
+        MutexGuard {
+            lock: self,
+            was_enabled,
+        }
     }
 
     /// Attempts to acquire the mutex without spinning.
     ///
     /// Returns `Some(MutexGuard)` if acquired, or `None` if the mutex is currently locked.
     pub fn try_lock(&self) -> Option<MutexGuard<'_, T>> {
+        let was_enabled = crate::arch::disable_interrupts();
         if self
             .lock
             .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
             .is_ok()
         {
-            Some(MutexGuard { lock: self })
+            Some(MutexGuard {
+                lock: self,
+                was_enabled,
+            })
         } else {
+            if was_enabled {
+                crate::arch::enable_interrupts();
+            }
             None
         }
     }
@@ -119,6 +131,9 @@ impl<T: ?Sized> DerefMut for MutexGuard<'_, T> {
 impl<T: ?Sized> Drop for MutexGuard<'_, T> {
     fn drop(&mut self) {
         self.lock.lock.store(false, Ordering::Release);
+        if self.was_enabled {
+            crate::arch::enable_interrupts();
+        }
     }
 }
 

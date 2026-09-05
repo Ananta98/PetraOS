@@ -41,10 +41,19 @@ pub struct PipeReadFileOps {
 
 impl FileOps for PipeReadFileOps {
     fn read(&self, _offset: usize, buf: &mut [u8]) -> Result<usize, VfsError> {
+        self.read_with_flags(_offset, buf, 0)
+    }
+
+    fn read_with_flags(
+        &self,
+        _offset: usize,
+        buf: &mut [u8],
+        flags: u32,
+    ) -> Result<usize, VfsError> {
         if buf.is_empty() {
             return Ok(0);
         }
-
+        let nonblocking = self.nonblocking || (flags & crate::fs::vfs::types::O_NONBLOCK) != 0;
         loop {
             let mut pipe = self.pipe.lock();
             if !pipe.buffer.is_empty() {
@@ -60,13 +69,26 @@ impl FileOps for PipeReadFileOps {
                 return Ok(0);
             }
 
-            if self.nonblocking {
+            if nonblocking {
                 return Err(VfsError::InvalidInput); // EAGAIN / WouldBlock
             }
 
             drop(pipe);
             Thread::yield_cpu();
         }
+    }
+
+    fn poll_events(&self, events: i16) -> i16 {
+        use crate::syscalls::fs::{POLLIN, POLLOUT};
+        let pipe = self.pipe.lock();
+        let mut revents = 0;
+        if (events & POLLIN) != 0 && (!pipe.buffer.is_empty() || pipe.writers == 0) {
+            revents |= POLLIN;
+        }
+        if (events & POLLOUT) != 0 {
+            revents |= POLLOUT;
+        }
+        revents
     }
 
     fn stat(&self) -> Result<Stat, VfsError> {
@@ -99,10 +121,20 @@ pub struct PipeWriteFileOps {
 
 impl FileOps for PipeWriteFileOps {
     fn write(&self, _offset: usize, buf: &[u8]) -> Result<usize, VfsError> {
+        self.write_with_flags(_offset, buf, 0)
+    }
+
+    fn write_with_flags(
+        &self,
+        _offset: usize,
+        buf: &[u8],
+        flags: u32,
+    ) -> Result<usize, VfsError> {
         if buf.is_empty() {
             return Ok(0);
         }
 
+        let nonblocking = self.nonblocking || (flags & crate::fs::vfs::types::O_NONBLOCK) != 0;
         let mut total_written = 0;
 
         while total_written < buf.len() {
@@ -131,7 +163,7 @@ impl FileOps for PipeWriteFileOps {
                 }
             }
 
-            if self.nonblocking {
+            if nonblocking {
                 if total_written > 0 {
                     return Ok(total_written);
                 }
@@ -143,6 +175,21 @@ impl FileOps for PipeWriteFileOps {
         }
 
         Ok(total_written)
+    }
+
+    fn poll_events(&self, events: i16) -> i16 {
+        use crate::syscalls::fs::{POLLIN, POLLOUT};
+        let pipe = self.pipe.lock();
+        let mut revents = 0;
+        if (events & POLLIN) != 0 {
+            revents |= POLLIN;
+        }
+        if (events & POLLOUT) != 0
+            && (pipe.buffer.len() < pipe.capacity || pipe.readers == 0)
+        {
+            revents |= POLLOUT;
+        }
+        revents
     }
 
     fn stat(&self) -> Result<Stat, VfsError> {

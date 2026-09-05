@@ -148,8 +148,11 @@ impl Process {
             cmdline.envp().len()
         );
 
+        // Normalize file_name to absolute path using current cwd to avoid
+        // deadlock when read_file tries to resolve relative paths via proc lock
+        let abs_path = crate::fs::normalize_path(&self.cwd, file_name);
         let binary_data =
-            crate::fs::read_file(file_name).map_err(|_| "Failed to read binary from VFS")?;
+            crate::fs::read_file(&abs_path).map_err(|_| "Failed to read binary from VFS")?;
         if binary_data.is_empty() {
             return Err("Executable file is empty");
         }

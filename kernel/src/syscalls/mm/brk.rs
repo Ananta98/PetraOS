@@ -29,11 +29,27 @@ pub fn sys_brk(frame: &mut SyscallFrame) -> SyscallResult {
                 | PageTableFlags::USER_ACCESSIBLE;
 
             let mut addr_space = proc.address_space.lock();
-            let _ = addr_space.map_area(
+            if let Err(e) = addr_space.map_area(
                 VirtAddr::new(page_start),
                 size,
                 flags,
                 VmAreaKind::Anonymous,
+            ) {
+                // If mapping fails (e.g. overlapping or OOM), do not advance brk
+                // Return current brk as per POSIX brk semantics on failure
+                log::warn!("sys_brk: map_area failed for {:#x}..{:#x}: {:?}", page_start, page_end, e);
+                return Ok(current_brk as usize);
+            }
+        }
+    } else if new_brk < current_brk {
+        // Shrink heap range: unmap pages beyond new_brk
+        let page_start = (new_brk + 4095) & !4095;
+        let page_end = (current_brk + 4095) & !4095;
+        if page_end > page_start {
+            let mut addr_space = proc.address_space.lock();
+            let _ = addr_space.unmap_range(
+                VirtAddr::new(page_start),
+                VirtAddr::new(page_end),
             );
         }
     }
