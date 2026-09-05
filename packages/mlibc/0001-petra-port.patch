@@ -1,7 +1,7 @@
 From 39144cfd07563fa2587563f3afecf79648a0cc79 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sat, 15 Aug 2026 11:59:14 +0700
-Subject: [PATCH 01/22] feat(sysdeps): add PetraOS support and GCC 13
+Subject: [PATCH 01/25] feat(sysdeps): add PetraOS support and GCC 13
  compatibility
 
 ---
@@ -1739,7 +1739,7 @@ index 000000000..44587ad27
 From a75d7c4e673984be4fcb0ffbb4f7e345c56bd39d Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sun, 16 Aug 2026 17:18:00 +0700
-Subject: [PATCH 02/22] feat(sysdeps/petra): add terminal control, poll, and
+Subject: [PATCH 02/25] feat(sysdeps/petra): add terminal control, poll, and
  select sysdeps
 
 ---
@@ -1868,7 +1868,7 @@ index 44587ad27..24a2b48d8 100644
 From c4434488b69469b46faf5a07bdbd51e40152d381 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sun, 16 Aug 2026 17:19:03 +0700
-Subject: [PATCH 03/22] fix(sysdeps/petra): remove linux from
+Subject: [PATCH 03/25] fix(sysdeps/petra): remove linux from
  sysdep_supported_options
 
 ---
@@ -1894,7 +1894,7 @@ index 24a2b48d8..44587ad27 100644
 From 26c988ed911573e59fdc842e4463b89f0a433176 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sun, 16 Aug 2026 17:19:35 +0700
-Subject: [PATCH 04/22] feat(sysdeps/petra): declare terminal and poll tags in
+Subject: [PATCH 04/25] feat(sysdeps/petra): declare terminal and poll tags in
  PetraSysdepTags
 
 ---
@@ -1930,7 +1930,7 @@ index 5681c78f3..7abf63e81 100644
 From 1b5f07719d46d788c322d248c5a36ca94d0f5a50 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sun, 16 Aug 2026 17:20:01 +0700
-Subject: [PATCH 05/22] fix(sysdeps/petra): use memset for sigset_t
+Subject: [PATCH 05/25] fix(sysdeps/petra): use memset for sigset_t
 
 ---
  sysdeps/petra/generic/generic.cpp | 2 +-
@@ -1956,7 +1956,7 @@ index 12ef809c2..413db4ace 100644
 From e9bdc4ebbb80ca9fb000279f83eae7b97b10768d Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sun, 16 Aug 2026 17:21:15 +0700
-Subject: [PATCH 06/22] fix(sysdeps/petra): direct bit check in Pselect without
+Subject: [PATCH 06/25] fix(sysdeps/petra): direct bit check in Pselect without
  __FD_ISSET
 
 ---
@@ -1987,7 +1987,7 @@ index 413db4ace..a7cd878eb 100644
 From 6e637c6bc5ffda81272b882d3e182f3468adbfd0 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sun, 16 Aug 2026 17:21:39 +0700
-Subject: [PATCH 07/22] fix(sysdeps/petra): use fds_bits in Pselect
+Subject: [PATCH 07/25] fix(sysdeps/petra): use fds_bits in Pselect
 
 ---
  sysdeps/petra/generic/generic.cpp | 4 ++--
@@ -2017,7 +2017,7 @@ index a7cd878eb..0e3b2d304 100644
 From e67318b77642431df8bc8ee4a8af8bb8a9a94bf0 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sun, 16 Aug 2026 18:12:18 +0700
-Subject: [PATCH 08/22] feat(sysdeps/petra): implement ttyname, gethostname,
+Subject: [PATCH 08/25] feat(sysdeps/petra): implement ttyname, gethostname,
  termios fallback and pselect wrapper
 
 - Implement sys_ttyname: verify fd is a TTY via isatty, then report /dev/tty.
@@ -2212,7 +2212,7 @@ index 7abf63e81..47b92d23f 100644
 From 0a4b8b6296d3c8673c702c177b6a926d1718630d Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sun, 16 Aug 2026 21:54:12 +0700
-Subject: [PATCH 09/22] feat(sysdeps/petra): implement OpenDir and ReadEntries
+Subject: [PATCH 09/25] feat(sysdeps/petra): implement OpenDir and ReadEntries
  using getdents64
 
 ---
@@ -2277,7 +2277,7 @@ index 88915e85d..90885b831 100644
 From 45602e3a9d462aca3481f28fc99a9fcbcbb03ac3 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Wed, 19 Aug 2026 19:25:53 +0700
-Subject: [PATCH 10/22] feat(sysdeps/petra): implement Sysdeps<Sysconf>
+Subject: [PATCH 10/25] feat(sysdeps/petra): implement Sysdeps<Sysconf>
  handling
 
 ---
@@ -2369,7 +2369,7 @@ index f774f2190..71c973805 100644
 From 9335db45d9abd4d3eff29731ba435cabcdf8fb19 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Wed, 19 Aug 2026 20:37:20 +0700
-Subject: [PATCH 11/22] feat(sysdeps/petra): implement brk, fchmodat, and
+Subject: [PATCH 11/25] feat(sysdeps/petra): implement brk, fchmodat, and
  utimensat sysdeps
 
 ---
@@ -2451,7 +2451,7 @@ index 90885b831..c6d9cbd5d 100644
 From e8d6d7700a37243e47c2b6b08d94d2308c7a4d48 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Wed, 19 Aug 2026 20:47:47 +0700
-Subject: [PATCH 12/22] fix(ansi): flush stdout on read and default stdout to
+Subject: [PATCH 12/25] fix(ansi): flush stdout on read and default stdout to
  unbuffered for immediate terminal echo
 
 ---
@@ -2489,7 +2489,7 @@ index 90c316080..3c8c49263 100644
 From 179993a53e07b1e15717d1c60ecdefb337a95815 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Wed, 19 Aug 2026 20:59:14 +0700
-Subject: [PATCH 13/22] fix(stdio): default interactive terminal streams to
+Subject: [PATCH 13/25] fix(stdio): default interactive terminal streams to
  unbuffered for immediate character echoing
 
 ---
@@ -2525,7 +2525,7 @@ index 3c8c49263..e5e9d8d61 100644
 From 9025747d7f1b7a5396a69d1b3e47ef630f0c1bb9 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sat, 22 Aug 2026 10:05:46 +0700
-Subject: [PATCH 14/22] fix(sysdeps/petra): replace busy-loop Sleep with
+Subject: [PATCH 14/25] fix(sysdeps/petra): replace busy-loop Sleep with
  sys_nanosleep syscall
 
 ---
@@ -2642,7 +2642,7 @@ index b6059da8d..540bbc483 100644
 From 4d8f8e521611cbab241c67b3927c767fc0240bef Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Mon, 24 Aug 2026 12:51:05 +0700
-Subject: [PATCH 15/22] feat(sysdeps/petra): implement System V semaphore
+Subject: [PATCH 15/25] feat(sysdeps/petra): implement System V semaphore
  syscall support
 
 Add kernel-facing syscall numbers and userspace Sysdeps<> implementations
@@ -3129,7 +3129,7 @@ index c6d9cbd5d..44e9825e0 100644
 From 1f4f7fb31575eb51b6ae944c3da62d7cbc0f50a0 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Tue, 25 Aug 2026 09:42:26 +0700
-Subject: [PATCH 16/22] feat(sysdeps/petra): implement fadvise and System V
+Subject: [PATCH 16/25] feat(sysdeps/petra): implement fadvise and System V
  shared memory sysdeps
 
 ---
@@ -3262,7 +3262,7 @@ index 44e9825e0..22b2c37f4 100644
 From 0a2fbd447a951d0ce7b768070dc19b4a6445a9e3 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Tue, 25 Aug 2026 10:08:11 +0700
-Subject: [PATCH 17/22] feat(sysdeps/petra): implement socket and network
+Subject: [PATCH 17/25] feat(sysdeps/petra): implement socket and network
  system call sysdeps
 
 ---
@@ -3510,7 +3510,7 @@ index 22b2c37f4..a6c79f745 100644
 From 2c568ac29285382b263f080197c91d84375bdf3f Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Tue, 25 Aug 2026 20:04:30 +0700
-Subject: [PATCH 18/22] feat(sysdeps/petra): implement ppoll, poll, and
+Subject: [PATCH 18/25] feat(sysdeps/petra): implement ppoll, poll, and
  terminal winsize sysdeps
 
 ---
@@ -3602,7 +3602,7 @@ index c22a7f35f..3befdfd3a 100644
 From 2f9fcd2f9cf9af6563c02018cda3084ba499933a Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Wed, 26 Aug 2026 19:11:42 +0700
-Subject: [PATCH 19/22] feat(sysdeps/petra): complete remaining sysdeps
+Subject: [PATCH 19/25] feat(sysdeps/petra): complete remaining sysdeps
  matching Astral parity with named constants
 
 ---
@@ -4649,7 +4649,7 @@ index a6c79f745..b002185bf 100644
 From 033863d82efbe2911d491c2d9e1bc104a0885966 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Wed, 26 Aug 2026 19:58:47 +0700
-Subject: [PATCH 20/22] fix(ioctls): export TIOCGWINSZ and standard ioctls in
+Subject: [PATCH 20/25] fix(ioctls): export TIOCGWINSZ and standard ioctls in
  header files
 
 ---
@@ -4784,7 +4784,7 @@ index 41381e88b..04012f187 100644
 From 209e5154b51b5e513dd5a7b1e088263fa89ae29c Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Fri, 28 Aug 2026 20:55:26 +0700
-Subject: [PATCH 21/22] feat(sysdeps/petra): implement GetRusage sysdep
+Subject: [PATCH 21/25] feat(sysdeps/petra): implement GetRusage sysdep
 
 ---
  sysdeps/petra/generic/generic.cpp       | 13 +++++++++++++
@@ -4847,7 +4847,7 @@ index b002185bf..0f38fd0ce 100644
 From a66430625862cc9c87e29df4504ef7cea35d9663 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sun, 30 Aug 2026 18:16:21 +0700
-Subject: [PATCH 22/22] refactor(sysdeps/petra): modularize generic sysdeps and
+Subject: [PATCH 22/25] refactor(sysdeps/petra): modularize generic sysdeps and
  extract constants into include headers
 
 ---
@@ -8490,6 +8490,1037 @@ index 44587ad27..9938142b3 100644
  )
  
  if not no_headers
+-- 
+2.43.0
+
+
+From 0cf097824f68c11d772de3517235b79a5e8e8890 Mon Sep 17 00:00:00 2001
+From: Ananta <kusumaananta042@gmail.com>
+Date: Sun, 30 Aug 2026 19:20:19 +0700
+Subject: [PATCH 23/25] fix(ansi): properly handle fwrite and stdio I/O errors
+ and propagate errno
+
+---
+ options/ansi/generic/file-io.cpp | 48 +++++++++++++++++++++++---------
+ options/ansi/generic/stdio.cpp   | 34 +++++++++++-----------
+ 2 files changed, 52 insertions(+), 30 deletions(-)
+
+diff --git a/options/ansi/generic/file-io.cpp b/options/ansi/generic/file-io.cpp
+index e5e9d8d61..9842b3b3a 100644
+--- a/options/ansi/generic/file-io.cpp
++++ b/options/ansi/generic/file-io.cpp
+@@ -191,8 +191,8 @@ int abstract_file::read(char *buffer, size_t max_size, size_t *actual_size) {
+ int abstract_file::write(const char *buffer, size_t max_size, size_t *actual_size) {
+ 	__ensure(max_size);
+ 
+-	if(_init_bufmode())
+-		return -1;
++	if(int e = _init_bufmode(); e)
++		return e;
+ 	if(globallyDisableBuffering || _bufmode == buffer_mode::no_buffer) {
+ 		// As we do not buffer, nothing can be dirty.
+ 		__ensure(__dirty_begin == __dirty_end);
+@@ -252,8 +252,8 @@ int abstract_file::write(const char *buffer, size_t max_size, size_t *actual_siz
+ 
+ 	// Flush line-buffered streams.
+ 	if(flush_line) {
+-		if(_write_back())
+-			return -1;
++		if(int e = _write_back(); e)
++			return e;
+ 	}
+ 
+ 	*actual_size = chunk;
+@@ -374,8 +374,8 @@ int abstract_file::_init_bufmode() {
+ 	if(_bufmode != buffer_mode::unknown)
+ 		return 0;
+ 
+-	if(determine_bufmode(&_bufmode))
+-		return -1;
++	if(int e = determine_bufmode(&_bufmode); e)
++		return e;
+ 	__ensure(_bufmode != buffer_mode::unknown);
+ 	return 0;
+ }
+@@ -562,7 +562,7 @@ int fd_file::determine_bufmode(buffer_mode *mode) {
+ 	}else{
+ 		mlibc::infoLogger() << "mlibc: sys_isatty() failed while determining whether"
+ 				" stream is interactive" << frg::endlog;
+-		return -1;
++		return e;
+ 	}
+ }
+ 
+@@ -709,10 +709,14 @@ FILE *fopen(const char *path, const char *mode) {
+ int fclose(FILE *file_base) {
+ 	auto file = static_cast<mlibc::abstract_file *>(file_base);
+ 	int e = 0;
+-	if(file->flush())
++	if(int err = file->flush(); err) {
++		errno = err;
+ 		e = EOF;
+-	if(file->close())
++	}
++	if(int err = file->close(); err) {
++		errno = err;
+ 		e = EOF;
++	}
+ 	file->dispose();
+ 	return e;
+ }
+@@ -742,35 +746,53 @@ int fflush_unlocked(FILE *file_base) {
+ 	if(file_base == nullptr) {
+ 		// Only flush the files but do not close them.
+ 		frg::unique_lock list_lock(mlibc::global_file_list_mutex);
++		int last_err = 0;
+ 		for(auto it : mlibc::global_file_list()) {
+-			if(int e = it->flush(); e)
++			if(int e = it->flush(); e) {
++				last_err = e;
+ 				mlibc::infoLogger() << "mlibc warning: Failed to flush file"
+ 					<< frg::endlog;
++			}
++		}
++		if(last_err) {
++			errno = last_err;
++			return EOF;
+ 		}
+ 		return 0;
+ 	}
+ 	auto file = static_cast<mlibc::abstract_file *>(file_base);
+-	if(file->flush())
++	if(int e = file->flush(); e) {
++		errno = e;
+ 		return EOF;
++	}
+ 	return 0;
+ }
+ int fflush(FILE *file_base) {
+ 	if(file_base == nullptr) {
+ 		// Only flush the files but do not close them.
+ 		frg::unique_lock list_lock(mlibc::global_file_list_mutex);
++		int last_err = 0;
+ 		for(auto it : mlibc::global_file_list()) {
+ 			frg::unique_lock lock(it->_lock);
+-			if(int e = it->flush(); e)
++			if(int e = it->flush(); e) {
++				last_err = e;
+ 				mlibc::infoLogger() << "mlibc warning: Failed to flush file"
+ 					<< frg::endlog;
++			}
++		}
++		if(last_err) {
++			errno = last_err;
++			return EOF;
+ 		}
+ 		return 0;
+ 	}
+ 
+ 	auto file = static_cast<mlibc::abstract_file *>(file_base);
+ 	frg::unique_lock lock(file->_lock);
+-	if (file->flush())
++	if (int e = file->flush(); e) {
++		errno = e;
+ 		return EOF;
++	}
+ 	return 0;
+ }
+ 
+diff --git a/options/ansi/generic/stdio.cpp b/options/ansi/generic/stdio.cpp
+index 219158e73..70eeee30b 100644
+--- a/options/ansi/generic/stdio.cpp
++++ b/options/ansi/generic/stdio.cpp
+@@ -195,14 +195,12 @@ size_t fwrite_unlocked_ignore_orientation(const void *buffer, size_t size, size_
+ 		size_t progress = 0;
+ 		while(progress < count) {
+ 			size_t chunk;
+-			if(file->write((const char *)buffer + progress,
+-					count - progress, &chunk)) {
+-				// TODO: Handle I/O errors.
+-				mlibc::infoLogger() << "mlibc: fwrite() I/O errors are not handled"
+-						<< frg::endlog;
+-				break;
++			if(int e = file->write((const char *)buffer + progress,
++					count - progress, &chunk); e) {
++				errno = e;
++				file->__status_bits |= __MLIBC_ERROR_BIT;
++				return progress;
+ 			}else if(!chunk) {
+-				// TODO: Handle eof.
+ 				break;
+ 			}
+ 
+@@ -215,14 +213,12 @@ size_t fwrite_unlocked_ignore_orientation(const void *buffer, size_t size, size_
+ 			size_t progress = 0;
+ 			while(progress < size) {
+ 				size_t chunk;
+-				if(file->write((const char *)buffer + i * size + progress,
+-						size - progress, &chunk)) {
+-					// TODO: Handle I/O errors.
+-					mlibc::infoLogger() << "mlibc: fwrite() I/O errors are not handled"
+-							<< frg::endlog;
+-					break;
++				if(int e = file->write((const char *)buffer + i * size + progress,
++						size - progress, &chunk); e) {
++					errno = e;
++					file->__status_bits |= __MLIBC_ERROR_BIT;
++					return i;
+ 				}else if(!chunk) {
+-					// TODO: Handle eof.
+ 					break;
+ 				}
+ 
+@@ -2134,8 +2130,10 @@ int puts(const char *string) {
+ 	size_t len = strlen(string);
+ 	while(progress < len) {
+ 		size_t chunk;
+-		if(file->write(string + progress,
+-				len - progress, &chunk)) {
++		if(int e = file->write(string + progress,
++				len - progress, &chunk); e) {
++			errno = e;
++			file->__status_bits |= __MLIBC_ERROR_BIT;
+ 			return EOF;
+ 		}else if(!chunk) {
+ 			return EOF;
+@@ -2145,7 +2143,9 @@ int puts(const char *string) {
+ 	}
+ 
+ 	size_t unused;
+-	if (file->write("\n", 1, &unused)) {
++	if (int e = file->write("\n", 1, &unused); e) {
++		errno = e;
++		file->__status_bits |= __MLIBC_ERROR_BIT;
+ 		return EOF;
+ 	}
+ 
+-- 
+2.43.0
+
+
+From 6a47a627bddba5bf33d72cd5672bd3ca9d359008 Mon Sep 17 00:00:00 2001
+From: Ananta <kusumaananta042@gmail.com>
+Date: Sun, 30 Aug 2026 19:24:36 +0700
+Subject: [PATCH 24/25] fix(stdio): handle ESPIPE in fflush and clean up puts
+
+---
+ options/ansi/generic/file-io.cpp | 60 +++++++++++++++++++-------------
+ options/ansi/generic/stdio.cpp   | 23 ++----------
+ 2 files changed, 39 insertions(+), 44 deletions(-)
+
+diff --git a/options/ansi/generic/file-io.cpp b/options/ansi/generic/file-io.cpp
+index 9842b3b3a..bcc4ec4a1 100644
+--- a/options/ansi/generic/file-io.cpp
++++ b/options/ansi/generic/file-io.cpp
+@@ -708,17 +708,21 @@ FILE *fopen(const char *path, const char *mode) {
+ 
+ int fclose(FILE *file_base) {
+ 	auto file = static_cast<mlibc::abstract_file *>(file_base);
+-	int e = 0;
+-	if(int err = file->flush(); err) {
+-		errno = err;
+-		e = EOF;
++	int result = 0;
++	int error = 0;
++	if(int e = file->flush(); e && e != ESPIPE) {
++		result = EOF;
++		error = e;
+ 	}
+-	if(int err = file->close(); err) {
+-		errno = err;
+-		e = EOF;
++	if(int e = file->close(); e) {
++		result = EOF;
++		if(!error)
++			error = e;
+ 	}
+ 	file->dispose();
+-	return e;
++	if(error)
++		errno = error;
++	return result;
+ }
+ 
+ int fseek(FILE *file_base, long offset, int whence) {
+@@ -746,24 +750,28 @@ int fflush_unlocked(FILE *file_base) {
+ 	if(file_base == nullptr) {
+ 		// Only flush the files but do not close them.
+ 		frg::unique_lock list_lock(mlibc::global_file_list_mutex);
+-		int last_err = 0;
++		int error = 0;
+ 		for(auto it : mlibc::global_file_list()) {
+ 			if(int e = it->flush(); e) {
+-				last_err = e;
+-				mlibc::infoLogger() << "mlibc warning: Failed to flush file"
+-					<< frg::endlog;
++				if(e != ESPIPE)
++					it->__status_bits |= __MLIBC_ERROR_BIT;
++				if(!error && e != ESPIPE)
++					error = e;
+ 			}
+ 		}
+-		if(last_err) {
+-			errno = last_err;
++		if(error) {
++			errno = error;
+ 			return EOF;
+ 		}
+ 		return 0;
+ 	}
+ 	auto file = static_cast<mlibc::abstract_file *>(file_base);
+ 	if(int e = file->flush(); e) {
+-		errno = e;
+-		return EOF;
++		if(e != ESPIPE) {
++			errno = e;
++			file->__status_bits |= __MLIBC_ERROR_BIT;
++			return EOF;
++		}
+ 	}
+ 	return 0;
+ }
+@@ -771,17 +779,18 @@ int fflush(FILE *file_base) {
+ 	if(file_base == nullptr) {
+ 		// Only flush the files but do not close them.
+ 		frg::unique_lock list_lock(mlibc::global_file_list_mutex);
+-		int last_err = 0;
++		int error = 0;
+ 		for(auto it : mlibc::global_file_list()) {
+ 			frg::unique_lock lock(it->_lock);
+ 			if(int e = it->flush(); e) {
+-				last_err = e;
+-				mlibc::infoLogger() << "mlibc warning: Failed to flush file"
+-					<< frg::endlog;
++				if(e != ESPIPE)
++					it->__status_bits |= __MLIBC_ERROR_BIT;
++				if(!error && e != ESPIPE)
++					error = e;
+ 			}
+ 		}
+-		if(last_err) {
+-			errno = last_err;
++		if(error) {
++			errno = error;
+ 			return EOF;
+ 		}
+ 		return 0;
+@@ -790,8 +799,11 @@ int fflush(FILE *file_base) {
+ 	auto file = static_cast<mlibc::abstract_file *>(file_base);
+ 	frg::unique_lock lock(file->_lock);
+ 	if (int e = file->flush(); e) {
+-		errno = e;
+-		return EOF;
++		if(e != ESPIPE) {
++			errno = e;
++			file->__status_bits |= __MLIBC_ERROR_BIT;
++			return EOF;
++		}
+ 	}
+ 	return 0;
+ }
+diff --git a/options/ansi/generic/stdio.cpp b/options/ansi/generic/stdio.cpp
+index 70eeee30b..60a1b68cc 100644
+--- a/options/ansi/generic/stdio.cpp
++++ b/options/ansi/generic/stdio.cpp
+@@ -2126,28 +2126,11 @@ int puts(const char *string) {
+ 	auto file = static_cast<mlibc::abstract_file *>(stdout);
+ 	frg::unique_lock lock(file->_lock);
+ 
+-	size_t progress = 0;
+ 	size_t len = strlen(string);
+-	while(progress < len) {
+-		size_t chunk;
+-		if(int e = file->write(string + progress,
+-				len - progress, &chunk); e) {
+-			errno = e;
+-			file->__status_bits |= __MLIBC_ERROR_BIT;
+-			return EOF;
+-		}else if(!chunk) {
+-			return EOF;
+-		}
+-
+-		progress += chunk;
+-	}
+-
+-	size_t unused;
+-	if (int e = file->write("\n", 1, &unused); e) {
+-		errno = e;
+-		file->__status_bits |= __MLIBC_ERROR_BIT;
++	if(fwrite_unlocked_ignore_orientation(string, 1, len, file) != len)
++		return EOF;
++	if(fwrite_unlocked_ignore_orientation("\n", 1, 1, file) != 1)
+ 		return EOF;
+-	}
+ 
+ 	return 1;
+ }
+-- 
+2.43.0
+
+
+From bdd38c78758f9de80d95731d6d0a7d550603e489 Mon Sep 17 00:00:00 2001
+From: Ananta <kusumaananta042@gmail.com>
+Date: Fri, 4 Sep 2026 21:04:15 +0700
+Subject: [PATCH 25/25] feat(sysdeps/petra): implement scheduler and affinity
+ syscalls, sysinfo, and headers
+
+---
+ .../include/mlibc/sysdep-signatures.hpp       |  8 +-
+ .../internal/include/mlibc/sysdep-tags.hpp    |  8 +-
+ options/linux/generic/sched.cpp               | 25 ++++-
+ .../linux/include/bits/linux/linux_sched.h    | 14 +++
+ options/posix/generic/sched.cpp               | 32 ++++++
+ options/posix/include/sched.h                 |  2 +-
+ sysdeps/petra/generic/sched.cpp               | 99 +++++++++++++++++++
+ sysdeps/petra/generic/sys.cpp                 |  4 -
+ sysdeps/petra/include/bits/linux/cpu_set.h    | 49 +++++++++
+ .../petra/include/bits/linux/linux_sched.h    | 49 +++++++++
+ sysdeps/petra/include/mlibc/sysdeps.hpp       | 15 ++-
+ sysdeps/petra/include/sys/syscall.h           | 35 +++++++
+ sysdeps/petra/include/sys/sysinfo.h           | 46 +++++++++
+ sysdeps/petra/meson.build                     | 19 ++++
+ 14 files changed, 392 insertions(+), 13 deletions(-)
+ create mode 100644 sysdeps/petra/generic/sched.cpp
+ create mode 100644 sysdeps/petra/include/bits/linux/cpu_set.h
+ create mode 100644 sysdeps/petra/include/bits/linux/linux_sched.h
+ create mode 100644 sysdeps/petra/include/sys/sysinfo.h
+
+diff --git a/options/internal/include/mlibc/sysdep-signatures.hpp b/options/internal/include/mlibc/sysdep-signatures.hpp
+index fceed3392..ab97f9024 100644
+--- a/options/internal/include/mlibc/sysdep-signatures.hpp
++++ b/options/internal/include/mlibc/sysdep-signatures.hpp
+@@ -23,6 +23,9 @@
+ 
+ #include <mlibc/sysdep-tags.hpp>
+ 
++struct sysinfo;
++struct sched_attr;
++
+ namespace mlibc {
+ 
+ template<typename Tag>
+@@ -142,6 +145,7 @@ SYSDEP_FUNC(SetRlimit, int resource, const struct rlimit *limit);
+ SYSDEP_FUNC(GetPriority, int which, id_t who, int *value);
+ SYSDEP_FUNC(SetPriority, int which, id_t who, int prio);
+ SYSDEP_FUNC(GetSchedparam, void *tcb, int *policy, struct sched_param *param);
++
+ SYSDEP_FUNC(SetSchedparam, void *tcb, int policy, const struct sched_param *param);
+ SYSDEP_FUNC(GetScheduler, pid_t pid, int *policy);
+ SYSDEP_FUNC(SetScheduler, pid_t pid, int policy, const struct sched_param *param);
+@@ -149,6 +153,8 @@ SYSDEP_FUNC(GetParam, pid_t pid, struct sched_param *param);
+ SYSDEP_FUNC(SetParam, pid_t pid, const struct sched_param *param);
+ SYSDEP_FUNC(GetMaxPriority, int policy, int *out);
+ SYSDEP_FUNC(GetMinPriority, int policy, int *out);
++SYSDEP_FUNC(SetAttr, pid_t pid, struct sched_attr *attr, unsigned int flags);
++SYSDEP_FUNC(GetAttr, pid_t pid, struct sched_attr *attr, unsigned int size, unsigned int flags);
+ SYSDEP_FUNC(GetCwd, char *buffer, size_t size);
+ SYSDEP_FUNC(Chdir, const char *path);
+ SYSDEP_FUNC(Fchdir, int fd);
+@@ -254,6 +260,7 @@ SYSDEP_FUNC(GetAffinity, pid_t pid, size_t cpusetsize, cpu_set_t *mask);
+ SYSDEP_FUNC(GetThreadaffinity, pid_t tid, size_t cpusetsize, cpu_set_t *mask);
+ SYSDEP_FUNC(SetAffinity, pid_t pid, size_t cpusetsize, const cpu_set_t *mask);
+ SYSDEP_FUNC(SetThreadaffinity, pid_t tid, size_t cpusetsize, const cpu_set_t *mask);
++SYSDEP_FUNC(Sysinfo, struct sysinfo *info);
+ SYSDEP_FUNC(GetCurrentStackInfo, void **stack_base, size_t *stack_size);
+ SYSDEP_FUNC(Waitid, idtype_t idtype, id_t id, siginfo_t *info, int options);
+ SYSDEP_FUNC(NameToHandleAt, int dirfd, const char *pathname, struct file_handle *handle, int *mount_id, int flags);
+@@ -298,7 +305,6 @@ SYSDEP_FUNC(InitModule, void *module, unsigned long length, const char *args);
+ SYSDEP_FUNC(DeleteModule, const char *name, unsigned flags);
+ SYSDEP_FUNC(Klogctl, int type, char *bufp, int len, int *out);
+ SYSDEP_FUNC(Getcpu, int *cpu);
+-SYSDEP_FUNC(Sysinfo, struct sysinfo *info);
+ SYSDEP_FUNC(Swapon, const char *path, int flags);
+ SYSDEP_FUNC(Swapoff, const char *path);
+ SYSDEP_FUNC(Setxattr, const char *path, const char *name, const void *val, size_t size, int flags);
+diff --git a/options/internal/include/mlibc/sysdep-tags.hpp b/options/internal/include/mlibc/sysdep-tags.hpp
+index c740d335b..533ba356f 100644
+--- a/options/internal/include/mlibc/sysdep-tags.hpp
++++ b/options/internal/include/mlibc/sysdep-tags.hpp
+@@ -314,6 +314,10 @@ struct SetParam {};
+ struct GetMaxPriority {};
+ // int sys_get_min_priority(int policy, int *out);
+ struct GetMinPriority {};
++// int sys_sched_setattr(pid_t pid, struct sched_attr *attr, unsigned int flags);
++struct SetAttr {};
++// int sys_sched_getattr(pid_t pid, struct sched_attr *attr, unsigned int size, unsigned int flags);
++struct GetAttr {};
+ // int sys_getcwd(char *buffer, size_t size);
+ struct GetCwd {};
+ // int sys_chdir(const char *path);
+@@ -526,6 +530,8 @@ struct GetThreadaffinity {};
+ struct SetAffinity {};
+ // int sys_setthreadaffinity(pid_t tid, size_t cpusetsize, const cpu_set_t *mask);
+ struct SetThreadaffinity {};
++// int sys_sysinfo(struct sysinfo *info);
++struct Sysinfo {};
+ // int sys_get_current_stack_info(void **stack_base, size_t *stack_size);
+ struct GetCurrentStackInfo {};
+ // int sys_waitid(idtype_t idtype, id_t id, siginfo_t *info, int options);
+@@ -625,8 +631,6 @@ struct DeleteModule {};
+ struct Klogctl {};
+ // int sys_getcpu(int *cpu);
+ struct Getcpu {};
+-// int sys_sysinfo(struct sysinfo *info);
+-struct Sysinfo {};
+ // int sys_swapon(const char *path, int flags);
+ struct Swapon {};
+ // int sys_swapoff(const char *path);
+diff --git a/options/linux/generic/sched.cpp b/options/linux/generic/sched.cpp
+index c7db3e030..ea47d01bf 100644
+--- a/options/linux/generic/sched.cpp
++++ b/options/linux/generic/sched.cpp
+@@ -37,9 +37,28 @@ int unshare(int flags) {
+ 	return 0;
+ }
+ 
+-int sched_setaffinity(pid_t, size_t, const cpu_set_t *) {
+-	__ensure(!"Not implemented");
+-	__builtin_unreachable();
++int sched_setaffinity(pid_t pid, size_t cpusetsize, const cpu_set_t *mask) {
++	if(int e = mlibc::sysdep_or_enosys<SetAffinity>(pid, cpusetsize, mask); e) {
++		errno = e;
++		return -1;
++	}
++	return 0;
++}
++
++int sched_setattr(pid_t pid, struct sched_attr *attr, unsigned int flags) {
++	if(int e = mlibc::sysdep_or_enosys<SetAttr>(pid, attr, flags); e) {
++		errno = e;
++		return -1;
++	}
++	return 0;
++}
++
++int sched_getattr(pid_t pid, struct sched_attr *attr, unsigned int size, unsigned int flags) {
++	if(int e = mlibc::sysdep_or_enosys<GetAttr>(pid, attr, size, flags); e) {
++		errno = e;
++		return -1;
++	}
++	return 0;
+ }
+ 
+ int clone(int (*)(void *), void *, int, void *, ...) {
+diff --git a/options/linux/include/bits/linux/linux_sched.h b/options/linux/include/bits/linux/linux_sched.h
+index 087f71858..ddf11d11b 100644
+--- a/options/linux/include/bits/linux/linux_sched.h
++++ b/options/linux/include/bits/linux/linux_sched.h
+@@ -10,11 +10,25 @@ extern "C" {
+ #include <abi-bits/pid_t.h>
+ #include <bits/size_t.h>
+ #include <bits/linux/cpu_set.h>
++#include <stdint.h>
++
++struct sched_attr {
++	uint32_t size;
++	uint32_t sched_policy;
++	uint64_t sched_flags;
++	int32_t sched_nice;
++	uint32_t sched_priority;
++	uint64_t sched_runtime;
++	uint64_t sched_deadline;
++	uint64_t sched_period;
++};
+ 
+ #ifndef __MLIBC_ABI_ONLY
+ 
+ int sched_setaffinity(pid_t __pid, size_t __cpusetsize, const cpu_set_t *__mask);
+ int sched_getaffinity(pid_t __pid, size_t __cpusetsize, cpu_set_t *__mask);
++int sched_setattr(pid_t __pid, struct sched_attr *__attr, unsigned int __flags);
++int sched_getattr(pid_t __pid, struct sched_attr *__attr, unsigned int __size, unsigned int __flags);
+ 
+ int unshare(int flags);
+ int clone(int (*)(void *), void *, int, void *, ...);
+diff --git a/options/posix/generic/sched.cpp b/options/posix/generic/sched.cpp
+index 33949c487..80da0f77a 100644
+--- a/options/posix/generic/sched.cpp
++++ b/options/posix/generic/sched.cpp
+@@ -67,3 +67,35 @@ int sched_setparam(pid_t pid, const struct sched_param *param) {
+ 	}
+ 	return 0;
+ }
++
++int sched_getaffinity(pid_t pid, size_t cpusetsize, cpu_set_t *mask) {
++	if(int e = mlibc::sysdep_or_enosys<GetAffinity>(pid, cpusetsize, mask); e) {
++		errno = e;
++		return -1;
++	}
++	return 0;
++}
++
++int sched_setaffinity(pid_t pid, size_t cpusetsize, const cpu_set_t *mask) {
++	if(int e = mlibc::sysdep_or_enosys<SetAffinity>(pid, cpusetsize, mask); e) {
++		errno = e;
++		return -1;
++	}
++	return 0;
++}
++
++int sched_setattr(pid_t pid, struct sched_attr *attr, unsigned int flags) {
++	if(int e = mlibc::sysdep_or_enosys<SetAttr>(pid, attr, flags); e) {
++		errno = e;
++		return -1;
++	}
++	return 0;
++}
++
++int sched_getattr(pid_t pid, struct sched_attr *attr, unsigned int size, unsigned int flags) {
++	if(int e = mlibc::sysdep_or_enosys<GetAttr>(pid, attr, size, flags); e) {
++		errno = e;
++		return -1;
++	}
++	return 0;
++}
+diff --git a/options/posix/include/sched.h b/options/posix/include/sched.h
+index 976c18e85..2e46ef232 100644
+--- a/options/posix/include/sched.h
++++ b/options/posix/include/sched.h
+@@ -17,7 +17,7 @@
+ extern "C" {
+ #endif
+ 
+-#if __MLIBC_LINUX_OPTION && defined(_GNU_SOURCE)
++#if defined(_GNU_SOURCE)
+ #include <bits/linux/linux_sched.h>
+ #include <bits/linux/cpu_set.h>
+ #endif
+diff --git a/sysdeps/petra/generic/sched.cpp b/sysdeps/petra/generic/sched.cpp
+new file mode 100644
+index 000000000..2aae4a947
+--- /dev/null
++++ b/sysdeps/petra/generic/sched.cpp
+@@ -0,0 +1,99 @@
++#include <bits/ensure.h>
++#include <mlibc/debug.hpp>
++#include <mlibc/all-sysdeps.hpp>
++#include <errno.h>
++#include <sched.h>
++#include <sys/syscall.h>
++
++namespace mlibc {
++
++int Sysdeps<GetScheduler>::operator()(pid_t pid, int *policy) {
++    int64_t ret = __petra_syscall1(SYSCALL_SCHED_GETSCHEDULER, pid);
++    if (ret < 0) {
++        return -ret;
++    }
++    if (policy) {
++        *policy = ret;
++    }
++    return 0;
++}
++
++int Sysdeps<SetScheduler>::operator()(pid_t pid, int policy, const struct sched_param *param) {
++    int64_t ret = __petra_syscall3(SYSCALL_SCHED_SETSCHEDULER, pid, policy, (int64_t)param);
++    if (ret < 0) {
++        return -ret;
++    }
++    return 0;
++}
++
++int Sysdeps<GetParam>::operator()(pid_t pid, struct sched_param *param) {
++    int64_t ret = __petra_syscall2(SYSCALL_SCHED_GETPARAM, pid, (int64_t)param);
++    if (ret < 0) {
++        return -ret;
++    }
++    return 0;
++}
++
++int Sysdeps<SetParam>::operator()(pid_t pid, const struct sched_param *param) {
++    int64_t ret = __petra_syscall2(SYSCALL_SCHED_SETPARAM, pid, (int64_t)param);
++    if (ret < 0) {
++        return -ret;
++    }
++    return 0;
++}
++
++int Sysdeps<GetMinPriority>::operator()(int policy, int *out) {
++    int64_t ret = __petra_syscall1(SYSCALL_SCHED_GET_PRIORITY_MIN, policy);
++    if (ret < 0) {
++        return -ret;
++    }
++    if (out) {
++        *out = ret;
++    }
++    return 0;
++}
++
++int Sysdeps<GetMaxPriority>::operator()(int policy, int *out) {
++    int64_t ret = __petra_syscall1(SYSCALL_SCHED_GET_PRIORITY_MAX, policy);
++    if (ret < 0) {
++        return -ret;
++    }
++    if (out) {
++        *out = ret;
++    }
++    return 0;
++}
++
++int Sysdeps<GetAffinity>::operator()(pid_t pid, size_t cpusetsize, cpu_set_t *mask) {
++    int64_t ret = __petra_syscall3(SYSCALL_SCHED_GETAFFINITY, pid, cpusetsize, (int64_t)mask);
++    if (ret < 0) {
++        return -ret;
++    }
++    return 0;
++}
++
++int Sysdeps<SetAffinity>::operator()(pid_t pid, size_t cpusetsize, const cpu_set_t *mask) {
++    int64_t ret = __petra_syscall3(SYSCALL_SCHED_SETAFFINITY, pid, cpusetsize, (int64_t)mask);
++    if (ret < 0) {
++        return -ret;
++    }
++    return 0;
++}
++
++int Sysdeps<SetAttr>::operator()(pid_t pid, struct sched_attr *attr, unsigned int flags) {
++    int64_t ret = __petra_syscall3(SYSCALL_SCHED_SETATTR, pid, (int64_t)attr, flags);
++    if (ret < 0) {
++        return -ret;
++    }
++    return 0;
++}
++
++int Sysdeps<GetAttr>::operator()(pid_t pid, struct sched_attr *attr, unsigned int size, unsigned int flags) {
++    int64_t ret = __petra_syscall4(SYSCALL_SCHED_GETATTR, pid, (int64_t)attr, size, flags);
++    if (ret < 0) {
++        return -ret;
++    }
++    return 0;
++}
++
++} // namespace mlibc
+diff --git a/sysdeps/petra/generic/sys.cpp b/sysdeps/petra/generic/sys.cpp
+index 3ac691352..d12c2df82 100644
+--- a/sysdeps/petra/generic/sys.cpp
++++ b/sysdeps/petra/generic/sys.cpp
+@@ -10,9 +10,7 @@
+ #include <sys/syscall.h>
+ #include <sys_defs.h>
+ 
+-#if __MLIBC_LINUX_OPTION
+ #include <sys/sysinfo.h>
+-#endif
+ 
+ namespace mlibc {
+ 
+@@ -157,7 +155,6 @@ int Sysdeps<SetPriority>::operator()(int which, id_t who, int prio) {
+     return 0;
+ }
+ 
+-#if __MLIBC_LINUX_OPTION
+ int Sysdeps<Sysinfo>::operator()(struct sysinfo *info) {
+     if (info) {
+         memset(info, 0, sizeof(*info));
+@@ -168,7 +165,6 @@ int Sysdeps<Sysinfo>::operator()(struct sysinfo *info) {
+     }
+     return 0;
+ }
+-#endif // __MLIBC_LINUX_OPTION
+ 
+ #ifndef MLIBC_BUILDING_RTLD
+ int Sysdeps<GetEntropy>::operator()(void *buffer, size_t length) {
+diff --git a/sysdeps/petra/include/bits/linux/cpu_set.h b/sysdeps/petra/include/bits/linux/cpu_set.h
+new file mode 100644
+index 000000000..280d19483
+--- /dev/null
++++ b/sysdeps/petra/include/bits/linux/cpu_set.h
+@@ -0,0 +1,49 @@
++#ifndef _BITS_LINUX_CPU_SET_H
++#define _BITS_LINUX_CPU_SET_H
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++#include <bits/cpu_set.h>
++#include <bits/size_t.h>
++
++#ifndef __MLIBC_ABI_ONLY
++
++cpu_set_t *__mlibc_cpu_alloc(int __num_cpus);
++size_t __mlibc_cpu_alloc_size(int __num_cpus);
++
++void __mlibc_cpu_zero(const size_t __setsize, cpu_set_t *__set);
++void __mlibc_cpu_set(const int __cpu, const size_t __setsize, cpu_set_t *__set);
++void __mlibc_cpu_clear(const int __cpu, const size_t __setsize, cpu_set_t *__set);
++int __mlibc_cpu_isset(const int __cpu, const size_t __setsize, const cpu_set_t *__set);
++int __mlibc_cpu_count(const size_t __setsize, const cpu_set_t *__set);
++
++#define CPU_ALLOC_SIZE(n) __mlibc_cpu_alloc_size((n))
++#define CPU_ALLOC(n) __mlibc_cpu_alloc((n))
++#define CPU_FREE(set) free((set))
++
++#define CPU_ZERO_S(setsize, set) __mlibc_cpu_zero((setsize), (set))
++#define CPU_ZERO(set) CPU_ZERO_S(sizeof(cpu_set_t), set)
++
++#define CPU_SET_S(cpu, setsize, set) __mlibc_cpu_set((cpu), (setsize), (set))
++#define CPU_SET(cpu, set) CPU_SET_S(cpu, sizeof(cpu_set_t), set)
++
++#define CPU_CLR_S(cpu, setsize, set) __mlibc_cpu_clear((cpu), (setsize), (set))
++#define CPU_CLR(cpu, set) CPU_CLR_S(cpu, sizeof(cpu_set_t), set)
++
++#define CPU_ISSET_S(cpu, setsize, set) __mlibc_cpu_isset((cpu), (setsize), (set))
++#define CPU_ISSET(cpu, set) CPU_ISSET_S(cpu, sizeof(cpu_set_t), set)
++
++#define CPU_COUNT_S(setsize, set) __mlibc_cpu_count((setsize), (set))
++#define CPU_COUNT(set) CPU_COUNT_S(sizeof(cpu_set_t), set)
++
++#define CPU_SETSIZE __CPU_SETSIZE
++
++#endif /* !__MLIBC_ABI_ONLY */
++
++#ifdef __cplusplus
++}
++#endif
++
++#endif /* _BITS_LINUX_CPU_SET_H */
+diff --git a/sysdeps/petra/include/bits/linux/linux_sched.h b/sysdeps/petra/include/bits/linux/linux_sched.h
+new file mode 100644
+index 000000000..ddf11d11b
+--- /dev/null
++++ b/sysdeps/petra/include/bits/linux/linux_sched.h
+@@ -0,0 +1,49 @@
++
++#ifndef _BITS_LINUX_SCHED_H
++#define _BITS_LINUX_SCHED_H
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++#include <abi-bits/clone-flags.h>
++#include <abi-bits/pid_t.h>
++#include <bits/size_t.h>
++#include <bits/linux/cpu_set.h>
++#include <stdint.h>
++
++struct sched_attr {
++	uint32_t size;
++	uint32_t sched_policy;
++	uint64_t sched_flags;
++	int32_t sched_nice;
++	uint32_t sched_priority;
++	uint64_t sched_runtime;
++	uint64_t sched_deadline;
++	uint64_t sched_period;
++};
++
++#ifndef __MLIBC_ABI_ONLY
++
++int sched_setaffinity(pid_t __pid, size_t __cpusetsize, const cpu_set_t *__mask);
++int sched_getaffinity(pid_t __pid, size_t __cpusetsize, cpu_set_t *__mask);
++int sched_setattr(pid_t __pid, struct sched_attr *__attr, unsigned int __flags);
++int sched_getattr(pid_t __pid, struct sched_attr *__attr, unsigned int __size, unsigned int __flags);
++
++int unshare(int flags);
++int clone(int (*)(void *), void *, int, void *, ...);
++
++/* Glibc extension */
++int sched_getcpu(void);
++
++#if defined(_GNU_SOURCE)
++int setns(int fd, int nstype);
++#endif /* _GNU_SOURCE */
++
++#endif /* !__MLIBC_ABI_ONLY */
++
++#ifdef __cplusplus
++}
++#endif
++
++#endif /* _BITS_LINUX_SCHED_H */
+diff --git a/sysdeps/petra/include/mlibc/sysdeps.hpp b/sysdeps/petra/include/mlibc/sysdeps.hpp
+index c86f1450b..99fd40f19 100644
+--- a/sysdeps/petra/include/mlibc/sysdeps.hpp
++++ b/sysdeps/petra/include/mlibc/sysdeps.hpp
+@@ -81,6 +81,12 @@ struct PetraSysdepTags :
+     Nice,
+     SetPriority,
+     ThreadSetname,
++    GetScheduler,
++    SetScheduler,
++    GetParam,
++    SetParam,
++    GetMinPriority,
++    GetMaxPriority,
+ 
+     // Signals
+     Sigaction,
+@@ -186,15 +192,20 @@ struct PetraSysdepTags :
+     GetSockopt,
+     SetSockopt,
+     Shutdown,
+-    Socketpair
++    Socketpair,
+ 
++    // Linux-compatible extensions
++    Sysinfo,
++    GetAffinity,
++    SetAffinity,
++    SetAttr,
++    GetAttr
+ #if __MLIBC_LINUX_OPTION
+     ,
+     Statfs,
+     Fstatfs,
+     Renameat2,
+     Getcpu,
+-    Sysinfo,
+     Getifaddrs,
+     Mount,
+     Setxattr,
+diff --git a/sysdeps/petra/include/sys/syscall.h b/sysdeps/petra/include/sys/syscall.h
+index 0f38fd0ce..400a0bc52 100644
+--- a/sysdeps/petra/include/sys/syscall.h
++++ b/sysdeps/petra/include/sys/syscall.h
+@@ -131,8 +131,43 @@
+ #define SYSCALL_DUP3           292
+ #define SYSCALL_PIPE2          293
+ #define SYSCALL_PRLIMIT64      302
++#define SYSCALL_SCHED_SETPARAM          142
++#define SYSCALL_SCHED_GETPARAM          143
++#define SYSCALL_SCHED_SETSCHEDULER      144
++#define SYSCALL_SCHED_GETSCHEDULER      145
++#define SYSCALL_SCHED_GET_PRIORITY_MAX  146
++#define SYSCALL_SCHED_GET_PRIORITY_MIN  147
++#define SYSCALL_SCHED_RR_GET_INTERVAL   148
++#define SYSCALL_SCHED_SETAFFINITY       203
++#define SYSCALL_SCHED_GETAFFINITY       204
++#define SYSCALL_SCHED_SETATTR           314
++#define SYSCALL_SCHED_GETATTR           315
+ #define SYSCALL_RENAMEAT2      316
+ 
++#define SYS_sched_setparam          SYSCALL_SCHED_SETPARAM
++#define SYS_sched_getparam          SYSCALL_SCHED_GETPARAM
++#define SYS_sched_setscheduler      SYSCALL_SCHED_SETSCHEDULER
++#define SYS_sched_getscheduler      SYSCALL_SCHED_GETSCHEDULER
++#define SYS_sched_get_priority_max  SYSCALL_SCHED_GET_PRIORITY_MAX
++#define SYS_sched_get_priority_min  SYSCALL_SCHED_GET_PRIORITY_MIN
++#define SYS_sched_rr_get_interval   SYSCALL_SCHED_RR_GET_INTERVAL
++#define SYS_sched_setaffinity       SYSCALL_SCHED_SETAFFINITY
++#define SYS_sched_getaffinity       SYSCALL_SCHED_GETAFFINITY
++#define SYS_sched_setattr           SYSCALL_SCHED_SETATTR
++#define SYS_sched_getattr           SYSCALL_SCHED_GETATTR
++
++#define __NR_sched_setparam         SYSCALL_SCHED_SETPARAM
++#define __NR_sched_getparam         SYSCALL_SCHED_GETPARAM
++#define __NR_sched_setscheduler     SYSCALL_SCHED_SETSCHEDULER
++#define __NR_sched_getscheduler     SYSCALL_SCHED_GETSCHEDULER
++#define __NR_sched_get_priority_max SYSCALL_SCHED_GET_PRIORITY_MAX
++#define __NR_sched_get_priority_min SYSCALL_SCHED_GET_PRIORITY_MIN
++#define __NR_sched_rr_get_interval  SYSCALL_SCHED_RR_GET_INTERVAL
++#define __NR_sched_setaffinity      SYSCALL_SCHED_SETAFFINITY
++#define __NR_sched_getaffinity      SYSCALL_SCHED_GETAFFINITY
++#define __NR_sched_setattr          SYSCALL_SCHED_SETATTR
++#define __NR_sched_getattr          SYSCALL_SCHED_GETATTR
++
+ #if defined(__x86_64__)
+ 
+ static inline int64_t __petra_syscall0(int64_t sc) {
+diff --git a/sysdeps/petra/include/sys/sysinfo.h b/sysdeps/petra/include/sys/sysinfo.h
+new file mode 100644
+index 000000000..194b94e9e
+--- /dev/null
++++ b/sysdeps/petra/include/sys/sysinfo.h
+@@ -0,0 +1,46 @@
++#ifndef _SYS_SYSINFO_H
++#define _SYS_SYSINFO_H
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++/* TODO: This is from the Linux ABI. Make this an abi-bit. */
++
++struct sysinfo {
++	long uptime;
++	unsigned long loads[3];
++	unsigned long totalram;
++	unsigned long freeram;
++	unsigned long sharedram;
++	unsigned long bufferram;
++	unsigned long totalswap;
++	unsigned long freeswap;
++	unsigned short procs;
++	unsigned long totalhigh;
++	unsigned long freehigh;
++	unsigned int mem_unit;
++
++	/* This is how the kernel header defines it, so suppress the warning. */
++#pragma GCC diagnostic push
++#pragma GCC diagnostic ignored "-Wpedantic"
++	char _f[20 - 2 * sizeof(long) - sizeof(int)]; /* Padding to 64 bytes according to my man page */
++#pragma GCC diagnostic pop
++};
++
++#define SI_LOAD_SHIFT 16
++
++#ifndef __MLIBC_ABI_ONLY
++
++int sysinfo(struct sysinfo *__info);
++
++int get_nprocs(void);
++int get_nprocs_conf(void);
++
++#endif /* !__MLIBC_ABI_ONLY */
++
++#ifdef __cplusplus
++}
++#endif
++
++#endif /* _SYS_SYSINFO_H */
+diff --git a/sysdeps/petra/meson.build b/sysdeps/petra/meson.build
+index 9938142b3..cc05f3d36 100644
+--- a/sysdeps/petra/meson.build
++++ b/sysdeps/petra/meson.build
+@@ -15,6 +15,7 @@ rtld_sources += files(
+     'generic/socket.cpp',
+     'generic/ipc.cpp',
+     'generic/sys.cpp',
++    'generic/sched.cpp',
+ )
+ 
+ libc_sources += files(
+@@ -29,6 +30,9 @@ libc_sources += files(
+     'generic/socket.cpp',
+     'generic/ipc.cpp',
+     'generic/sys.cpp',
++    'generic/sched.cpp',
++    '../../options/linux/generic/cpuset.cpp',
++    '../../options/linux/generic/sys-sysinfo.cpp',
+ )
+ 
+ if not no_headers
+@@ -87,14 +91,29 @@ if not no_headers
+         'include/abi-bits/sigset_t.h',
+         'include/abi-bits/aio.h',
+         'include/abi-bits/sched_param.h',
++        'include/abi-bits/clone-flags.h',
++        'include/abi-bits/statfs.h',
++        'include/abi-bits/statx.h',
++        'include/abi-bits/epoll.h',
++        'include/abi-bits/inotify.h',
++        'include/abi-bits/random.h',
++        'include/abi-bits/xattr.h',
++        'include/abi-bits/vt.h',
+         subdir: 'abi-bits',
+         follow_symlinks: true
+     )
+ 
+     install_headers(
+         'include/sys/syscall.h',
++        'include/sys/sysinfo.h',
+         subdir: 'sys'
+     )
++
++    install_headers(
++        'include/bits/linux/linux_sched.h',
++        'include/bits/linux/cpu_set.h',
++        subdir: 'bits/linux'
++    )
+ endif
+ 
+ if not headers_only
 -- 
 2.43.0
 
