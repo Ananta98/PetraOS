@@ -14,40 +14,37 @@ use crate::sync::Mutex;
 use crate::syscalls::{SyscallError, SyscallResult, UserPtr};
 
 // ── Modular syscall submodules ──────────────────────────────────────────
-pub mod socket;
-pub mod connect;
 pub mod accept;
-pub mod accept4;
-pub mod sendto;
-pub mod recvfrom;
-pub mod sendmsg;
-pub mod recvmsg;
-pub mod shutdown;
 pub mod bind;
-pub mod listen;
-pub mod getsockname;
+pub mod connect;
 pub mod getpeername;
-pub mod socketpair;
-pub mod setsockopt;
+pub mod getsockname;
 pub mod getsockopt;
+pub mod listen;
+pub mod recvfrom;
+pub mod recvmsg;
+pub mod sendmsg;
+pub mod sendto;
+pub mod setsockopt;
+pub mod shutdown;
+pub mod socket;
+pub mod socketpair;
 
-pub use socket::sys_socket;
-pub use connect::sys_connect;
-pub use accept::sys_accept;
-pub use accept4::sys_accept4;
-pub use sendto::sys_sendto;
-pub use recvfrom::sys_recvfrom;
-pub use sendmsg::sys_sendmsg;
-pub use recvmsg::sys_recvmsg;
-pub use shutdown::sys_shutdown;
+pub use accept::{sys_accept, sys_accept4};
 pub use bind::sys_bind;
-pub use listen::sys_listen;
-pub use getsockname::sys_getsockname;
+pub use connect::sys_connect;
 pub use getpeername::sys_getpeername;
-pub use socketpair::sys_socketpair;
-pub use setsockopt::sys_setsockopt;
+pub use getsockname::sys_getsockname;
 pub use getsockopt::sys_getsockopt;
-
+pub use listen::sys_listen;
+pub use recvfrom::sys_recvfrom;
+pub use recvmsg::sys_recvmsg;
+pub use sendmsg::sys_sendmsg;
+pub use sendto::sys_sendto;
+pub use setsockopt::sys_setsockopt;
+pub use shutdown::sys_shutdown;
+pub use socket::sys_socket;
+pub use socketpair::sys_socketpair;
 
 /// Helper: Extract active `Socket` Arc from process file descriptor.
 pub(crate) fn get_socket(fd: i32) -> Result<Arc<Mutex<Socket>>, SyscallError> {

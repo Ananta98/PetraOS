@@ -1,7 +1,9 @@
 //! Architecture-specific system call numbering and dispatch table for x86_64 Linux ABI.
 
 use crate::define_syscall_table;
-use crate::syscalls::{arch_prctl, fs, ioctl, ipc, mm, net, proc, sched, signals, sync, sys_info, time};
+use crate::syscalls::{
+    arch_prctl, fs, ioctl, ipc, mm, net, proc, sched, signals, sync, sys_info, time,
+};
 
 // Entries in SYSCALL_TABLE must be kept sorted by system call number for binary search.
 define_syscall_table! {
