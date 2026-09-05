@@ -43,14 +43,13 @@ distclean: clean
 # Userspace / xbstrap helpers (delegates to ../tools/build_and_run_userspace.sh)
 # ------------------------------------------------------------------------------
 # Full userspace builds (fetch + patch + compile + install) can take a very
-# long time (gcc, mlibc, ncurses, htop, etc.). These make targets wrap the
+# long time (gcc, mlibc, ncurses, etc.). These make targets wrap the
 # central userspace script so users can run a single make command:
 #
-#   make build-userspace        - fetch & build ALL packages (including htop)
-#   make build-userspace-htop   - build only htop (and its deps)
+#   make build-userspace        - fetch & build ALL packages
 #   make fetch-userspace        - fetch all package sources (no compile)
 #   make clean-userspace        - clean xbstrap workspace (full rebuild)
-#   make userspace-status       - show workspace & htop package status
+#   make userspace-status       - show workspace status
 #
 # All targets delegate to tools/build_and_run_userspace.sh, which handles
 # xbstrap workspace init, fetching, patching, building and sysroot
@@ -86,7 +85,7 @@ clean-userspace:
 
 .PHONY: userspace-status
 userspace-status:
-	@bash $(USERSPACE_SCRIPT) status htop
+	@bash $(USERSPACE_SCRIPT) status
 
 # ------------------------------------------------------------------------------
 # Initramfs helpers (delegates to ../tools/create_initramfs.sh)

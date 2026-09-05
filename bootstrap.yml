@@ -17,4 +17,3 @@ imports:
   - file: packages/tzdata/tzdata.yml
   - file: packages/pkg-config/pkg-config.yml
   - file: packages/nano/nano.yml
-  - file: packages/htop/htop.yml

@@ -44,12 +44,11 @@ run: run-$(KARCH)
 #   ./tools/build_and_run_userspace.sh --all      # recompile ALL packages + QEMU
 #
 # For convenience, long-running operations are also exposed as make targets:
-#   make build-userspace      - fetch + compile + install ALL packages (incl. htop)
+#   make build-userspace      - fetch + compile + install ALL packages
 #   make fetch-userspace      - fetch all sources only (no compile)
 #   make compile-userspace    - alias for build-userspace
 #   make install-userspace    - alias for build-userspace
 #   make clean-userspace      - clean xbstrap workspace
-#   make build-userspace-htop - build only htop
 # See also kernel/GNUmakefile for the same targets when running `make -C kernel`.
 # ==============================================================================
 
@@ -57,10 +56,6 @@ run: run-$(KARCH)
 build-userspace:
 	@echo "==> Building all userspace packages (this may take a long time)..."
 	@bash tools/build_and_run_userspace.sh build-all
-
-.PHONY: build-userspace-htop
-build-userspace-htop:
-	@bash tools/build_and_run_userspace.sh build htop
 
 .PHONY: fetch-userspace
 fetch-userspace:
