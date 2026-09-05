@@ -71,6 +71,9 @@ xbstrap_in_workspace() {
 
 cmd_init() {
     ensure_xbstrap
+    if [ ! -L "${ROOT_DIR}/patches" ] && [ ! -d "${ROOT_DIR}/patches" ]; then
+        ln -sf packages "${ROOT_DIR}/patches"
+    fi
     if [ ! -d "${BUILD_DIR_XBSTRAP}" ] || [ ! -f "${BUILD_DIR_XBSTRAP}/bootstrap.link" ]; then
         log_info "Initializing xbstrap workspace in ${BUILD_DIR_XBSTRAP}..."
         mkdir -p "${BUILD_DIR_XBSTRAP}"

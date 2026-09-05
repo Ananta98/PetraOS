@@ -1,0 +1,49 @@
+sources:
+  - name: fastfetch
+    subdir: sources
+    url: 'https://github.com/fastfetch-cli/fastfetch/archive/refs/tags/2.59.0.tar.gz'
+    format: 'tar.gz'
+    extract_path: 'fastfetch-2.59.0'
+    version: '2.59.0'
+    patch_path_strip: 1
+
+packages:
+  - name: fastfetch
+    architecture: x86_64
+    from_source: fastfetch
+    tools_required:
+      - host-gcc
+    pkgs_required:
+      - mlibc
+    configure:
+      - args:
+          - cmake
+          - -B
+          - '@THIS_BUILD_DIR@'
+          - -S
+          - '@THIS_SOURCE_DIR@'
+          - -DCMAKE_TOOLCHAIN_FILE=@SOURCE_ROOT@/cross-files/petra-x86_64.cmake
+          - -DCMAKE_SYSROOT=@SYSROOT_DIR@
+          - -DCMAKE_FIND_ROOT_PATH=@SYSROOT_DIR@
+          - -DCMAKE_INSTALL_PREFIX=/usr
+          - -DCMAKE_BUILD_TYPE=Release
+          - -DBINARY_LINK_TYPE=dlopen
+        environ:
+          SYSROOT_DIR: '@SYSROOT_DIR@'
+    build:
+      - args:
+          - cmake
+          - --build
+          - '@THIS_BUILD_DIR@'
+          - -j@PARALLELISM@
+    install:
+      - args:
+          - cmake
+          - --install
+          - '@THIS_BUILD_DIR@'
+        environ:
+          DESTDIR: '@SYSROOT_DIR@'
+      - args: |
+          mkdir -p @SYSROOT_DIR@/bin
+          ln -sf /usr/bin/fastfetch @SYSROOT_DIR@/bin/fastfetch 2>/dev/null || true
+          ln -sf /usr/bin/flashfetch @SYSROOT_DIR@/bin/flashfetch 2>/dev/null || true

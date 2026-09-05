@@ -18,3 +18,4 @@ imports:
   - file: packages/pkg-config/pkg-config.yml
   - file: packages/nano/nano.yml
   - file: packages/vim/vim.yml
+  - file: packages/fastfetch/fastfetch.yml
