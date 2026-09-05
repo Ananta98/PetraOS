@@ -218,6 +218,26 @@ impl Console {
                 }
             }
         }
+
+        if let Some(ref mut serial) = self.serial {
+            while let Some(raw_byte) = serial.try_read_byte() {
+                let byte = if raw_byte == b'\r' { b'\n' } else { raw_byte };
+                let echo = self.ldisc.accept_input_byte(byte);
+                if !echo.is_empty() {
+                    if let Some(ref mut ft) = self.flanterm {
+                        ft.write_bytes(&echo);
+                        screen_needs_flush = true;
+                    }
+                    for &b in &echo {
+                        if b == b'\n' {
+                            let _ = serial.write_byte(b'\r');
+                        }
+                        let _ = serial.write_byte(b);
+                    }
+                }
+            }
+        }
+
         if screen_needs_flush {
             if let Some(ref mut ft) = self.flanterm {
                 ft.flush();

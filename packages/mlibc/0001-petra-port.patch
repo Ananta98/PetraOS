@@ -1,7 +1,7 @@
 From 39144cfd07563fa2587563f3afecf79648a0cc79 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sat, 15 Aug 2026 11:59:14 +0700
-Subject: [PATCH 01/25] feat(sysdeps): add PetraOS support and GCC 13
+Subject: [PATCH 01/26] feat(sysdeps): add PetraOS support and GCC 13
  compatibility
 
 ---
@@ -1739,7 +1739,7 @@ index 000000000..44587ad27
 From a75d7c4e673984be4fcb0ffbb4f7e345c56bd39d Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sun, 16 Aug 2026 17:18:00 +0700
-Subject: [PATCH 02/25] feat(sysdeps/petra): add terminal control, poll, and
+Subject: [PATCH 02/26] feat(sysdeps/petra): add terminal control, poll, and
  select sysdeps
 
 ---
@@ -1868,7 +1868,7 @@ index 44587ad27..24a2b48d8 100644
 From c4434488b69469b46faf5a07bdbd51e40152d381 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sun, 16 Aug 2026 17:19:03 +0700
-Subject: [PATCH 03/25] fix(sysdeps/petra): remove linux from
+Subject: [PATCH 03/26] fix(sysdeps/petra): remove linux from
  sysdep_supported_options
 
 ---
@@ -1894,7 +1894,7 @@ index 24a2b48d8..44587ad27 100644
 From 26c988ed911573e59fdc842e4463b89f0a433176 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sun, 16 Aug 2026 17:19:35 +0700
-Subject: [PATCH 04/25] feat(sysdeps/petra): declare terminal and poll tags in
+Subject: [PATCH 04/26] feat(sysdeps/petra): declare terminal and poll tags in
  PetraSysdepTags
 
 ---
@@ -1930,7 +1930,7 @@ index 5681c78f3..7abf63e81 100644
 From 1b5f07719d46d788c322d248c5a36ca94d0f5a50 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sun, 16 Aug 2026 17:20:01 +0700
-Subject: [PATCH 05/25] fix(sysdeps/petra): use memset for sigset_t
+Subject: [PATCH 05/26] fix(sysdeps/petra): use memset for sigset_t
 
 ---
  sysdeps/petra/generic/generic.cpp | 2 +-
@@ -1956,7 +1956,7 @@ index 12ef809c2..413db4ace 100644
 From e9bdc4ebbb80ca9fb000279f83eae7b97b10768d Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sun, 16 Aug 2026 17:21:15 +0700
-Subject: [PATCH 06/25] fix(sysdeps/petra): direct bit check in Pselect without
+Subject: [PATCH 06/26] fix(sysdeps/petra): direct bit check in Pselect without
  __FD_ISSET
 
 ---
@@ -1987,7 +1987,7 @@ index 413db4ace..a7cd878eb 100644
 From 6e637c6bc5ffda81272b882d3e182f3468adbfd0 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sun, 16 Aug 2026 17:21:39 +0700
-Subject: [PATCH 07/25] fix(sysdeps/petra): use fds_bits in Pselect
+Subject: [PATCH 07/26] fix(sysdeps/petra): use fds_bits in Pselect
 
 ---
  sysdeps/petra/generic/generic.cpp | 4 ++--
@@ -2017,7 +2017,7 @@ index a7cd878eb..0e3b2d304 100644
 From e67318b77642431df8bc8ee4a8af8bb8a9a94bf0 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sun, 16 Aug 2026 18:12:18 +0700
-Subject: [PATCH 08/25] feat(sysdeps/petra): implement ttyname, gethostname,
+Subject: [PATCH 08/26] feat(sysdeps/petra): implement ttyname, gethostname,
  termios fallback and pselect wrapper
 
 - Implement sys_ttyname: verify fd is a TTY via isatty, then report /dev/tty.
@@ -2212,7 +2212,7 @@ index 7abf63e81..47b92d23f 100644
 From 0a4b8b6296d3c8673c702c177b6a926d1718630d Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sun, 16 Aug 2026 21:54:12 +0700
-Subject: [PATCH 09/25] feat(sysdeps/petra): implement OpenDir and ReadEntries
+Subject: [PATCH 09/26] feat(sysdeps/petra): implement OpenDir and ReadEntries
  using getdents64
 
 ---
@@ -2277,7 +2277,7 @@ index 88915e85d..90885b831 100644
 From 45602e3a9d462aca3481f28fc99a9fcbcbb03ac3 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Wed, 19 Aug 2026 19:25:53 +0700
-Subject: [PATCH 10/25] feat(sysdeps/petra): implement Sysdeps<Sysconf>
+Subject: [PATCH 10/26] feat(sysdeps/petra): implement Sysdeps<Sysconf>
  handling
 
 ---
@@ -2369,7 +2369,7 @@ index f774f2190..71c973805 100644
 From 9335db45d9abd4d3eff29731ba435cabcdf8fb19 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Wed, 19 Aug 2026 20:37:20 +0700
-Subject: [PATCH 11/25] feat(sysdeps/petra): implement brk, fchmodat, and
+Subject: [PATCH 11/26] feat(sysdeps/petra): implement brk, fchmodat, and
  utimensat sysdeps
 
 ---
@@ -2451,7 +2451,7 @@ index 90885b831..c6d9cbd5d 100644
 From e8d6d7700a37243e47c2b6b08d94d2308c7a4d48 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Wed, 19 Aug 2026 20:47:47 +0700
-Subject: [PATCH 12/25] fix(ansi): flush stdout on read and default stdout to
+Subject: [PATCH 12/26] fix(ansi): flush stdout on read and default stdout to
  unbuffered for immediate terminal echo
 
 ---
@@ -2489,7 +2489,7 @@ index 90c316080..3c8c49263 100644
 From 179993a53e07b1e15717d1c60ecdefb337a95815 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Wed, 19 Aug 2026 20:59:14 +0700
-Subject: [PATCH 13/25] fix(stdio): default interactive terminal streams to
+Subject: [PATCH 13/26] fix(stdio): default interactive terminal streams to
  unbuffered for immediate character echoing
 
 ---
@@ -2525,7 +2525,7 @@ index 3c8c49263..e5e9d8d61 100644
 From 9025747d7f1b7a5396a69d1b3e47ef630f0c1bb9 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sat, 22 Aug 2026 10:05:46 +0700
-Subject: [PATCH 14/25] fix(sysdeps/petra): replace busy-loop Sleep with
+Subject: [PATCH 14/26] fix(sysdeps/petra): replace busy-loop Sleep with
  sys_nanosleep syscall
 
 ---
@@ -2642,7 +2642,7 @@ index b6059da8d..540bbc483 100644
 From 4d8f8e521611cbab241c67b3927c767fc0240bef Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Mon, 24 Aug 2026 12:51:05 +0700
-Subject: [PATCH 15/25] feat(sysdeps/petra): implement System V semaphore
+Subject: [PATCH 15/26] feat(sysdeps/petra): implement System V semaphore
  syscall support
 
 Add kernel-facing syscall numbers and userspace Sysdeps<> implementations
@@ -3129,7 +3129,7 @@ index c6d9cbd5d..44e9825e0 100644
 From 1f4f7fb31575eb51b6ae944c3da62d7cbc0f50a0 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Tue, 25 Aug 2026 09:42:26 +0700
-Subject: [PATCH 16/25] feat(sysdeps/petra): implement fadvise and System V
+Subject: [PATCH 16/26] feat(sysdeps/petra): implement fadvise and System V
  shared memory sysdeps
 
 ---
@@ -3262,7 +3262,7 @@ index 44e9825e0..22b2c37f4 100644
 From 0a2fbd447a951d0ce7b768070dc19b4a6445a9e3 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Tue, 25 Aug 2026 10:08:11 +0700
-Subject: [PATCH 17/25] feat(sysdeps/petra): implement socket and network
+Subject: [PATCH 17/26] feat(sysdeps/petra): implement socket and network
  system call sysdeps
 
 ---
@@ -3510,7 +3510,7 @@ index 22b2c37f4..a6c79f745 100644
 From 2c568ac29285382b263f080197c91d84375bdf3f Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Tue, 25 Aug 2026 20:04:30 +0700
-Subject: [PATCH 18/25] feat(sysdeps/petra): implement ppoll, poll, and
+Subject: [PATCH 18/26] feat(sysdeps/petra): implement ppoll, poll, and
  terminal winsize sysdeps
 
 ---
@@ -3602,7 +3602,7 @@ index c22a7f35f..3befdfd3a 100644
 From 2f9fcd2f9cf9af6563c02018cda3084ba499933a Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Wed, 26 Aug 2026 19:11:42 +0700
-Subject: [PATCH 19/25] feat(sysdeps/petra): complete remaining sysdeps
+Subject: [PATCH 19/26] feat(sysdeps/petra): complete remaining sysdeps
  matching Astral parity with named constants
 
 ---
@@ -4649,7 +4649,7 @@ index a6c79f745..b002185bf 100644
 From 033863d82efbe2911d491c2d9e1bc104a0885966 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Wed, 26 Aug 2026 19:58:47 +0700
-Subject: [PATCH 20/25] fix(ioctls): export TIOCGWINSZ and standard ioctls in
+Subject: [PATCH 20/26] fix(ioctls): export TIOCGWINSZ and standard ioctls in
  header files
 
 ---
@@ -4784,7 +4784,7 @@ index 41381e88b..04012f187 100644
 From 209e5154b51b5e513dd5a7b1e088263fa89ae29c Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Fri, 28 Aug 2026 20:55:26 +0700
-Subject: [PATCH 21/25] feat(sysdeps/petra): implement GetRusage sysdep
+Subject: [PATCH 21/26] feat(sysdeps/petra): implement GetRusage sysdep
 
 ---
  sysdeps/petra/generic/generic.cpp       | 13 +++++++++++++
@@ -4847,7 +4847,7 @@ index b002185bf..0f38fd0ce 100644
 From a66430625862cc9c87e29df4504ef7cea35d9663 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sun, 30 Aug 2026 18:16:21 +0700
-Subject: [PATCH 22/25] refactor(sysdeps/petra): modularize generic sysdeps and
+Subject: [PATCH 22/26] refactor(sysdeps/petra): modularize generic sysdeps and
  extract constants into include headers
 
 ---
@@ -8497,7 +8497,7 @@ index 44587ad27..9938142b3 100644
 From 0cf097824f68c11d772de3517235b79a5e8e8890 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sun, 30 Aug 2026 19:20:19 +0700
-Subject: [PATCH 23/25] fix(ansi): properly handle fwrite and stdio I/O errors
+Subject: [PATCH 23/26] fix(ansi): properly handle fwrite and stdio I/O errors
  and propagate errno
 
 ---
@@ -8701,7 +8701,7 @@ index 219158e73..70eeee30b 100644
 From 6a47a627bddba5bf33d72cd5672bd3ca9d359008 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sun, 30 Aug 2026 19:24:36 +0700
-Subject: [PATCH 24/25] fix(stdio): handle ESPIPE in fflush and clean up puts
+Subject: [PATCH 24/26] fix(stdio): handle ESPIPE in fflush and clean up puts
 
 ---
  options/ansi/generic/file-io.cpp | 60 +++++++++++++++++++-------------
@@ -8861,7 +8861,7 @@ index 70eeee30b..60a1b68cc 100644
 From bdd38c78758f9de80d95731d6d0a7d550603e489 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Fri, 4 Sep 2026 21:04:15 +0700
-Subject: [PATCH 25/25] feat(sysdeps/petra): implement scheduler and affinity
+Subject: [PATCH 25/26] feat(sysdeps/petra): implement scheduler and affinity
  syscalls, sysinfo, and headers
 
 ---
@@ -9521,6 +9521,171 @@ index 9938142b3..cc05f3d36 100644
  endif
  
  if not headers_only
+-- 
+2.43.0
+
+
+From ddc5b2341f179e1857ae6062a14f3eeb4ea629b5 Mon Sep 17 00:00:00 2001
+From: Ananta <kusumaananta042@gmail.com>
+Date: Sat, 5 Sep 2026 20:06:53 +0700
+Subject: [PATCH 26/26] feat(sysdeps/petra): implement _SC_SIGSTKSZ and sysconf
+ limits, and mlibc file logging
+
+---
+ sysdeps/petra/generic/sys.cpp    | 110 +++++++++++++++++++++++++++++++
+ sysdeps/petra/include/sys_defs.h |   6 ++
+ 2 files changed, 116 insertions(+)
+
+diff --git a/sysdeps/petra/generic/sys.cpp b/sysdeps/petra/generic/sys.cpp
+index d12c2df82..41b56d1c0 100644
+--- a/sysdeps/petra/generic/sys.cpp
++++ b/sysdeps/petra/generic/sys.cpp
+@@ -18,12 +18,42 @@ void Sysdeps<LibcLog>::operator()(const char *message) {
+     ssize_t unused;
+     sysdep<Write>(2, message, strlen(message), &unused);
+     sysdep<Write>(2, "\n", 1, &unused);
++
++    static bool logging_file = false;
++    if (!logging_file) {
++        logging_file = true;
++        int fd = -1;
++        if (sysdep<Open>("/tmp/mlibc.log", O_WRONLY | O_CREAT | O_APPEND, 0666, &fd) != 0 || fd < 0) {
++            sysdep<Open>("/mlibc.log", O_WRONLY | O_CREAT | O_APPEND, 0666, &fd);
++        }
++        if (fd >= 0) {
++            sysdep<Write>(fd, message, strlen(message), &unused);
++            sysdep<Write>(fd, "\n", 1, &unused);
++            sysdep<Close>(fd);
++        }
++        logging_file = false;
++    }
+ }
+ 
+ void Sysdeps<LibcPanic>::operator()() {
+     ssize_t unused;
+     char const *message = "\n[PetraOS] mlibc panic occurred!\n";
+     sysdep<Write>(2, message, strlen(message), &unused);
++
++    static bool logging_file = false;
++    if (!logging_file) {
++        logging_file = true;
++        int fd = -1;
++        if (sysdep<Open>("/tmp/mlibc.log", O_WRONLY | O_CREAT | O_APPEND, 0666, &fd) != 0 || fd < 0) {
++            sysdep<Open>("/mlibc.log", O_WRONLY | O_CREAT | O_APPEND, 0666, &fd);
++        }
++        if (fd >= 0) {
++            sysdep<Write>(fd, message, strlen(message), &unused);
++            sysdep<Close>(fd);
++        }
++        logging_file = false;
++    }
++
+     sysdep<Exit>(1);
+ }
+ 
+@@ -124,6 +154,86 @@ int Sysdeps<Sysconf>::operator()(int num, long *ret) {
+             *ret = SYSCONF_CLK_TCK_DEFAULT;
+             break;
+         }
++        case _SC_SIGSTKSZ: {
++            *ret = SYSCONF_SIGSTKSZ_DEFAULT;
++            break;
++        }
++        case _SC_MINSIGSTKSZ: {
++            *ret = SYSCONF_MINSIGSTKSZ_DEFAULT;
++            break;
++        }
++        case _SC_ARG_MAX: {
++            *ret = SYSCONF_ARG_MAX_DEFAULT;
++            break;
++        }
++        case _SC_LINE_MAX: {
++            *ret = SYSCONF_LINE_MAX_DEFAULT;
++            break;
++        }
++        case _SC_IOV_MAX: {
++            *ret = SYSCONF_IOV_MAX_DEFAULT;
++            break;
++        }
++        case _SC_SYMLOOP_MAX: {
++            *ret = SYSCONF_SYMLOOP_MAX_DEFAULT;
++            break;
++        }
++        case _SC_HOST_NAME_MAX: {
++            *ret = DEFAULT_MAX_NAME_LEN;
++            break;
++        }
++        case _SC_LOGIN_NAME_MAX: {
++            *ret = 256;
++            break;
++        }
++        case _SC_TTY_NAME_MAX: {
++            *ret = 32;
++            break;
++        }
++        case _SC_GETPW_R_SIZE_MAX:
++        case _SC_GETGR_R_SIZE_MAX: {
++            *ret = 1024;
++            break;
++        }
++        case _SC_ATEXIT_MAX: {
++            *ret = 32;
++            break;
++        }
++        case _SC_PASS_MAX: {
++            *ret = 128;
++            break;
++        }
++        case _SC_STREAM_MAX: {
++            *ret = 16;
++            break;
++        }
++        case _SC_TZNAME_MAX: {
++            *ret = 6;
++            break;
++        }
++        case _SC_NGROUPS_MAX: {
++            *ret = 65536;
++            break;
++        }
++        case _SC_JOB_CONTROL:
++        case _SC_SAVED_IDS:
++        case _SC_REALTIME_SIGNALS:
++        case _SC_TIMERS:
++        case _SC_THREADS:
++        case _SC_THREAD_SAFE_FUNCTIONS:
++        case _SC_XOPEN_UNIX: {
++            *ret = 1;
++            break;
++        }
++        case _SC_VERSION:
++        case _SC_2_VERSION: {
++            *ret = 200809L;
++            break;
++        }
++        case _SC_XOPEN_VERSION: {
++            *ret = 700;
++            break;
++        }
+         default: {
+             return EINVAL;
+         }
+diff --git a/sysdeps/petra/include/sys_defs.h b/sysdeps/petra/include/sys_defs.h
+index 7414504fb..4819ae640 100644
+--- a/sysdeps/petra/include/sys_defs.h
++++ b/sysdeps/petra/include/sys_defs.h
+@@ -14,5 +14,11 @@
+ #define SYSCONF_PHYS_PAGES_DEFAULT  262144
+ #define SYSCONF_PAGE_SIZE_DEFAULT   4096
+ #define SYSCONF_CLK_TCK_DEFAULT     100
++#define SYSCONF_SIGSTKSZ_DEFAULT    8192
++#define SYSCONF_MINSIGSTKSZ_DEFAULT 2048
++#define SYSCONF_ARG_MAX_DEFAULT     2097152
++#define SYSCONF_LINE_MAX_DEFAULT    2048
++#define SYSCONF_IOV_MAX_DEFAULT     1024
++#define SYSCONF_SYMLOOP_MAX_DEFAULT 40
+ 
+ #endif /* _PETRA_SYS_DEFS_H */
 -- 
 2.43.0
 
