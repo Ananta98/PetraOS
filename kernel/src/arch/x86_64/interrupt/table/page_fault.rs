@@ -4,16 +4,13 @@
 //! Ring 3 user faults result in process termination with `SIGSEGV`, while unhandled
 //! Ring 0 kernel faults trigger a kernel panic with diagnostics.
 
+use super::kill_user_process;
 use crate::arch::idt::InterruptStackFrame;
 use crate::arch::read_cr2;
 use crate::ipc::signal::SIGSEGV;
 use crate::mm::{PageFaultErrorCode, VirtAddr};
-use super::kill_user_process;
 
-pub extern "C" fn page_fault_handler(
-    stack_frame: &mut InterruptStackFrame,
-    error_code: u64,
-) {
+pub extern "C" fn page_fault_handler(stack_frame: &mut InterruptStackFrame, error_code: u64) {
     let fault_virt = VirtAddr::new(read_cr2());
     let fault_code = PageFaultErrorCode::from_bits_truncate(error_code);
 
@@ -31,7 +28,9 @@ pub extern "C" fn page_fault_handler(
         }
     }
 
-    if (stack_frame.code_segment & 3) == 3 || fault_virt.as_u64() <= crate::syscalls::USER_SPACE_MAX_ADDR {
+    if (stack_frame.code_segment & 3) == 3
+        || fault_virt.as_u64() <= crate::syscalls::USER_SPACE_MAX_ADDR
+    {
         log::warn!(
             "User process page fault (SIGSEGV) at {:#x}, Error Code: {:#x} [{:?}], RIP={:#x}, CS={:#x}, RSP={:#x}",
             fault_virt.as_u64(),

@@ -12,7 +12,7 @@ use crate::fs::vfs::mount::MOUNT_TABLE;
 use crate::fs::vfs::types::{FileOps, Inode, InodeOps, InodeType, Stat, VfsError};
 use crate::mm::UserPtr;
 use crate::sync::Mutex;
-use crate::tty::termios::{
+use super::termios::{
     FIONREAD, LineDiscipline, TCFLSH, TCGETS, TCSBRK, TCSETS, TCSETSF, TCSETSW, TCXONC, TIOCGPGRP,
     TIOCGPTN, TIOCGWINSZ, TIOCNOTTY, TIOCSCTTY, TIOCSPGRP, TIOCSPTLCK, TIOCSWINSZ, Termios,
     WinSize,

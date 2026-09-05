@@ -1,7 +1,7 @@
 pub mod block;
 pub mod char;
 pub mod console;
-pub mod fb;
+pub mod drm;
 pub mod full;
 pub mod kbd;
 pub mod kmsg;
@@ -16,7 +16,7 @@ pub mod zero;
 pub use block::BlockDeviceInode;
 pub use char::GenericCharDeviceInode;
 pub use console::ConsoleInode;
-pub use fb::FbInode;
+pub use drm::{DrmCardInode, FbInode};
 pub use full::FullInode;
 pub use kbd::KbdInode;
 pub use kmsg::KmsgInode;
@@ -47,6 +47,7 @@ use crate::sync::Mutex;
 pub static DEV_ROOT_DIR: Mutex<Option<Arc<DevDirInode>>> = Mutex::new(None);
 pub static DEV_PTS_DIR: Mutex<Option<Arc<DevDirInode>>> = Mutex::new(None);
 pub static DEV_INPUT_DIR: Mutex<Option<Arc<DevDirInode>>> = Mutex::new(None);
+pub static DEV_DRI_DIR: Mutex<Option<Arc<DevDirInode>>> = Mutex::new(None);
 
 // ===== DevDirInode — Directory inode for /dev, /dev/pts, /dev/input =====
 
@@ -200,7 +201,7 @@ pub fn sync_device_to_devfs(device: &Arc<Mutex<Box<dyn Device>>>) {
             register_dev_node(vfs_name, inode);
             log::info!("[DevFS] Registered block device /dev/{}", vfs_name);
         }
-        DeviceType::Char | DeviceType::Gpu | DeviceType::Network | DeviceType::Audio => {
+        DeviceType::Char | DeviceType::Network | DeviceType::Audio => {
             let inode = Arc::new(Inode {
                 ino,
                 inode_type: InodeType::CharDevice,
@@ -211,6 +212,19 @@ pub fn sync_device_to_devfs(device: &Arc<Mutex<Box<dyn Device>>>) {
             drop(mt);
             register_dev_node(vfs_name, inode);
             log::info!("[DevFS] Registered character device /dev/{}", vfs_name);
+        }
+        DeviceType::Drm => {
+            let inode = Arc::new(Inode {
+                ino,
+                inode_type: InodeType::CharDevice,
+                ops: Arc::new(DrmCardInode::new(0)),
+            });
+            drop(mt);
+            // Register in /dev/dri/ subdirectory if available.
+            if let Some(dri_dir) = DEV_DRI_DIR.lock().as_ref() {
+                dri_dir.insert(vfs_name, inode.clone());
+            }
+            log::info!("[DevFS] Registered DRM device /dev/dri/{}", vfs_name);
         }
         _ => {}
     }
@@ -306,7 +320,7 @@ impl DevFs {
             DevNode {
                 name: "ptmx",
                 inode_type: InodeType::CharDevice,
-                ops: Arc::new(crate::tty::pty::PtmxInode),
+                ops: Arc::new(crate::drivers::tty::pty::PtmxInode),
             },
             DevNode {
                 name: "null",
@@ -400,6 +414,31 @@ impl DevFs {
         }
 
         log::info!("[DevFS] Mounted /dev successfully with core UNIX device nodes.");
+
+        // Create /dev/dri DRM subsystem directory.
+        let dri_dir = Arc::new(DevDirInode::new());
+        *DEV_DRI_DIR.lock() = Some(dri_dir.clone());
+        let dri_dir_ino = dev_mount.superblock.alloc_ino();
+        let dri_dir_inode = Arc::new(Inode {
+            ino: dri_dir_ino,
+            inode_type: InodeType::Directory,
+            ops: dri_dir.clone(),
+        });
+        register_node("dri", dri_dir_inode.clone());
+
+        // Register /dev/dri/card0
+        let card0_ino = dev_mount.superblock.alloc_ino();
+        let card0_inode = Arc::new(Inode {
+            ino: card0_ino,
+            inode_type: InodeType::CharDevice,
+            ops: Arc::new(DrmCardInode::new(0)),
+        });
+        dri_dir.insert("card0", card0_inode.clone());
+        if let Some(dri_dentry) = dev_mount.root_dentry.children.lock().get("dri").cloned() {
+            Dentry::add_child(&dri_dentry, "card0".into(), card0_inode);
+        }
+
+        log::info!("[DevFS] Registered /dev/dri/card0 DRM node.");
         Ok(())
     }
 }

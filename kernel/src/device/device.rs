@@ -10,7 +10,7 @@ pub enum DeviceType {
     Block,
     Network,
     Bus,
-    Gpu,
+    Drm,
     Audio,
     Unknown,
 }
@@ -79,6 +79,16 @@ pub trait Device: Send + Sync {
     fn as_net_device_mut(&mut self) -> Option<&mut dyn NetDevice> {
         None
     }
+
+    /// Cast to `DrmDevice` for display/modesetting (returns `None` if unsupported).
+    fn as_drm_device(&self) -> Option<&dyn DrmDevice> {
+        None
+    }
+
+    /// Cast to `DrmDevice` mutably for display/modesetting (returns `None` if unsupported).
+    fn as_drm_device_mut(&mut self) -> Option<&mut dyn DrmDevice> {
+        None
+    }
 }
 
 // ===== CharDevice Trait =====
@@ -138,4 +148,42 @@ pub trait NetDevice: Device {
 
     /// Non-destructively report whether the TX ring has a free descriptor.
     fn is_tx_ready(&mut self) -> bool;
+}
+
+// ===== DrmDevice Trait =====
+
+/// Display / modesetting interface for DRM devices (framebuffers, scanout engines).
+///
+/// Extends `Device` to expose pixel buffer geometry and raw pixel read/write
+/// access. Future extensions (modesetting, dumb buffer allocation, plane
+/// management) should be added here as optional methods.
+pub trait DrmDevice: Device {
+    /// Return `(width, height)` in pixels for the current display mode.
+    fn resolution(&self) -> (u32, u32);
+
+    /// Bits per pixel for the scanout buffer.
+    fn bpp(&self) -> u16;
+
+    /// Scanline pitch (bytes per row) of the scanout buffer.
+    fn pitch(&self) -> u64;
+
+    /// Physical base address of the linear framebuffer.
+    fn address(&self) -> u64;
+
+    /// Total byte size of the scanout buffer (`height * pitch`).
+    fn size_bytes(&self) -> usize;
+
+    /// Read raw pixel bytes from the scanout buffer at `offset`.
+    fn read_buffer(
+        &self,
+        offset: usize,
+        buf: &mut [u8],
+    ) -> Result<usize, super::driver::DriverError>;
+
+    /// Write raw pixel bytes into the scanout buffer at `offset`.
+    fn write_buffer(
+        &mut self,
+        offset: usize,
+        buf: &[u8],
+    ) -> Result<usize, super::driver::DriverError>;
 }

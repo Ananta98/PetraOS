@@ -7,8 +7,10 @@ use super::policy::{RT_PRIO_COUNT, RtPriority};
 use crate::proc::thread::{Thread, ThreadId};
 use crate::sched::policy::{DEFAULT_RR_QUANTUM_NS, SchedPolicy};
 use crate::sync::Mutex;
+use alloc::boxed::Box;
 use alloc::collections::VecDeque;
 use alloc::sync::Arc;
+use alloc::vec::Vec;
 
 /// Real-Time Run Queue for a single CPU core.
 pub struct RtRunQueue {
@@ -17,8 +19,8 @@ pub struct RtRunQueue {
     /// `bitmap[1]`: priorities 64..99
     bitmap: [u64; 2],
 
-    /// Per-priority FIFO queues.
-    queues: [VecDeque<Arc<Mutex<Thread>>>; RT_PRIO_COUNT],
+    /// Per-priority FIFO queues allocated on heap to prevent stack overflow.
+    queues: Box<[VecDeque<Arc<Mutex<Thread>>>; RT_PRIO_COUNT]>,
 
     /// Total number of queued real-time threads.
     count: usize,
@@ -26,10 +28,19 @@ pub struct RtRunQueue {
 
 impl RtRunQueue {
     /// Creates a new, empty `RtRunQueue`.
-    pub const fn new() -> Self {
+    pub fn new() -> Self {
+        let mut v = Vec::with_capacity(RT_PRIO_COUNT);
+        for _ in 0..RT_PRIO_COUNT {
+            v.push(VecDeque::new());
+        }
+        let boxed: Box<[VecDeque<Arc<Mutex<Thread>>>]> = v.into_boxed_slice();
+        let queues: Box<[VecDeque<Arc<Mutex<Thread>>>; RT_PRIO_COUNT]> = match boxed.try_into() {
+            Ok(arr) => arr,
+            Err(_) => unreachable!(),
+        };
         Self {
             bitmap: [0, 0],
-            queues: [const { VecDeque::new() }; RT_PRIO_COUNT],
+            queues,
             count: 0,
         }
     }
@@ -139,7 +150,7 @@ pub struct RtClassRq {
 
 impl RtClassRq {
     /// Creates a new `RtClassRq`.
-    pub const fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             queue: RtRunQueue::new(),
         }

@@ -5,6 +5,7 @@ use crate::fs::vfs::dentry::Dentry;
 use crate::fs::vfs::types::{
     FileOps, Inode, InodeOps, InodeType, O_RDONLY, O_WRONLY, Stat, VfsError,
 };
+use crate::proc::thread::Thread;
 use crate::sync::Mutex;
 use alloc::collections::VecDeque;
 use alloc::sync::Arc;
@@ -64,7 +65,7 @@ impl FileOps for PipeReadFileOps {
             }
 
             drop(pipe);
-            crate::proc::thread::Thread::yield_cpu();
+            Thread::yield_cpu();
         }
     }
 
@@ -138,7 +139,7 @@ impl FileOps for PipeWriteFileOps {
             }
 
             drop(pipe);
-            crate::proc::thread::Thread::yield_cpu();
+            Thread::yield_cpu();
         }
 
         Ok(total_written)

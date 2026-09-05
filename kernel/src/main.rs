@@ -1,5 +1,6 @@
 #![no_std]
 #![no_main]
+#![allow(dead_code)]
 
 extern crate alloc;
 
@@ -20,16 +21,13 @@ pub mod proc;
 pub mod sched;
 pub mod sync;
 pub mod syscalls;
-pub mod tty;
 pub mod utils;
 
 #[unsafe(no_mangle)]
 unsafe extern "C" fn kmain() -> ! {
     logger::init();
     mm::init();
-    arch::init();
-    sched::init();
-    tty::init();
     modules::init();
+    sched::init();
     proc::process::init_proc::run_init_process();
 }

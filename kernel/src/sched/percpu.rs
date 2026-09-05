@@ -30,7 +30,7 @@ pub struct PerCpuRunQueue {
 
 impl PerCpuRunQueue {
     /// Creates a new, empty `PerCpuRunQueue` for `cpu_id`.
-    pub const fn new(cpu_id: u32) -> Self {
+    pub fn new(cpu_id: u32) -> Self {
         Self {
             cpu_id,
             current: None,

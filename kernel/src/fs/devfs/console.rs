@@ -5,15 +5,15 @@
 
 use crate::fs::vfs::types::{FileOps, InodeOps, Stat, VfsError};
 use crate::mm::UserPtr;
-use crate::tty::console::CONSOLE;
-use crate::tty::termios::{
+use crate::drivers::tty::console::CONSOLE;
+use crate::drivers::tty::termios::{
     FIONREAD, K_UNICODE, KD_TEXT, KDGETMODE, KDGKBMODE, KDSETMODE, KDSKBMODE, TCFLSH, TCGETA,
     TCGETS, TCGETS2, TCSBRK, TCSETA, TCSETAF, TCSETAW, TCSETS, TCSETS2, TCSETSF, TCSETSF2, TCSETSW,
     TCSETSW2, TCXONC, TIOCGPGRP, TIOCGSID, TIOCGWINSZ, TIOCLINUX, TIOCNOTTY, TIOCOUTQ, TIOCSCTTY,
     TIOCSPGRP, TIOCSTI, TIOCSWINSZ, Termio, Termios, Termios2, VT_ACTIVATE, VT_GETMODE,
     VT_GETSTATE, VT_OPENQRY, VT_SETMODE, VT_WAITACTIVE, WinSize,
 };
-use crate::tty::{tty_read, tty_write};
+use crate::drivers::tty::{tty_read, tty_write};
 use alloc::sync::Arc;
 
 /// Inode for the `/dev/console` device.

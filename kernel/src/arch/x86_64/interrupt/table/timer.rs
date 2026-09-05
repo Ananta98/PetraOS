@@ -13,11 +13,10 @@ pub extern "C" fn timer_handler(stack_frame: &mut InterruptStackFrame) {
         crate::arch::interrupt::lapic::get_lapic().end_of_interrupt();
     }
 
-    // Only allow preemption if interrupted in user space (Ring 3) or if kernel preemption is safe.
+    // Only allow preemption if interrupted in user space (Ring 3).
+    // Arbitrary kernel preemption in Ring 0 is unsafe as kernel locks do not disable preemption.
     let is_user = (stack_frame.code_segment & 3) != 0;
-    let safe_to_preempt = is_user || crate::sched::can_preempt();
-
-    if safe_to_preempt {
+    if is_user {
         crate::sched::tick(cpu_id, 10_000_000);
     }
 }

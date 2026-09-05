@@ -6,12 +6,12 @@
 use core::alloc::Layout;
 use core::ffi::c_void;
 
-use crate::device::Device;
+use crate::device::{CharDevice, Device};
 use crate::drivers::char::keyboard::KEY_RING_BUFFER;
 use crate::drivers::serial::{PortIoBackend, SerialPort};
 use crate::limine::FRAMEBUFFER_REQUEST;
 use crate::sync::Mutex;
-use crate::tty::termios::{LineDiscipline, WinSize};
+use super::termios::{LineDiscipline, WinSize};
 
 // Memory allocation callbacks required by flanterm C library.
 unsafe extern "C" fn flanterm_malloc(size: usize) -> *mut c_void {
@@ -146,7 +146,7 @@ impl FlantermContext {
 /// Unified Console manager integrating Flanterm display, Line Discipline, and Serial fallback.
 pub struct Console {
     flanterm: Option<FlantermContext>,
-    _serial: Option<SerialPort<PortIoBackend>>,
+    serial: Option<SerialPort<PortIoBackend>>,
     pub ldisc: LineDiscipline,
 }
 
@@ -174,7 +174,7 @@ impl Console {
 
         Self {
             flanterm: flanterm_opt,
-            _serial: serial_opt,
+            serial: serial_opt,
             ldisc: LineDiscipline::new(winsize),
         }
     }
@@ -185,6 +185,14 @@ impl Console {
         if let Some(ref mut ft) = self.flanterm {
             ft.write_bytes(&processed);
             ft.flush();
+        }
+        if let Some(ref mut serial) = self.serial {
+            for &b in &processed {
+                if b == b'\n' {
+                    let _ = serial.write_byte(b'\r');
+                }
+                let _ = serial.write_byte(b);
+            }
         }
         buf.len()
     }
@@ -199,6 +207,14 @@ impl Console {
                 if let Some(ref mut ft) = self.flanterm {
                     ft.write_bytes(&echo);
                     screen_needs_flush = true;
+                }
+                if let Some(ref mut serial) = self.serial {
+                    for &b in &echo {
+                        if b == b'\n' {
+                            let _ = serial.write_byte(b'\r');
+                        }
+                        let _ = serial.write_byte(b);
+                    }
                 }
             }
         }
