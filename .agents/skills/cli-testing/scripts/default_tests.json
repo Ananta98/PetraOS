@@ -1,0 +1,90 @@
+{
+  "suite_name": "PetraOS CLI & Shell Core Test Suite",
+  "description": "Standard POSIX shell and CLI command test suite for PetraOS and bash environments.",
+  "tests": [
+    {
+      "name": "test_echo",
+      "command": "echo 'Hello PetraOS CLI'",
+      "expect_contains": "Hello PetraOS CLI",
+      "expect_exit_code": 0,
+      "timeout": 10.0
+    },
+    {
+      "name": "test_arithmetic",
+      "command": "echo $(( 25 + 17 ))",
+      "expect_contains": "42",
+      "expect_exit_code": 0,
+      "timeout": 10.0
+    },
+    {
+      "name": "test_pwd",
+      "command": "pwd",
+      "expect_regex": "^/",
+      "expect_exit_code": 0,
+      "timeout": 10.0
+    },
+    {
+      "name": "test_env_var",
+      "command": "TEST_VAR='PetraOS_CLI_Var'; echo $TEST_VAR",
+      "expect_contains": "PetraOS_CLI_Var",
+      "expect_exit_code": 0,
+      "timeout": 10.0
+    },
+    {
+      "name": "test_export_var",
+      "command": "export FOO=BarVal; echo \"FOO is $FOO\"",
+      "expect_contains": "FOO is BarVal",
+      "expect_exit_code": 0,
+      "timeout": 10.0
+    },
+    {
+      "name": "test_cd_directory",
+      "command": "cd /bin && pwd",
+      "expect_contains": "/bin",
+      "expect_exit_code": 0,
+      "timeout": 10.0
+    },
+    {
+      "name": "test_ls_root",
+      "command": "ls /",
+      "expect_contains": ["bin", "dev"],
+      "expect_exit_code": 0,
+      "timeout": 10.0
+    },
+    {
+      "name": "test_which_shell",
+      "command": "which bash || which sh || type bash",
+      "expect_regex": "(bash|sh)",
+      "expect_exit_code": 0,
+      "timeout": 10.0
+    },
+    {
+      "name": "test_exit_code_success",
+      "command": "true; echo CODE:$?",
+      "expect_contains": "CODE:0",
+      "expect_exit_code": 0,
+      "timeout": 10.0
+    },
+    {
+      "name": "test_pipe_filter",
+      "command": "echo 'red green blue' | tr ' ' '\\n' | grep green",
+      "expect_contains": "green",
+      "expect_exit_code": 0,
+      "timeout": 10.0
+    },
+    {
+      "name": "test_subshell",
+      "command": "(SUBSHELL_VAL='sub_ok'; echo $SUBSHELL_VAL)",
+      "expect_contains": "sub_ok",
+      "expect_exit_code": 0,
+      "timeout": 10.0
+    },
+    {
+      "name": "test_dev_null",
+      "command": "echo 'discard' > /dev/null && echo 'NULL_OK'",
+      "expect_contains": "NULL_OK",
+      "expect_exit_code": 0,
+      "timeout": 10.0
+    }
+  ]
+}
