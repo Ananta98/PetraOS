@@ -25,7 +25,7 @@ SYSROOT="${BUILD_DIR_XBSTRAP}/system-root"
 SOURCES_DIR="${ROOT_DIR}/sources"
 PACKAGES_DIR="${ROOT_DIR}/packages"
 
-QEMU_EXTRA_FLAGS="${QEMUFLAGS:--m 2G -serial stdio}"
+QEMU_EXTRA_FLAGS="${QEMUFLAGS:--m 4G -serial stdio}"
 
 CORE_PACKAGES=(mlibc bash coreutils)
 

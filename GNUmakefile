@@ -11,7 +11,7 @@ $(call USER_VARIABLE,KARCH,x86_64)
 
 # Default user QEMU flags. These are appended to the QEMU command calls.
 QEMU_KVM_FLAGS := $(shell [ -w /dev/kvm ] && echo "-enable-kvm -cpu host" || echo "")
-$(call USER_VARIABLE,QEMUFLAGS,-m 2G -serial stdio $(QEMU_KVM_FLAGS))
+$(call USER_VARIABLE,QEMUFLAGS,-m 4G -serial stdio $(QEMU_KVM_FLAGS))
 
 # Output and directory layout configuration
 BUILD_DIR ?= build
