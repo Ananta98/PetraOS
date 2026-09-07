@@ -456,6 +456,31 @@ impl<P: PageTable> AddrSpace<P> {
         Ok(())
     }
 
+    /// Find an unmapped gap in the virtual address space between `USER_MMAP_VBASE` and `USER_SPACE_MAX_ADDR`.
+    pub fn find_free_range(&self, size: usize, align: usize) -> Option<VirtAddr> {
+        let align_u64 = align.max(4096) as u64;
+        let size_u64 = (size as u64 + 4095) & !4095;
+        let mut candidate = (crate::arch::userspace::USER_MMAP_VBASE + align_u64 - 1) & !(align_u64 - 1);
+        let max_addr = crate::mm::USER_SPACE_MAX_ADDR;
+
+        for vma in self.vm_areas.values() {
+            if candidate + size_u64 <= vma.start.as_u64() {
+                // Gap found before this VMA
+                return Some(VirtAddr::new(candidate));
+            }
+
+            if candidate < vma.end.as_u64() {
+                candidate = (vma.end.as_u64() + align_u64 - 1) & !(align_u64 - 1);
+            }
+        }
+
+        if candidate + size_u64 <= max_addr {
+            Some(VirtAddr::new(candidate))
+        } else {
+            None
+        }
+    }
+
     /// Load the associated page table into the CPU's control register.
     ///
     /// # Safety
@@ -463,6 +488,22 @@ impl<P: PageTable> AddrSpace<P> {
     pub unsafe fn activate(&self) {
         unsafe {
             self.page_table.activate();
+        }
+    }
+}
+
+impl<P: PageTable> Drop for AddrSpace<P> {
+    fn drop(&mut self) {
+        for vma in core::mem::take(&mut self.vm_areas).into_values() {
+            let num_pages = ((vma.end - vma.start) / 4096) as usize;
+            for i in 0..num_pages {
+                let page_virt = vma.start + (i as u64 * 4096);
+                if let Ok(frame) = self.page_table.unmap(page_virt) {
+                    if matches!(vma.kind, VmAreaKind::Anonymous | VmAreaKind::File { .. } | VmAreaKind::Shared { .. }) {
+                        crate::mm::PMM.free_page(frame);
+                    }
+                }
+            }
         }
     }
 }

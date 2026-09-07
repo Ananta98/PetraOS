@@ -19,7 +19,7 @@ pub fn sys_mmap(frame: &mut SyscallFrame) -> SyscallResult {
     }
 
     let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
-    let mut proc = proc_arc.lock();
+    let proc = proc_arc.lock();
 
     let aligned_len = (len + 4095) & !4095;
     let target_vaddr = if addr != 0 {
@@ -33,9 +33,12 @@ pub fn sys_mmap(frame: &mut SyscallFrame) -> SyscallResult {
         drop(addr_space);
         vaddr
     } else {
-        let vaddr = proc.mmap_bump;
-        proc.mmap_bump += aligned_len as u64;
-        vaddr
+        let addr_space = proc.address_space.lock();
+        let free_vaddr = addr_space
+            .find_free_range(aligned_len, 4096)
+            .ok_or(SyscallError::ENOMEM)?;
+        drop(addr_space);
+        free_vaddr.as_u64()
     };
 
     let mut map_flags = PageTableFlags::PRESENT | PageTableFlags::USER_ACCESSIBLE;

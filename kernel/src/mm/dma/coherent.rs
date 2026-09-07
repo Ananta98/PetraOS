@@ -10,7 +10,7 @@
 
 use crate::mm::ensure_mapped;
 use crate::mm::hhdm_offset;
-use crate::mm::pmm::PMM;
+use crate::mm::PMM;
 use crate::mm::{PhysAddr, VirtAddr};
 
 use super::DmaError;

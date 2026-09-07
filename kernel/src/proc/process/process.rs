@@ -77,9 +77,6 @@ pub struct Process {
 
     /// Current virtual memory heap break address
     pub heap_brk: u64,
-
-    /// Next virtual address for mmap allocation
-    pub mmap_bump: u64,
 }
 
 impl Process {
@@ -114,7 +111,6 @@ impl Process {
             fd_table: Arc::new(crate::fs::FdTable::new()),
             heap_start: userspace::USER_HEAP_VBASE,
             heap_brk: userspace::USER_HEAP_VBASE,
-            mmap_bump: userspace::USER_MMAP_VBASE,
         }
     }
 
@@ -211,7 +207,6 @@ impl Process {
         self.cmdline = cmdline;
         self.heap_start = userspace::USER_HEAP_VBASE;
         self.heap_brk = userspace::USER_HEAP_VBASE;
-        self.mmap_bump = userspace::USER_MMAP_VBASE;
         self.state = ProcessState::Running;
 
         Ok((
@@ -250,7 +245,6 @@ impl Process {
         child_proc.umask = p_lock.umask;
         child_proc.heap_start = p_lock.heap_start;
         child_proc.heap_brk = p_lock.heap_brk;
-        child_proc.mmap_bump = p_lock.mmap_bump;
         child_proc.state = p_lock.state;
 
         let child = Arc::new(Mutex::new(child_proc));

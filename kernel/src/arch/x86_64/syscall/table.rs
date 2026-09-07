@@ -2,7 +2,7 @@
 
 use crate::define_syscall_table;
 use crate::syscalls::{
-    arch_prctl, fs, ioctl, ipc, mm, net, proc, sched, signals, sync, sys_info, time,
+    arch_prctl, fs, ioctl, ipc, mm, net, proc, random, sched, signals, sync, sys_info, time,
 };
 
 // Entries in SYSCALL_TABLE must be kept sorted by system call number for binary search.
@@ -144,4 +144,5 @@ define_syscall_table! {
     SYS_SCHED_SETATTR  = 314 => ("sched_setattr",  sched::sys_sched_setattr),
     SYS_SCHED_GETATTR  = 315 => ("sched_getattr",  sched::sys_sched_getattr),
     SYS_RENAMEAT2      = 316 => ("renameat2",      fs::sys_renameat2),
+    SYS_GETRANDOM      = 318 => ("getrandom",      random::sys_getrandom),
 }

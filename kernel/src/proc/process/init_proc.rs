@@ -35,9 +35,22 @@ pub fn create_init_process() -> Result<(Arc<Mutex<Process>>, u64, u64), &'static
         String::from("TERM=linux"),
         String::from("HOME=/"),
         String::from("USER=root"),
-        String::from("LINES=50"),
-        String::from("COLUMNS=142"),
     ];
+
+    // Diagnostic check for interpreter and core binaries
+    log::info!("[Init Process Diagnostic] Probing critical binaries and dynamic linker...");
+    match crate::fs::read_file("/bin/ls") {
+        Ok(d) => log::info!("  ✔ /bin/ls found ({} bytes)", d.len()),
+        Err(e) => log::error!("  ✖ /bin/ls read failed: {:?}", e),
+    }
+    match crate::fs::read_file("/usr/lib/ld.so") {
+        Ok(d) => log::info!("  ✔ /usr/lib/ld.so found ({} bytes)", d.len()),
+        Err(e) => log::error!("  ✖ /usr/lib/ld.so read failed: {:?}", e),
+    }
+    match crate::fs::read_file("/lib/ld.so") {
+        Ok(d) => log::info!("  ✔ /lib/ld.so found ({} bytes)", d.len()),
+        Err(e) => log::error!("  ✖ /lib/ld.so read failed: {:?}", e),
+    }
 
     // 1. Iterate over candidate init paths and execute
     for candidate_path in DEFAULT_INIT_EXEC_PATHS {
@@ -65,7 +78,7 @@ pub fn create_init_process() -> Result<(Arc<Mutex<Process>>, u64, u64), &'static
                 Arc::downgrade(&proc_arc),
             )));
 
-            let cr3 = proc_arc
+            let root_page_table = proc_arc
                 .lock()
                 .address_space
                 .lock()
@@ -75,12 +88,12 @@ pub fn create_init_process() -> Result<(Arc<Mutex<Process>>, u64, u64), &'static
 
             let kernel_stack = KernelStack::new()
                 .map_err(|_| "Failed to allocate kernel stack for init process")?;
-            {
-                let mut t_lock = init_thread.lock();
-                t_lock.context.cr3 = cr3;
-                t_lock.state = crate::proc::thread::ThreadState::Running;
-                t_lock.set_kernel_stack(kernel_stack);
-            }
+
+            let mut t_lock = init_thread.lock();
+            t_lock.context.cr3 = root_page_table;
+            t_lock.state = crate::proc::thread::ThreadState::Running;
+            t_lock.set_kernel_stack(kernel_stack);
+            drop(t_lock);
 
             proc_arc
                 .lock()

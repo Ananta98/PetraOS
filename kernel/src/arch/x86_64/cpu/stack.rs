@@ -1,30 +1,15 @@
 // ── Stack Frame Layout ────────────────────────────────────────────────────────
 use crate::arch::syscall::SyscallFrame;
 use crate::arch::userspace::{USER_CS, USER_DS};
-use crate::mm::pmm::PMM;
-use crate::mm::{PhysAddr, VirtAddr, hhdm_offset};
+use crate::mm::{PMM, PhysAddr, VirtAddr, hhdm_offset};
 
 /// Restores general purpose registers up to r15 from `SyscallFrame`,
 /// restores user GS base via `swapgs`, and returns to user space via `iretq`.
 #[unsafe(naked)]
-pub unsafe extern "C" fn interrupt_return() -> ! {
+pub unsafe extern "C" fn fork_return() -> ! {
     core::arch::naked_asm!(
-        "pop r15",
-        "pop r14",
-        "pop r13",
-        "pop r12",
-        "pop r11",
-        "pop r10",
-        "pop r9",
-        "pop r8",
-        "pop rbp",
-        "pop rdi",
-        "pop rsi",
-        "pop rdx",
-        "pop rcx",
-        "pop rbx",
-        "pop rax",
-        "swapgs",
+        "pop r15", "pop r14", "pop r13", "pop r12", "pop r11", "pop r10", "pop r9", "pop r8",
+        "pop rbp", "pop rdi", "pop rsi", "pop rdx", "pop rcx", "pop rbx", "pop rax", "swapgs",
         "iretq",
     );
 }
@@ -126,7 +111,7 @@ pub fn init_fork_stack(kstack: &mut KernelStack, parent_frame: &SyscallFrame) ->
             r12: 0,
             rbx: 0,
             rbp: 0,
-            rip: interrupt_return as *const () as u64,
+            rip: fork_return as *const () as u64,
         });
     }
 

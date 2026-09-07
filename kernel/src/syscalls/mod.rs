@@ -5,6 +5,7 @@ pub mod ipc;
 pub mod mm;
 pub mod net;
 pub mod proc;
+pub mod random;
 pub mod sched;
 pub mod signals;
 pub mod sync;

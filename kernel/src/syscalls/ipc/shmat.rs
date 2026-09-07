@@ -15,7 +15,7 @@ pub fn sys_shmat(frame: &mut SyscallFrame) -> SyscallResult {
     let pid = current_pid_u32();
 
     let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
-    let mut proc = proc_arc.lock();
+    let proc = proc_arc.lock();
 
     let addr_space_arc = alloc::sync::Arc::clone(&proc.address_space);
     let mut addr_space = addr_space_arc.lock();
@@ -29,7 +29,6 @@ pub fn sys_shmat(frame: &mut SyscallFrame) -> SyscallResult {
         gid,
         pid,
         &mut addr_space,
-        &mut proc.mmap_bump,
     )?;
 
     Ok(vaddr as usize)

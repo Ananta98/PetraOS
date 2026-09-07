@@ -1,10 +1,9 @@
 pub mod alloc;
 pub mod dma;
-pub mod pmm;
 pub mod user;
 pub mod vmm;
 
-pub use pmm::PMM;
+pub use alloc::{FRAME_ALLOCATOR, PMM};
 pub use user::{UserCStr, UserPtr, USER_SPACE_MAX_ADDR};
 pub use vmm::{
     AddrSpace, AddrSpaceError, COW_FLAG, PageFaultError, PageFaultErrorCode, PageTable,
@@ -15,7 +14,7 @@ pub use crate::arch::paging::{
 };
 
 pub fn init() {
-    PMM.init();
+    alloc::init();
 }
 
 pub fn hhdm_offset() -> u64 {

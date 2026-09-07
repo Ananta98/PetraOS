@@ -8,7 +8,7 @@ use super::helpers::enable_nxe;
 use super::active_paging_levels;
 use crate::arch::{active_address_space_root, set_address_space_root};
 use crate::mm::hhdm_offset;
-use crate::mm::pmm::PMM;
+use crate::mm::PMM;
 use crate::mm::vmm::paging::entry::PageTableEntry;
 use crate::mm::vmm::paging::{PageTable, PagingError};
 use crate::mm::{PageTableFlags, PhysAddr, VirtAddr};
@@ -148,21 +148,47 @@ impl ArchPageTable {
 }
 
 fn free_table_recursive(paddr: PhysAddr, level: u8, hhdm: u64) {
+    if paddr.as_u64() < 0x1000 || paddr.as_u64() >= 0x0000_8000_0000_0000 {
+        log::warn!("free_table_recursive: ignoring invalid physical address {:#x}", paddr.as_u64());
+        return;
+    }
+
+    // Level 1 is the Page Table (PT). Its entries point to physical data pages.
+    // Data pages are managed by VMAs and must not be recursively traversed as page tables.
     if level <= 1 {
         PMM.free_page(paddr);
         return;
     }
 
-    let table_ptr = (paddr.as_u64() + hhdm) as *mut PageTableEntry;
+    let table_ptr_val = match paddr.as_u64().checked_add(hhdm) {
+        Some(v) => v,
+        None => {
+            log::error!(
+                "free_table_recursive: overflow paddr {:#x} hhdm {:#x} level {}",
+                paddr.as_u64(),
+                hhdm,
+                level
+            );
+            return;
+        }
+    };
+    let table_ptr = table_ptr_val as *mut PageTableEntry;
     let table = unsafe { &*core::ptr::slice_from_raw_parts(table_ptr, 512) };
 
     for entry in table.iter() {
         if entry.is_present() {
             let child_phys = entry.addr();
-            if entry.is_huge() {
-                PMM.free_page(child_phys);
-            } else {
-                free_table_recursive(child_phys, level - 1, hhdm);
+            if child_phys.as_u64() >= 0x1000 && child_phys.as_u64() < 0x0000_8000_0000_0000 {
+                if entry.is_huge() {
+                    // 2MB (level 2) or 1GB (level 3) page: do not recurse into data frames
+                    PMM.free_page(child_phys);
+                } else if level > 2 {
+                    // Level 4 (PML4) or Level 3 (PDPT) points to another directory
+                    free_table_recursive(child_phys, level - 1, hhdm);
+                } else if level == 2 {
+                    // Level 2 (PD) points to Level 1 Page Table (PT). Free the PT table frame directly.
+                    PMM.free_page(child_phys);
+                }
             }
         }
     }
@@ -172,7 +198,7 @@ fn free_table_recursive(paddr: PhysAddr, level: u8, hhdm: u64) {
 
 impl Drop for ArchPageTable {
     fn drop(&mut self) {
-        if self.is_owned {
+        if self.is_owned && self.root_phys.as_u64() >= 0x1000 && self.root_phys.as_u64() < 0x0000_8000_0000_0000 {
             let hhdm = hhdm_offset();
             let table_ptr = (self.root_phys.as_u64() + hhdm) as *mut PageTableEntry;
             let table = unsafe { &*core::ptr::slice_from_raw_parts(table_ptr, 512) };
@@ -183,10 +209,12 @@ impl Drop for ArchPageTable {
                 let entry = table[i];
                 if entry.is_present() {
                     let child_phys = entry.addr();
-                    if entry.is_huge() {
-                        PMM.free_page(child_phys);
-                    } else {
-                        free_table_recursive(child_phys, self.levels - 1, hhdm);
+                    if child_phys.as_u64() >= 0x1000 && child_phys.as_u64() < 0x0000_8000_0000_0000 {
+                        if entry.is_huge() {
+                            PMM.free_page(child_phys);
+                        } else {
+                            free_table_recursive(child_phys, self.levels - 1, hhdm);
+                        }
                     }
                 }
             }

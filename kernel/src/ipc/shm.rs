@@ -353,7 +353,6 @@ impl SharedMemoryManager {
         gid: u32,
         pid: u32,
         addr_space: &mut AddrSpace<ArchPageTable>,
-        mmap_bump: &mut u64,
     ) -> Result<u64, ShmError> {
         let seg = self.segments.get_mut(&shmid).ok_or(ShmError::NotFound)?;
         if seg.marked_for_destruction && seg.nattch == 0 {
@@ -369,11 +368,10 @@ impl SharedMemoryManager {
         let aligned_size = num_pages * 4096;
 
         let attach_vaddr = if shmaddr == 0 {
-            let vaddr = *mmap_bump;
-            *mmap_bump = mmap_bump
-                .checked_add(aligned_size as u64)
-                .ok_or(ShmError::NoMem)?;
-            vaddr
+            addr_space
+                .find_free_range(aligned_size, SHMLBA as usize)
+                .ok_or(ShmError::NoMem)?
+                .as_u64()
         } else {
             let mut vaddr = shmaddr;
             if (shmflg & SHM_RND) != 0 {

@@ -139,9 +139,16 @@ fn resolve_path_symlink(path: &str, depth: usize) -> Result<Arc<Dentry>, VfsErro
             cached_child
         } else {
             if current.inode.inode_type != InodeType::Directory {
+                log::warn!("[resolve_path] in '{}', component '{}' failed: node is {:?} (not a directory)", build_path(&current), part, current.inode.inode_type);
                 return Err(VfsError::NotDirectory);
             }
-            let child_inode = current.inode.ops.lookup(part)?;
+            let child_inode = match current.inode.ops.lookup(part) {
+                Ok(inode) => inode,
+                Err(err) => {
+                    log::warn!("[resolve_path] in '{}', lookup('{}') failed: {:?}", build_path(&current), part, err);
+                    return Err(err);
+                }
+            };
             let child_dentry = Dentry::add_child(&current, (*part).into(), child_inode);
             dcache_insert(&current, part, child_dentry.clone());
             child_dentry
@@ -381,7 +388,13 @@ pub fn resolve_path_nofollow(path: &str) -> Result<Arc<Dentry>, VfsError> {
 
 /// Read the entire contents of a file at `path` into a byte vector.
 pub fn read_file(path: &str) -> Result<alloc::vec::Vec<u8>, VfsError> {
-    let dentry = resolve_path(path)?;
+    let dentry = match resolve_path(path) {
+        Ok(d) => d,
+        Err(err) => {
+            log::warn!("[read_file] resolve_path('{}') failed: {:?}", path, err);
+            return Err(err);
+        }
+    };
     let stat = dentry.inode.ops.stat()?;
     let file_ops = dentry.inode.ops.open()?;
 

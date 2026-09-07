@@ -182,9 +182,14 @@ impl<'a> Elf<'a> {
         let mut at_base = 0;
 
         if let Some(interp_path) = self.interpreter_path()? {
+            log::info!("[ELF Loader] Binary requested interpreter: '{}'", interp_path);
             let interp_bytes = match crate::fs::read_file(interp_path) {
-                Ok(data) => data,
-                Err(_) => {
+                Ok(data) => {
+                    log::info!("[ELF Loader] Successfully read interpreter '{}' ({} bytes)", interp_path, data.len());
+                    data
+                }
+                Err(err1) => {
+                    log::warn!("[ELF Loader] Failed to read interpreter '{}': {:?}", interp_path, err1);
                     let alt_path = if interp_path.starts_with("/usr/lib/") {
                         alloc::format!("/lib/{}", &interp_path[9..])
                     } else if interp_path.starts_with("/lib/") {
@@ -192,8 +197,17 @@ impl<'a> Elf<'a> {
                     } else {
                         alloc::string::String::from("/lib/ld.so")
                     };
-                    crate::fs::read_file(&alt_path)
-                        .map_err(|_| "Failed to read dynamic interpreter from VFS")?
+                    log::info!("[ELF Loader] Trying alt interpreter path: '{}'", alt_path);
+                    match crate::fs::read_file(&alt_path) {
+                        Ok(data) => {
+                            log::info!("[ELF Loader] Successfully read alt interpreter '{}' ({} bytes)", alt_path, data.len());
+                            data
+                        }
+                        Err(err2) => {
+                            log::error!("[ELF Loader] Failed to read alt interpreter '{}': {:?}", alt_path, err2);
+                            return Err("Failed to read dynamic interpreter from VFS");
+                        }
+                    }
                 }
             };
 
@@ -314,10 +328,12 @@ impl<'a> Elf<'a> {
         };
 
         // 1. Push 16 bytes of random entropy for AT_RANDOM (stack canary)
-        let random_entropy = [
-            0x4b, 0x1f, 0x93, 0x7c, 0xa2, 0x5e, 0x08, 0xd4, 0x39, 0xf1, 0x60, 0xbb, 0x8d, 0x24,
-            0xee, 0x57,
-        ];
+        let mut random_entropy = [0u8; 16];
+        crate::arch::cpu::rdtsc::fill_random_bytes(&mut random_entropy);
+        // Ensure canary is not zero and last byte is newline-free
+        if random_entropy[0] == 0 {
+            random_entropy[0] = 0x42;
+        }
         let random_vaddr = write_user_bytes(&mut cur_sp, &random_entropy)?;
 
         // 2. Push environment strings (null-terminated)

@@ -1,182 +1,109 @@
-use crate::mm::{PhysAddr, PMM};
-use crate::mm::alloc::freelist::{IntrusiveList, IntrusiveNode};
+//! Kernel Virtual Heap Allocator (SLUB + Dynamic Fallback).
+//!
+//! Implements `core::alloc::GlobalAlloc` with predetermined slab classes for
+//! allocations <= 2048 bytes, and direct buddy frame allocation fallback
+//! for allocations > 2048 bytes (half a page).
+
+use crate::mm::alloc::FRAME_ALLOCATOR;
+use crate::mm::PhysAddr;
 use crate::sync::Mutex;
 use core::alloc::{GlobalAlloc, Layout};
 
-struct FreeBlock {
-    next: *mut FreeBlock,
-}
+/// Predetermined SLUB size classes (all powers of two up to 2048 bytes).
+const SLAB_CLASSES: [usize; 7] = [32, 64, 128, 256, 512, 1024, 2048];
 
-#[allow(dead_code)]
+/// Intrusive free object node stored directly inside unallocated slab slots.
 #[repr(C)]
-struct Slab {
-    node: IntrusiveNode,
-    free_list: *mut FreeBlock,
-    allocated_count: usize,
-    total_count: usize,
+struct FreeObject {
+    next: *mut FreeObject,
 }
 
-impl Slab {
-    /// Initialize a new slab header and its free blocks inside the page.
-    ///
-    /// # Safety
-    /// `page_virt` must be a valid virtual address to a newly-allocated 4 KB page.
-    unsafe fn init(page_virt: usize, block_size: usize, alignment: usize) -> *mut Self {
-        let slab_ptr = page_virt as *mut Self;
-
-        let slab_size = core::mem::size_of::<Self>();
-        let first_block_addr = (page_virt + slab_size + alignment - 1) & !(alignment - 1);
-        let total_count = (page_virt + 4096 - first_block_addr) / block_size;
-
-        let mut free_list: *mut FreeBlock = core::ptr::null_mut();
-        unsafe {
-            for i in (0..total_count).rev() {
-                let block_ptr = (first_block_addr + i * block_size) as *mut FreeBlock;
-                (*block_ptr).next = free_list;
-                free_list = block_ptr;
-            }
-
-            slab_ptr.write(Self {
-                node: IntrusiveNode::new(),
-                free_list,
-                allocated_count: 0,
-                total_count,
-            });
-        }
-
-        slab_ptr
-    }
+/// A size class cache holding a singly-linked list of free objects.
+struct SlabClass {
+    size: usize,
+    free_head: *mut FreeObject,
 }
 
-pub struct KmemCache {
-    object_size: usize,
-    alignment: usize,
-    slabs_full: IntrusiveList,
-    slabs_partial: IntrusiveList,
-    slabs_empty: IntrusiveList,
-}
+unsafe impl Send for SlabClass {}
 
-impl KmemCache {
-    pub const fn new(object_size: usize, alignment: usize) -> Self {
+impl SlabClass {
+    const fn new(size: usize) -> Self {
         Self {
-            object_size,
-            alignment,
-            slabs_full: IntrusiveList::new(),
-            slabs_partial: IntrusiveList::new(),
-            slabs_empty: IntrusiveList::new(),
+            size,
+            free_head: core::ptr::null_mut(),
         }
     }
 
-    /// Allocate an object from the cache.
-    ///
-    /// # Safety
-    /// Caller must ensure that self is locked or accessed exclusively.
-    pub unsafe fn alloc(&mut self, hhdm_offset: u64) -> *mut u8 {
-        let mut slab_node = self.slabs_partial.head;
-        let is_new = if slab_node.is_null() {
-            slab_node = self.slabs_empty.head;
-            if !slab_node.is_null() {
-                unsafe {
-                    self.slabs_empty.remove(slab_node);
-                }
-            }
-            true
-        } else {
-            false
-        };
-
-        // If no usable slab exists, allocate a new page from PMM
-        if slab_node.is_null() {
-            let page_phys = match PMM.alloc_page() {
-                Some(paddr) => paddr,
+    /// Allocate an object from this size class, requesting a new 4 KiB frame if empty.
+    unsafe fn alloc(&mut self, hhdm_offset: u64) -> *mut u8 {
+        if self.free_head.is_null() {
+            // Request a new page from the buddy frame allocator
+            let paddr = match FRAME_ALLOCATOR.lock().alloc_page() {
+                Some(p) => p,
                 None => return core::ptr::null_mut(),
             };
 
-            let page_virt = (page_phys.as_u64() + hhdm_offset) as usize;
-            let new_slab = unsafe { Slab::init(page_virt, self.object_size, self.alignment) };
-            slab_node = unsafe { &mut (*new_slab).node };
-        }
+            let page_virt = (paddr.as_u64() + hhdm_offset) as usize;
+            let objects_per_page = 4096 / self.size;
 
-        let slab = slab_node as *mut Slab;
-
-        unsafe {
-            let block = (*slab).free_list;
-            if block.is_null() {
-                return core::ptr::null_mut();
-            }
-            (*slab).free_list = (*block).next;
-            (*slab).allocated_count += 1;
-
-            if (*slab).allocated_count == (*slab).total_count {
-                if !is_new {
-                    self.slabs_partial.remove(slab_node);
+            // Link all objects in the newly allocated page
+            let mut head: *mut FreeObject = core::ptr::null_mut();
+            for i in (0..objects_per_page).rev() {
+                let obj_ptr = (page_virt + i * self.size) as *mut FreeObject;
+                // SAFETY: obj_ptr is within the newly allocated, non-overlapping page frame mapped via HHDM.
+                unsafe {
+                    (*obj_ptr).next = head;
                 }
-                self.slabs_full.push_front(slab_node);
-            } else if is_new {
-                self.slabs_partial.push_front(slab_node);
+                head = obj_ptr;
             }
-
-            block as *mut u8
+            self.free_head = head;
         }
+
+        let obj = self.free_head;
+        if !obj.is_null() {
+            // SAFETY: self.free_head is a non-null pointer to a FreeObject in a valid slab.
+            unsafe {
+                self.free_head = (*obj).next;
+            }
+        }
+        obj as *mut u8
     }
 
-    /// Free an object back to this cache.
-    ///
-    /// # Safety
-    /// Caller must ensure that self is locked or accessed exclusively, and that `ptr` belongs to this cache.
-    pub unsafe fn free(&mut self, ptr: *mut u8, hhdm_offset: u64) {
-        let page_start = (ptr as usize) & !4095;
-        let slab = page_start as *mut Slab;
+    /// Free an object back to this size class.
+    unsafe fn free(&mut self, ptr: *mut u8) {
+        let obj = ptr as *mut FreeObject;
+        // SAFETY: Caller guarantees ptr was allocated by this slab cache and is exclusive.
         unsafe {
-            let slab_node = &mut (*slab).node as *mut IntrusiveNode;
-            let block = ptr as *mut FreeBlock;
-            (*block).next = (*slab).free_list;
-            (*slab).free_list = block;
-
-            let was_full = (*slab).allocated_count == (*slab).total_count;
-            (*slab).allocated_count -= 1;
-
-            if (*slab).allocated_count == 0 {
-                if was_full {
-                    self.slabs_full.remove(slab_node);
-                } else {
-                    self.slabs_partial.remove(slab_node);
-                }
-                let paddr = PhysAddr::new(page_start as u64 - hhdm_offset);
-                PMM.free_page(paddr);
-            } else if was_full {
-                self.slabs_full.remove(slab_node);
-                self.slabs_partial.push_front(slab_node);
-            }
+            (*obj).next = self.free_head;
         }
+        self.free_head = obj;
     }
 }
 
+/// Inner state of the SLUB allocator managing all predetermined size classes.
 struct SlabAllocatorInner {
-    caches: [KmemCache; 9],
+    classes: [SlabClass; 7],
 }
 
 unsafe impl Send for SlabAllocatorInner {}
-unsafe impl Sync for SlabAllocatorInner {}
 
 impl SlabAllocatorInner {
     const fn new() -> Self {
         Self {
-            caches: [
-                KmemCache::new(8, 8),
-                KmemCache::new(16, 16),
-                KmemCache::new(32, 32),
-                KmemCache::new(64, 64),
-                KmemCache::new(128, 128),
-                KmemCache::new(256, 256),
-                KmemCache::new(512, 512),
-                KmemCache::new(1024, 1024),
-                KmemCache::new(2048, 2048),
+            classes: [
+                SlabClass::new(32),
+                SlabClass::new(64),
+                SlabClass::new(128),
+                SlabClass::new(256),
+                SlabClass::new(512),
+                SlabClass::new(1024),
+                SlabClass::new(2048),
             ],
         }
     }
 }
 
+/// Global Slab Allocator combining SLUB caching with dynamic buddy fallback.
 pub struct SlabAllocator {
     inner: Mutex<SlabAllocatorInner>,
 }
@@ -188,91 +115,84 @@ impl SlabAllocator {
         }
     }
 
-    pub fn size_to_order(pages: usize) -> usize {
+    /// Computes the smallest buddy order required to hold `pages` frames.
+    #[inline(always)]
+    fn pages_to_order(pages: usize) -> usize {
         let mut order = 0;
         while (1 << order) < pages {
             order += 1;
         }
         order
     }
+
+    /// Finds the index of the slab class satisfying `req_size`.
+    #[inline(always)]
+    fn class_index(req_size: usize) -> Option<usize> {
+        for (i, &size) in SLAB_CLASSES.iter().enumerate() {
+            if size >= req_size {
+                return Some(i);
+            }
+        }
+        None
+    }
 }
 
 unsafe impl GlobalAlloc for SlabAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        let size = if layout.size() == 0 {
-            layout.align().max(8)
-        } else {
-            layout.size()
-        };
-        let align = layout.align();
-
-        let hhdm_offset = crate::mm::hhdm_offset();
-
-        if size > 2048 || align > 2048 {
-            // Allocate pages directly from PMM
-            let align_pages = (align + 4095) / 4096;
-            let pages_needed = core::cmp::max((size + 4095) / 4096, align_pages);
-            let order = Self::size_to_order(pages_needed);
-
-            return match PMM.alloc_pages(order) {
-                Some(paddr) => (paddr.as_u64() + hhdm_offset) as *mut u8,
-                None => core::ptr::null_mut(),
-            };
+        if layout.size() == 0 {
+            return layout.align() as *mut u8;
         }
 
-        let mut inner = self.inner.lock();
+        let hhdm = crate::mm::hhdm_offset();
+        let target_size = core::cmp::max(layout.size(), layout.align());
 
-        let cache = match inner
-            .caches
-            .iter_mut()
-            .find(|c| c.object_size >= size && c.alignment >= align)
-        {
-            Some(c) => c,
-            None => return core::ptr::null_mut(),
-        };
+        // Small allocations (<= 2048 bytes): route to SLUB classes
+        if target_size <= 2048 {
+            if let Some(idx) = Self::class_index(target_size) {
+                let mut inner = self.inner.lock();
+                return unsafe { inner.classes[idx].alloc(hhdm) };
+            }
+        }
 
-        unsafe { cache.alloc(hhdm_offset) }
+        // Large allocations (> 2048 bytes): direct buddy frame allocation fallback
+        let pages = (layout.size() + 4095) / 4096;
+        let align_pages = (layout.align() + 4095) / 4096;
+        let needed_pages = core::cmp::max(pages, align_pages);
+        let order = Self::pages_to_order(needed_pages);
+
+        match FRAME_ALLOCATOR.lock().alloc_pages(order) {
+            Some(paddr) => (paddr.as_u64() + hhdm) as *mut u8,
+            None => core::ptr::null_mut(),
+        }
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        if ptr.is_null() {
+        if ptr.is_null() || layout.size() == 0 {
             return;
         }
 
-        let size = if layout.size() == 0 {
-            layout.align().max(8)
-        } else {
-            layout.size()
-        };
-        let align = layout.align();
+        let hhdm = crate::mm::hhdm_offset();
+        let target_size = core::cmp::max(layout.size(), layout.align());
 
-        let hhdm_offset = crate::mm::hhdm_offset();
-
-        if size > 2048 || align > 2048 {
-            // Large allocation, free pages back to PMM
-            let align_pages = (align + 4095) / 4096;
-            let pages_needed = core::cmp::max((size + 4095) / 4096, align_pages);
-            let order = Self::size_to_order(pages_needed);
-
-            let paddr = PhysAddr::new(ptr as u64 - hhdm_offset);
-            PMM.free_pages(paddr, order);
-            return;
+        // Small allocations: return to SLUB cache
+        if target_size <= 2048 {
+            if let Some(idx) = Self::class_index(target_size) {
+                let mut inner = self.inner.lock();
+                unsafe { inner.classes[idx].free(ptr) };
+                return;
+            }
         }
 
-        let mut inner = self.inner.lock();
+        // Large allocations: return directly to buddy frame pool
+        let pages = (layout.size() + 4095) / 4096;
+        let align_pages = (layout.align() + 4095) / 4096;
+        let needed_pages = core::cmp::max(pages, align_pages);
+        let order = Self::pages_to_order(needed_pages);
 
-        let cache = match inner
-            .caches
-            .iter_mut()
-            .find(|c| c.object_size >= size && c.alignment >= align)
-        {
-            Some(c) => c,
-            None => return,
-        };
-
-        unsafe { cache.free(ptr, hhdm_offset) }
+        let paddr = PhysAddr::new((ptr as u64) - hhdm);
+        FRAME_ALLOCATOR.lock().free_pages(paddr, order);
     }
 }
 
 #[global_allocator]
-static ALLOCATOR: SlabAllocator = SlabAllocator::new();
+pub static ALLOCATOR: SlabAllocator = SlabAllocator::new();
