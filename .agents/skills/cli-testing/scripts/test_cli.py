@@ -48,6 +48,12 @@ PROMPT_PATTERNS = [
     re.compile(rb"[#$]\s+"),
 ]
 
+# Regex for stripping ANSI escape sequences
+ANSI_ESCAPE_RE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+
+def strip_ansi(text: str) -> str:
+    return ANSI_ESCAPE_RE.sub("", text)
+
 # Fatal kernel panic or crash indicators in serial log
 FATAL_PATTERNS = [
     re.compile(rb"KERNEL PANIC", re.IGNORECASE),
@@ -392,8 +398,9 @@ class CliTestSession:
                 ret_code = -1
 
         clean_lines = []
-        for line in raw_text.splitlines():
-            if nonce in line or end_token in line or ret_prefix in line or line.strip() == cmd_clean:
+        for raw_line in raw_text.splitlines():
+            line = strip_ansi(raw_line).strip()
+            if not line or nonce in line or end_token in line or ret_prefix in line or line == cmd_clean:
                 continue
             clean_lines.append(line)
 

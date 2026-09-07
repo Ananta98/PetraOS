@@ -8,6 +8,7 @@ sysroot/
 system-root/
 iso_root/
 initramfs_root/
+test_reports/
 
 # Sources and upstream downloads
 /sources/
