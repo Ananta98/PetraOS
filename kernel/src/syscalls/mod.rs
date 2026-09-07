@@ -28,6 +28,7 @@ pub enum SyscallError {
     ESRCH = 3,
     EINTR = 4,
     EIO = 5,
+    ENOEXEC = 8,
     EBADF = 9,
     ECHILD = 10,
     EAGAIN = 11,

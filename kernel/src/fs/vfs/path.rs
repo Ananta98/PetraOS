@@ -139,13 +139,23 @@ fn resolve_path_symlink(path: &str, depth: usize) -> Result<Arc<Dentry>, VfsErro
             cached_child
         } else {
             if current.inode.inode_type != InodeType::Directory {
-                log::warn!("[resolve_path] in '{}', component '{}' failed: node is {:?} (not a directory)", build_path(&current), part, current.inode.inode_type);
+                log::trace!(
+                    "[resolve_path] in '{}', component '{}' failed: node is {:?} (not a directory)",
+                    build_path(&current),
+                    part,
+                    current.inode.inode_type
+                );
                 return Err(VfsError::NotDirectory);
             }
             let child_inode = match current.inode.ops.lookup(part) {
                 Ok(inode) => inode,
                 Err(err) => {
-                    log::warn!("[resolve_path] in '{}', lookup('{}') failed: {:?}", build_path(&current), part, err);
+                    log::trace!(
+                        "[resolve_path] in '{}', lookup('{}') failed: {:?}",
+                        build_path(&current),
+                        part,
+                        err
+                    );
                     return Err(err);
                 }
             };
@@ -251,8 +261,14 @@ pub fn symlink(path: &str, target: &str) -> Result<Arc<Dentry>, VfsError> {
 }
 
 /// Read the target of a symbolic link at `path`.
+///
+/// Uses `resolve_path_nofollow` so the final path component is not followed,
+/// returning the symlink dentry itself rather than its destination.
 pub fn readlink(path: &str) -> Result<String, VfsError> {
-    let dentry = resolve_path(path)?;
+    let dentry = resolve_path_nofollow(path)?;
+    if dentry.inode.inode_type != InodeType::Symlink {
+        return Err(VfsError::InvalidInput);
+    }
     dentry.inode.ops.readlink()
 }
 

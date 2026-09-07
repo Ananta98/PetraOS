@@ -35,22 +35,9 @@ pub fn create_init_process() -> Result<(Arc<Mutex<Process>>, u64, u64), &'static
         String::from("TERM=linux"),
         String::from("HOME=/"),
         String::from("USER=root"),
+        String::from("LINES=50"),
+        String::from("COLUMNS=142"),
     ];
-
-    // Diagnostic check for interpreter and core binaries
-    log::info!("[Init Process Diagnostic] Probing critical binaries and dynamic linker...");
-    match crate::fs::read_file("/bin/ls") {
-        Ok(d) => log::info!("  ✔ /bin/ls found ({} bytes)", d.len()),
-        Err(e) => log::error!("  ✖ /bin/ls read failed: {:?}", e),
-    }
-    match crate::fs::read_file("/usr/lib/ld.so") {
-        Ok(d) => log::info!("  ✔ /usr/lib/ld.so found ({} bytes)", d.len()),
-        Err(e) => log::error!("  ✖ /usr/lib/ld.so read failed: {:?}", e),
-    }
-    match crate::fs::read_file("/lib/ld.so") {
-        Ok(d) => log::info!("  ✔ /lib/ld.so found ({} bytes)", d.len()),
-        Err(e) => log::error!("  ✖ /lib/ld.so read failed: {:?}", e),
-    }
 
     // 1. Iterate over candidate init paths and execute
     for candidate_path in DEFAULT_INIT_EXEC_PATHS {

@@ -100,7 +100,8 @@ impl<P: PageTable> AddrSpace<P> {
                                 return Err(AddrSpaceError::FlagUpdateError(err));
                             }
                             // Map the same frame into the child under COW flags.
-                            if let Err(err) = new_page_table.map(page_virt, parent_phys, cow_flags) {
+                            if let Err(err) = new_page_table.map(page_virt, parent_phys, cow_flags)
+                            {
                                 // Revert the parent remap we just did.
                                 let _ = self.page_table.remap(page_virt, area.flags);
                                 Self::rollback_clone(
@@ -115,7 +116,8 @@ impl<P: PageTable> AddrSpace<P> {
                             child_maps.push((page_virt, parent_phys, true));
                         } else {
                             // Read-only page: share directly without COW remap.
-                            if let Err(err) = new_page_table.map(page_virt, parent_phys, area.flags) {
+                            if let Err(err) = new_page_table.map(page_virt, parent_phys, area.flags)
+                            {
                                 Self::rollback_clone(
                                     &mut self.page_table,
                                     &mut new_page_table,
@@ -205,7 +207,7 @@ impl<P: PageTable> AddrSpace<P> {
     }
 
     /// Check if virtual address range `[start, end)` overlaps with any existing VMA ($O(\log N)$).
-    fn check_overlap(&self, start: VirtAddr, end: VirtAddr) -> bool {
+    pub(crate) fn check_overlap(&self, start: VirtAddr, end: VirtAddr) -> bool {
         if let Some((_, area)) = self.vm_areas.range(..end).next_back() {
             start < area.end && end > area.start
         } else {
@@ -244,7 +246,9 @@ impl<P: PageTable> AddrSpace<P> {
                         Some(f) => f,
                         None => {
                             self.rollback_mapping(start, mapped_pages, &kind);
-                            return Err(AddrSpaceError::PagingError(PagingError::FrameAllocationFailed));
+                            return Err(AddrSpaceError::PagingError(
+                                PagingError::FrameAllocationFailed,
+                            ));
                         }
                     };
                     let dest_ptr = (frame.as_u64() + hhdm) as *mut u8;
@@ -264,7 +268,9 @@ impl<P: PageTable> AddrSpace<P> {
                         Some(f) => f,
                         None => {
                             self.rollback_mapping(start, mapped_pages, &kind);
-                            return Err(AddrSpaceError::PagingError(PagingError::FrameAllocationFailed));
+                            return Err(AddrSpaceError::PagingError(
+                                PagingError::FrameAllocationFailed,
+                            ));
                         }
                     };
                     let dest_ptr = (frame.as_u64() + hhdm) as *mut u8;
@@ -283,7 +289,11 @@ impl<P: PageTable> AddrSpace<P> {
                     // SAFETY: Zero only the bytes beyond what the file filled in.
                     if bytes_written < 4096 {
                         unsafe {
-                            core::ptr::write_bytes(dest_ptr.add(bytes_written), 0, 4096 - bytes_written);
+                            core::ptr::write_bytes(
+                                dest_ptr.add(bytes_written),
+                                0,
+                                4096 - bytes_written,
+                            );
                         }
                     }
                     frame
@@ -299,7 +309,10 @@ impl<P: PageTable> AddrSpace<P> {
                 Ok(_) => mapped_pages += 1,
                 Err(err) => {
                     self.rollback_mapping(start, mapped_pages, &kind);
-                    if matches!(kind, VmAreaKind::Anonymous | VmAreaKind::File { .. } | VmAreaKind::Shared { .. }) {
+                    if matches!(
+                        kind,
+                        VmAreaKind::Anonymous | VmAreaKind::File { .. } | VmAreaKind::Shared { .. }
+                    ) {
                         crate::mm::PMM.free_page(frame_phys);
                     }
                     return Err(AddrSpaceError::PagingError(err));
@@ -374,7 +387,10 @@ impl<P: PageTable> AddrSpace<P> {
         for j in 0..mapped_pages {
             let rollback_virt = start + (j as u64 * 4096);
             if let Ok(frame) = self.page_table.unmap(rollback_virt) {
-                if matches!(kind, VmAreaKind::Anonymous | VmAreaKind::File { .. } | VmAreaKind::Shared { .. }) {
+                if matches!(
+                    kind,
+                    VmAreaKind::Anonymous | VmAreaKind::File { .. } | VmAreaKind::Shared { .. }
+                ) {
                     crate::mm::PMM.free_page(frame);
                 }
             }
@@ -441,7 +457,10 @@ impl<P: PageTable> AddrSpace<P> {
             let page_virt = area.start + (i as u64 * 4096);
             match self.page_table.unmap(page_virt) {
                 Ok(frame) => {
-                    if matches!(area.kind, VmAreaKind::Anonymous | VmAreaKind::File { .. } | VmAreaKind::Shared { .. }) {
+                    if matches!(
+                        area.kind,
+                        VmAreaKind::Anonymous | VmAreaKind::File { .. } | VmAreaKind::Shared { .. }
+                    ) {
                         crate::mm::PMM.free_page(frame);
                     }
                 }
@@ -460,7 +479,8 @@ impl<P: PageTable> AddrSpace<P> {
     pub fn find_free_range(&self, size: usize, align: usize) -> Option<VirtAddr> {
         let align_u64 = align.max(4096) as u64;
         let size_u64 = (size as u64 + 4095) & !4095;
-        let mut candidate = (crate::arch::userspace::USER_MMAP_VBASE + align_u64 - 1) & !(align_u64 - 1);
+        let mut candidate =
+            (crate::arch::userspace::USER_MMAP_VBASE + align_u64 - 1) & !(align_u64 - 1);
         let max_addr = crate::mm::USER_SPACE_MAX_ADDR;
 
         for vma in self.vm_areas.values() {
@@ -499,7 +519,10 @@ impl<P: PageTable> Drop for AddrSpace<P> {
             for i in 0..num_pages {
                 let page_virt = vma.start + (i as u64 * 4096);
                 if let Ok(frame) = self.page_table.unmap(page_virt) {
-                    if matches!(vma.kind, VmAreaKind::Anonymous | VmAreaKind::File { .. } | VmAreaKind::Shared { .. }) {
+                    if matches!(
+                        vma.kind,
+                        VmAreaKind::Anonymous | VmAreaKind::File { .. } | VmAreaKind::Shared { .. }
+                    ) {
                         crate::mm::PMM.free_page(frame);
                     }
                 }
