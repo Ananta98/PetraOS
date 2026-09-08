@@ -9,8 +9,10 @@ use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec;
 
-/// POSIX standard paths scanned in order to find the initial user-space init binary.
-pub const DEFAULT_INIT_EXEC_PATHS: &[&str] = &["/bin/bash", "/usr/bin/bash", "/bin/sh", "/sbin/init"];
+/// POSIX boot order: real init first, interactive shell fallbacks.
+/// `/sbin/init` is the PetraOS init script (login-prompt loop); the bash
+/// entries keep the system bootable when init is absent or broken.
+pub const DEFAULT_INIT_EXEC_PATHS: &[&str] = &["/sbin/init", "/bin/bash", "/usr/bin/bash", "/bin/sh"];
 
 /// Initialize the primary user process (PID 1).
 ///
@@ -33,7 +35,7 @@ pub fn create_init_process() -> Result<(Arc<Mutex<Process>>, u64, u64), &'static
     let default_env = vec![
         String::from("PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin"),
         String::from("TERM=linux"),
-        String::from("HOME=/"),
+        String::from("HOME=/root"),
         String::from("USER=root"),
         String::from("LINES=50"),
         String::from("COLUMNS=142"),

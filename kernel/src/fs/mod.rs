@@ -19,6 +19,11 @@ pub use vfs::path::{
     read_file, readlink, rename, resolve_path, resolve_path_nofollow, rmdir, stat, symlink,
     truncate, unlink, utimens,
 };
+pub use vfs::perm;
+pub use vfs::perm::{
+    AT_EACCESS, F_OK, Identity, R_OK, W_OK, X_OK, apply_umask, can_access_stat, check_access_stat,
+    creator_owner, current_identity,
+};
 pub use vfs::types::{
     AT_EMPTY_PATH, AT_FDCWD, AT_REMOVEDIR, AT_SYMLINK_FOLLOW, AT_SYMLINK_NOFOLLOW, FileOps,
     FileSystem, Inode, InodeOps, InodeType, O_APPEND, O_CREAT, O_DIRECTORY, O_EXCL, O_NOFOLLOW,

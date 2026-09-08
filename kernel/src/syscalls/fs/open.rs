@@ -3,9 +3,18 @@
 use super::*;
 use crate::arch::syscall::syscall::SyscallFrame;
 use crate::fs::File;
+use crate::fs::vfs::perm::{R_OK, W_OK, X_OK, check_access_stat};
 use crate::fs::vfs::types::InodeType;
 use crate::syscalls::{SyscallError, SyscallResult, UserCStr};
 use alloc::sync::Arc;
+
+/// Parent directory of an absolute path (`/a/b` -> `/a`, `/x` -> `/`).
+fn parent_dir_of(abs_path: &str) -> &str {
+    match abs_path.rfind('/') {
+        Some(0) | None => "/",
+        Some(idx) => &abs_path[..idx],
+    }
+}
 
 pub(crate) fn do_openat(dfd: i32, path: &str, flags: u32) -> SyscallResult {
     let full_path = resolve_at_path(dfd, path)?;
@@ -21,6 +30,16 @@ pub(crate) fn do_openat(dfd: i32, path: &str, flags: u32) -> SyscallResult {
             if d.inode.inode_type == InodeType::Directory && crate::fs::can_write(flags) {
                 return Err(SyscallError::EISDIR);
             }
+            // Permission check on the target itself (effective IDs).
+            let st = d.inode.ops.stat()?;
+            let mut need = 0u32;
+            if crate::fs::can_read(flags) {
+                need |= R_OK;
+            }
+            if crate::fs::can_write(flags) {
+                need |= W_OK;
+            }
+            check_access_stat(&st, need, true)?;
             if (flags & crate::fs::O_TRUNC) != 0 && crate::fs::can_write(flags) {
                 let _ = d.inode.ops.truncate(0);
             }
@@ -30,6 +49,9 @@ pub(crate) fn do_openat(dfd: i32, path: &str, flags: u32) -> SyscallResult {
             if (flags & crate::fs::O_DIRECTORY) != 0 {
                 return Err(SyscallError::ENOENT);
             }
+            // Creating: require write+exec on the parent directory.
+            let pst = crate::fs::stat(parent_dir_of(&full_path))?;
+            check_access_stat(&pst, W_OK | X_OK, true)?;
             crate::fs::create_file(&full_path)?
         }
         Err(err) => return Err(SyscallError::from(err)),

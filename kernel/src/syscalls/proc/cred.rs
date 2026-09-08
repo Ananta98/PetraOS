@@ -78,6 +78,7 @@ pub fn sys_setsid(_frame: &mut SyscallFrame) -> SyscallResult {
     let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
     let mut proc = proc_arc.lock();
     proc.pgid = proc.pid;
+    proc.sid = proc.pid;
     Ok(proc.pid.as_u64() as usize)
 }
 

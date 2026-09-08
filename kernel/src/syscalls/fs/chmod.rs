@@ -59,6 +59,14 @@ pub fn sys_fchmodat(frame: &mut SyscallFrame) -> SyscallResult {
 
     let path = UserCStr::from_u64(frame.arg2()).to_string(256)?;
     let full_path = resolve_at_path(dfd, &path)?;
+
+    let st = crate::fs::stat(&full_path)?;
+    let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
+    let creds = { Arc::clone(&proc_arc.lock().creds) };
+    if creds.euid != 0 && creds.euid != st.uid {
+        return Err(SyscallError::EPERM);
+    }
+
     crate::fs::chmod(&full_path, mode)?;
     Ok(0)
 }

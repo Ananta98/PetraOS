@@ -40,6 +40,22 @@ impl InodeMetadata {
             ctime: now,
         }
     }
+
+    /// Create metadata stamped with the creator's fsuid/fsgid so files
+    /// created at runtime are owned by the calling user, not root.
+    /// Falls back to 0:0 during early boot (no current process).
+    fn new_owned(mode: u32) -> Self {
+        let (uid, gid) = crate::fs::vfs::perm::creator_owner();
+        let now = now_secs();
+        Self {
+            mode,
+            uid,
+            gid,
+            atime: now,
+            mtime: now,
+            ctime: now,
+        }
+    }
 }
 
 /// Shared handle to mutable inode metadata.
@@ -166,7 +182,7 @@ impl RamFileInode {
     pub fn new(ino: u64) -> Self {
         Self {
             content: Arc::new(RwLock::new(Vec::new())),
-            meta: Arc::new(Mutex::new(InodeMetadata::new(0o100644))),
+            meta: Arc::new(Mutex::new(InodeMetadata::new_owned(0o100644))),
             ino,
         }
     }
@@ -217,7 +233,7 @@ impl RamSymlinkInode {
     pub fn new(ino: u64, target: String) -> Self {
         Self {
             target,
-            meta: Arc::new(Mutex::new(InodeMetadata::new(0o120777))),
+            meta: Arc::new(Mutex::new(InodeMetadata::new_owned(0o120777))),
             ino,
         }
     }
@@ -267,7 +283,7 @@ impl RamDirInode {
     pub fn new(ino: u64, next_ino: Arc<AtomicU64>) -> Self {
         Self {
             entries: RwLock::new(BTreeMap::new()),
-            meta: Arc::new(Mutex::new(InodeMetadata::new(0o040755))),
+            meta: Arc::new(Mutex::new(InodeMetadata::new_owned(0o040755))),
             next_ino,
             ino,
         }

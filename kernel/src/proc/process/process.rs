@@ -36,6 +36,9 @@ pub struct Process {
     /// Process Group ID (PGID)
     pub pgid: ProcessId,
 
+    /// Session ID (SID, leader PID)
+    pub sid: ProcessId,
+
     /// Current working directory
     pub cwd: alloc::string::String,
 
@@ -97,6 +100,7 @@ impl Process {
             pid,
             ppid,
             pgid: pid,
+            sid: pid,
             cwd: alloc::string::String::from("/"),
             state: ProcessState::Creating,
             address_space,
@@ -190,6 +194,31 @@ impl Process {
             }
         }
 
+        // 3.5 Apply set-user/group-ID bits (effective/fs/saved IDs only;
+        // real IDs never change across exec). Plain exec reverts
+        // effective/fs/saved IDs to the real IDs.
+        if let Ok(st) = crate::fs::stat(&abs_path) {
+            let creds = Arc::make_mut(&mut self.creds);
+            if (st.mode & 0o4000) != 0 {
+                creds.euid = st.uid;
+                creds.fsuid = st.uid;
+                creds.suid = st.uid;
+            } else {
+                creds.euid = creds.uid;
+                creds.fsuid = creds.uid;
+                creds.suid = creds.uid;
+            }
+            if (st.mode & 0o2000) != 0 {
+                creds.egid = st.gid;
+                creds.fsgid = st.gid;
+                creds.sgid = st.gid;
+            } else {
+                creds.egid = creds.gid;
+                creds.fsgid = creds.gid;
+                creds.sgid = creds.gid;
+            }
+        }
+
         // 4. Load ELF binary
         let elf = Elf::new(&binary_data).map_err(|err| {
             log::error!("[Process] ELF parsing failed for '{}': {}", file_name, err);
@@ -237,6 +266,7 @@ impl Process {
         let mut child_proc =
             Process::new_with_address_space(child_pid, p_lock.pid, child_addr_space_arc);
         child_proc.pgid = p_lock.pgid;
+        child_proc.sid = p_lock.sid;
         child_proc.cmdline = p_lock.cmdline.clone();
         child_proc.sig_actions = p_lock.sig_actions;
         child_proc.fd_table = Arc::new(p_lock.fd_table.clone_table());

@@ -71,7 +71,8 @@ pub fn sys_fchown(frame: &mut SyscallFrame) -> SyscallResult {
 }
 
 /// `sys_lchown` (SYS_LCHOWN = 94)
-/// Change ownership of a file without following symlinks.
+/// Change ownership of a file without following symlinks (root only,
+/// except owner-preserving group changes mirroring `chown`).
 pub fn sys_lchown(frame: &mut SyscallFrame) -> SyscallResult {
     let uid = frame.arg2() as u32;
     let gid = frame.arg3() as u32;
@@ -81,6 +82,15 @@ pub fn sys_lchown(frame: &mut SyscallFrame) -> SyscallResult {
     let dentry = crate::fs::resolve_path_nofollow(&full_path)?;
     let st = dentry.inode.ops.stat()?;
     let (uid, gid) = effective_owner(&st, uid, gid);
+
+    let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
+    let creds = { Arc::clone(&proc_arc.lock().creds) };
+    if creds.euid != 0 {
+        if uid != st.uid || (gid != st.gid && gid != creds.gid && gid != creds.egid) {
+            return Err(SyscallError::EPERM);
+        }
+    }
+
     dentry.inode.ops.chown(uid, gid)?;
     Ok(0)
 }
@@ -99,10 +109,24 @@ pub fn sys_fchownat(frame: &mut SyscallFrame) -> SyscallResult {
         let dentry = crate::fs::resolve_path_nofollow(&full_path)?;
         let st = dentry.inode.ops.stat()?;
         let (uid, gid) = effective_owner(&st, uid, gid);
+        let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
+        let creds = { Arc::clone(&proc_arc.lock().creds) };
+        if creds.euid != 0 {
+            if uid != st.uid || (gid != st.gid && gid != creds.gid && gid != creds.egid) {
+                return Err(SyscallError::EPERM);
+            }
+        }
         dentry.inode.ops.chown(uid, gid)?;
     } else {
         let st = crate::fs::stat(&full_path)?;
         let (uid, gid) = effective_owner(&st, uid, gid);
+        let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
+        let creds = { Arc::clone(&proc_arc.lock().creds) };
+        if creds.euid != 0 {
+            if uid != st.uid || (gid != st.gid && gid != creds.gid && gid != creds.egid) {
+                return Err(SyscallError::EPERM);
+            }
+        }
         crate::fs::chown(&full_path, uid, gid)?;
     }
     Ok(0)
