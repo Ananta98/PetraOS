@@ -1,25 +1,29 @@
-From 1a3b13a00b215a4836e259275f7582e35961e80a Mon Sep 17 00:00:00 2001
+From c2ac9484c027c3594d5dd4f9d4a7a78b301f3c80 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sat, 5 Sep 2026 20:23:39 +0700
-Subject: [PATCH] feat(petra): add PetraOS support to fastfetch 2.59.0
+Subject: [PATCH] feat(petra): add PetraOS support and performance
+ optimizations to fastfetch 2.59.0
 
 ---
- CMakeLists.txt                            | 77 +++++++++++++++++++++++
- src/common/impl/FFPlatform_unix.c         |  2 +
- src/detection/cpu/cpu_petra.c             | 44 +++++++++++++
- src/detection/disk/disk_petra.c           | 37 +++++++++++
- src/detection/libc/libc_petra.c           |  8 +++
- src/detection/loadavg/loadavg_petra.c     | 15 +++++
- src/detection/localip/localip_petra.c     |  6 ++
- src/detection/memory/memory_petra.c       | 17 +++++
- src/detection/os/os_linux.c               |  7 +++
- src/detection/packages/packages_petra.c   |  5 ++
- src/detection/processes/processes_petra.c | 13 ++++
- src/detection/swap/swap_petra.c           | 19 ++++++
- src/logo/ascii/petra.txt                  | 13 ++++
- src/logo/builtin.c                        | 11 ++++
- src/options/general.h                     |  2 +-
- 15 files changed, 275 insertions(+), 1 deletion(-)
+ CMakeLists.txt                                | 77 +++++++++++++++++++
+ src/common/impl/FFPlatform_unix.c             |  2 +
+ src/common/impl/processing_linux.c            |  6 +-
+ src/detection/cpu/cpu_petra.c                 | 44 +++++++++++
+ src/detection/disk/disk_petra.c               | 37 +++++++++
+ src/detection/libc/libc_petra.c               |  8 ++
+ src/detection/loadavg/loadavg_petra.c         | 15 ++++
+ src/detection/localip/localip_petra.c         |  6 ++
+ src/detection/memory/memory_petra.c           | 17 ++++
+ src/detection/os/os_linux.c                   |  7 ++
+ src/detection/packages/packages_petra.c       |  5 ++
+ src/detection/processes/processes_petra.c     | 13 ++++
+ src/detection/swap/swap_petra.c               | 19 +++++
+ .../terminalfont/terminalfont_linux.c         | 16 ++++
+ src/logo/ascii/petra.txt                      | 13 ++++
+ src/logo/builtin.c                            | 11 +++
+ src/options/general.c                         | 20 +++--
+ src/options/general.h                         |  2 +-
+ 18 files changed, 309 insertions(+), 9 deletions(-)
  create mode 100644 src/detection/cpu/cpu_petra.c
  create mode 100644 src/detection/disk/disk_petra.c
  create mode 100644 src/detection/libc/libc_petra.c
@@ -145,6 +149,32 @@ index 985494b..a518829 100644
 +        ssize_t exePathLen = 0;
      #endif
      if (exePathLen > 0)
+     {
+diff --git a/src/common/impl/processing_linux.c b/src/common/impl/processing_linux.c
+index 37767ac..089ef29 100644
+--- a/src/common/impl/processing_linux.c
++++ b/src/common/impl/processing_linux.c
+@@ -224,7 +224,7 @@ void ffProcessGetInfoLinux(pid_t pid, FFstrbuf* processName, FFstrbuf* exe, cons
+     ffStrbufClear(exe);
+     if (exePath) ffStrbufClear(exePath);
+ 
+-    #if defined(__linux__) || defined(__GNU__)
++    #if defined(__linux__) || defined(__GNU__) || defined(__petra__)
+ 
+     char filePath[64];
+     snprintf(filePath, sizeof(filePath), "/proc/%d/cmdline", (int)pid);
+@@ -462,10 +462,10 @@ const char* ffProcessGetBasicInfoLinux(pid_t pid, FFstrbuf* name, pid_t* ppid, i
+     if (pid <= 0)
+         return "Invalid pid";
+ 
+-    #if defined(__linux__) || defined(__GNU__)
++    #if defined(__linux__) || defined(__GNU__) || defined(__petra__)
+ 
+     char procFilePath[64];
+-    #if __linux__
++    #if defined(__linux__) || defined(__petra__)
+     if (ppid || tty)
+     #endif
      {
 diff --git a/src/detection/cpu/cpu_petra.c b/src/detection/cpu/cpu_petra.c
 new file mode 100644
@@ -382,6 +412,37 @@ index 0000000..c0717ab
 +
 +    return NULL;
 +}
+diff --git a/src/detection/terminalfont/terminalfont_linux.c b/src/detection/terminalfont/terminalfont_linux.c
+index a8c0dda..355f270 100644
+--- a/src/detection/terminalfont/terminalfont_linux.c
++++ b/src/detection/terminalfont/terminalfont_linux.c
+@@ -11,6 +11,21 @@
+ #include "detection/terminalshell/terminalshell.h"
+ #include "detection/displayserver/displayserver.h"
+ 
++#if defined(__petra__)
++bool
++#ifdef __ANDROID__
++ffDetectTerminalFontPlatformLinux
++#else
++ffDetectTerminalFontPlatform
++#endif
++(const FFTerminalResult* terminal, FFTerminalFontResult* terminalFont)
++{
++    (void)terminal;
++    ffStrbufAppendS(&terminalFont->error, "Not supported on PetraOS");
++    return false;
++}
++#else
++
+ static const char* getSystemMonospaceFont(void)
+ {
+     const FFDisplayServerResult* wmde = ffConnectDisplayServer();
+@@ -563,3 +578,4 @@ ffDetectTerminalFontPlatform
+         return false;
+     return true;
+ }
++#endif
 diff --git a/src/logo/ascii/petra.txt b/src/logo/ascii/petra.txt
 new file mode 100644
 index 0000000..3dfb658
@@ -423,6 +484,69 @@ index c2f2207..af3f18c 100644
      // PhyOS
      {
          .names = {"PhyOS"},
+diff --git a/src/options/general.c b/src/options/general.c
+index 77deb64..b5401e0 100644
+--- a/src/options/general.c
++++ b/src/options/general.c
+@@ -30,7 +30,7 @@ const char* ffOptionsParseGeneralJsonConfig(FFOptionsGeneral* options, yyjson_va
+         else if (unsafe_yyjson_equals_str(key, "detectVersion"))
+             options->detectVersion = yyjson_get_bool(val);
+ 
+-        #if defined(__linux__) || defined(__FreeBSD__) || defined(__sun) || defined(__OpenBSD__) || defined(__NetBSD__) || defined(__HAIKU__) || defined(__GNU__)
++        #if defined(__linux__) || defined(__FreeBSD__) || defined(__sun) || defined(__OpenBSD__) || defined(__NetBSD__) || defined(__HAIKU__) || defined(__GNU__) || defined(__petra__)
+         else if (unsafe_yyjson_equals_str(key, "playerName"))
+             ffStrbufSetJsonVal(&options->playerName, val);
+         else if (unsafe_yyjson_equals_str(key, "dsForceDrm"))
+@@ -73,7 +73,7 @@ bool ffOptionsParseGeneralCommandLine(FFOptionsGeneral* options, const char* key
+     else if(ffStrEqualsIgnCase(key, "--detect-version"))
+         options->detectVersion = ffOptionParseBoolean(value);
+ 
+-    #if defined(__linux__) || defined(__FreeBSD__) || defined(__sun) || defined(__OpenBSD__) || defined(__NetBSD__) || defined(__HAIKU__) || defined(__GNU__)
++    #if defined(__linux__) || defined(__FreeBSD__) || defined(__sun) || defined(__OpenBSD__) || defined(__NetBSD__) || defined(__HAIKU__) || defined(__GNU__) || defined(__petra__)
+     else if(ffStrEqualsIgnCase(key, "--player-name"))
+         ffOptionParseString(key, value, &options->playerName);
+     else if(ffStrEqualsIgnCase(key, "--ds-force-drm"))
+@@ -98,11 +98,21 @@ bool ffOptionsParseGeneralCommandLine(FFOptionsGeneral* options, const char* key
+ 
+ void ffOptionsInitGeneral(FFOptionsGeneral* options)
+ {
++#if defined(__petra__)
++    // PetraOS: no procfs/dbus/display server – keep fast startup.
++    // 800ms is enough for statvfs/sysinfo, but prevents 5s stalls on
++    // `bash --version` / `kitty --version` etc. Version detection is
++    // disabled by default (use --detect-version true to re-enable).
++    options->processingTimeout = 800;
++    options->multithreading = false;
++    options->detectVersion = false;
++#else
+     options->processingTimeout = 5000;
+     options->multithreading = true;
+     options->detectVersion = true;
++#endif
+ 
+-    #if defined(__linux__) || defined(__FreeBSD__) || defined(__sun) || defined(__OpenBSD__) || defined(__NetBSD__) || defined(__HAIKU__) || defined(__GNU__)
++    #if defined(__linux__) || defined(__FreeBSD__) || defined(__sun) || defined(__OpenBSD__) || defined(__NetBSD__) || defined(__HAIKU__) || defined(__GNU__) || defined(__petra__)
+     ffStrbufInit(&options->playerName);
+     options->dsForceDrm = FF_DS_FORCE_DRM_TYPE_FALSE;
+     #elif defined(_WIN32)
+@@ -112,7 +122,7 @@ void ffOptionsInitGeneral(FFOptionsGeneral* options)
+ 
+ void ffOptionsDestroyGeneral(FF_MAYBE_UNUSED FFOptionsGeneral* options)
+ {
+-    #if defined(__linux__) || defined(__FreeBSD__) || defined(__sun) || defined(__OpenBSD__) || defined(__NetBSD__) || defined(__HAIKU__) || defined(__GNU__)
++    #if defined(__linux__) || defined(__FreeBSD__) || defined(__sun) || defined(__OpenBSD__) || defined(__NetBSD__) || defined(__HAIKU__) || defined(__GNU__) || defined(__petra__)
+     ffStrbufDestroy(&options->playerName);
+     #endif
+ }
+@@ -128,7 +138,7 @@ void ffOptionsGenerateGeneralJsonConfig(FFdata* data, FFOptionsGeneral* options)
+ 
+     yyjson_mut_obj_add_bool(doc, obj, "detectVersion", options->detectVersion);
+ 
+-    #if defined(__linux__) || defined(__FreeBSD__) || defined(__sun) || defined(__OpenBSD__) || defined(__NetBSD__) || defined(__HAIKU__) || defined(__GNU__)
++    #if defined(__linux__) || defined(__FreeBSD__) || defined(__sun) || defined(__OpenBSD__) || defined(__NetBSD__) || defined(__HAIKU__) || defined(__GNU__) || defined(__petra__)
+ 
+     yyjson_mut_obj_add_strbuf(doc, obj, "playerName", &options->playerName);
+ 
 diff --git a/src/options/general.h b/src/options/general.h
 index 2248201..1909125 100644
 --- a/src/options/general.h
