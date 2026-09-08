@@ -191,6 +191,10 @@ pub enum InodeType {
     BlockDevice,
     /// Symbolic link.
     Symlink,
+    /// FIFO / named or anonymous pipe.
+    Fifo,
+    /// Unix domain or network socket.
+    Socket,
 }
 
 // ===== InodeOps Trait =====

@@ -407,7 +407,7 @@ pub fn read_file(path: &str) -> Result<alloc::vec::Vec<u8>, VfsError> {
     let dentry = match resolve_path(path) {
         Ok(d) => d,
         Err(err) => {
-            log::warn!("[read_file] resolve_path('{}') failed: {:?}", path, err);
+            log::trace!("[read_file] resolve_path('{}') failed: {:?}", path, err);
             return Err(err);
         }
     };

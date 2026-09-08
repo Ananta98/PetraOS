@@ -96,6 +96,8 @@ run-x86_64: $(OVMF_DIR) $(IMAGE_NAME).iso
 		-smp 4 \
 		-drive if=pflash,unit=0,format=raw,file=$(OVMF_DIR)/ovmf-code-$(KARCH).fd,readonly=on \
 		-cdrom $(IMAGE_NAME).iso \
+		-netdev user,id=net0 \
+		-device e1000,netdev=net0 \
 		$(QEMUFLAGS)
 
 .PHONY: run-hdd-x86_64
@@ -105,6 +107,8 @@ run-hdd-x86_64: $(OVMF_DIR) $(IMAGE_NAME).hdd
 		-smp 4 \
 		-drive if=pflash,unit=0,format=raw,file=$(OVMF_DIR)/ovmf-code-$(KARCH).fd,readonly=on \
 		-hda $(IMAGE_NAME).hdd \
+		-netdev user,id=net0 \
+		-device e1000,netdev=net0 \
 		$(QEMUFLAGS)
 
 .PHONY: run-aarch64

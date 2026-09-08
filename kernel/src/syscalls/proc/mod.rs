@@ -11,7 +11,8 @@ pub mod r#yield;
 // ── Re-exports of system call entry points ──────────────────────────────────
 pub use cred::{
     sys_getegid, sys_geteuid, sys_getgid, sys_getgroups, sys_getpgrp, sys_getpid, sys_getppid,
-    sys_getuid, sys_setgid, sys_setpgid, sys_setsid, sys_setuid,
+    sys_getresgid, sys_getresuid, sys_getuid, sys_setfsgid, sys_setfsuid, sys_setgid, sys_setgroups,
+    sys_setpgid, sys_setregid, sys_setresgid, sys_setresuid, sys_setreuid, sys_setsid, sys_setuid,
 };
 pub use exec::sys_execve;
 pub use exit::{sys_exit, sys_exit_group};

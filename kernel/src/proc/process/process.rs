@@ -396,7 +396,12 @@ impl Process {
     /// will clear it after this function returns.
     pub fn exit(&mut self, status: i32) {
         self.state = ProcessState::Zombie;
-        self.exit_code = Some(status);
+        self.exit_code = Some(status & 0xFF);
+
+        // POSIX: Close all open file descriptors upon process termination.
+        // This ensures pipe readers observe EOF, pipe writers observe EPIPE,
+        // and file locks/resources are released without waiting for wait4 reaping.
+        self.fd_table = Arc::new(crate::fs::FdTable::new());
 
         // Detach all shared memory segments for this process
         crate::ipc::shm::SHM_MANAGER.lock().on_process_exit(self.pid.as_u64() as u32);

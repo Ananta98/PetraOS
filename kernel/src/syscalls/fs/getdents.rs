@@ -71,6 +71,8 @@ pub fn sys_getdents64(frame: &mut SyscallFrame) -> SyscallResult {
                         InodeType::CharDevice => DT_CHR,
                         InodeType::BlockDevice => DT_BLK,
                         InodeType::Symlink => DT_LNK,
+                        InodeType::Fifo => DT_FIFO,
+                        InodeType::Socket => DT_SOCK,
                     };
                     (child.ino, d_type)
                 }

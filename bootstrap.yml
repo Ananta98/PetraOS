@@ -19,3 +19,5 @@ imports:
   - file: packages/nano/nano.yml
   - file: packages/vim/vim.yml
   - file: packages/fastfetch/fastfetch.yml
+  - file: packages/grep/grep.yml
+  - file: packages/gawk/gawk.yml

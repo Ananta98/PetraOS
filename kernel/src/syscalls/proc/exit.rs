@@ -125,7 +125,7 @@ pub(crate) fn do_exit_group(code: i32) -> ! {
         }
         // Preserve first exit code if already set (signal vs explicit exit)
         if t.exit_code.is_none() {
-            t.exit_code = Some(code as u32);
+            t.exit_code = Some((code & 0xFF) as u32);
         }
     }
 
@@ -180,7 +180,7 @@ fn do_exit_thread(code: i32) -> ! {
         {
             let mut t = thread_arc.lock();
             t.state = ThreadState::Zombie;
-            t.exit_code = Some(code as u32);
+            t.exit_code = Some((code & 0xFF) as u32);
         }
         crate::sched::schedule(false);
         loop {
@@ -209,7 +209,7 @@ fn do_exit_thread(code: i32) -> ! {
     {
         let mut t = thread_arc.lock();
         t.state = ThreadState::Zombie;
-        t.exit_code = Some(code as u32);
+        t.exit_code = Some((code & 0xFF) as u32);
     }
 
     // Ensure not queued as runnable (current is in `current` slot, but dequeue

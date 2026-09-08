@@ -28,6 +28,7 @@ packages:
           - -DCMAKE_INSTALL_PREFIX=/usr
           - -DCMAKE_BUILD_TYPE=Release
           - -DBINARY_LINK_TYPE=dlopen
+          - -DENABLE_THREADS=OFF
         environ:
           SYSROOT_DIR: '@SYSROOT_DIR@'
     build:

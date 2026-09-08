@@ -1,0 +1,42 @@
+sources:
+  - name: gawk
+    subdir: sources
+    url: 'https://mirror.ibcp.fr/pub/gnu/gawk/gawk-5.3.1.tar.xz'
+    format: tar.xz
+    extract_path: 'gawk-5.3.1'
+    version: '5.3.1'
+    patch_path_strip: 1
+
+packages:
+  - name: gawk
+    architecture: x86_64
+    from_source: gawk
+    tools_required:
+      - host-gcc
+      - host-binutils
+    pkgs_required:
+      - mlibc
+    configure:
+      - args:
+          - '@THIS_SOURCE_DIR@/configure'
+          - '--host=x86_64-petra'
+          - '--prefix=/usr'
+          - '--disable-nls'
+          - '--disable-mpfr'
+          - '--disable-pma'
+          - '--disable-extensions'
+          - '--without-readline'
+          - '--without-mpfr'
+          - 'gl_cv_func_working_mkstemp=yes'
+          - 'ac_cv_func_working_mktime=yes'
+          - 'ac_cv_func_getpgrp_void=yes'
+    build:
+      - args: ['make', '-j@PARALLELISM@']
+    install:
+      - args: ['make', 'DESTDIR=@SYSROOT_DIR@', 'install']
+      - args: |
+          mkdir -p @SYSROOT_DIR@/bin
+          ln -sf /usr/bin/gawk @SYSROOT_DIR@/bin/gawk 2>/dev/null || true
+          ln -sf /usr/bin/gawk @SYSROOT_DIR@/bin/awk 2>/dev/null || true
+          ln -sf /usr/bin/gawk @SYSROOT_DIR@/usr/bin/awk 2>/dev/null || true
+          echo "gawk install completed"

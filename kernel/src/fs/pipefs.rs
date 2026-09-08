@@ -3,7 +3,7 @@
 use crate::fs::File;
 use crate::fs::vfs::dentry::Dentry;
 use crate::fs::vfs::types::{
-    FileOps, Inode, InodeOps, InodeType, O_RDONLY, O_WRONLY, Stat, VfsError,
+    FileOps, Inode, InodeOps, InodeType, O_RDONLY, O_WRONLY, SeekWhence, Stat, VfsError,
 };
 use crate::proc::thread::Thread;
 use crate::sync::Mutex;
@@ -89,6 +89,10 @@ impl FileOps for PipeReadFileOps {
             revents |= POLLOUT;
         }
         revents
+    }
+
+    fn lseek(&self, _offset: i64, _whence: SeekWhence) -> Result<usize, VfsError> {
+        Err(VfsError::NotSupported)
     }
 
     fn stat(&self) -> Result<Stat, VfsError> {
@@ -192,6 +196,10 @@ impl FileOps for PipeWriteFileOps {
         revents
     }
 
+    fn lseek(&self, _offset: i64, _whence: SeekWhence) -> Result<usize, VfsError> {
+        Err(VfsError::NotSupported)
+    }
+
     fn stat(&self) -> Result<Stat, VfsError> {
         let pipe = self.pipe.lock();
         Ok(Stat {
@@ -234,7 +242,7 @@ pub fn create_pipe(nonblocking: bool) -> Result<(Arc<File>, Arc<File>), VfsError
 
     let inode = Arc::new(Inode {
         ino,
-        inode_type: InodeType::File,
+        inode_type: InodeType::Fifo,
         ops: Arc::new(PipeInodeOps),
     });
 

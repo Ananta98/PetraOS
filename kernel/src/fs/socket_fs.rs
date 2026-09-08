@@ -117,7 +117,7 @@ impl FileOps for SocketFileOps {
 pub fn create_socket_file(socket: Arc<Mutex<Socket>>, flags: u32) -> Arc<File> {
     let inode = Arc::new(Inode {
         ino: 0,
-        inode_type: InodeType::File,
+        inode_type: InodeType::Socket,
         ops: Arc::new(SocketInodeOps),
     });
 

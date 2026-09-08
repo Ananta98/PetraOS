@@ -10,7 +10,7 @@ use alloc::sync::Arc;
 use alloc::vec;
 
 /// POSIX standard paths scanned in order to find the initial user-space init binary.
-pub const DEFAULT_INIT_EXEC_PATHS: &[&str] = &["/bin/bash", "/usr/bin/bash", "/usr/bin/sh"];
+pub const DEFAULT_INIT_EXEC_PATHS: &[&str] = &["/bin/bash", "/usr/bin/bash", "/bin/sh", "/sbin/init"];
 
 /// Initialize the primary user process (PID 1).
 ///
