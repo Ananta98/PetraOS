@@ -43,10 +43,7 @@ packages:
           - '@THIS_BUILD_DIR@'
         environ:
           DESTDIR: '@SYSROOT_DIR@'
-      - args: |
-          mkdir -p @SYSROOT_DIR@/bin
-          ln -sf /usr/bin/fastfetch @SYSROOT_DIR@/bin/fastfetch 2>/dev/null || true
-          ln -sf /usr/bin/flashfetch @SYSROOT_DIR@/bin/flashfetch 2>/dev/null || true
+      - args: ['ln', '-sf', 'fastfetch', '@SYSROOT_DIR@/usr/bin/flashfetch']
       - args: |
           mkdir -p @SYSROOT_DIR@/etc/fastfetch
           cat > @SYSROOT_DIR@/etc/fastfetch/config.jsonc << 'EOF'

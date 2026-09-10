@@ -5,3 +5,48 @@ sources:
     branch: 'master'
     rolling_version: true
     version: '0.0pl@ROLLING_ID@'
+
+tools:
+  - name: host-gnulib
+    architecture: x86_64
+    from_source: gnulib
+    compile:
+      - args: ['true']
+    install:
+      - args:
+          - 'sh'
+          - '-c'
+          - |
+            set -e
+            mkdir -p "@PREFIX@/bin"
+            rm -rf "@PREFIX@/share/gnulib"
+            mkdir -p "@PREFIX@/share/gnulib"
+            tar -C "@THIS_SOURCE_DIR@" --exclude=.git -cf - . | tar -C "@PREFIX@/share/gnulib" -xf -
+            ln -sf "@PREFIX@/share/gnulib/gnulib-tool" "@PREFIX@/bin/gnulib-tool"
+
+packages:
+  - name: gnulib
+    architecture: x86_64
+    from_source: gnulib
+    build:
+      - args:
+          - 'sh'
+          - '-c'
+          - |
+            set -e
+            mkdir -p "@SYSROOT_DIR@/usr/bin"
+            rm -rf "@SYSROOT_DIR@/usr/share/gnulib"
+            mkdir -p "@SYSROOT_DIR@/usr/share/gnulib"
+            tar -C "@THIS_SOURCE_DIR@" --exclude=.git -cf - . | tar -C "@SYSROOT_DIR@/usr/share/gnulib" -xf -
+            ln -sf ../share/gnulib/gnulib-tool "@SYSROOT_DIR@/usr/bin/gnulib-tool"
+    install:
+      - args:
+          - 'sh'
+          - '-c'
+          - |
+            set -e
+            mkdir -p "@SYSROOT_DIR@/usr/bin"
+            rm -rf "@SYSROOT_DIR@/usr/share/gnulib"
+            mkdir -p "@SYSROOT_DIR@/usr/share/gnulib"
+            tar -C "@THIS_SOURCE_DIR@" --exclude=.git -cf - . | tar -C "@SYSROOT_DIR@/usr/share/gnulib" -xf -
+            ln -sf ../share/gnulib/gnulib-tool "@SYSROOT_DIR@/usr/bin/gnulib-tool"

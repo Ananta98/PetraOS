@@ -1,0 +1,36 @@
+#!/bin/bash
+# ==============================================================================
+# /sbin/init - PetraOS System Init & Session Supervisor (PID 1)
+# ==============================================================================
+
+# Ensure environment variable fallbacks if not supplied by kernel boot command line
+export PATH="${PATH:-/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin}"
+export HOME="${HOME:-/root}"
+export USER="${USER:-root}"
+export LOGNAME="${LOGNAME:-root}"
+export SHELL="${SHELL:-/bin/bash}"
+export TERM="${TERM:-linux}"
+export PS1="${PS1:-\u@\h:\w\$ }"
+
+# System-wide profile initialization
+[ -r /etc/profile ] && . /etc/profile
+
+# ------------------------------------------------------------------------------
+# Interactive Login Session Supervision Loop
+# ------------------------------------------------------------------------------
+# Default interactive shell user is root. Any users added via useradd/passwd
+# can be switched to via su or login.
+# Upon logout or exit, init restarts a fresh login session.
+# ------------------------------------------------------------------------------
+while true; do
+    cd "${HOME:-/root}" 2>/dev/null || cd /
+
+    # Launch interactive login shell session
+    /bin/bash --login
+
+    # Session termination / logout handling
+    echo ""
+    echo "Session terminated (logout)."
+    echo "Restarting login session..."
+    sleep 1
+done

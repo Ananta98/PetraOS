@@ -1,33 +1,114 @@
-# Limine Rust Template
+# PetraOS
 
-This repository will demonstrate how to set up a basic kernel in Rust using Limine.
+PetraOS is a modular monolithic, UNIX-like operating system written in Rust (`no_std` kernel) featuring a standard POSIX userland powered by mlibc, GNU toolchains, and xbstrap package orchestration.
 
-## How to use this?
+---
 
-### Dependencies
+## 1. Directory Structure
 
-Any `make` command depends on GNU make (`gmake`) and is expected to be run using it. This usually means using `make` on most GNU/Linux distros, or `gmake` on other non-GNU systems.
+```
+PetraOS/
+├── kernel/          # Rust kernel crate (no_std, architecture, drivers, VFS, mm)
+├── base-files/      # Root filesystem skeleton conforming to UsrMerge (/bin, /etc, etc.)
+├── packages/        # Userland package definitions and patches (xbstrap YAMLs)
+├── cross-files/     # Meson and CMake cross-compilation definition files
+├── tools/           # Build and testing scripts
+│   ├── build_userland.sh   # Unified userspace build engine (xbstrap wrapper)
+│   ├── build_initramfs.sh  # Initramfs CPIO archive generator
+│   └── test_cli.py         # Automated QEMU CLI test runner
+├── limine/          # Bootloader assets and configuration (limine.conf)
+├── bootstrap.yml    # Main xbstrap orchestration manifest
+└── GNUmakefile      # Top-level build orchestration (ISO, HDD, QEMU runner)
+```
 
-All `make all*` targets depend on Rust.
+---
 
-Additionally, building an ISO with `make all` requires `xorriso`, and building a HDD/USB image with `make all-hdd` requires `sgdisk` (usually from `gdisk` or `gptfdisk` packages) and `mtools`.
+## 2. Requirements & Dependencies
 
-### Architectural targets
+### Host System Tools
+Install the essential host build tools:
+```bash
+# Debian / Ubuntu
+sudo apt update
+sudo apt install -y build-essential git cpio xorriso gdisk mtools qemu-system-x86 python3 python3-pip curl
 
-The `KARCH` make variable determines the target architecture to build the kernel and image for.
+# Install xbstrap (userspace package orchestrator)
+pip install xbstrap
+```
 
-The default `KARCH` is `x86_64`. Other options include: `aarch64`, `riscv64`, and `loongarch64`.
+### Rust Toolchain
+Rust is required to build the kernel crate:
+```bash
+rustup target add x86_64-unknown-none
+```
 
-Other architectures will need to be enabled in kernel/rust-toolchain.toml
+---
 
-### Makefile targets
+## 3. Quick Start
 
-Running `make all` will compile the kernel (from the `kernel/` directory) and then generate a bootable ISO image.
+### Build Everything & Run in QEMU
+To initialize the workspace, fetch sources, compile all userspace packages, build the kernel, package the initramfs, and launch in QEMU:
+```bash
+./tools/build_userland.sh
+```
+*(Alternatively, run `make run` to boot with current artifacts).*
 
-Running `make all-hdd` will compile the kernel and then generate a raw image suitable to be flashed onto a USB stick or hard drive/SSD.
+### Build Kernel Only
+```bash
+make -C kernel
+```
 
-Running `make run` will build the kernel and a bootable ISO (equivalent to make all) and then run it using `qemu` (if installed).
+### Build Initramfs Only
+```bash
+./tools/build_initramfs.sh
+# or: make initramfs
+```
 
-Running `make run-hdd` will build the kernel and a raw HDD image (equivalent to make all-hdd) and then run it using `qemu` (if installed).
+---
 
-The `run-uefi` and `run-hdd-uefi` targets are equivalent to their non `-uefi` counterparts except that they boot `qemu` using a UEFI-compatible firmware.
+## 4. Working with Userland Packages (`xbstrap`)
+
+PetraOS uses `xbstrap` to cross-compile software into `build-xbstrap/system-root`. All package definitions reside in `packages/<package-name>/<package-name>.yml` and are managed via `tools/build_userland.sh`.
+
+### Common Commands
+
+| Task | Command | Description |
+| :--- | :--- | :--- |
+| **Build a Package** | `./tools/build_userland.sh build <pkg>` | Fetches, patches, compiles, and installs package into sysroot |
+| **Fetch Source** | `./tools/build_userland.sh fetch <pkg>` | Downloads package source to `sources/<pkg>` |
+| **Inspect Patches** | `./tools/build_userland.sh patch <pkg>` | Lists active patch files for the package |
+| **Clean Package** | `./tools/build_userland.sh clean <pkg>` | Cleans build cache and stamps for a specific package |
+| **Clean All** | `./tools/build_userland.sh clean` | Wipes the `build-xbstrap` build directory |
+| **Status** | `./tools/build_userland.sh status [pkg]` | Displays workspace and package build status |
+
+### Adding or Patching a Package
+
+1. **Adding a New Port**:
+   - Create `packages/<name>/<name>.yml` with source URL, build steps, and `DESTDIR=@SYSROOT_DIR@`.
+   - Add `- file: packages/<name>/<name>.yml` to `bootstrap.yml`.
+   - Run `./tools/build_userland.sh build <name>`.
+
+2. **Creating & Applying Patches**:
+   - Place patch files in `packages/<pkg>/` named sequentially (e.g., `0001-petra-port.patch`).
+   - Use `-p1` strip level (`patch_path_strip: 1` in YML).
+   - Patches are applied automatically by `xbstrap` during the source prepare phase.
+   - Clean and rebuild to verify:
+     ```bash
+     ./tools/build_userland.sh clean <pkg>
+     ./tools/build_userland.sh build <pkg>
+     ```
+
+---
+
+## 5. Automated Testing
+
+PetraOS includes an automated testing harness to run commands inside QEMU and check results:
+
+```bash
+# Run a single command test in PetraOS
+python3 tools/test_cli.py --cmd "gcc --version" --expect "gcc"
+
+# Run default automated CLI test suite
+python3 tools/test_cli.py --test-file .agents/skills/cli-testing/scripts/default_tests.json
+```
+Reports and failure screenshots are saved under `test_reports/`.

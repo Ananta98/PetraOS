@@ -5,8 +5,10 @@
 
 use crate::fs::vfs::types::VfsError;
 use crate::utils::cpio::CpioArchive;
+use alloc::collections::BTreeMap;
 use alloc::format;
 use alloc::string::String;
+use alloc::vec::Vec;
 
 /// Helper function to create all parent directories recursively.
 pub fn mkdir_p(path: &str) -> Result<(), VfsError> {
@@ -66,10 +68,28 @@ pub fn create_symlink_with_parents(path: &str, target: &str) -> Result<(), VfsEr
     }
 }
 
+/// Helper function to create a hard link, creating parent dirs if needed.
+pub fn create_hardlink_with_parents(target_path: &str, link_path: &str) -> Result<(), VfsError> {
+    if let Some(last_slash) = link_path.rfind('/') {
+        let parent = &link_path[..last_slash];
+        if !parent.is_empty() {
+            mkdir_p(parent)?;
+        }
+    }
+
+    match crate::fs::vfs::path::link(target_path, link_path) {
+        Ok(_) | Err(VfsError::AlreadyExists) => Ok(()),
+        Err(err) => Err(err),
+    }
+}
+
 /// Unpack an in-memory CPIO archive slice into the active root VFS.
 pub fn extract_cpio_archive(data: &[u8]) -> Result<usize, &'static str> {
     let archive = CpioArchive::new(data);
     let mut extracted_count = 0;
+
+    // Track inodes with nlink > 1: ino -> (Option<String> /* primary with data */, Vec<String> /* pending links */)
+    let mut hardlinks: BTreeMap<u32, (Option<String>, Vec<String>)> = BTreeMap::new();
 
     for entry_res in archive.entries() {
         let entry = match entry_res {
@@ -95,14 +115,56 @@ pub fn extract_cpio_archive(data: &[u8]) -> Result<usize, &'static str> {
                 log::warn!("[Initramfs] Failed to mkdir '{}': {:?}", full_path, err);
             }
         } else if entry.is_regular_file() {
-            if let Err(err) = create_file_with_parents(&full_path, entry.data()) {
-                log::warn!(
-                    "[Initramfs] Failed to create file '{}': {:?}",
-                    full_path,
-                    err
-                );
+            let nlink = entry.header().nlink;
+            let ino = entry.header().ino;
+            let payload = entry.data();
+
+            if nlink > 1 && payload.is_empty() {
+                // SVR4 cpio zeroes filesize on duplicate hard-link entries.
+                // If primary was already extracted, hardlink immediately; otherwise queue it.
+                if let Some((Some(primary), _)) = hardlinks.get(&ino) {
+                    if let Err(err) = create_hardlink_with_parents(primary, &full_path) {
+                        log::warn!(
+                            "[Initramfs] Failed to hardlink '{}' to '{}': {:?}",
+                            full_path,
+                            primary,
+                            err
+                        );
+                    } else {
+                        extracted_count += 1;
+                    }
+                } else {
+                    let entry_record = hardlinks.entry(ino).or_insert_with(|| (None, Vec::new()));
+                    entry_record.1.push(full_path);
+                }
             } else {
-                extracted_count += 1;
+                if let Err(err) = create_file_with_parents(&full_path, payload) {
+                    log::warn!(
+                        "[Initramfs] Failed to create file '{}': {:?}",
+                        full_path,
+                        err
+                    );
+                } else {
+                    extracted_count += 1;
+
+                    if nlink > 1 {
+                        let entry_record = hardlinks.entry(ino).or_insert_with(|| (None, Vec::new()));
+                        entry_record.0 = Some(full_path.clone());
+                        let pending_paths = core::mem::take(&mut entry_record.1);
+                        for pending in pending_paths {
+                            if let Err(err) = create_hardlink_with_parents(&full_path, &pending) {
+                                log::warn!(
+                                    "[Initramfs] Failed to link pending '{}' to '{}': {:?}",
+                                    pending,
+                                    full_path,
+                                    err
+                                );
+                            } else {
+                                extracted_count += 1;
+                            }
+                        }
+                    }
+                }
             }
         } else if entry.is_symlink() {
             if let Ok(raw_target) = core::str::from_utf8(entry.data()) {

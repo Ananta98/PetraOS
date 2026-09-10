@@ -12,11 +12,13 @@ use alloc::vec;
 /// POSIX boot order: real init first, interactive shell fallbacks.
 /// `/sbin/init` is the PetraOS init script (login-prompt loop); the bash
 /// entries keep the system bootable when init is absent or broken.
-pub const DEFAULT_INIT_EXEC_PATHS: &[&str] = &["/sbin/init", "/bin/bash", "/usr/bin/bash", "/bin/sh"];
+pub const DEFAULT_INIT_EXEC_PATHS: &[&str] =
+    &["/sbin/init", "/bin/bash", "/usr/bin/bash", "/bin/sh"];
 
 /// Initialize the primary user process (PID 1).
 ///
-/// Scans `DEFAULT_INIT_EXEC_PATHS` in order per POSIX specifications.
+/// Environment variables and boot arguments are loaded dynamically from Limine's boot command line.
+/// Scans `DEFAULT_INIT_EXEC_PATHS` per POSIX specifications.
 pub fn create_init_process() -> Result<(Arc<Mutex<Process>>, u64, u64), &'static str> {
     log::info!(
         "[Init Process] Searching for POSIX init binary in DEFAULT_INIT_EXEC_PATHS: {:?}",
@@ -31,15 +33,10 @@ pub fn create_init_process() -> Result<(Arc<Mutex<Process>>, u64, u64), &'static
         proc.fd_table.setup_std_fds(console_file);
     }
 
-    // Default environment variables for user space initialization
-    let default_env = vec![
-        String::from("PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin"),
-        String::from("TERM=linux"),
-        String::from("HOME=/root"),
-        String::from("USER=root"),
-        String::from("LINES=50"),
-        String::from("COLUMNS=142"),
-    ];
+    // Retrieve environment variables and boot arguments from BootCommandLine
+    let boot_cmdline = crate::cmdline::BootCommandLine::new();
+    let init_env = boot_cmdline.to_envs_vec();
+    let boot_args = boot_cmdline.to_args_vec();
 
     // 1. Iterate over candidate init paths and execute
     for candidate_path in DEFAULT_INIT_EXEC_PATHS {
@@ -49,7 +46,9 @@ pub fn create_init_process() -> Result<(Arc<Mutex<Process>>, u64, u64), &'static
         );
 
         let prog_name = candidate_path.rsplit('/').next().unwrap_or(candidate_path);
-        let cmdline = CommandLine::new(vec![String::from(prog_name)], default_env.clone());
+        let mut args = vec![String::from(prog_name)];
+        args.extend(boot_args.clone());
+        let cmdline = CommandLine::new(args, init_env.clone());
 
         if let Ok((entry_point, stack_top)) = proc.execute_cmdline(candidate_path, cmdline) {
             log::debug!(

@@ -5,7 +5,8 @@ export TERM="${TERM:-xterm-256color}"
 export HOME="${HOME:-/root}"
 export USER="${USER:-root}"
 export LOGNAME="${LOGNAME:-root}"
-export PS1='[\u@\h \W]\$ '
+export SHELL="/bin/bash"
+export PS1='\u@\h:\w\$ '
 
 if [ -d /etc/profile.d ]; then
     for f in /etc/profile.d/*.sh; do

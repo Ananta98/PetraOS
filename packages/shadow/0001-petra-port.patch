@@ -1,0 +1,130 @@
+From: Ananta <kusumaananta042@gmail.com>
+Date: Mon, 8 Sep 2026 20:30:00 +0700
+Subject: [PATCH] feat(petra): add PetraOS support to shadow 4.15.1
+
+Adapted from Astral recipes/shadow and
+patches/shadow/jinx-working-patch.patch (Mathewnd/Astral@e9a9b34):
+- config.sub: recognize x86_64-petra host
+- etc/login.defs: SHA512 default, /var/mail, ISSUE_FILE, ERASECHAR
+- src/useradd.c: default UID/GID 999 (Astral parity)
+- lib/user_busy.c, lib/utmp.c: missing headers for mlibc/Petra
+
+Signed-off-by: Ananta <kusumaananta042@gmail.com>
+---
+ config.sub      | 1 +
+ etc/login.defs  | 8 ++++----
+ lib/user_busy.c | 3 +++
+ lib/utmp.c      | 1 +
+ src/useradd.c   | 8 ++++----
+ 5 files changed, 13 insertions(+), 8 deletions(-)
+
+diff --git a/config.sub b/config.sub
+--- a/config.sub	2024-03-24 06:34:47.000000000 +0700
++++ b/config.sub	2026-09-08 20:26:00.051858826 +0700
+@@ -1754,6 +1754,7 @@
+ 	     | onefs* | tirtos* | phoenix* | fuchsia* | redox* | bme* \
+ 	     | midnightbsd* | amdhsa* | unleashed* | emscripten* | wasi* \
+ 	     | nsk* | powerunix* | genode* | zvmoe* | qnx* | emx* | zephyr* \
++	     | petra* \
+ 	     | fiwix* )
+ 		;;
+ 	# This one is extra strict with allowed versions
+diff --git a/etc/login.defs b/etc/login.defs
+--- a/etc/login.defs	2024-03-01 08:50:52.000000000 +0700
++++ b/etc/login.defs	2026-09-08 20:26:00.035503720 +0700
+@@ -93,7 +93,7 @@
+ #
+ # If defined, this file will be output before each login(1) prompt.
+ #
+-#ISSUE_FILE	/etc/issue
++ISSUE_FILE	/etc/issue
+ 
+ #
+ # If defined, file which maps tty line to TERM environment parameter.
+@@ -127,7 +127,7 @@
+ #   Directory where mailboxes reside, _or_ name of file, relative to the
+ #   home directory.  If you _do_ define both, MAIL_DIR takes precedence.
+ #
+-MAIL_DIR	/var/spool/mail
++MAIL_DIR	/var/mail
+ #MAIL_FILE	.mail
+ 
+ #
+@@ -188,7 +188,7 @@
+ #
+ # Prefix these values with "0" to get octal, "0x" to get hexadecimal.
+ #
+-ERASECHAR	0177
++ERASECHAR	010
+ KILLCHAR	025
+ #ULIMIT		2097152
+ 
+@@ -329,7 +329,7 @@
+ # Note: If you use PAM, it is recommended to use a value consistent with
+ # the PAM modules configuration.
+ #
+-#ENCRYPT_METHOD DES
++ENCRYPT_METHOD SHA512
+ 
+ #
+ # Only works if ENCRYPT_METHOD is set to SHA256 or SHA512.
+diff --git a/lib/user_busy.c b/lib/user_busy.c
+--- a/lib/user_busy.c	2024-03-01 08:50:54.000000000 +0700
++++ b/lib/user_busy.c	2026-09-08 20:26:00.038161621 +0700
+@@ -24,6 +24,9 @@
+ #endif				/* ENABLE_SUBIDS */
+ #include "shadowlog.h"
+ #include "string/sprintf.h"
++#include <utmpx.h>
++#include <signal.h>
++
+ 
+ 
+ #ifdef __linux__
+diff --git a/lib/utmp.c b/lib/utmp.c
+--- a/lib/utmp.c	2024-03-01 08:50:54.000000000 +0700
++++ b/lib/utmp.c	2026-09-08 20:26:00.051668126 +0700
+@@ -21,6 +21,7 @@
+ #include <netdb.h>
+ #include <stdio.h>
+ #include <fcntl.h>
++#include <netinet/in.h>
+ 
+ #include "alloc.h"
+ #include "sizeof.h"
+diff --git a/src/useradd.c b/src/useradd.c
+--- a/src/useradd.c	2024-03-24 03:32:25.000000000 +0700
++++ b/src/useradd.c	2026-09-08 20:26:00.037096021 +0700
+@@ -90,7 +90,7 @@
+ /*
+  * These defaults are used if there is no defaults file.
+  */
+-static gid_t def_group = 1000;
++static gid_t def_group = 999;
+ static const char *def_groups = "";
+ static const char *def_gname = "other";
+ static const char *def_home = "/home";
+@@ -2438,12 +2438,12 @@
+ 	uid_t uid_min ;
+ 	uid_t uid_max ;
+ 	if (rflg) {
+-		uid_max = getdef_ulong("SYS_UID_MAX",getdef_ulong("UID_MIN",1000UL)-1);
++		uid_max = getdef_ulong("SYS_UID_MAX",getdef_ulong("UID_MIN",999UL)-1);
+ 		if (user_id > uid_max) {
+ 			fprintf(stderr, _("%s warning: %s's uid %d is greater than SYS_UID_MAX %d\n"), Prog, user_name, user_id, uid_max);
+ 		}
+ 	}else{
+-		uid_min = getdef_ulong("UID_MIN", 1000UL);
++		uid_min = getdef_ulong("UID_MIN", 999UL);
+ 		uid_max = getdef_ulong("UID_MAX", 6000UL);
+ 		if (uid_min <= uid_max) {
+ 			if (user_id < uid_min || user_id >uid_max)
+@@ -2505,7 +2505,7 @@
+ 	process_flags (argc, argv);
+ 
+ #ifdef ENABLE_SUBIDS
+-	uid_min = getdef_ulong ("UID_MIN", 1000UL);
++	uid_min = getdef_ulong ("UID_MIN", 999UL);
+ 	uid_max = getdef_ulong ("UID_MAX", 60000UL);
+ 	subuid_count = getdef_ulong ("SUB_UID_COUNT", 65536);
+ 	subgid_count = getdef_ulong ("SUB_GID_COUNT", 65536);

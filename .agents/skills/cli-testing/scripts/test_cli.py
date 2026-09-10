@@ -45,6 +45,7 @@ PROMPT_PATTERNS = [
     re.compile(rb"bash-[0-9\.]+[#$]\s*"),
     re.compile(rb"bash[#$]\s*"),
     re.compile(rb"[a-zA-Z0-9_\-\.]+@[a-zA-Z0-9_\-\.]+:[^#$]*[#$]\s*"),
+    re.compile(rb"\[[a-zA-Z0-9_\-\.]+@[a-zA-Z0-9_\-\.]+\s+[^#$]*\][#$]\s*"),
     re.compile(rb"[#$]\s+"),
 ]
 

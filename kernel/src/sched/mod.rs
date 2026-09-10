@@ -76,9 +76,7 @@ impl PerCpuScheduler {
     /// Obtains the currently executing thread on `cpu_id`.
     pub fn current_thread_on_cpu(&self, cpu_id: u32) -> Option<Arc<Mutex<Thread>>> {
         self.ensure_cpu(cpu_id);
-        crate::arch::without_interrupts(|| {
-            self.queues.lock()[cpu_id as usize].current()
-        })
+        crate::arch::without_interrupts(|| self.queues.lock()[cpu_id as usize].current())
     }
 
     /// Sets the currently executing thread on `cpu_id`.
@@ -128,17 +126,14 @@ impl PerCpuScheduler {
     /// 2. **Fair (EEVDF)**: Earliest virtual deadline among eligible threads in `EevdfScheduler`.
     pub fn pick_next(&self, cpu_id: u32) -> Option<Arc<Mutex<Thread>>> {
         self.ensure_cpu(cpu_id);
-        crate::arch::without_interrupts(|| {
-            self.queues.lock()[cpu_id as usize].pick_next()
-        })
+        crate::arch::without_interrupts(|| self.queues.lock()[cpu_id as usize].pick_next())
     }
 
     /// Updates scheduling accounting on timer ticks.
     pub fn tick(&self, cpu_id: u32, delta_ns: u64) {
         self.ensure_cpu(cpu_id);
-        let should_preempt = crate::arch::without_interrupts(|| {
-            self.queues.lock()[cpu_id as usize].tick(delta_ns)
-        });
+        let should_preempt =
+            crate::arch::without_interrupts(|| self.queues.lock()[cpu_id as usize].tick(delta_ns));
         if should_preempt {
             self.schedule(true);
         }
@@ -277,7 +272,6 @@ impl PerCpuScheduler {
         }
     }
 }
-
 
 impl Default for PerCpuScheduler {
     fn default() -> Self {

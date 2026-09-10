@@ -1,0 +1,42 @@
+sources:
+  - name: libxcrypt
+    subdir: sources
+    url: https://github.com/besser82/libxcrypt/releases/download/v4.4.36/libxcrypt-4.4.36.tar.xz
+    format: tar.xz
+    extract_path: libxcrypt-4.4.36
+    version: '4.4.36'
+    patch_path_strip: 1
+    tools_required:
+      - host-automake-v1.16
+    regenerate:
+      - args: ['cp',
+               '@BUILD_ROOT@/tools/host-automake-v1.16/share/automake-1.16/config.sub',
+               '@THIS_SOURCE_DIR@/build-aux/m4-autogen/']
+      - args: ['cp',
+               '@BUILD_ROOT@/tools/host-automake-v1.16/share/automake-1.16/config.guess',
+               '@THIS_SOURCE_DIR@/build-aux/m4-autogen/']
+
+packages:
+  - name: libxcrypt
+    architecture: x86_64
+    from_source: libxcrypt
+    tools_required:
+      - host-gcc
+    pkgs_required:
+      - mlibc
+    configure:
+      - args:
+          - '@THIS_SOURCE_DIR@/configure'
+          - '--host=x86_64-petra'
+          - '--prefix=/usr'
+          - '--enable-obsolete-api=yes'
+          - '--disable-xcrypt-compat-files'
+          - '--disable-werror'
+    build:
+      - args: ['make', '-j@PARALLELISM@']
+      # NOTE: xbstrap 0.36 `Build` only executes `configure`+`build`
+      # (package `install:` is ignored), so install via DESTDIR here.
+      # `install-strip` skips libxcrypt headers; use plain `install`.
+      - args: ['make', 'DESTDIR=@SYSROOT_DIR@', 'install']
+    install:
+      - args: ['make', 'DESTDIR=@SYSROOT_DIR@', 'install']

@@ -7,7 +7,7 @@ description: Port, patch, and rebuild userspace packages with xbstrap for PetraO
 
 Central skill for **all xbstrap userspace operations** in PetraOS: porting new software, patching existing sources, creating/applying patches, and recompiling/rebuilding the sysroot + initramfs.
 
-> **Primary engine:** [`tools/build_and_run_userspace.sh`](file:///home/ananta/PetraOS/tools/build_and_run_userspace.sh) — all xbstrap calls are wrapped here. Prefer it over raw `xbstrap`. Complementary packaging: [`tools/create_initramfs.sh`](file:///home/ananta/PetraOS/tools/create_initramfs.sh) and top-level [`GNUmakefile`](file:///home/ananta/PetraOS/GNUmakefile) / [`bootstrap.yml`](file:///home/ananta/PetraOS/bootstrap.yml).
+> **Primary engine:** [`tools/build_userland.sh`](file:///home/ananta/PetraOS/tools/build_userland.sh) — all xbstrap calls are wrapped here. Prefer it over raw `xbstrap`. Complementary packaging: [`tools/build_initramfs.sh`](file:///home/ananta/PetraOS/tools/build_initramfs.sh) and top-level [`GNUmakefile`](file:///home/ananta/PetraOS/GNUmakefile) / [`bootstrap.yml`](file:///home/ananta/PetraOS/bootstrap.yml).
 
 ---
 
@@ -41,8 +41,8 @@ petraos/
 ├── build/initramfs_root/      # Staging FHS tree for CPIO
 ├── build/initramfs.cpio       # SVR4 newc archive consumed by kernel
 └── tools/
-    ├── build_and_run_userspace.sh  # Unified xbstrap CLI
-    └── create_initramfs.sh         # Sync sysroot + package CPIO
+    ├── build_userland.sh  # Unified xbstrap CLI
+    └── build_initramfs.sh          # Sync sysroot + package CPIO
 ```
 
 **Key xbstrap directories (inside `build-xbstrap/`):**
@@ -125,24 +125,24 @@ packages:
 
 ## 4. Quick Reference — Commands
 
-All commands delegate to `tools/build_and_run_userspace.sh`. Raw xbstrap must run **inside** `build-xbstrap` (`cd build-xbstrap && xbstrap ...`).
+All commands delegate to `tools/build_userland.sh`. Raw xbstrap must run **inside** `build-xbstrap` (`cd build-xbstrap && xbstrap ...`).
 
 | Goal | Script (preferred) | Raw xbstrap / Make |
 |---|---|---|
-| Init workspace | `bash tools/build_and_run_userspace.sh init` | `mkdir -p build-xbstrap && (cd build-xbstrap && xbstrap init ..)` |
-| Fetch one | `bash tools/build_and_run_userspace.sh fetch <pkg>` | `(cd build-xbstrap && xbstrap fetch <pkg>)` |
-| Fetch all | `bash tools/build_and_run_userspace.sh fetch --all` / `make fetch-userspace` | `(cd build-xbstrap && xbstrap fetch --all)` |
-| Inspect patches | `bash tools/build_and_run_userspace.sh patch <pkg>` | `ls packages/<pkg>/*.patch` |
-| Build one | `bash tools/build_and_run_userspace.sh build <pkg>` | `(cd build-xbstrap && xbstrap install <pkg>)` |
-| Build all | `bash tools/build_and_run_userspace.sh build-all` / `make build-userspace` | loop `xbstrap install <pkg>` in bootstrap order |
-| Clean one | `bash tools/build_and_run_userspace.sh clean <pkg>` | `rm -rf build-xbstrap/pkg-builds/<pkg>* build-xbstrap/pkg-stamps/<pkg>*` |
-| Clean all | `bash tools/build_and_run_userspace.sh clean --all` / `make clean-userspace` | `rm -rf build-xbstrap` |
-| Status | `bash tools/build_and_run_userspace.sh status [pkg]` | — |
-| Sync initramfs only | `make sync-initramfs` | `./tools/create_initramfs.sh --sync-only build/initramfs_root build-xbstrap/system-root` |
-| Package CPIO only | — | `./tools/create_initramfs.sh --package-only build/initramfs_root build/initramfs.cpio` |
-| Full sync+package | `make initramfs` | `./tools/create_initramfs.sh build/initramfs_root build/initramfs.cpio build-xbstrap/system-root` |
-| Core pipeline + QEMU | `bash tools/build_and_run_userspace.sh` | — |
-| Full pipeline + QEMU | `bash tools/build_and_run_userspace.sh --all` | — |
+| Init workspace | `bash tools/build_userland.sh init` | `mkdir -p build-xbstrap && (cd build-xbstrap && xbstrap init ..)` |
+| Fetch one | `bash tools/build_userland.sh fetch <pkg>` | `(cd build-xbstrap && xbstrap fetch <pkg>)` |
+| Fetch all | `bash tools/build_userland.sh fetch --all` / `make fetch-userspace` | `(cd build-xbstrap && xbstrap fetch --all)` |
+| Inspect patches | `bash tools/build_userland.sh patch <pkg>` | `ls packages/<pkg>/*.patch` |
+| Build one | `bash tools/build_userland.sh build <pkg>` | `(cd build-xbstrap && xbstrap install <pkg>)` |
+| Build all | `bash tools/build_userland.sh build-all` / `make build-userspace` | loop `xbstrap install <pkg>` in bootstrap order |
+| Clean one | `bash tools/build_userland.sh clean <pkg>` | `rm -rf build-xbstrap/pkg-builds/<pkg>* build-xbstrap/pkg-stamps/<pkg>*` |
+| Clean all | `bash tools/build_userland.sh clean --all` / `make clean-userspace` | `rm -rf build-xbstrap` |
+| Status | `bash tools/build_userland.sh status [pkg]` | — |
+| Sync initramfs only | `make sync-initramfs` | `./tools/build_initramfs.sh --sync-only build/initramfs_root build-xbstrap/system-root` |
+| Package CPIO only | — | `./tools/build_initramfs.sh --package-only build/initramfs_root build/initramfs.cpio` |
+| Full sync+package | `make initramfs` | `./tools/build_initramfs.sh build/initramfs_root build/initramfs.cpio build-xbstrap/system-root` |
+| Core pipeline + QEMU | `bash tools/build_userland.sh` | — |
+| Full pipeline + QEMU | `bash tools/build_userland.sh --all` | — |
 | Run QEMU | `make run` / `make run QEMUFLAGS="-m 4G -serial stdio"` | — |
 
 **Core packages** built by default pipeline: `mlibc`, `bash`, `coreutils`. Full pipeline discovers all `packages:` entries in `bootstrap.yml` (mlibc ordered first).
@@ -156,7 +156,7 @@ Patches are **automatically applied by xbstrap during the prepare/fetch stage** 
 ### 5.1 Inspect Existing Patches
 
 ```bash
-bash tools/build_and_run_userspace.sh patch bash
+bash tools/build_userland.sh patch bash
 # → lists packages/bash/*.patch
 cat packages/bash/0001-petra-port.patch
 cat packages/mlibc/0001-petra-port.patch | head -n 50
@@ -170,7 +170,7 @@ Check `patch_path_strip: 1` in the YML — patches must be `-p1` relative to the
 
 ```bash
 # 1. Ensure source is fetched (patches already applied to the copy xbstrap uses)
-bash tools/build_and_run_userspace.sh fetch <pkg>
+bash tools/build_userland.sh fetch <pkg>
 ls sources/<pkg>/          # extracted upstream (patched view)
 # If source is a git repo, xbstrap keeps it in sources/<pkg> as a git checkout
 
@@ -190,8 +190,8 @@ cp /tmp/0001-*.patch ../../packages/<pkg>/0002-my-fix.patch
 
 # 3b. If sources/<pkg> is tarball — use diff -u
 # Save pristine copy first, or re-fetch to a temp dir:
-bash tools/build_and_run_userspace.sh clean <pkg>
-bash tools/build_and_run_userspace.sh fetch <pkg>  # pristine
+bash tools/build_userland.sh clean <pkg>
+bash tools/build_userland.sh fetch <pkg>  # pristine
 cp -a sources/<pkg> /tmp/<pkg>.orig
 # ... edit sources/<pkg>/ ...
 diff -ruN /tmp/<pkg>.orig sources/<pkg> > packages/<pkg>/0002-my-fix.patch
@@ -208,8 +208,8 @@ head packages/<pkg>/0002-my-fix.patch
 # Never AI identities.
 
 # 5. Clean and rebuild to verify patch applies cleanly
-bash tools/build_and_run_userspace.sh clean <pkg>
-bash tools/build_and_run_userspace.sh build <pkg>
+bash tools/build_userland.sh clean <pkg>
+bash tools/build_userland.sh build <pkg>
 # If patch fails: xbstrap will error during prepare — fix offsets/fuzz, ensure -p1.
 ```
 
@@ -226,8 +226,8 @@ bash tools/build_and_run_userspace.sh build <pkg>
 
 ```bash
 # After adding patch, force re-prepare:
-bash tools/build_and_run_userspace.sh clean <pkg>
-bash tools/build_and_run_userspace.sh fetch <pkg>
+bash tools/build_userland.sh clean <pkg>
+bash tools/build_userland.sh fetch <pkg>
 # xbstrap extracts, then applies packages/<pkg>/*.patch in lexical order
 # Check no rejects:
 find build-xbstrap/pkg-builds/<pkg> -name "*.rej" 2>/dev/null
@@ -250,8 +250,8 @@ grep -r "petra" sources/<pkg>/support/config.sub  # verify patched content visib
 Use when you edited `packages/<pkg>.yml` or `packages/<pkg>/*.patch`:
 
 ```bash
-bash tools/build_and_run_userspace.sh clean <pkg>
-bash tools/build_and_run_userspace.sh build <pkg>
+bash tools/build_userland.sh clean <pkg>
+bash tools/build_userland.sh build <pkg>
 # Verify installed:
 ls -l build-xbstrap/system-root/usr/bin/<binary>
 file build-xbstrap/system-root/usr/bin/<binary>  # should be ELF 64-bit LSB, x86-64, for PetraOS
@@ -274,7 +274,7 @@ python3 tools/test_cli.py --cmd "<binary> --version" --expect "<version>"
 Needed after `mlibc` changes (sysdeps/petra) or toolchain (`gcc`, `binutils`) updates — everything depends on mlibc:
 
 ```bash
-bash tools/build_and_run_userspace.sh build-all
+bash tools/build_userland.sh build-all
 # or
 make build-userspace
 # then
@@ -292,7 +292,7 @@ make initramfs && make run
 ### 6.4 Screening Rebuild Success
 
 ```bash
-bash tools/build_and_run_userspace.sh status <pkg>
+bash tools/build_userland.sh status <pkg>
 ls build-xbstrap/system-root/usr/lib/*.so* 2>/dev/null | head
 cat build/initramfs.cpio | cpio -t 2>/dev/null | grep <binary> | head
 ```
@@ -350,14 +350,14 @@ If a port fails with `undefined reference` to a libc symbol or `ENOSYS` at runti
 
 1. Check `mlibc/sysdeps/petra/generic/generic.cpp` — is the required `Sysdeps<...>::operator()` implemented? If not, add it using `__petra_syscallN` from `sysdeps/petra/include/sys/syscall.h`.
 2. Add ABI headers as symlinks to `abis/linux/*.h` in `sysdeps/petra/include/abi-bits/` (see mlibc patch).
-3. Rebuild `mlibc` first: `bash tools/build_and_run_userspace.sh clean mlibc && bash tools/build_and_run_userspace.sh build mlibc`, then rebuild the dependent package.
+3. Rebuild `mlibc` first: `bash tools/build_userland.sh clean mlibc && bash tools/build_userland.sh build mlibc`, then rebuild the dependent package.
 4. For kernel-side missing syscalls, implement handler in `kernel/src/syscalls/` and wire to `kernel/src/syscalls/mod.rs` dispatcher — then rebuild kernel (`make -C kernel`).
 
 ### 7.7 Quality Gates for a New Port
 
 Before submitting, verify:
 
-* [ ] `bash tools/build_and_run_userspace.sh clean <pkg> && bash tools/build_and_run_userspace.sh build <pkg>` succeeds from clean state
+* [ ] `bash tools/build_userland.sh clean <pkg> && bash tools/build_userland.sh build <pkg>` succeeds from clean state
 * [ ] `file build-xbstrap/system-root/usr/bin/<bin>` reports `ELF 64-bit LSB pie executable, x86-64` (or `shared object`) with interpreter `/lib/ld-linux-x86-64.so.2` or Petra `ld.so`
 * [ ] Binary appears in `build/initramfs.cpio` after `make initramfs`
 * [ ] Runs in Petra QEMU: `python3 tools/test_cli.py --cmd "<bin> --help" --expect "<hint>"` or manual `make run` interactive test
@@ -416,16 +416,16 @@ YML
 # Edit bootstrap.yml: add "- file: packages/<newpkg>/<newpkg>.yml"
 
 # 3. Fetch and attempt build (expect failures first iteration)
-bash tools/build_and_run_userspace.sh fetch <newpkg>
-bash tools/build_and_run_userspace.sh build <newpkg>
+bash tools/build_userland.sh fetch <newpkg>
+bash tools/build_userland.sh build <newpkg>
 # Read build log: build-xbstrap/pkg-builds/<newpkg>/meson-logs/meson-log.txt or config.log
 
 # 4. Fix host detection / cache variables / missing deps — edit YML, add .patch if needed
 # For config.sub issue: create packages/<newpkg>/0001-petra-port.patch (see §5)
 
 # 5. Iterate: clean + build until success
-bash tools/build_and_run_userspace.sh clean <newpkg>
-bash tools/build_and_run_userspace.sh build <newpkg>
+bash tools/build_userland.sh clean <newpkg>
+bash tools/build_userland.sh build <newpkg>
 
 # 6. Sync and test
 make initramfs
@@ -449,7 +449,7 @@ make run  # manual interactive fallback
 | `xbstrap: package not found` | YML not imported or missing `packages:` | Add import to `bootstrap.yml`, ensure `packages:` key exists |
 | Binary not in initramfs | `install` didn't use `DESTDIR=@SYSROOT_DIR@` | Fix install step, then `make initramfs` |
 | `file` shows `x86-64` but `Exec format error` in QEMU | Interpreter mismatch | Ensure `mlibc` built first; check `readelf -l <bin> | grep interpreter` matches Petra `ld.so` |
-| `build-xbstrap` corrupted after toolchain change | Stale stamps | `bash tools/build_and_run_userspace.sh clean --all && bash tools/build_and_run_userspace.sh build-all` |
+| `build-xbstrap` corrupted after toolchain change | Stale stamps | `bash tools/build_userland.sh clean --all && bash tools/build_userland.sh build-all` |
 
 **Log locations:**
 * `build-xbstrap/pkg-builds/<pkg>/config.log` (autotools)
@@ -464,7 +464,7 @@ make run  # manual interactive fallback
 When asked to patch / port / rebuild:
 
 1. **Read** `AGENTS.md:0` (mandatory), this skill, and current `packages/<pkg>.yml` + `*.patch`.
-2. **Fetch** source if needed: `bash tools/build_and_run_userspace.sh fetch <pkg>`.
+2. **Fetch** source if needed: `bash tools/build_userland.sh fetch <pkg>`.
 3. **Edit** either `packages/<pkg>.yml` or `sources/<pkg>/` content.
 4. **If sources edited:** create `packages/<pkg>/000N-*.patch` with correct `From:` and `patch_path_strip: 1` (§5.2).
 5. **Clean & build** the target: `clean <pkg>` → `build <pkg>` → verify `build-xbstrap/system-root` artifact.
@@ -478,8 +478,8 @@ Never commit patches with AI author; always use `git config user.name/email` (AG
 
 ## 11. References
 
-* Engine: [`tools/build_and_run_userspace.sh:1`](file:///home/ananta/PetraOS/tools/build_and_run_userspace.sh)
-* Packaging: [`tools/create_initramfs.sh:1`](file:///home/ananta/PetraOS/tools/create_initramfs.sh)
+* Engine: [`tools/build_userland.sh:1`](file:///home/ananta/PetraOS/tools/build_userland.sh)
+* Packaging: [`tools/build_initramfs.sh:1`](file:///home/ananta/PetraOS/tools/build_initramfs.sh)
 * Manifest: [`bootstrap.yml:1`](file:///home/ananta/PetraOS/bootstrap.yml)
 * Cross files: [`cross-files/petra-x86_64.ini:1`](file:///home/ananta/PetraOS/cross-files/petra-x86_64.ini), [`cross-files/petra-x86_64.cmake:1`](file:///home/ananta/PetraOS/cross-files/petra-x86_64.cmake)
 * Example ports: [`packages/bash/bash.yml:1`](file:///home/ananta/PetraOS/packages/bash/bash.yml), [`packages/ncurses/ncurses.yml:1`](file:///home/ananta/PetraOS/packages/ncurses/ncurses.yml), [`packages/vim/vim.yml:1`](file:///home/ananta/PetraOS/packages/vim/vim.yml), [`packages/fastfetch/fastfetch.yml:1`](file:///home/ananta/PetraOS/packages/fastfetch/fastfetch.yml), [`packages/mlibc/mlibc.yml:1`](file:///home/ananta/PetraOS/packages/mlibc/mlibc.yml)

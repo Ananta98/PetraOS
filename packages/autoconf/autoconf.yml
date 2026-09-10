@@ -4,6 +4,7 @@ sources:
     url: 'https://ftp.gnu.org/gnu/autoconf/autoconf-2.69.tar.xz'
     format: 'tar.xz'
     extract_path: 'autoconf-2.69'
+    patch_path_strip: 1
     version: '2.69'
 
 tools:
@@ -16,3 +17,23 @@ tools:
       - args: ['make', '-j@PARALLELISM@']
     install:
       - args: ['make', 'install']
+
+packages:
+  - name: autoconf
+    architecture: x86_64
+    from_source: autoconf-v2.69
+    tools_required:
+      - host-gcc
+      - host-autoconf-v2.69
+    pkgs_required:
+      - mlibc
+    configure:
+      - args:
+          - '@THIS_SOURCE_DIR@/configure'
+          - '--host=x86_64-petra'
+          - '--prefix=/usr'
+    build:
+      - args: ['make', '-j@PARALLELISM@']
+      - args: ['make', 'DESTDIR=@SYSROOT_DIR@', 'install-strip']
+    install:
+      - args: ['make', 'DESTDIR=@SYSROOT_DIR@', 'install-strip']

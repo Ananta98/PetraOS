@@ -3,6 +3,7 @@ general:
   patch_email: "kusumaananta042@gmail.com"
 
 imports:
+  - file: packages/base-files/base-files.yml
   - file: packages/mlibc/mlibc.yml
   - file: packages/autoconf/autoconf.yml
   - file: packages/automake/automake.yml
@@ -21,3 +22,5 @@ imports:
   - file: packages/fastfetch/fastfetch.yml
   - file: packages/grep/grep.yml
   - file: packages/gawk/gawk.yml
+  - file: packages/libxcrypt/libxcrypt.yml
+  - file: packages/shadow/shadow.yml

@@ -34,9 +34,4 @@ packages:
       - args: ['make', '-j@PARALLELISM@']
     install:
       - args: ['make', 'DESTDIR=@SYSROOT_DIR@', 'install']
-      - args: |
-          mkdir -p @SYSROOT_DIR@/bin
-          ln -sf /usr/bin/gawk @SYSROOT_DIR@/bin/gawk 2>/dev/null || true
-          ln -sf /usr/bin/gawk @SYSROOT_DIR@/bin/awk 2>/dev/null || true
-          ln -sf /usr/bin/gawk @SYSROOT_DIR@/usr/bin/awk 2>/dev/null || true
-          echo "gawk install completed"
+      - args: ['ln', '-sf', 'gawk', '@SYSROOT_DIR@/usr/bin/awk']

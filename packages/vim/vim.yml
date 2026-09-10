@@ -54,6 +54,3 @@ packages:
       - args: |
           make -C src DESTDIR=@SYSROOT_DIR@ install
           ln -sf vim @SYSROOT_DIR@/usr/bin/vi
-          mkdir -p @SYSROOT_DIR@/bin
-          ln -sf /usr/bin/vim @SYSROOT_DIR@/bin/vim 2>/dev/null || true
-          ln -sf /usr/bin/vi @SYSROOT_DIR@/bin/vi 2>/dev/null || true

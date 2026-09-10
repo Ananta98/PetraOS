@@ -26,10 +26,4 @@ packages:
     build:
       - args: ['make', '-j@PARALLELISM@']
     install:
-      - args: ['make', 'DESTDIR=@SYSROOT_DIR@', 'install']
-      - args: |
-          mkdir -p @SYSROOT_DIR@/bin
-          ln -sf /usr/bin/grep @SYSROOT_DIR@/bin/grep 2>/dev/null || true
-          ln -sf /usr/bin/egrep @SYSROOT_DIR@/bin/egrep 2>/dev/null || true
-          ln -sf /usr/bin/fgrep @SYSROOT_DIR@/bin/fgrep 2>/dev/null || true
-          echo "grep install completed"
+      - args: ['make', 'DESTDIR=@SYSROOT_DIR@', 'install-strip']

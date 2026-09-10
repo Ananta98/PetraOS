@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# PetraOS Userspace Build & Run Script
+# PetraOS Userland Build & Run Script
 #
 # Central engine for ALL userspace / xbstrap operations:
 #   - Initialize the xbstrap workspace
@@ -11,9 +11,8 @@
 #   - Package initramfs, and launch PetraOS in QEMU
 #
 # Usage:
-#   ./tools/build_and_run_userspace.sh                  # Core pipeline (mlibc, bash, coreutils) + QEMU
-#   ./tools/build_and_run_userspace.sh --all            # Full pipeline (ALL packages) + QEMU
-#   ./tools/build_and_run_userspace.sh <action> [pkg]   # Individual operation, see help
+#   ./tools/build_userland.sh                  # Full pipeline (ALL packages) + QEMU
+#   ./tools/build_userland.sh <action> [pkg]   # Individual operation, see help
 # ==============================================================================
 
 set -euo pipefail
@@ -26,8 +25,6 @@ SOURCES_DIR="${ROOT_DIR}/sources"
 PACKAGES_DIR="${ROOT_DIR}/packages"
 
 QEMU_EXTRA_FLAGS="${QEMUFLAGS:--m 4G -serial stdio}"
-
-CORE_PACKAGES=(mlibc bash coreutils)
 
 # Colors for terminal output
 BOLD="\033[1m"
@@ -168,20 +165,16 @@ discover_all_packages() {
             fi
             local pkg
             while read -r pkg; do
-                # xbstrap list-pkgs prints one package per line; handle space-separated too
                 for pkg in ${pkg}; do
                     if [ "${pkg}" = "mlibc" ] || [ "${pkg}" = "mlibc-headers" ]; then
                         continue
                     fi
-                    # avoid duplicates
                     if [[ " ${ordered[*]} " != *" ${pkg} "* ]]; then
                         ordered+=("${pkg}")
                     fi
                 done
             done <<< "${xb_pkgs}"
-            # Also ensure mlibc-headers is early if present
             if echo "${xb_pkgs}" | grep -qw "mlibc-headers"; then
-                # insert after mlibc
                 local tmp=()
                 for pkg in "${ordered[@]}"; do
                     tmp+=("${pkg}")
@@ -189,7 +182,6 @@ discover_all_packages() {
                         tmp+=("mlibc-headers")
                     fi
                 done
-                # deduplicate mlibc-headers if already there
                 ordered=()
                 local seen=""
                 for pkg in "${tmp[@]}"; do
@@ -205,8 +197,6 @@ discover_all_packages() {
     fi
 
     # Fallback: scan YML files that actually define a packages: section.
-    # This avoids tool-only ports (e.g. autoconf before fix) and source-only
-    # ports (e.g. gnulib) being treated as installable packages.
     for yml_file in "${PACKAGES_DIR}"/*/*.yml; do
         if ! grep -qE '^[[:space:]]*packages:' "${yml_file}" 2>/dev/null; then
             continue
@@ -215,17 +205,10 @@ discover_all_packages() {
         if [ "${pkg_name}" = "mlibc" ]; then
             continue
         fi
-        # Only add if the yml defines a package with that exact name,
-        # or at least defines any package (for mlibc which defines mlibc-headers/mlibc)
         if grep -qE "name:[[:space:]]+${pkg_name}([[:space:]]|$)" "${yml_file}" 2>/dev/null || \
            grep -qE "name:[[:space:]]+mlibc" "${yml_file}" 2>/dev/null; then
             packages+=("${pkg_name}")
         else
-            # Generic fallback: if file has packages: but name mismatch (e.g. mlibc.yml defines mlibc-headers),
-            # extract first package name and use pkg_name if it seems intentional.
-            # For now skip ambiguous entries and rely on xbstrap list-pkgs when possible.
-            # Keep pkg_name if packages: exists — allows newly added target packages
-            # (like autoconf) to be discovered even before xbstrap cache refresh.
             if grep -qE '^[[:space:]]*-[[:space:]]*name:' "${yml_file}" 2>/dev/null; then
                 packages+=("${pkg_name}")
             fi
@@ -252,7 +235,7 @@ cmd_build_all() {
         return 0
     fi
 
-    log_info "Recompiling all ${#packages[@]} packages in bootstrap.yml..."
+    log_info "Compiling all ${#packages[@]} packages in bootstrap.yml..."
     local pkg
     for pkg in "${packages[@]}"; do
         log_info "==> Building ${pkg}..."
@@ -291,35 +274,22 @@ cmd_status() {
 }
 
 # ------------------------------------------------------------------------------
-# Full pipelines
+# Full pipeline
 # ------------------------------------------------------------------------------
 
 run_pipeline() {
-    local mode="${1:-core}"
-
     echo "============================================================"
-    echo "          PetraOS Userspace Build & Launch Pipeline         "
+    echo "          PetraOS Userland Build & Launch Pipeline          "
     echo "============================================================"
 
     echo "[1/5] Initializing xbstrap workspace..."
     cmd_init
 
-    if [ "${mode}" = "all" ]; then
-        echo "[2/5] Downloading all sources via xbstrap-fetch..."
-        cmd_fetch --all
-        echo "[3/5] Building all userspace packages..."
-        cmd_build_all
-    else
-        echo "[2/5] Fetching core packages (${CORE_PACKAGES[*]})..."
-        local pkg
-        for pkg in "${CORE_PACKAGES[@]}"; do
-            cmd_fetch "${pkg}"
-        done
-        echo "[3/5] Building core userspace (mlibc-headers, mlibc, bash, coreutils)..."
-        for pkg in "${CORE_PACKAGES[@]}"; do
-            build_package "${pkg}"
-        done
-    fi
+    echo "[2/5] Downloading all sources via xbstrap-fetch..."
+    cmd_fetch all
+
+    echo "[3/5] Building all userland packages..."
+    cmd_build_all
 
     echo "[4/5] Packaging initramfs cpio archive..."
     make initramfs
@@ -334,13 +304,12 @@ run_pipeline() {
 show_help() {
     echo -e "${BOLD}Usage:${RESET} $0 [action] [package_name]"
     echo ""
-    echo -e "${BOLD}Pipelines:${RESET}"
-    echo "  (no action)       Core pipeline: init, fetch, build mlibc/bash/coreutils, initramfs, run QEMU"
-    echo "  --all | all       Full pipeline: fetch and recompile ALL packages, initramfs, run QEMU"
+    echo -e "${BOLD}Pipeline:${RESET}"
+    echo "  (no args) | run   Full pipeline: init, fetch all, build all, initramfs, run QEMU"
     echo ""
     echo -e "${BOLD}Actions:${RESET}"
     echo "  init              Initialize xbstrap build directory"
-    echo "  fetch <pkg|--all> Check and download package source code"
+    echo "  fetch [pkg]       Download package source code (all packages by default)"
     echo "  patch <pkg>       Inspect / verify package patches (applied by xbstrap at prepare)"
     echo "  build <pkg>       Fetch, patch, compile and install package to sysroot"
     echo "  install <pkg>     Alias for build"
@@ -354,11 +323,8 @@ ACTION="${1:-}"
 PKG_NAME="${2:-}"
 
 case "${ACTION}" in
-    ""|run)
-        run_pipeline core
-        ;;
-    --all|all|run-all)
-        run_pipeline all
+    ""|run|run-all|--all|all)
+        run_pipeline
         ;;
     init)
         cmd_init
@@ -385,7 +351,6 @@ case "${ACTION}" in
         show_help
         ;;
     *)
-        # If first argument matches a known package name, assume "build"
         if [ -d "${PACKAGES_DIR}/${ACTION}" ]; then
             cmd_build "${ACTION}"
         else

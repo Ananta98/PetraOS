@@ -1,0 +1,70 @@
+sources:
+  - name: shadow
+    subdir: sources
+    url: https://github.com/shadow-maint/shadow/releases/download/4.15.1/shadow-4.15.1.tar.xz
+    format: tar.xz
+    extract_path: shadow-4.15.1
+    version: '4.15.1'
+    patch_path_strip: 1
+    tools_required:
+      - host-automake-v1.16
+    regenerate:
+      - args: ['cp',
+               '@BUILD_ROOT@/tools/host-automake-v1.16/share/automake-1.16/config.sub',
+               '@THIS_SOURCE_DIR@/']
+      - args: ['cp',
+               '@BUILD_ROOT@/tools/host-automake-v1.16/share/automake-1.16/config.guess',
+               '@THIS_SOURCE_DIR@/']
+      # Astral parity: drop `groups` (provided by coreutils) from build/install.
+      - args: |
+          set -e
+          sed -i 's/groups$(EXEEXT) //' src/Makefile.in
+          find man -name Makefile.in -exec sed -i 's/groups\.1 / /' {} \;
+          find man -name Makefile.in -exec sed -i 's/getspnam\.3 / /' {} \;
+          find man -name Makefile.in -exec sed -i 's/passwd\.5 / /' {} \;
+        workdir: '@THIS_SOURCE_DIR@'
+
+packages:
+  - name: shadow
+    architecture: x86_64
+    from_source: shadow
+    tools_required:
+      - host-gcc
+    pkgs_required:
+      - mlibc
+      - libxcrypt
+    configure:
+      - args:
+          - '@THIS_SOURCE_DIR@/configure'
+          - '--host=x86_64-petra'
+          - '--prefix=/usr'
+          - '--sysconfdir=/etc'
+          - '--with-group-name-max-length=32'
+          - '--without-libbsd'
+          - '--disable-nls'
+          - '--without-selinux'
+          - '--without-acl'
+          - '--without-attr'
+          - '--without-audit'
+          - '--without-libpam'
+          - '--without-tcb'
+          - '--without-btrfs'
+          - '--disable-logind'
+          - '--without-nscd'
+          - '--without-sssd'
+          - '--with-sha-crypt=yes'
+    build:
+      - args: ['make', '-j@PARALLELISM@']
+      # NOTE: xbstrap 0.36 `Build` only executes `configure`+`build`
+      # (package `install:` steps are parsed but never run), so install
+      # directly here via DESTDIR. Keep `install:` below for compat
+      # with fixed xbstrap / documentation.
+      - args: ['make', 'DESTDIR=@SYSROOT_DIR@', 'install']
+      - args: ['make', '-C', 'src', 'DESTDIR=@SYSROOT_DIR@', 'install']
+      - args: |
+          set -e
+          ls -lh @SYSROOT_DIR@/bin/login @SYSROOT_DIR@/usr/bin/passwd @SYSROOT_DIR@/etc/login.defs
+          echo "shadow install completed"
+    install:
+      - args: ['make', 'DESTDIR=@SYSROOT_DIR@', 'install']
+      - args: ['make', '-C', 'src', 'DESTDIR=@SYSROOT_DIR@', 'install']
