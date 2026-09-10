@@ -23,6 +23,11 @@ else
     SYSROOT="${3:-${REPO_ROOT}/build-xbstrap/system-root}"
 fi
 
+# Ensure absolute paths so subshells changing directories (cd) don't break relative paths
+[[ "${INITRAMFS_ROOT}" = /* ]] || INITRAMFS_ROOT="${REPO_ROOT}/${INITRAMFS_ROOT}"
+[[ "${OUTPUT_CPIO}" = /* ]] || OUTPUT_CPIO="${REPO_ROOT}/${OUTPUT_CPIO}"
+[[ "${SYSROOT}" = /* ]] || SYSROOT="${REPO_ROOT}/${SYSROOT}"
+
 echo "[INFO] Syncing initramfs tree at '${INITRAMFS_ROOT}'..."
 mkdir -p "${INITRAMFS_ROOT}"
 

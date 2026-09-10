@@ -14,7 +14,7 @@ pub fn sys_access(frame: &mut SyscallFrame) -> SyscallResult {
         return Err(SyscallError::EINVAL);
     }
 
-    let path = UserCStr::from_u64(frame.arg1()).to_string(256)?;
+    let path = UserCStr::from_u64(frame.arg1()).to_string(4096)?;
     let full_path = resolve_at_path(AT_FDCWD, &path)?;
     let st = crate::fs::stat(&full_path)?;
 
@@ -33,7 +33,7 @@ pub fn sys_faccessat(frame: &mut SyscallFrame) -> SyscallResult {
         return Err(SyscallError::EINVAL);
     }
 
-    let path = UserCStr::from_u64(frame.arg2()).to_string(256)?;
+    let path = UserCStr::from_u64(frame.arg2()).to_string(4096)?;
     let full_path = resolve_at_path(dfd, &path)?;
     let st = crate::fs::stat(&full_path)?;
 

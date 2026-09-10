@@ -32,8 +32,16 @@ pub fn mkdir_p(path: &str) -> Result<(), VfsError> {
     Ok(())
 }
 
-/// Helper function to create a regular file and write its payload, creating parent dirs if needed.
-pub fn create_file_with_parents(path: &str, data: &[u8]) -> Result<(), VfsError> {
+/// Helper function to create a regular file and write its payload, creating parent dirs if needed,
+/// and restoring permissions, ownership, and timestamps from the CPIO archive header.
+pub fn create_file_with_parents(
+    path: &str,
+    data: &[u8],
+    mode: u32,
+    uid: u32,
+    gid: u32,
+    mtime: u64,
+) -> Result<(), VfsError> {
     if let Some(last_slash) = path.rfind('/') {
         let parent = &path[..last_slash];
         if !parent.is_empty() {
@@ -50,6 +58,14 @@ pub fn create_file_with_parents(path: &str, data: &[u8]) -> Result<(), VfsError>
     let file_ops = dentry.inode.ops.open()?;
     let _ = file_ops.truncate(0);
     file_ops.write(0, data)?;
+
+    // Restore permissions, ownership, and timestamps from archive
+    let _ = dentry.inode.ops.chmod(mode);
+    let _ = dentry.inode.ops.chown(uid, gid);
+    if mtime != 0 {
+        let _ = dentry.inode.ops.utimens(mtime, mtime);
+    }
+
     Ok(())
 }
 
@@ -109,10 +125,20 @@ pub fn extract_cpio_archive(data: &[u8]) -> Result<usize, &'static str> {
         }
 
         let full_path = format!("/{}", raw_name);
+        let mode = entry.header().mode;
+        let uid = entry.header().uid;
+        let gid = entry.header().gid;
+        let mtime = entry.header().mtime as u64;
 
         if entry.is_directory() {
             if let Err(err) = mkdir_p(&full_path) {
                 log::warn!("[Initramfs] Failed to mkdir '{}': {:?}", full_path, err);
+            } else if let Ok(dentry) = crate::fs::resolve_path(&full_path) {
+                let _ = dentry.inode.ops.chmod(mode);
+                let _ = dentry.inode.ops.chown(uid, gid);
+                if mtime != 0 {
+                    let _ = dentry.inode.ops.utimens(mtime, mtime);
+                }
             }
         } else if entry.is_regular_file() {
             let nlink = entry.header().nlink;
@@ -132,13 +158,20 @@ pub fn extract_cpio_archive(data: &[u8]) -> Result<usize, &'static str> {
                         );
                     } else {
                         extracted_count += 1;
+                        if let Ok(dentry) = crate::fs::resolve_path(&full_path) {
+                            let _ = dentry.inode.ops.chmod(mode);
+                            let _ = dentry.inode.ops.chown(uid, gid);
+                            if mtime != 0 {
+                                let _ = dentry.inode.ops.utimens(mtime, mtime);
+                            }
+                        }
                     }
                 } else {
                     let entry_record = hardlinks.entry(ino).or_insert_with(|| (None, Vec::new()));
                     entry_record.1.push(full_path);
                 }
             } else {
-                if let Err(err) = create_file_with_parents(&full_path, payload) {
+                if let Err(err) = create_file_with_parents(&full_path, payload, mode, uid, gid, mtime) {
                     log::warn!(
                         "[Initramfs] Failed to create file '{}': {:?}",
                         full_path,
@@ -161,6 +194,13 @@ pub fn extract_cpio_archive(data: &[u8]) -> Result<usize, &'static str> {
                                 );
                             } else {
                                 extracted_count += 1;
+                                if let Ok(dentry) = crate::fs::resolve_path(&pending) {
+                                    let _ = dentry.inode.ops.chmod(mode);
+                                    let _ = dentry.inode.ops.chown(uid, gid);
+                                    if mtime != 0 {
+                                        let _ = dentry.inode.ops.utimens(mtime, mtime);
+                                    }
+                                }
                             }
                         }
                     }

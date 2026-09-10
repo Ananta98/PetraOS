@@ -123,3 +123,5 @@ packages:
       - args: ['sh', '-c', 'cp -rv @BUILD_ROOT@/tools/host-gcc/lib/gcc/x86_64-petra/12.1.0/* @SYSROOT_DIR@/usr/lib/gcc/x86_64-petra/12.1.0/ || true']
       - args: ['sh', '-c', 'cp -rv @BUILD_ROOT@/tools/host-gcc/x86_64-petra/include/* @SYSROOT_DIR@/usr/include/ || true']
       - args: ['ln', '-sf', '/usr/bin/gcc', '@SYSROOT_DIR@/usr/bin/cc']
+      - args: ['ln', '-sf', '/usr/libexec/gcc/x86_64-petra/12.1.0/cc1', '@SYSROOT_DIR@/usr/lib/gcc/x86_64-petra/12.1.0/cc1']
+      - args: ['ln', '-sf', '/usr/libexec/gcc/x86_64-petra/12.1.0/cc1plus', '@SYSROOT_DIR@/usr/lib/gcc/x86_64-petra/12.1.0/cc1plus']
