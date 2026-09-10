@@ -1,0 +1,15 @@
+# /etc/profile for PetraOS
+
+export PATH="/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin"
+export TERM="${TERM:-xterm-256color}"
+export HOME="${HOME:-/root}"
+export USER="${USER:-root}"
+export LOGNAME="${LOGNAME:-root}"
+export PS1='[\u@\h \W]\$ '
+
+if [ -d /etc/profile.d ]; then
+    for f in /etc/profile.d/*.sh; do
+        [ -r "$f" ] && . "$f"
+    done
+    unset f
+fi

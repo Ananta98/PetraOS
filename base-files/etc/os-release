@@ -1,0 +1,5 @@
+NAME="PetraOS"
+ID=petra
+PRETTY_NAME="PetraOS x86_64"
+ANSI_COLOR="1;34"
+HOME_URL="https://petraos.dev"
