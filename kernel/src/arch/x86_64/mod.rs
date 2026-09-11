@@ -13,7 +13,6 @@ pub mod signal;
 pub mod syscall;
 pub mod timer;
 
-use core::sync::atomic::{AtomicBool, Ordering};
 pub use cpu::control::{cpu_count, cpu_id, enable_and_hlt, idle};
 pub use cpu::gdt;
 pub use cpu::ports;
@@ -27,18 +26,12 @@ pub use interrupt::lapic;
 pub use sched::arch_switch_context;
 pub use timer::lapic_timer;
 
-static ARCH_INITIALIZED: AtomicBool = AtomicBool::new(false);
-
 /// Main architecture hardware initialization entry point.
 ///
 /// Orchestrates CPU (GDT, SSE, SYSCALL MSRs), ACPI MADT parsing,
 /// interrupt controllers (IDT, PIC, LAPIC, IOAPIC), hardware timers,
 /// and boots Application Processors (APs) via SMP.
 pub fn init() -> Result<(), &'static str> {
-    if ARCH_INITIALIZED.swap(true, Ordering::SeqCst) {
-        return Ok(());
-    }
-
     cpu::init();
 
     let madt_info = acpi::parse_madt()

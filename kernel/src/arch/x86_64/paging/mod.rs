@@ -31,17 +31,8 @@ pub fn supports_5level_paging() -> bool {
     (ecx & (1 << 16)) != 0
 }
 
-/// Checks if 5-level paging is currently active on the processor via CR4.LA57 (bit 12).
-pub fn is_5level_paging_active() -> bool {
-    let cr4 = crate::arch::cpu::read_cr4();
-    (cr4 & (1 << 12)) != 0
-}
-
 /// Returns the current active number of paging levels (4 or 5).
 pub fn active_paging_levels() -> u8 {
-    if is_5level_paging_active() {
-        5
-    } else {
-        4
-    }
+    let support_5_level_paging = supports_5level_paging();
+    if support_5_level_paging { 5 } else { 4 }
 }

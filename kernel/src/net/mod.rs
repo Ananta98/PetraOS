@@ -25,4 +25,4 @@ pub fn init() -> Result<(), &'static str> {
     Ok(())
 }
 
-crate::device_initcall!(crate::net::init);
+crate::late_initcall!(crate::net::init);
