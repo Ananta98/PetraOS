@@ -54,12 +54,10 @@ impl PerCpuScheduler {
 
     /// Explicitly pre-initializes run queues for all detected CPUs.
     pub fn init(&self) {
-        let total = crate::arch::cpu_count() as usize;
         let mut q = self.queues.lock();
-        if q.len() < total {
-            for i in q.len()..total {
-                q.push(PerCpuRunQueue::new(i as u32));
-            }
+        let total = crate::arch::cpu_count() as usize;
+        for i in 0..total {
+            q.push(PerCpuRunQueue::new(i as u32));
         }
     }
 
@@ -67,8 +65,8 @@ impl PerCpuScheduler {
     #[inline]
     fn ensure_cpu(&self, cpu_id: u32) {
         let mut q = self.queues.lock();
-        let target_len = (cpu_id as usize + 1).max(crate::arch::cpu_count() as usize);
-        for i in q.len()..target_len {
+        let total = (cpu_id as usize + 1).max(crate::arch::cpu_count() as usize);
+        for i in q.len()..total {
             q.push(PerCpuRunQueue::new(i as u32));
         }
     }
