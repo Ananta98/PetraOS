@@ -2,6 +2,7 @@
 
 use crate::arch::syscall::syscall::SyscallFrame;
 use crate::mm::vmm::paging::PageTable;
+use crate::proc::process::cmdline::CommandLine;
 use crate::syscalls::{SyscallError, SyscallResult, UserCStr};
 
 /// `sys_execve` (SYS_EXECVE = 59)
@@ -13,11 +14,21 @@ pub fn sys_execve(frame: &mut SyscallFrame) -> SyscallResult {
 
     let path = path_ptr.to_string(256)?;
 
+    // Parse argv/envp into a CommandLine before locking the process
+    let cmdline = if !argv_ptr.is_null() {
+        // SAFETY: argv_ptr and envp_ptr come from validated user-space pointers
+        // passed via the syscall frame; from_raw validates each pointer internally.
+        unsafe { CommandLine::from_raw(0, argv_ptr, envp_ptr) }
+            .map_err(|_| SyscallError::EFAULT)?
+    } else {
+        CommandLine::default()
+    };
+
     let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
     let mut proc = proc_arc.lock();
 
     let (entry_point, stack_top) = proc
-        .execute(&path, 0, argv_ptr, envp_ptr)
+        .execute(&path, cmdline)
         .map_err(|_| SyscallError::ENOENT)?;
 
     let new_cr3 = proc.address_space.lock().page_table().root().as_u64();
@@ -39,3 +50,4 @@ pub fn sys_execve(frame: &mut SyscallFrame) -> SyscallResult {
 
     Ok(0)
 }
+

@@ -118,28 +118,29 @@ impl Process {
         }
     }
 
-    /// Execute an executable file with raw argument and environment pointers.
-    pub fn execute(
-        &mut self,
-        file_name: &str,
-        argc: usize,
-        argv: *const *const u8,
-        envp: *const *const u8,
-    ) -> Result<(u64, u64), &'static str> {
-        let cmdline = if !argv.is_null() {
-            unsafe { CommandLine::from_raw(argc, argv, envp)? }
-        } else {
-            CommandLine::default()
-        };
-        self.execute_cmdline(file_name, cmdline)
-    }
-
     /// Execute an executable file with a structured `CommandLine` (argv + envp).
-    pub fn execute_cmdline(
+    ///
+    /// This is the single entry point for program execution. Shebang (`#!`)
+    /// scripts are handled transparently with bounded recursion depth.
+    pub fn execute(
         &mut self,
         file_name: &str,
         cmdline: CommandLine,
     ) -> Result<(u64, u64), &'static str> {
+        self.execute_depth(file_name, cmdline, 0)
+    }
+
+    /// Internal recursive executor with shebang depth tracking.
+    fn execute_depth(
+        &mut self,
+        file_name: &str,
+        cmdline: CommandLine,
+        depth: usize,
+    ) -> Result<(u64, u64), &'static str> {
+        if depth >= super::shebang::MAX_SHEBANG_RECURSION {
+            return Err("Shebang recursion limit exceeded");
+        }
+
         log::debug!(
             "Executing process '{}' (PID {}) with {} arg(s) and {} env var(s)",
             file_name,
@@ -158,30 +159,16 @@ impl Process {
         }
 
         // 1. Shebang (`#!`) script interpreter support
-        if binary_data.starts_with(b"#!") {
-            let first_line_end = binary_data
-                .iter()
-                .position(|&b| b == b'\n')
-                .unwrap_or(binary_data.len());
-            if let Ok(line_str) = core::str::from_utf8(&binary_data[2..first_line_end]) {
-                let trimmed = line_str.trim();
-                let mut parts = trimmed.split_whitespace();
-                if let Some(interpreter) = parts.next() {
-                    let mut new_args = alloc::vec::Vec::new();
-                    new_args.push(alloc::string::String::from(interpreter));
-                    if let Some(arg) = parts.next() {
-                        new_args.push(alloc::string::String::from(arg));
-                    }
-                    new_args.push(alloc::string::String::from(file_name));
-                    if cmdline.argc() > 1 {
-                        for arg in &cmdline.args[1..] {
-                            new_args.push(arg.clone());
-                        }
-                    }
-                    let new_cmdline = CommandLine::new(new_args, cmdline.env.clone());
-                    return self.execute_cmdline(interpreter, new_cmdline);
-                }
+        match super::shebang::Shebang::parse(&binary_data) {
+            Ok(Some(shebang)) => {
+                let new_cmdline = shebang.build_command_line(file_name, &cmdline);
+                return self.execute_depth(shebang.interpreter(), new_cmdline, depth + 1);
             }
+            Err(_) => {
+                log::warn!("[Process] Malformed shebang line in '{}'", file_name);
+                return Err("Malformed shebang line");
+            }
+            Ok(None) => { /* Not a shebang script, continue with ELF loading */ }
         }
 
         // 2. Close-on-exec (FD_CLOEXEC) descriptor cleanup
@@ -243,6 +230,7 @@ impl Process {
             loaded_elf.stack_pointer.as_u64(),
         ))
     }
+
 
     /// Fork a child process duplicating this process (POSIX fork).
     pub fn fork(

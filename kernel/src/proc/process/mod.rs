@@ -4,8 +4,9 @@ pub mod init_proc;
 pub mod pid;
 pub mod process;
 pub mod process_table;
+pub mod shebang;
 
-pub use cmdline::CommandLine;
+pub use cmdline::{BootCommandLine, CommandLine};
 pub use init_proc::{DEFAULT_INIT_EXEC_PATHS, create_init_process, run_init_process};
 pub use pid::{next_pid, ProcessId};
 pub use process::{Process, ProcessState};
@@ -13,4 +14,4 @@ pub use process_table::{
     all_processes, find_process, find_processes_by_pgid, register_process, unregister_process,
     ProcessTable, PROCESS_TABLE,
 };
-
+pub use shebang::{Shebang, ShebangError, MAX_SHEBANG_RECURSION};

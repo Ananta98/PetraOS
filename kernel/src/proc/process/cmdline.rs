@@ -1,8 +1,12 @@
 //! Process Command-Line Arguments & Environment Management.
+//!
+//! Unified representation for boot command-line parsing (previously in `bootcmd.rs`)
+//! and process argv/envp handling. `CommandLine` is the single source of truth for
+//! all argument and environment variable management in PetraOS.
 
+use crate::mm::{UserCStr, UserPtr};
 use alloc::string::String;
 use alloc::vec::Vec;
-use crate::mm::{UserCStr, UserPtr};
 
 /// Represents parsed command line arguments and environment variables for a process.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -13,22 +17,85 @@ pub struct CommandLine {
     pub env: Vec<String>,
 }
 
+/// Backwards-compatible alias for code that previously used `BootCommandLine`.
+pub type BootCommandLine = CommandLine;
+
 impl CommandLine {
     /// Create a new `CommandLine` with explicit arguments and environment variables.
     pub fn new(args: Vec<String>, env: Vec<String>) -> Self {
         Self { args, env }
     }
 
-    /// Parse a single command string (e.g., `"ls -l /bin"`) into arguments.
-    pub fn from_cmd_str(cmd: &str) -> Self {
-        let args: Vec<String> = cmd
-            .split_whitespace()
-            .map(String::from)
-            .collect();
-        Self {
-            args,
-            env: Vec::new(),
+    // ── Boot command-line support (consolidated from bootcmd.rs) ─────────
+
+    /// Read and parse the kernel boot command line from the Limine bootloader.
+    ///
+    /// Environment-style tokens (`KEY=VALUE`) are placed into `env`;
+    /// all other tokens become `args`. Quoted strings (`"..."` and `'...'`)
+    /// are handled correctly.
+    pub fn from_boot() -> Self {
+        let raw_str = crate::limine::KERNEL_FILE_REQUEST
+            .get_response()
+            .and_then(|resp| resp.file().string().to_str().ok());
+
+        match raw_str {
+            Some(raw) => {
+                log::info!("[CommandLine] Boot command line: \"{}\"", raw);
+                Self::parse_boot(raw)
+            }
+            None => {
+                log::warn!("[CommandLine] No boot command line provided by Limine bootloader");
+                Self::default()
+            }
         }
+    }
+
+    /// Parse a raw boot command-line string with quote-aware tokenization.
+    ///
+    /// Tokens containing `=` are treated as environment variables;
+    /// everything else becomes an argument.
+    pub fn parse_boot(raw: &str) -> Self {
+        let mut envs = Vec::new();
+        let mut args = Vec::new();
+        let mut chars = raw.chars().peekable();
+
+        while let Some(&c) = chars.peek() {
+            if c.is_whitespace() {
+                chars.next();
+                continue;
+            }
+
+            let mut token = String::new();
+            let mut in_quote: Option<char> = None;
+
+            while let Some(&ch) = chars.peek() {
+                if let Some(q) = in_quote {
+                    if ch == q {
+                        in_quote = None;
+                        chars.next();
+                    } else {
+                        token.push(ch);
+                        chars.next();
+                    }
+                } else if ch == '"' || ch == '\'' {
+                    in_quote = Some(ch);
+                    chars.next();
+                } else if ch.is_whitespace() {
+                    break;
+                } else {
+                    token.push(ch);
+                    chars.next();
+                }
+            }
+
+            if token.contains('=') {
+                envs.push(token);
+            } else if !token.is_empty() {
+                args.push(token);
+            }
+        }
+
+        Self { args, env: envs }
     }
 
     /// Safely construct a `CommandLine` from raw C pointers (`argc`, `argv`, `envp`).
@@ -90,19 +157,21 @@ impl CommandLine {
         Ok(Self { args, env })
     }
 
+    // ── Accessors ───────────────────────────────────────────────────────
+
     /// Returns `argc` (number of arguments).
     pub fn argc(&self) -> usize {
         self.args.len()
     }
 
-    /// Returns slice of argument strings.
-    pub fn argv(&self) -> &[String] {
-        &self.args
+    /// Returns cloned vector of argument strings.
+    pub fn argv(&self) -> Vec<String> {
+        self.args.clone()
     }
 
-    /// Returns slice of environment strings.
-    pub fn envp(&self) -> &[String] {
-        &self.env
+    /// Returns cloned vector of environment strings.
+    pub fn envp(&self) -> Vec<String> {
+        self.env.clone()
     }
 
     /// Returns the executable/program name (`argv[0]`), if present.
@@ -120,5 +189,10 @@ impl CommandLine {
             }
         }
         None
+    }
+
+    /// Checks if a specific argument flag exists in the arguments list.
+    pub fn has_arg(&self, flag: &str) -> bool {
+        self.args.iter().any(|arg| arg == flag)
     }
 }
