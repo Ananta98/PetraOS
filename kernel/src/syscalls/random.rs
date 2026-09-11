@@ -1,5 +1,5 @@
 //! Random data syscall (`getrandom`).
-
+use crate::arch::cpu::rdtsc;
 use crate::arch::syscall::syscall::SyscallFrame;
 use crate::syscalls::{SyscallError, SyscallResult, UserPtr};
 
@@ -26,7 +26,7 @@ pub fn sys_getrandom(frame: &mut SyscallFrame) -> SyscallResult {
     let buf_slice = buf_ptr.as_slice_mut(buflen).ok_or(SyscallError::EFAULT)?;
 
     // Fill with pseudo-random bytes using TSC-seeded PRNG
-    crate::arch::cpu::rdtsc::fill_random_bytes(buf_slice);
+    rdtsc::fill_random_bytes(buf_slice);
 
     // Suppress unused flags warning
     let _ = flags;

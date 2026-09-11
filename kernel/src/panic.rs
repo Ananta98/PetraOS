@@ -9,9 +9,6 @@ use core::sync::atomic::{AtomicBool, Ordering};
 /// Maximum number of stack frames to traverse before terminating the backtrace.
 pub const MAX_STACK_FRAMES: usize = 32;
 
-/// Panic re-entrancy guard to detect and handle nested panics or multi-core contention.
-static PANICKING: AtomicBool = AtomicBool::new(false);
-
 /// Standard x86_64 call frame layout created by compiler function prologues
 /// when frame pointers (`-Cforce-frame-pointers=yes`) are preserved.
 #[repr(C)]
@@ -52,24 +49,30 @@ impl StackFrame {
     }
 }
 
-/// Read the current CPU base/frame pointer (RBP register).
-#[inline(always)]
-pub fn read_frame_pointer() -> *const StackFrame {
-    let rbp: *const StackFrame;
-    // SAFETY: Reading the RBP register produces the current activation frame
-    // and has no side effects on processor state or memory.
-    unsafe {
-        core::arch::asm!(
-            "mov {}, rbp",
-            out(reg) rbp,
-            options(nomem, nostack, preserves_flags)
+/// Central panic handler for the PetraOS kernel.
+#[panic_handler]
+pub fn rust_panic(info: &PanicInfo) -> ! {
+    // Unconditionally disable interrupts so timers or hardware devices do not preempt panic logging.
+    crate::arch::disable_interrupts();
+
+    let cpu_id = crate::arch::cpu_id();
+
+    log::error!("======================= KERNEL PANIC =======================");
+    log::error!("CPU Core: #{}", cpu_id);
+
+    if let Some(location) = info.location() {
+        log::error!(
+            "Location: {}:{}:{}",
+            location.file(),
+            location.line(),
+            location.column()
         );
     }
-    rbp
-}
 
-/// Walk the stack frame chain starting from a given frame pointer address.
-pub fn print_stack_trace_from(frame_ptr: u64) {
+    log::error!("Reason: {}", info.message());
+    log::error!("Stack Trace:");
+
+    let fp = crate::arch::cpu::read_frame_pointer();
     let mut curr = frame_ptr as *const StackFrame;
     let mut frame_count = 0;
 
@@ -109,50 +112,8 @@ pub fn print_stack_trace_from(frame_ptr: u64) {
     } else if frame_count == MAX_STACK_FRAMES {
         log::error!("  ... backtrace truncated at {} frames", MAX_STACK_FRAMES);
     }
-}
-
-/// Capture the current CPU frame pointer and print the active call stack.
-pub fn print_stack_trace() {
-    let fp = read_frame_pointer();
-    print_stack_trace_from(fp as u64);
-}
-
-/// Central panic handler for the PetraOS kernel.
-#[panic_handler]
-pub fn rust_panic(info: &PanicInfo) -> ! {
-    // Unconditionally disable interrupts so timers or hardware devices do not preempt panic logging.
-    crate::arch::disable_interrupts();
-
-    let cpu_id = crate::arch::cpu_id();
-
-    // Guard against nested/recursive panics (e.g., if logging or unwinding faults).
-    if PANICKING.swap(true, Ordering::SeqCst) {
-        log::error!(
-            "Nested panic detected on CPU core #{} — halting execution.",
-            cpu_id
-        );
-        crate::arch::idle();
-    }
-
-    log::error!("======================= KERNEL PANIC =======================");
-    log::error!("CPU Core: #{}", cpu_id);
-
-    if let Some(location) = info.location() {
-        log::error!(
-            "Location: {}:{}:{}",
-            location.file(),
-            location.line(),
-            location.column()
-        );
-    }
-
-    log::error!("Reason:   {}", info.message());
-    log::error!("------------------------------------------------------------");
-
-    print_stack_trace();
 
     log::error!("============================================================");
-    log::error!("System halted.");
 
     crate::arch::idle()
 }

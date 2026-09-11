@@ -8,7 +8,7 @@ pub mod stack;
 pub mod tss;
 pub mod userspace;
 
-
+use crate::panic::StackFrame;
 use core::arch::asm;
 
 /// Read Control Register 0 (CR0).
@@ -73,6 +73,22 @@ pub unsafe fn write_cr4(val: u64) {
     unsafe {
         asm!("mov cr4, {}", in(reg) val, options(nomem, nostack, preserves_flags));
     }
+}
+
+/// Read the current CPU base/frame pointer (RBP register).
+#[inline(always)]
+pub fn read_frame_pointer() -> *const StackFrame {
+    let rbp: *const StackFrame;
+    // SAFETY: Reading the RBP register produces the current activation frame
+    // and has no side effects on processor state or memory.
+    unsafe {
+        core::arch::asm!(
+            "mov {}, rbp",
+            out(reg) rbp,
+            options(nomem, nostack, preserves_flags)
+        );
+    }
+    rbp
 }
 
 /// Sets the active page table physical root address (CR3).

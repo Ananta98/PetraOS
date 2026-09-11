@@ -8,6 +8,7 @@ pub mod acpi;
 pub mod cpu;
 pub mod interrupt;
 pub mod paging;
+pub mod power;
 pub mod sched;
 pub mod signal;
 pub mod syscall;
