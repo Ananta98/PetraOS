@@ -208,16 +208,32 @@ pub fn sys_select(frame: &mut SyscallFrame) -> SyscallResult {
 
         if is_r || is_w {
             if let Ok(file) = proc.fd_table.get(fd) {
-                let flags = file.flags();
-                if is_r && crate::fs::can_read(flags) {
-                    ready_count += 1;
-                } else if let Some(ref mut r) = rfds_val {
-                    r.fds_bits[word] &= !bit;
+                // Query actual readiness via poll_events instead of trusting
+                // open flags alone. Flag-only checks report empty pipes as
+                // readable, causing callers to enter blocking read and hang.
+                let mut readable = false;
+                let mut writable = false;
+                if is_r {
+                    let revents = file.ops.poll_events(POLLIN);
+                    readable = (revents & (POLLIN | POLLHUP | POLLERR | POLLNVAL)) != 0;
                 }
-                if is_w && crate::fs::can_write(flags) {
-                    ready_count += 1;
-                } else if let Some(ref mut w) = wfds_val {
-                    w.fds_bits[word] &= !bit;
+                if is_w {
+                    let revents = file.ops.poll_events(POLLOUT);
+                    writable = (revents & (POLLOUT | POLLERR | POLLNVAL)) != 0;
+                }
+                if is_r {
+                    if readable {
+                        ready_count += 1;
+                    } else if let Some(ref mut r) = rfds_val {
+                        r.fds_bits[word] &= !bit;
+                    }
+                }
+                if is_w {
+                    if writable {
+                        ready_count += 1;
+                    } else if let Some(ref mut w) = wfds_val {
+                        w.fds_bits[word] &= !bit;
+                    }
                 }
             } else {
                 if let Some(ref mut r) = rfds_val {

@@ -34,7 +34,7 @@ pub fn sys_getcwd(frame: &mut SyscallFrame) -> SyscallResult {
 /// `sys_chdir` (SYS_CHDIR = 80)
 /// Change working directory.
 pub fn sys_chdir(frame: &mut SyscallFrame) -> SyscallResult {
-    let path = UserCStr::from_u64(frame.arg1()).to_string(256)?;
+    let path = UserCStr::from_u64(frame.arg1()).to_string(4096)?;
 
     let full_path = resolve_at_path(AT_FDCWD, &path)?;
     let dentry = crate::fs::resolve_path(&full_path)?;

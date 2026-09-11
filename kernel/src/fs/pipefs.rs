@@ -7,6 +7,7 @@ use crate::fs::vfs::types::{
 };
 use crate::proc::thread::Thread;
 use crate::sync::Mutex;
+use crate::syscalls::fs::{POLLERR, POLLOUT};
 use alloc::collections::VecDeque;
 use alloc::sync::Arc;
 use core::sync::atomic::AtomicU64;
@@ -79,14 +80,16 @@ impl FileOps for PipeReadFileOps {
     }
 
     fn poll_events(&self, events: i16) -> i16 {
-        use crate::syscalls::fs::{POLLIN, POLLOUT};
+        use crate::syscalls::fs::{POLLHUP, POLLIN};
         let pipe = self.pipe.lock();
         let mut revents = 0;
         if (events & POLLIN) != 0 && (!pipe.buffer.is_empty() || pipe.writers == 0) {
             revents |= POLLIN;
         }
-        if (events & POLLOUT) != 0 {
-            revents |= POLLOUT;
+        // Read end is never writable; report hangup once all writers are gone
+        // so pollers waiting on HUP/ERR wake up instead of blocking forever.
+        if pipe.writers == 0 {
+            revents |= POLLHUP;
         }
         revents
     }
@@ -128,12 +131,7 @@ impl FileOps for PipeWriteFileOps {
         self.write_with_flags(_offset, buf, 0)
     }
 
-    fn write_with_flags(
-        &self,
-        _offset: usize,
-        buf: &[u8],
-        flags: u32,
-    ) -> Result<usize, VfsError> {
+    fn write_with_flags(&self, _offset: usize, buf: &[u8], flags: u32) -> Result<usize, VfsError> {
         if buf.is_empty() {
             return Ok(0);
         }
@@ -182,15 +180,14 @@ impl FileOps for PipeWriteFileOps {
     }
 
     fn poll_events(&self, events: i16) -> i16 {
-        use crate::syscalls::fs::{POLLIN, POLLOUT};
         let pipe = self.pipe.lock();
         let mut revents = 0;
-        if (events & POLLIN) != 0 {
-            revents |= POLLIN;
+        // Write end is never readable; report error once all readers are gone
+        // so pollers don't block forever on a broken pipe.
+        if pipe.readers == 0 {
+            revents |= POLLERR;
         }
-        if (events & POLLOUT) != 0
-            && (pipe.buffer.len() < pipe.capacity || pipe.readers == 0)
-        {
+        if (events & POLLOUT) != 0 && (pipe.buffer.len() < pipe.capacity || pipe.readers == 0) {
             revents |= POLLOUT;
         }
         revents

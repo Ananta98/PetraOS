@@ -62,7 +62,15 @@ pub(crate) fn do_openat(dfd: i32, path: &str, flags: u32) -> SyscallResult {
 
     let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
     let proc = proc_arc.lock();
-    let fd = proc.fd_table.alloc(file);
+    // Honor O_CLOEXEC so fork+exec children don't leak descriptors.
+    // Leaked pipe/file write ends keep readers from observing EOF and hang
+    // drivers like g++ that fork/exec cc1plus/as/ld.
+    let cloexec = if (flags & super::O_CLOEXEC) != 0 {
+        crate::fs::fd::FD_CLOEXEC
+    } else {
+        0
+    };
+    let fd = proc.fd_table.alloc_with_flags(file, cloexec);
 
     Ok(fd as usize)
 }
@@ -73,7 +81,7 @@ pub fn sys_open(frame: &mut SyscallFrame) -> SyscallResult {
     let path_ptr = UserCStr::from_u64(frame.arg1());
     let flags = frame.arg2() as u32;
 
-    let path = path_ptr.to_string(256)?;
+    let path = path_ptr.to_string(4096)?;
     do_openat(AT_FDCWD, &path, flags)
 }
 
@@ -84,6 +92,6 @@ pub fn sys_openat(frame: &mut SyscallFrame) -> SyscallResult {
     let path_ptr = UserCStr::from_u64(frame.arg2());
     let flags = frame.arg3() as u32;
 
-    let path = path_ptr.to_string(256)?;
+    let path = path_ptr.to_string(4096)?;
     do_openat(dfd, &path, flags)
 }

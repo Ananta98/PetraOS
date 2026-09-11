@@ -181,31 +181,6 @@ impl Process {
             }
         }
 
-        // 3.5 Apply set-user/group-ID bits (effective/fs/saved IDs only;
-        // real IDs never change across exec). Plain exec reverts
-        // effective/fs/saved IDs to the real IDs.
-        if let Ok(st) = crate::fs::stat(&abs_path) {
-            let creds = Arc::make_mut(&mut self.creds);
-            if (st.mode & 0o4000) != 0 {
-                creds.euid = st.uid;
-                creds.fsuid = st.uid;
-                creds.suid = st.uid;
-            } else {
-                creds.euid = creds.uid;
-                creds.fsuid = creds.uid;
-                creds.suid = creds.uid;
-            }
-            if (st.mode & 0o2000) != 0 {
-                creds.egid = st.gid;
-                creds.fsgid = st.gid;
-                creds.sgid = st.gid;
-            } else {
-                creds.egid = creds.gid;
-                creds.fsgid = creds.gid;
-                creds.sgid = creds.gid;
-            }
-        }
-
         // 4. Load ELF binary
         let elf = Elf::new(&binary_data).map_err(|err| {
             log::error!("[Process] ELF parsing failed for '{}': {}", file_name, err);
@@ -230,7 +205,6 @@ impl Process {
             loaded_elf.stack_pointer.as_u64(),
         ))
     }
-
 
     /// Fork a child process duplicating this process (POSIX fork).
     pub fn fork(
@@ -271,19 +245,20 @@ impl Process {
         let mut child_threads = BTreeMap::new();
         let child_tid = crate::proc::thread::next_tid();
 
-        let (thread_name, thread_weight, sig_mask, fs_base, gs_base) = crate::proc::current_thread()
-            .or_else(|| p_lock.threads.values().next().cloned())
-            .map(|t| {
-                let t_lock = t.lock();
-                (
-                    t_lock.name.clone(),
-                    t_lock.weight,
-                    t_lock.sig_mask,
-                    t_lock.context.fs_base,
-                    t_lock.context.gs_base,
-                )
-            })
-            .unwrap_or_else(|| (alloc::string::String::from("fork_child"), 1024, 0, 0, 0));
+        let (thread_name, thread_weight, sig_mask, fs_base, gs_base) =
+            crate::proc::current_thread()
+                .or_else(|| p_lock.threads.values().next().cloned())
+                .map(|t| {
+                    let t_lock = t.lock();
+                    (
+                        t_lock.name.clone(),
+                        t_lock.weight,
+                        t_lock.sig_mask,
+                        t_lock.context.fs_base,
+                        t_lock.context.gs_base,
+                    )
+                })
+                .unwrap_or_else(|| (alloc::string::String::from("fork_child"), 1024, 0, 0, 0));
 
         let mut child_thread = Thread::new(
             child_tid,
@@ -422,7 +397,9 @@ impl Process {
         self.fd_table = Arc::new(crate::fs::FdTable::new());
 
         // Detach all shared memory segments for this process
-        crate::ipc::shm::SHM_MANAGER.lock().on_process_exit(self.pid.as_u64() as u32);
+        crate::ipc::shm::SHM_MANAGER
+            .lock()
+            .on_process_exit(self.pid.as_u64() as u32);
 
         // Determine the TID of the currently-running thread on this CPU.
         let cpu_id = crate::arch::cpu_id();

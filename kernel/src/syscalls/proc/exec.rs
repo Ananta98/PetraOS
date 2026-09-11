@@ -29,7 +29,10 @@ pub fn sys_execve(frame: &mut SyscallFrame) -> SyscallResult {
 
     let (entry_point, stack_top) = proc
         .execute(&path, cmdline)
-        .map_err(|_| SyscallError::ENOENT)?;
+        .map_err(|err| {
+            log::error!("[sys_execve] Failed to execute '{}': {}", path, err);
+            SyscallError::ENOENT
+        })?;
 
     let new_cr3 = proc.address_space.lock().page_table().root().as_u64();
 

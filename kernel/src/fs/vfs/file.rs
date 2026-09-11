@@ -45,6 +45,16 @@ impl File {
         if !can_read(flags) {
             return Err(VfsError::PermissionDenied);
         }
+        // Pipes, sockets and char devices are non-seekable: never hold the
+        // offset lock across a potentially blocking operation. Holding it
+        // while yielding (pipe empty/full) deadlocks fork-shared descriptions
+        // where parent and child contend on the same offset mutex.
+        if matches!(
+            self.dentry.inode.inode_type,
+            InodeType::Fifo | InodeType::Socket | InodeType::CharDevice
+        ) {
+            return self.ops.read_with_flags(0, buf, flags);
+        }
         let mut offset = self.offset.lock();
         let bytes_read = self.ops.read_with_flags(*offset, buf, flags)?;
         *offset += bytes_read;
@@ -56,6 +66,12 @@ impl File {
         let flags = self.flags();
         if !can_write(flags) {
             return Err(VfsError::PermissionDenied);
+        }
+        if matches!(
+            self.dentry.inode.inode_type,
+            InodeType::Fifo | InodeType::Socket | InodeType::CharDevice
+        ) {
+            return self.ops.write_with_flags(0, buf, flags);
         }
         let mut offset = self.offset.lock();
         if (flags & super::types::O_APPEND) != 0 {

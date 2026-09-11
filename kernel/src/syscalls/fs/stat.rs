@@ -38,7 +38,7 @@ pub fn sys_stat(frame: &mut SyscallFrame) -> SyscallResult {
     let path_ptr = UserCStr::from_u64(frame.arg1());
     let statbuf = UserPtr::<LinuxStat>::from_u64(frame.arg2());
 
-    let path = path_ptr.to_string(256)?;
+    let path = path_ptr.to_string(4096)?;
     let full_path = resolve_at_path(AT_FDCWD, &path)?;
     let vfs_stat = crate::fs::stat(&full_path)?;
 
@@ -81,7 +81,7 @@ pub fn sys_lstat(frame: &mut SyscallFrame) -> SyscallResult {
     let path_ptr = UserCStr::from_u64(frame.arg1());
     let statbuf = UserPtr::<LinuxStat>::from_u64(frame.arg2());
 
-    let path = path_ptr.to_string(256)?;
+    let path = path_ptr.to_string(4096)?;
     let full_path = resolve_at_path(AT_FDCWD, &path)?;
     let vfs_stat = crate::fs::lstat(&full_path)?;
 
@@ -98,7 +98,7 @@ pub fn sys_newfstatat(frame: &mut SyscallFrame) -> SyscallResult {
     let path_ptr = UserCStr::from_u64(frame.arg2());
     let statbuf = UserPtr::<LinuxStat>::from_u64(frame.arg3());
 
-    let path = path_ptr.to_string(256)?;
+    let path = path_ptr.to_string(4096)?;
     let full_path = resolve_at_path(dfd, &path)?;
     let vfs_stat = crate::fs::stat(&full_path)?;
 
