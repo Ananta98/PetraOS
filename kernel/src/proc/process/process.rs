@@ -418,6 +418,8 @@ impl Process {
                 crate::sched::remove_thread(tid);
             }
         }
+
+        self.threads.clear();
     }
 
     /// Update signal action for a given signal number (sigaction semantics).
