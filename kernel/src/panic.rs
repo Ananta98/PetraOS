@@ -3,8 +3,8 @@
 //! Provides the centralized panic handler for PetraOS, formatting diagnostic output,
 //! CPU core identification, and frame-pointer-based stack unwinding before halting.
 
+use crate::arch::cpu::read_frame_pointer;
 use core::panic::PanicInfo;
-use core::sync::atomic::{AtomicBool, Ordering};
 
 /// Maximum number of stack frames to traverse before terminating the backtrace.
 pub const MAX_STACK_FRAMES: usize = 32;
@@ -72,7 +72,7 @@ pub fn rust_panic(info: &PanicInfo) -> ! {
     log::error!("Reason: {}", info.message());
     log::error!("Stack Trace:");
 
-    let fp = crate::arch::cpu::read_frame_pointer();
+    let frame_ptr = read_frame_pointer();
     let mut curr = frame_ptr as *const StackFrame;
     let mut frame_count = 0;
 
