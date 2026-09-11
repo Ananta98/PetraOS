@@ -66,13 +66,20 @@ packages:
           done
           ln -sfv tset @SYSROOT_DIR@/usr/bin/reset 2>/dev/null || true
           cp -a lib/lib*.so*        @SYSROOT_DIR@/usr/lib/ 2>/dev/null || true
-          for lib in ncurses form panel menu tinfo ; do
+          for lib in form panel menu tinfo ; do
               rm -vf                    @SYSROOT_DIR@/usr/lib/lib${lib}.so
               echo "INPUT(-l${lib}w)" > @SYSROOT_DIR@/usr/lib/lib${lib}.so
               ln -sfv ${lib}w.pc        @SYSROOT_DIR@/usr/lib/pkgconfig/${lib}.pc 2>/dev/null || true
           done
-          rm -vf                     @SYSROOT_DIR@/usr/lib/libcursesw.so
-          echo "INPUT(-lncursesw)" > @SYSROOT_DIR@/usr/lib/libcursesw.so
-          ln -sfv libncurses.so      @SYSROOT_DIR@/usr/lib/libcurses.so
-          ln -sfv .                  @SYSROOT_DIR@/usr/include/ncursesw 2>/dev/null || true
-          ln -sfv .                  @SYSROOT_DIR@/usr/include/ncurses 2>/dev/null || true
+          rm -vf                    @SYSROOT_DIR@/usr/lib/libncurses.so
+          echo "INPUT(-lncursesw -ltinfow)" > @SYSROOT_DIR@/usr/lib/libncurses.so
+          ln -sfv ncursesw.pc       @SYSROOT_DIR@/usr/lib/pkgconfig/ncurses.pc 2>/dev/null || true
+          rm -vf                    @SYSROOT_DIR@/usr/lib/libncursesw.so
+          echo "INPUT(libncursesw.so.6 -ltinfow)" > @SYSROOT_DIR@/usr/lib/libncursesw.so
+          rm -vf                    @SYSROOT_DIR@/usr/lib/libcursesw.so
+          echo "INPUT(-lncursesw -ltinfow)" > @SYSROOT_DIR@/usr/lib/libcursesw.so
+          ln -sfv libncurses.so     @SYSROOT_DIR@/usr/lib/libcurses.so
+          rm -vf                    @SYSROOT_DIR@/usr/lib/libtermcap.so
+          echo "INPUT(-ltinfow)"   > @SYSROOT_DIR@/usr/lib/libtermcap.so
+          ln -sfv .                 @SYSROOT_DIR@/usr/include/ncursesw 2>/dev/null || true
+          ln -sfv .                 @SYSROOT_DIR@/usr/include/ncurses 2>/dev/null || true
