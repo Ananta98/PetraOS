@@ -1,5 +1,6 @@
 use crate::arch::cpu::stack::KernelStack;
 use crate::arch::userspace::jump_to_userspace;
+use crate::bootcmd::BootCommandLine;
 use crate::mm::vmm::paging::PageTable;
 use crate::proc::process::cmdline::CommandLine;
 use crate::proc::process::pid::ProcessId;
@@ -34,7 +35,7 @@ pub fn create_init_process() -> Result<(Arc<Mutex<Process>>, u64, u64), &'static
     }
 
     // Retrieve environment variables and boot arguments from BootCommandLine
-    let boot_cmdline = crate::cmdline::BootCommandLine::new();
+    let boot_cmdline = BootCommandLine::new();
     let init_env = boot_cmdline.to_envs_vec();
     let boot_args = boot_cmdline.to_args_vec();
 
