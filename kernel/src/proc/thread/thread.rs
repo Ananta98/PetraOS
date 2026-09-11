@@ -174,14 +174,6 @@ impl Thread {
         }
     }
 
-    /// Terminate the thread.
-    pub fn exit(&mut self, status: u32) {
-        self.state = ThreadState::Zombie;
-        self.exit_code = Some(status);
-        // Remove from CPU and never return
-        crate::sched::schedule(false);
-    }
-
     /// Update thread signal mask (sigprocmask semantics).
     pub fn update_sigmask(&mut self, how: i32, set: SigSet) -> Result<SigSet, &'static str> {
         let old_mask = self.sig_mask;
