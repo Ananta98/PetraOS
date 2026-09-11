@@ -99,16 +99,3 @@ PetraOS uses `xbstrap` to cross-compile software into `build-xbstrap/system-root
      ```
 
 ---
-
-## 5. Automated Testing
-
-PetraOS includes an automated testing harness to run commands inside QEMU and check results:
-
-```bash
-# Run a single command test in PetraOS
-python3 tools/test_cli.py --cmd "gcc --version" --expect "gcc"
-
-# Run default automated CLI test suite
-python3 tools/test_cli.py --test-file .agents/skills/cli-testing/scripts/default_tests.json
-```
-Reports and failure screenshots are saved under `test_reports/`.
