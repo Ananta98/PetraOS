@@ -8,7 +8,6 @@ pub mod acpi;
 pub mod cpu;
 pub mod interrupt;
 pub mod paging;
-pub mod power;
 pub mod sched;
 pub mod signal;
 pub mod syscall;
@@ -24,7 +23,7 @@ pub use interrupt::flags::{disable_interrupts, enable_interrupts, without_interr
 pub use interrupt::idt;
 pub use interrupt::interrupts;
 pub use interrupt::lapic;
-pub use power::{poweroff, reboot};
+pub use acpi::power::{poweroff, reboot};
 pub use sched::arch_switch_context;
 pub use timer::lapic_timer;
 

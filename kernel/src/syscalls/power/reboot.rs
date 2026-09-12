@@ -101,7 +101,7 @@ pub fn sys_reboot(frame: &mut SyscallFrame) -> SyscallResult {
         }
         LINUX_REBOOT_CMD_HALT => {
             log::info!("sys_reboot: LINUX_REBOOT_CMD_HALT received");
-            crate::arch::power::idle()
+            crate::arch::idle()
         }
         LINUX_REBOOT_CMD_CAD_ON => {
             log::info!("sys_reboot: CAD enabled");
