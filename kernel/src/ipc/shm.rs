@@ -14,7 +14,7 @@ use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 use core::sync::atomic::{AtomicI32, Ordering};
 
-use crate::arch::timer::hpet;
+use crate::clock;
 use crate::drivers::time::cmos_rtc;
 use crate::ipc::semaphore::IpcPerm;
 use crate::mm::ArchPageTable;
@@ -235,7 +235,7 @@ impl SharedMemoryManager {
         if sec > 0 {
             sec as i64
         } else {
-            (hpet::elapsed_ns() / 1_000_000_000) as i64
+            (clock::elapsed_ns() / 1_000_000_000) as i64
         }
     }
 

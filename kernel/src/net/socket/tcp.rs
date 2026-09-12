@@ -161,7 +161,7 @@ impl TcpSocket {
         let local_port = self
             .local_endpoint
             .map(|e| e.port)
-            .unwrap_or_else(|| (crate::arch::timer::hpet::elapsed_ns() % 16384 + 49152) as u16);
+            .unwrap_or_else(|| (crate::clock::elapsed_ns() % 16384 + 49152) as u16);
 
         let local_ep = IpEndpoint::new(
             self.local_endpoint

@@ -37,7 +37,7 @@ pub fn sys_futex(frame: &mut SyscallFrame) -> SyscallResult {
             let timeout_ptr = UserPtr::<TimeSpec>::from_u64(timeout_or_val2);
             let timeout = parse_user_timespec(timeout_ptr)?;
 
-            // Convert relative timeout to absolute HPET nanoseconds
+            // Convert relative timeout to absolute clocksource nanoseconds
             let deadline_ns = timeout.map(|ts| {
                 let dur_ns = (ts.tv_sec as u64)
                     .saturating_mul(1_000_000_000)
@@ -49,9 +49,9 @@ pub fn sys_futex(frame: &mut SyscallFrame) -> SyscallResult {
                         .saturating_mul(1_000_000_000)
                         .saturating_add(now_usec.saturating_mul(1_000));
                     let remaining = dur_ns.saturating_sub(now_wall_ns);
-                    crate::arch::timer::hpet::elapsed_ns().saturating_add(remaining)
+                    crate::clock::elapsed_ns().saturating_add(remaining)
                 } else {
-                    crate::arch::timer::hpet::elapsed_ns().saturating_add(dur_ns)
+                    crate::clock::elapsed_ns().saturating_add(dur_ns)
                 }
             });
 
@@ -80,7 +80,7 @@ pub fn sys_futex(frame: &mut SyscallFrame) -> SyscallResult {
 
             // Once unblocked, check if woken by timeout
             let tid = thread_arc.lock().tid;
-            let now_ns = crate::arch::timer::hpet::elapsed_ns();
+            let now_ns = crate::clock::elapsed_ns();
             if let Some(deadline) = deadline_ns {
                 if now_ns >= deadline {
                     let mut mgr = FUTEX_MANAGER.lock();
@@ -170,7 +170,7 @@ pub fn sys_futex(frame: &mut SyscallFrame) -> SyscallResult {
 
             // Once unblocked, check if woken by timeout
             let tid = thread_arc.lock().tid;
-            let now_ns = crate::arch::timer::hpet::elapsed_ns();
+            let now_ns = crate::clock::elapsed_ns();
             if let Some(deadline) = deadline_ns {
                 if now_ns >= deadline {
                     let mut mgr = FUTEX_MANAGER.lock();

@@ -20,8 +20,8 @@ pub fn sys_nanosleep(frame: &mut SyscallFrame) -> SyscallResult {
         .saturating_mul(1_000_000_000)
         .saturating_add(req.tv_nsec as u64);
 
-    let start_ns = crate::arch::timer::hpet::elapsed_ns();
-    while crate::arch::timer::hpet::elapsed_ns().saturating_sub(start_ns) < target_ns {
+    let start_ns = crate::clock::elapsed_ns();
+    while crate::clock::elapsed_ns().saturating_sub(start_ns) < target_ns {
         crate::proc::thread::Thread::yield_cpu();
     }
 

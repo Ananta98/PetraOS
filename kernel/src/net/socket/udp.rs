@@ -86,7 +86,7 @@ impl UdpSocket {
         // Auto-bind local port if not yet bound
         if self.local_endpoint.is_none() {
             let ephemeral_port =
-                ((crate::arch::timer::hpet::elapsed_ns() % 16384) + 49152) as u16;
+                ((crate::clock::elapsed_ns() % 16384) + 49152) as u16;
             let ep = IpEndpoint::new(smoltcp::wire::IpAddress::Ipv4(smoltcp::wire::Ipv4Address::UNSPECIFIED), ephemeral_port);
             self.bind(ep)?;
         }

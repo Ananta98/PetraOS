@@ -1,8 +1,11 @@
 //! High Precision Event Timer (HPET) Driver for x86_64
 //!
-//! Provides high-resolution timing, elapsed time measurements, and microsecond/millisecond busy-wait delays.
+//! Provides the low-level HPET counter. The rest of the kernel should use
+//! the generic [`crate::clock`] clocksource instead of calling into this
+//! module directly; this driver registers itself there during [`init`].
 
 use crate::arch::acpi;
+use crate::clock::ClockSource;
 use crate::mm::map_mmio;
 use crate::sync::Mutex;
 
@@ -33,6 +36,45 @@ unsafe impl Send for Hpet {}
 unsafe impl Sync for Hpet {}
 
 pub static HPET: Mutex<Option<Hpet>> = Mutex::new(None);
+
+/// `crate::clock::ClockSource` adapter for the HPET main counter.
+///
+/// Zero-sized: state lives in [`HPET`]; this type only implements the
+/// generic clocksource interface so the kernel can select HPET by rating.
+pub struct HpetClockSource;
+
+impl HpetClockSource {
+    const fn new() -> Self {
+        Self
+    }
+}
+
+/// Global HPET clocksource instance registered with [`crate::clock`].
+pub static HPET_CLOCKSOURCE: HpetClockSource = HpetClockSource::new();
+
+impl ClockSource for HpetClockSource {
+    fn name(&self) -> &'static str {
+        "hpet"
+    }
+
+    fn rating(&self) -> u32 {
+        crate::clock::RATING_HPET
+    }
+
+    fn read_ns(&self) -> u64 {
+        elapsed_ns()
+    }
+
+    fn resolution_ns(&self) -> u64 {
+        let guard = HPET.lock();
+        match guard.as_ref() {
+            Some(hpet) if hpet.counter_clk_period_fs > 0 => {
+                hpet.counter_clk_period_fs.div_ceil(1_000_000)
+            }
+            _ => 1,
+        }
+    }
+}
 
 impl Hpet {
     /// Read a 64-bit register at the specified byte offset from HPET MMIO base.
@@ -131,6 +173,10 @@ pub fn init() {
     );
 
     *HPET.lock() = Some(hpet);
+
+    if let Err(err) = crate::clock::register_source(&HPET_CLOCKSOURCE) {
+        log::warn!("[HPET] clocksource registration failed: {}", err);
+    }
 }
 
 /// Read current main counter value.

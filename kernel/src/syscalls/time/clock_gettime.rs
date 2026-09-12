@@ -20,14 +20,14 @@ pub fn sys_clock_gettime(frame: &mut SyscallFrame) -> SyscallResult {
             }
         }
         CLOCK_MONOTONIC | CLOCK_MONOTONIC_RAW | CLOCK_MONOTONIC_COARSE | CLOCK_BOOTTIME => {
-            let elapsed_ns = crate::arch::timer::hpet::elapsed_ns();
+            let elapsed_ns = crate::clock::elapsed_ns();
             TimeSpec {
                 tv_sec: (elapsed_ns / 1_000_000_000) as i64,
                 tv_nsec: (elapsed_ns % 1_000_000_000) as i64,
             }
         }
         CLOCK_PROCESS_CPUTIME_ID | CLOCK_THREAD_CPUTIME_ID => {
-            let elapsed_ns = crate::arch::timer::hpet::elapsed_ns();
+            let elapsed_ns = crate::clock::elapsed_ns();
             TimeSpec {
                 tv_sec: (elapsed_ns / 1_000_000_000) as i64,
                 tv_nsec: (elapsed_ns % 1_000_000_000) as i64,

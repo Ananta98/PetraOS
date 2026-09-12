@@ -15,7 +15,7 @@
 //! Thread blocking uses the kernel futex/scheduler infrastructure so sleeping
 //! threads are properly descheduled and do not spin-waste CPU.
 
-use crate::arch::timer::hpet;
+use crate::clock;
 use alloc::collections::{BTreeMap, VecDeque};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
@@ -193,7 +193,7 @@ impl SemSet {
             },
             sems,
             otime: 0,
-            ctime: hpet::elapsed_ns() as i64 / 1_000_000_000,
+            ctime: clock::elapsed_ns() as i64 / 1_000_000_000,
             removed: false,
         }
     }
@@ -269,7 +269,7 @@ impl SemSet {
             self.sems[idx].sempid = pid;
             self.wake_waiters(idx);
         }
-        self.otime = hpet::elapsed_ns() as i64 / 1_000_000_000;
+        self.otime = clock::elapsed_ns() as i64 / 1_000_000_000;
     }
 }
 
@@ -391,7 +391,7 @@ impl SemaphoreManager {
                     set.perm.uid = ds.sem_perm.uid;
                     set.perm.gid = ds.sem_perm.gid;
                     set.perm.mode = ds.sem_perm.mode & 0o777;
-                    set.ctime = crate::arch::timer::hpet::elapsed_ns() as i64 / 1_000_000_000;
+                    set.ctime = crate::clock::elapsed_ns() as i64 / 1_000_000_000;
                 }
                 Ok(0)
             }
@@ -416,7 +416,7 @@ impl SemaphoreManager {
                 set.sems[idx].value = v as u16;
                 set.sems[idx].sempid = uid; // Linux sets sempid on SETVAL
                 set.wake_waiters(idx);
-                set.ctime = crate::arch::timer::hpet::elapsed_ns() as i64 / 1_000_000_000;
+                set.ctime = crate::clock::elapsed_ns() as i64 / 1_000_000_000;
                 Ok(0)
             }
 
@@ -444,7 +444,7 @@ impl SemaphoreManager {
                     set.sems[i].value = v;
                     set.wake_waiters(i);
                 }
-                set.ctime = crate::arch::timer::hpet::elapsed_ns() as i64 / 1_000_000_000;
+                set.ctime = crate::clock::elapsed_ns() as i64 / 1_000_000_000;
                 Ok(0)
             }
 

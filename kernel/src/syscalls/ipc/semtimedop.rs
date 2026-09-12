@@ -3,7 +3,7 @@
 use super::*;
 use crate::syscalls::{SyscallError, SyscallResult, UserPtr};
 use crate::arch::syscall::syscall::SyscallFrame;
-use crate::arch::timer::hpet;
+use crate::clock;
 use crate::ipc::semaphore::{
     SEMAPHORE_MANAGER, SemError,
 };
@@ -32,7 +32,7 @@ pub fn sys_semtimedop(frame: &mut SyscallFrame) -> SyscallResult {
         let dur_ns = (ts.tv_sec as u64)
             .saturating_mul(1_000_000_000)
             .saturating_add(ts.tv_nsec as u64);
-        Some(hpet::elapsed_ns().saturating_add(dur_ns))
+        Some(clock::elapsed_ns().saturating_add(dur_ns))
     } else {
         None
     };
@@ -42,7 +42,7 @@ pub fn sys_semtimedop(frame: &mut SyscallFrame) -> SyscallResult {
     loop {
         // Check deadline before attempting
         if let Some(dl) = deadline_ns {
-            if hpet::elapsed_ns() >= dl {
+            if clock::elapsed_ns() >= dl {
                 return Err(SyscallError::ETIMEDOUT);
             }
         }
@@ -63,7 +63,7 @@ pub fn sys_semtimedop(frame: &mut SyscallFrame) -> SyscallResult {
 
                 // Check timeout on wakeup
                 if let Some(dl) = deadline_ns {
-                    if crate::arch::timer::hpet::elapsed_ns() >= dl {
+                    if clock::elapsed_ns() >= dl {
                         return Err(SyscallError::ETIMEDOUT);
                     }
                 }

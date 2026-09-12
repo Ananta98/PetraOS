@@ -33,9 +33,9 @@ pub struct FdSet {
 pub(crate) fn do_poll(fds_ptr: UserPtr<PollFd>, nfds: usize, timeout_ms: i32) -> SyscallResult {
     if nfds == 0 {
         if timeout_ms > 0 {
-            let start_ns = crate::arch::timer::hpet::elapsed_ns();
+            let start_ns = crate::clock::elapsed_ns();
             let dur_ns = (timeout_ms as u64) * 1_000_000;
-            while crate::arch::timer::hpet::elapsed_ns().saturating_sub(start_ns) < dur_ns {
+            while crate::clock::elapsed_ns().saturating_sub(start_ns) < dur_ns {
                 crate::arch::enable_interrupts();
                 crate::proc::thread::Thread::yield_cpu();
             }
@@ -49,7 +49,7 @@ pub(crate) fn do_poll(fds_ptr: UserPtr<PollFd>, nfds: usize, timeout_ms: i32) ->
 
     let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
 
-    let start_ns = crate::arch::timer::hpet::elapsed_ns();
+    let start_ns = crate::clock::elapsed_ns();
     let has_timeout = timeout_ms >= 0;
     let dur_ns = if timeout_ms > 0 {
         (timeout_ms as u64) * 1_000_000
@@ -102,7 +102,7 @@ pub(crate) fn do_poll(fds_ptr: UserPtr<PollFd>, nfds: usize, timeout_ms: i32) ->
             if timeout_ms == 0 {
                 return Ok(0);
             }
-            if crate::arch::timer::hpet::elapsed_ns().saturating_sub(start_ns) >= dur_ns {
+            if crate::clock::elapsed_ns().saturating_sub(start_ns) >= dur_ns {
                 return Ok(0);
             }
         }

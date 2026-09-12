@@ -23,7 +23,7 @@ pub static NET_STACK: Mutex<Option<NetworkStack>> = Mutex::new(None);
 
 /// Return the current monotonic timestamp as a `smoltcp::time::Instant`.
 pub fn current_time() -> Instant {
-    let elapsed_ns = crate::arch::timer::hpet::elapsed_ns();
+    let elapsed_ns = crate::clock::elapsed_ns();
     Instant::from_micros((elapsed_ns / 1_000) as i64)
 }
 
@@ -58,7 +58,7 @@ impl NetworkStack {
 
         let mut device = NetDeviceAdapter::new(dev_arc);
         let mut config = Config::new(hw_addr);
-        config.random_seed = crate::arch::timer::hpet::elapsed_ns();
+        config.random_seed = crate::clock::elapsed_ns();
 
         let mut iface = Interface::new(config, &mut device, current_time());
 

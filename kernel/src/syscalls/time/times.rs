@@ -11,7 +11,7 @@ pub fn sys_times(frame: &mut SyscallFrame) -> SyscallResult {
     let buf_ptr = UserPtr::<Tms>::from_u64(frame.arg1());
 
     // Standard POSIX clock ticks per second (CLK_TCK = 100)
-    let elapsed_ns = crate::arch::timer::hpet::elapsed_ns();
+    let elapsed_ns = crate::clock::elapsed_ns();
     let total_ticks = (elapsed_ns / 10_000_000) as i64; // 10ms per tick (100Hz)
 
     if !buf_ptr.is_null() {

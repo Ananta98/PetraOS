@@ -26,8 +26,8 @@ const REG_CENTURY: u8 = 0x32;
 
 /// Global atomic boot epoch timestamp (seconds since Unix epoch 1970-01-01 00:00:00 UTC)
 static BOOT_EPOCH_SEC: AtomicU64 = AtomicU64::new(0);
-/// HPET elapsed nanoseconds timestamp taken when BOOT_EPOCH_SEC was recorded
-static BOOT_HPET_NS: AtomicU64 = AtomicU64::new(0);
+/// Monotonic clocksource nanoseconds taken when BOOT_EPOCH_SEC was recorded
+static BOOT_CLOCK_NS: AtomicU64 = AtomicU64::new(0);
 
 pub static CMOS_RTC: Mutex<CmosRtc> = Mutex::new(CmosRtc::new());
 
@@ -250,10 +250,10 @@ impl CharDevice for CmosRtc {
 pub fn init_boot_time() {
     let rtc_time = CmosRtc::read_hardware_time();
     let epoch_sec = rtc_time.to_epoch();
-    let hpet_ns = crate::arch::timer::hpet::elapsed_ns();
+    let clock_ns = crate::clock::elapsed_ns();
 
     BOOT_EPOCH_SEC.store(epoch_sec, Ordering::Relaxed);
-    BOOT_HPET_NS.store(hpet_ns, Ordering::Relaxed);
+    BOOT_CLOCK_NS.store(clock_ns, Ordering::Relaxed);
 
     log::info!(
         "[CMOS RTC] Initialized real-time clock: {:04}-{:02}-{:02} {:02}:{:02}:{:02} UTC (Epoch: {})",
@@ -275,7 +275,7 @@ pub fn read_time() -> RtcTime {
 /// Returns current wall clock time as `(seconds, microseconds)` since Unix epoch.
 pub fn get_wall_time() -> (u64, u64) {
     let boot_sec = BOOT_EPOCH_SEC.load(Ordering::Relaxed);
-    let boot_ns = BOOT_HPET_NS.load(Ordering::Relaxed);
+    let boot_ns = BOOT_CLOCK_NS.load(Ordering::Relaxed);
 
     if boot_sec == 0 {
         // If boot time hasn't been cached yet, attempt to read now.
@@ -284,8 +284,8 @@ pub fn get_wall_time() -> (u64, u64) {
         return (sec, 0);
     }
 
-    let current_hpet_ns = crate::arch::timer::hpet::elapsed_ns();
-    let elapsed_ns = current_hpet_ns.saturating_sub(boot_ns);
+    let current_ns = crate::clock::elapsed_ns();
+    let elapsed_ns = current_ns.saturating_sub(boot_ns);
 
     let total_sec = boot_sec + (elapsed_ns / 1_000_000_000);
     let usec = (elapsed_ns % 1_000_000_000) / 1_000;

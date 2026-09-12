@@ -4,7 +4,6 @@
 //! with PetraOS physical memory mapping, MMIO, I/O ports, timers, and mutexes.
 
 use crate::arch::cpu::ports::Ports;
-use crate::arch::timer::hpet;
 use crate::mm::{ensure_mapped, hhdm_offset};
 use crate::sync::Mutex;
 use acpi::{Handle, Handler, PciAddress, PhysicalMapping};
@@ -211,15 +210,15 @@ impl Handler for PetraAcpiHandler {
     }
 
     fn nanos_since_boot(&self) -> u64 {
-        hpet::elapsed_ns()
+        crate::clock::elapsed_ns()
     }
 
     fn stall(&self, microseconds: u64) {
-        hpet::sleep_ns(microseconds * 1_000);
+        crate::clock::sleep_ns(microseconds.saturating_mul(1_000));
     }
 
     fn sleep(&self, milliseconds: u64) {
-        hpet::sleep_ns(milliseconds * 1_000_000);
+        crate::clock::sleep_ns(milliseconds.saturating_mul(1_000_000));
     }
 
     fn create_mutex(&self) -> Handle {
