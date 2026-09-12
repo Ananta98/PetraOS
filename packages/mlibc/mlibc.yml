@@ -3,6 +3,7 @@ sources:
     subdir: sources
     git: https://github.com/managarm/mlibc.git
     branch: master
+    patch_path_strip: 1
 
 packages:
   - name: mlibc-headers

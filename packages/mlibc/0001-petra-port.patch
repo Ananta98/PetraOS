@@ -1,13 +1,13 @@
-From 39144cfd07563fa2587563f3afecf79648a0cc79 Mon Sep 17 00:00:00 2001
+From 2360324cc5a936ab022fbd853cd4aeacabc8a517 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sat, 15 Aug 2026 11:59:14 +0700
-Subject: [PATCH 01/30] feat(sysdeps): add PetraOS support and GCC 13
+Subject: [PATCH 01/28] feat(sysdeps): add PetraOS support and GCC 13
  compatibility
 
 ---
  meson.build                                   |   7 +
  options/ansi/generic/stdlib.cpp               |   8 +-
- options/ansi/x86_64/meson.build               |  11 +-
+ options/ansi/x86_64/meson.build               |  15 +-
  options/internal/include/mlibc/allocator.hpp  |  32 +-
  subprojects/frigg.wrap                        |   1 +
  .../packagefiles/frigg/include/frg/span.hpp   |  69 +++
@@ -83,7 +83,7 @@ Subject: [PATCH 01/30] feat(sysdeps): add PetraOS support and GCC 13
  sysdeps/petra/include/mlibc/sysdeps.hpp       |  69 +++
  sysdeps/petra/include/sys/syscall.h           | 119 +++++
  sysdeps/petra/meson.build                     | 118 +++++
- 78 files changed, 993 insertions(+), 23 deletions(-)
+ 78 files changed, 993 insertions(+), 27 deletions(-)
  create mode 100644 subprojects/packagefiles/frigg/include/frg/span.hpp
  create mode 100644 sysdeps/petra/crt-x86_64/Scrt1.S
  create mode 100644 sysdeps/petra/crt-x86_64/crt1.S
@@ -159,7 +159,7 @@ Subject: [PATCH 01/30] feat(sysdeps): add PetraOS support and GCC 13
  create mode 100644 sysdeps/petra/meson.build
 
 diff --git a/meson.build b/meson.build
-index 8e981a3c2..d53f4c8b7 100644
+index 186e446f0..b3833bf59 100644
 --- a/meson.build
 +++ b/meson.build
 @@ -320,6 +320,13 @@ elif host_machine.system() == 'ethereal'
@@ -177,10 +177,10 @@ index 8e981a3c2..d53f4c8b7 100644
  elif host_machine.system() == 'demo'
  	subdir('sysdeps/demo')
 diff --git a/options/ansi/generic/stdlib.cpp b/options/ansi/generic/stdlib.cpp
-index d9fa16973..a8cddac35 100644
+index 4e2a16f2c..00bd02f15 100644
 --- a/options/ansi/generic/stdlib.cpp
 +++ b/options/ansi/generic/stdlib.cpp
-@@ -379,16 +379,16 @@ static void qsort_impl(void *base, size_t count, size_t size, Compare compare) {
+@@ -371,16 +371,16 @@ static void qsort_impl(void *base, size_t count, size_t size, Compare compare) {
  	// Sort the range [begin, end).
  	// TODO: If we are doing more than C * log_2(n) iterations for some C,
  	//       fall back to a guaranteed O(log n) implementation.
@@ -202,26 +202,30 @@ index d9fa16973..a8cddac35 100644
  
  void qsort(void *base, size_t count, size_t size,
 diff --git a/options/ansi/x86_64/meson.build b/options/ansi/x86_64/meson.build
-index 45665a617..5856d624a 100644
+index f54f200a8..5856d624a 100644
 --- a/options/ansi/x86_64/meson.build
 +++ b/options/ansi/x86_64/meson.build
-@@ -1,10 +1 @@
+@@ -1,14 +1 @@
 -ansi_sources += files(
--	'strcmp.cpp'
+-	'strcmp.cpp',
+-	'strlen.cpp',
+-	'strlen-avx2.S',
+-	'strlen-sse2.S',
 -)
 -
 -arch_defines = [
 -	'-DMLIBC_ARCH_HAS_STRCMP=1',
+-	'-DMLIBC_ARCH_HAS_STRLEN=1',
 -]
 -
 -libc_cpp_args += arch_defines
--ld_cpp_args += arch_defines
+-static_cpp_args += arch_defines
 +# Generic string functions used for PetraOS on GCC 13
 diff --git a/options/internal/include/mlibc/allocator.hpp b/options/internal/include/mlibc/allocator.hpp
-index a88905068..eb4efc111 100644
+index d5496df8f..490fc8bee 100644
 --- a/options/internal/include/mlibc/allocator.hpp
 +++ b/options/internal/include/mlibc/allocator.hpp
-@@ -42,20 +42,34 @@ template <typename T>
+@@ -80,20 +80,34 @@ template <typename T>
  struct lazy_eternal {
  	constexpr lazy_eternal() = default;
  
@@ -266,13 +270,13 @@ index a88905068..eb4efc111 100644
  
  private:
 diff --git a/subprojects/frigg.wrap b/subprojects/frigg.wrap
-index 04de5e1ef..941988aba 100644
+index 00e356e67..c946ebc3e 100644
 --- a/subprojects/frigg.wrap
 +++ b/subprojects/frigg.wrap
 @@ -1,3 +1,4 @@
  [wrap-git]
  url = https://github.com/managarm/frigg.git
- revision = b0dbea66bc19f7c5546f0039a3be842feb02678c
+ revision = cf3ac202438a08d45fd2dc54ee6b27624723f8e7
 +patch_directory = frigg
 diff --git a/subprojects/packagefiles/frigg/include/frg/span.hpp b/subprojects/packagefiles/frigg/include/frg/span.hpp
 new file mode 100644
@@ -1736,10 +1740,10 @@ index 000000000..44587ad27
 2.43.0
 
 
-From a75d7c4e673984be4fcb0ffbb4f7e345c56bd39d Mon Sep 17 00:00:00 2001
+From 1ce4c850354c1f37e55c8f6bfcbc17e442f2a8ea Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sun, 16 Aug 2026 17:18:00 +0700
-Subject: [PATCH 02/30] feat(sysdeps/petra): add terminal control, poll, and
+Subject: [PATCH 02/28] feat(sysdeps/petra): add terminal control, poll, and
  select sysdeps
 
 ---
@@ -1865,10 +1869,10 @@ index 44587ad27..24a2b48d8 100644
 2.43.0
 
 
-From c4434488b69469b46faf5a07bdbd51e40152d381 Mon Sep 17 00:00:00 2001
+From d71a318f3c9be37daa8e32b927f1b44a391010e7 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sun, 16 Aug 2026 17:19:03 +0700
-Subject: [PATCH 03/30] fix(sysdeps/petra): remove linux from
+Subject: [PATCH 03/28] fix(sysdeps/petra): remove linux from
  sysdep_supported_options
 
 ---
@@ -1891,10 +1895,10 @@ index 24a2b48d8..44587ad27 100644
 2.43.0
 
 
-From 26c988ed911573e59fdc842e4463b89f0a433176 Mon Sep 17 00:00:00 2001
+From aa16edd1de987de59861e34e3ff64b57cf6bc9f1 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sun, 16 Aug 2026 17:19:35 +0700
-Subject: [PATCH 04/30] feat(sysdeps/petra): declare terminal and poll tags in
+Subject: [PATCH 04/28] feat(sysdeps/petra): declare terminal and poll tags in
  PetraSysdepTags
 
 ---
@@ -1927,10 +1931,10 @@ index 5681c78f3..7abf63e81 100644
 2.43.0
 
 
-From 1b5f07719d46d788c322d248c5a36ca94d0f5a50 Mon Sep 17 00:00:00 2001
+From db809b26e0205f64504f92a4a094e595a2c311ef Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sun, 16 Aug 2026 17:20:01 +0700
-Subject: [PATCH 05/30] fix(sysdeps/petra): use memset for sigset_t
+Subject: [PATCH 05/28] fix(sysdeps/petra): use memset for sigset_t
 
 ---
  sysdeps/petra/generic/generic.cpp | 2 +-
@@ -1953,10 +1957,10 @@ index 12ef809c2..413db4ace 100644
 2.43.0
 
 
-From e9bdc4ebbb80ca9fb000279f83eae7b97b10768d Mon Sep 17 00:00:00 2001
+From 58794950bc30122f2188a587859c0f6f350130af Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sun, 16 Aug 2026 17:21:15 +0700
-Subject: [PATCH 06/30] fix(sysdeps/petra): direct bit check in Pselect without
+Subject: [PATCH 06/28] fix(sysdeps/petra): direct bit check in Pselect without
  __FD_ISSET
 
 ---
@@ -1984,10 +1988,10 @@ index 413db4ace..a7cd878eb 100644
 2.43.0
 
 
-From 6e637c6bc5ffda81272b882d3e182f3468adbfd0 Mon Sep 17 00:00:00 2001
+From 644c5f18a1dd50e21d187cf4d2f7c61f54cc92fa Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sun, 16 Aug 2026 17:21:39 +0700
-Subject: [PATCH 07/30] fix(sysdeps/petra): use fds_bits in Pselect
+Subject: [PATCH 07/28] fix(sysdeps/petra): use fds_bits in Pselect
 
 ---
  sysdeps/petra/generic/generic.cpp | 4 ++--
@@ -2014,10 +2018,10 @@ index a7cd878eb..0e3b2d304 100644
 2.43.0
 
 
-From e67318b77642431df8bc8ee4a8af8bb8a9a94bf0 Mon Sep 17 00:00:00 2001
+From d552cf372ce68ecef14fb3d6e9361dbba16c3b83 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sun, 16 Aug 2026 18:12:18 +0700
-Subject: [PATCH 08/30] feat(sysdeps/petra): implement ttyname, gethostname,
+Subject: [PATCH 08/28] feat(sysdeps/petra): implement ttyname, gethostname,
  termios fallback and pselect wrapper
 
 - Implement sys_ttyname: verify fd is a TTY via isatty, then report /dev/tty.
@@ -2209,10 +2213,10 @@ index 7abf63e81..47b92d23f 100644
 2.43.0
 
 
-From 0a4b8b6296d3c8673c702c177b6a926d1718630d Mon Sep 17 00:00:00 2001
+From 2bf03e78fe5b274628d2fc6709e14ae24a6aeabf Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sun, 16 Aug 2026 21:54:12 +0700
-Subject: [PATCH 09/30] feat(sysdeps/petra): implement OpenDir and ReadEntries
+Subject: [PATCH 09/28] feat(sysdeps/petra): implement OpenDir and ReadEntries
  using getdents64
 
 ---
@@ -2274,10 +2278,10 @@ index 88915e85d..90885b831 100644
 2.43.0
 
 
-From 45602e3a9d462aca3481f28fc99a9fcbcbb03ac3 Mon Sep 17 00:00:00 2001
+From 4f72c40313e6bbefabd4aa7d88ba9d42de58e062 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Wed, 19 Aug 2026 19:25:53 +0700
-Subject: [PATCH 10/30] feat(sysdeps/petra): implement Sysdeps<Sysconf>
+Subject: [PATCH 10/28] feat(sysdeps/petra): implement Sysdeps<Sysconf>
  handling
 
 ---
@@ -2366,10 +2370,10 @@ index f774f2190..71c973805 100644
 2.43.0
 
 
-From 9335db45d9abd4d3eff29731ba435cabcdf8fb19 Mon Sep 17 00:00:00 2001
+From b753cd41079b12803aa9976823bc15667670b45b Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Wed, 19 Aug 2026 20:37:20 +0700
-Subject: [PATCH 11/30] feat(sysdeps/petra): implement brk, fchmodat, and
+Subject: [PATCH 11/28] feat(sysdeps/petra): implement brk, fchmodat, and
  utimensat sysdeps
 
 ---
@@ -2448,10 +2452,10 @@ index 90885b831..c6d9cbd5d 100644
 2.43.0
 
 
-From e8d6d7700a37243e47c2b6b08d94d2308c7a4d48 Mon Sep 17 00:00:00 2001
+From f851d0f7d245406f8339e81ee68fabde63fea486 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Wed, 19 Aug 2026 20:47:47 +0700
-Subject: [PATCH 12/30] fix(ansi): flush stdout on read and default stdout to
+Subject: [PATCH 12/28] fix(ansi): flush stdout on read and default stdout to
  unbuffered for immediate terminal echo
 
 ---
@@ -2459,10 +2463,10 @@ Subject: [PATCH 12/30] fix(ansi): flush stdout on read and default stdout to
  1 file changed, 5 insertions(+), 1 deletion(-)
 
 diff --git a/options/ansi/generic/file-io.cpp b/options/ansi/generic/file-io.cpp
-index 90c316080..3c8c49263 100644
+index be0456947..1c9337622 100644
 --- a/options/ansi/generic/file-io.cpp
 +++ b/options/ansi/generic/file-io.cpp
-@@ -111,6 +111,10 @@ void abstract_file::dispose() {
+@@ -107,6 +107,10 @@ void abstract_file::dispose() {
  int abstract_file::read(char *buffer, size_t max_size, size_t *actual_size) {
  	__ensure(max_size);
  
@@ -2470,10 +2474,10 @@ index 90c316080..3c8c49263 100644
 +		stdout->flush();
 +	}
 +
- 	if(_init_bufmode())
- 		return -1;
+ 	if(int e = _init_bufmode(); e)
+ 		return e;
  
-@@ -647,7 +651,7 @@ namespace {
+@@ -693,7 +697,7 @@ namespace {
  	[[gnu::constructor(MLIBC_INIT_PRIORITY_STDIO)]]
  	void init_stdio() {
  		stdin_box.initialize(0);
@@ -2486,10 +2490,10 @@ index 90c316080..3c8c49263 100644
 2.43.0
 
 
-From 179993a53e07b1e15717d1c60ecdefb337a95815 Mon Sep 17 00:00:00 2001
+From a7f7fab9b26f86dd3b599c0c6f9c84040d1ceb6b Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Wed, 19 Aug 2026 20:59:14 +0700
-Subject: [PATCH 13/30] fix(stdio): default interactive terminal streams to
+Subject: [PATCH 13/28] fix(stdio): default interactive terminal streams to
  unbuffered for immediate character echoing
 
 ---
@@ -2497,10 +2501,10 @@ Subject: [PATCH 13/30] fix(stdio): default interactive terminal streams to
  1 file changed, 2 insertions(+), 2 deletions(-)
 
 diff --git a/options/ansi/generic/file-io.cpp b/options/ansi/generic/file-io.cpp
-index 3c8c49263..e5e9d8d61 100644
+index 1c9337622..cc161a49e 100644
 --- a/options/ansi/generic/file-io.cpp
 +++ b/options/ansi/generic/file-io.cpp
-@@ -112,7 +112,7 @@ int abstract_file::read(char *buffer, size_t max_size, size_t *actual_size) {
+@@ -108,7 +108,7 @@ int abstract_file::read(char *buffer, size_t max_size, size_t *actual_size) {
  	__ensure(max_size);
  
  	if(stdout && stdout != this) {
@@ -2508,8 +2512,8 @@ index 3c8c49263..e5e9d8d61 100644
 +		static_cast<abstract_file *>(stdout)->flush();
  	}
  
- 	if(_init_bufmode())
-@@ -554,7 +554,7 @@ int fd_file::determine_bufmode(buffer_mode *mode) {
+ 	if(int e = _init_bufmode(); e)
+@@ -600,7 +600,7 @@ int fd_file::determine_bufmode(buffer_mode *mode) {
  	}
  
  	if(int e = mlibc::sysdep<Isatty>(_fd); !e) {
@@ -2522,10 +2526,10 @@ index 3c8c49263..e5e9d8d61 100644
 2.43.0
 
 
-From 9025747d7f1b7a5396a69d1b3e47ef630f0c1bb9 Mon Sep 17 00:00:00 2001
+From 7d82cbf953e1b333bd1c7d5ff0d6e52c1001c7da Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sat, 22 Aug 2026 10:05:46 +0700
-Subject: [PATCH 14/30] fix(sysdeps/petra): replace busy-loop Sleep with
+Subject: [PATCH 14/28] fix(sysdeps/petra): replace busy-loop Sleep with
  sys_nanosleep syscall
 
 ---
@@ -2639,10 +2643,10 @@ index b6059da8d..540bbc483 100644
 2.43.0
 
 
-From 4d8f8e521611cbab241c67b3927c767fc0240bef Mon Sep 17 00:00:00 2001
+From 99507880f0e434ae7805ddc0419d3f81c6d6ceee Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Mon, 24 Aug 2026 12:51:05 +0700
-Subject: [PATCH 15/30] feat(sysdeps/petra): implement System V semaphore
+Subject: [PATCH 15/28] feat(sysdeps/petra): implement System V semaphore
  syscall support
 
 Add kernel-facing syscall numbers and userspace Sysdeps<> implementations
@@ -3126,10 +3130,10 @@ index c6d9cbd5d..44e9825e0 100644
 2.43.0
 
 
-From 1f4f7fb31575eb51b6ae944c3da62d7cbc0f50a0 Mon Sep 17 00:00:00 2001
+From dbb294719fa768071d1439f3508bbba186c68911 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Tue, 25 Aug 2026 09:42:26 +0700
-Subject: [PATCH 16/30] feat(sysdeps/petra): implement fadvise and System V
+Subject: [PATCH 16/28] feat(sysdeps/petra): implement fadvise and System V
  shared memory sysdeps
 
 ---
@@ -3259,10 +3263,10 @@ index 44e9825e0..22b2c37f4 100644
 2.43.0
 
 
-From 0a2fbd447a951d0ce7b768070dc19b4a6445a9e3 Mon Sep 17 00:00:00 2001
+From 7fe7bcd16c80fd59a3cf1085d7773d1507850d71 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Tue, 25 Aug 2026 10:08:11 +0700
-Subject: [PATCH 17/30] feat(sysdeps/petra): implement socket and network
+Subject: [PATCH 17/28] feat(sysdeps/petra): implement socket and network
  system call sysdeps
 
 ---
@@ -3507,10 +3511,10 @@ index 22b2c37f4..a6c79f745 100644
 2.43.0
 
 
-From 2c568ac29285382b263f080197c91d84375bdf3f Mon Sep 17 00:00:00 2001
+From e16b25bd7d9eacc8aa1fcd4e3d28c0a49d97675a Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Tue, 25 Aug 2026 20:04:30 +0700
-Subject: [PATCH 18/30] feat(sysdeps/petra): implement ppoll, poll, and
+Subject: [PATCH 18/28] feat(sysdeps/petra): implement ppoll, poll, and
  terminal winsize sysdeps
 
 ---
@@ -3599,10 +3603,10 @@ index c22a7f35f..3befdfd3a 100644
 2.43.0
 
 
-From 2f9fcd2f9cf9af6563c02018cda3084ba499933a Mon Sep 17 00:00:00 2001
+From c28c18fe78c034366158211c5a7f65e3ce108b80 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Wed, 26 Aug 2026 19:11:42 +0700
-Subject: [PATCH 19/30] feat(sysdeps/petra): complete remaining sysdeps
+Subject: [PATCH 19/28] feat(sysdeps/petra): complete remaining sysdeps
  matching Astral parity with named constants
 
 ---
@@ -4646,10 +4650,10 @@ index a6c79f745..b002185bf 100644
 2.43.0
 
 
-From 033863d82efbe2911d491c2d9e1bc104a0885966 Mon Sep 17 00:00:00 2001
+From 8f5e2437f8bf697a0ef2109f5adb1a81f31ebb9b Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Wed, 26 Aug 2026 19:58:47 +0700
-Subject: [PATCH 20/30] fix(ioctls): export TIOCGWINSZ and standard ioctls in
+Subject: [PATCH 20/28] fix(ioctls): export TIOCGWINSZ and standard ioctls in
  header files
 
 ---
@@ -4781,10 +4785,10 @@ index 41381e88b..04012f187 100644
 2.43.0
 
 
-From 209e5154b51b5e513dd5a7b1e088263fa89ae29c Mon Sep 17 00:00:00 2001
+From da4329754b5962e2837dff7e5719c27d866a17b7 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Fri, 28 Aug 2026 20:55:26 +0700
-Subject: [PATCH 21/30] feat(sysdeps/petra): implement GetRusage sysdep
+Subject: [PATCH 21/28] feat(sysdeps/petra): implement GetRusage sysdep
 
 ---
  sysdeps/petra/generic/generic.cpp       | 13 +++++++++++++
@@ -4844,10 +4848,10 @@ index b002185bf..0f38fd0ce 100644
 2.43.0
 
 
-From a66430625862cc9c87e29df4504ef7cea35d9663 Mon Sep 17 00:00:00 2001
+From fa4b341cceca2f68032c49419da578519235ed10 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sun, 30 Aug 2026 18:16:21 +0700
-Subject: [PATCH 22/30] refactor(sysdeps/petra): modularize generic sysdeps and
+Subject: [PATCH 22/28] refactor(sysdeps/petra): modularize generic sysdeps and
  extract constants into include headers
 
 ---
@@ -8494,380 +8498,16 @@ index 44587ad27..9938142b3 100644
 2.43.0
 
 
-From 0cf097824f68c11d772de3517235b79a5e8e8890 Mon Sep 17 00:00:00 2001
-From: Ananta <kusumaananta042@gmail.com>
-Date: Sun, 30 Aug 2026 19:20:19 +0700
-Subject: [PATCH 23/30] fix(ansi): properly handle fwrite and stdio I/O errors
- and propagate errno
-
----
- options/ansi/generic/file-io.cpp | 48 +++++++++++++++++++++++---------
- options/ansi/generic/stdio.cpp   | 34 +++++++++++-----------
- 2 files changed, 52 insertions(+), 30 deletions(-)
-
-diff --git a/options/ansi/generic/file-io.cpp b/options/ansi/generic/file-io.cpp
-index e5e9d8d61..9842b3b3a 100644
---- a/options/ansi/generic/file-io.cpp
-+++ b/options/ansi/generic/file-io.cpp
-@@ -191,8 +191,8 @@ int abstract_file::read(char *buffer, size_t max_size, size_t *actual_size) {
- int abstract_file::write(const char *buffer, size_t max_size, size_t *actual_size) {
- 	__ensure(max_size);
- 
--	if(_init_bufmode())
--		return -1;
-+	if(int e = _init_bufmode(); e)
-+		return e;
- 	if(globallyDisableBuffering || _bufmode == buffer_mode::no_buffer) {
- 		// As we do not buffer, nothing can be dirty.
- 		__ensure(__dirty_begin == __dirty_end);
-@@ -252,8 +252,8 @@ int abstract_file::write(const char *buffer, size_t max_size, size_t *actual_siz
- 
- 	// Flush line-buffered streams.
- 	if(flush_line) {
--		if(_write_back())
--			return -1;
-+		if(int e = _write_back(); e)
-+			return e;
- 	}
- 
- 	*actual_size = chunk;
-@@ -374,8 +374,8 @@ int abstract_file::_init_bufmode() {
- 	if(_bufmode != buffer_mode::unknown)
- 		return 0;
- 
--	if(determine_bufmode(&_bufmode))
--		return -1;
-+	if(int e = determine_bufmode(&_bufmode); e)
-+		return e;
- 	__ensure(_bufmode != buffer_mode::unknown);
- 	return 0;
- }
-@@ -562,7 +562,7 @@ int fd_file::determine_bufmode(buffer_mode *mode) {
- 	}else{
- 		mlibc::infoLogger() << "mlibc: sys_isatty() failed while determining whether"
- 				" stream is interactive" << frg::endlog;
--		return -1;
-+		return e;
- 	}
- }
- 
-@@ -709,10 +709,14 @@ FILE *fopen(const char *path, const char *mode) {
- int fclose(FILE *file_base) {
- 	auto file = static_cast<mlibc::abstract_file *>(file_base);
- 	int e = 0;
--	if(file->flush())
-+	if(int err = file->flush(); err) {
-+		errno = err;
- 		e = EOF;
--	if(file->close())
-+	}
-+	if(int err = file->close(); err) {
-+		errno = err;
- 		e = EOF;
-+	}
- 	file->dispose();
- 	return e;
- }
-@@ -742,35 +746,53 @@ int fflush_unlocked(FILE *file_base) {
- 	if(file_base == nullptr) {
- 		// Only flush the files but do not close them.
- 		frg::unique_lock list_lock(mlibc::global_file_list_mutex);
-+		int last_err = 0;
- 		for(auto it : mlibc::global_file_list()) {
--			if(int e = it->flush(); e)
-+			if(int e = it->flush(); e) {
-+				last_err = e;
- 				mlibc::infoLogger() << "mlibc warning: Failed to flush file"
- 					<< frg::endlog;
-+			}
-+		}
-+		if(last_err) {
-+			errno = last_err;
-+			return EOF;
- 		}
- 		return 0;
- 	}
- 	auto file = static_cast<mlibc::abstract_file *>(file_base);
--	if(file->flush())
-+	if(int e = file->flush(); e) {
-+		errno = e;
- 		return EOF;
-+	}
- 	return 0;
- }
- int fflush(FILE *file_base) {
- 	if(file_base == nullptr) {
- 		// Only flush the files but do not close them.
- 		frg::unique_lock list_lock(mlibc::global_file_list_mutex);
-+		int last_err = 0;
- 		for(auto it : mlibc::global_file_list()) {
- 			frg::unique_lock lock(it->_lock);
--			if(int e = it->flush(); e)
-+			if(int e = it->flush(); e) {
-+				last_err = e;
- 				mlibc::infoLogger() << "mlibc warning: Failed to flush file"
- 					<< frg::endlog;
-+			}
-+		}
-+		if(last_err) {
-+			errno = last_err;
-+			return EOF;
- 		}
- 		return 0;
- 	}
- 
- 	auto file = static_cast<mlibc::abstract_file *>(file_base);
- 	frg::unique_lock lock(file->_lock);
--	if (file->flush())
-+	if (int e = file->flush(); e) {
-+		errno = e;
- 		return EOF;
-+	}
- 	return 0;
- }
- 
-diff --git a/options/ansi/generic/stdio.cpp b/options/ansi/generic/stdio.cpp
-index 219158e73..70eeee30b 100644
---- a/options/ansi/generic/stdio.cpp
-+++ b/options/ansi/generic/stdio.cpp
-@@ -195,14 +195,12 @@ size_t fwrite_unlocked_ignore_orientation(const void *buffer, size_t size, size_
- 		size_t progress = 0;
- 		while(progress < count) {
- 			size_t chunk;
--			if(file->write((const char *)buffer + progress,
--					count - progress, &chunk)) {
--				// TODO: Handle I/O errors.
--				mlibc::infoLogger() << "mlibc: fwrite() I/O errors are not handled"
--						<< frg::endlog;
--				break;
-+			if(int e = file->write((const char *)buffer + progress,
-+					count - progress, &chunk); e) {
-+				errno = e;
-+				file->__status_bits |= __MLIBC_ERROR_BIT;
-+				return progress;
- 			}else if(!chunk) {
--				// TODO: Handle eof.
- 				break;
- 			}
- 
-@@ -215,14 +213,12 @@ size_t fwrite_unlocked_ignore_orientation(const void *buffer, size_t size, size_
- 			size_t progress = 0;
- 			while(progress < size) {
- 				size_t chunk;
--				if(file->write((const char *)buffer + i * size + progress,
--						size - progress, &chunk)) {
--					// TODO: Handle I/O errors.
--					mlibc::infoLogger() << "mlibc: fwrite() I/O errors are not handled"
--							<< frg::endlog;
--					break;
-+				if(int e = file->write((const char *)buffer + i * size + progress,
-+						size - progress, &chunk); e) {
-+					errno = e;
-+					file->__status_bits |= __MLIBC_ERROR_BIT;
-+					return i;
- 				}else if(!chunk) {
--					// TODO: Handle eof.
- 					break;
- 				}
- 
-@@ -2134,8 +2130,10 @@ int puts(const char *string) {
- 	size_t len = strlen(string);
- 	while(progress < len) {
- 		size_t chunk;
--		if(file->write(string + progress,
--				len - progress, &chunk)) {
-+		if(int e = file->write(string + progress,
-+				len - progress, &chunk); e) {
-+			errno = e;
-+			file->__status_bits |= __MLIBC_ERROR_BIT;
- 			return EOF;
- 		}else if(!chunk) {
- 			return EOF;
-@@ -2145,7 +2143,9 @@ int puts(const char *string) {
- 	}
- 
- 	size_t unused;
--	if (file->write("\n", 1, &unused)) {
-+	if (int e = file->write("\n", 1, &unused); e) {
-+		errno = e;
-+		file->__status_bits |= __MLIBC_ERROR_BIT;
- 		return EOF;
- 	}
- 
--- 
-2.43.0
-
-
-From 6a47a627bddba5bf33d72cd5672bd3ca9d359008 Mon Sep 17 00:00:00 2001
-From: Ananta <kusumaananta042@gmail.com>
-Date: Sun, 30 Aug 2026 19:24:36 +0700
-Subject: [PATCH 24/30] fix(stdio): handle ESPIPE in fflush and clean up puts
-
----
- options/ansi/generic/file-io.cpp | 60 +++++++++++++++++++-------------
- options/ansi/generic/stdio.cpp   | 23 ++----------
- 2 files changed, 39 insertions(+), 44 deletions(-)
-
-diff --git a/options/ansi/generic/file-io.cpp b/options/ansi/generic/file-io.cpp
-index 9842b3b3a..bcc4ec4a1 100644
---- a/options/ansi/generic/file-io.cpp
-+++ b/options/ansi/generic/file-io.cpp
-@@ -708,17 +708,21 @@ FILE *fopen(const char *path, const char *mode) {
- 
- int fclose(FILE *file_base) {
- 	auto file = static_cast<mlibc::abstract_file *>(file_base);
--	int e = 0;
--	if(int err = file->flush(); err) {
--		errno = err;
--		e = EOF;
-+	int result = 0;
-+	int error = 0;
-+	if(int e = file->flush(); e && e != ESPIPE) {
-+		result = EOF;
-+		error = e;
- 	}
--	if(int err = file->close(); err) {
--		errno = err;
--		e = EOF;
-+	if(int e = file->close(); e) {
-+		result = EOF;
-+		if(!error)
-+			error = e;
- 	}
- 	file->dispose();
--	return e;
-+	if(error)
-+		errno = error;
-+	return result;
- }
- 
- int fseek(FILE *file_base, long offset, int whence) {
-@@ -746,24 +750,28 @@ int fflush_unlocked(FILE *file_base) {
- 	if(file_base == nullptr) {
- 		// Only flush the files but do not close them.
- 		frg::unique_lock list_lock(mlibc::global_file_list_mutex);
--		int last_err = 0;
-+		int error = 0;
- 		for(auto it : mlibc::global_file_list()) {
- 			if(int e = it->flush(); e) {
--				last_err = e;
--				mlibc::infoLogger() << "mlibc warning: Failed to flush file"
--					<< frg::endlog;
-+				if(e != ESPIPE)
-+					it->__status_bits |= __MLIBC_ERROR_BIT;
-+				if(!error && e != ESPIPE)
-+					error = e;
- 			}
- 		}
--		if(last_err) {
--			errno = last_err;
-+		if(error) {
-+			errno = error;
- 			return EOF;
- 		}
- 		return 0;
- 	}
- 	auto file = static_cast<mlibc::abstract_file *>(file_base);
- 	if(int e = file->flush(); e) {
--		errno = e;
--		return EOF;
-+		if(e != ESPIPE) {
-+			errno = e;
-+			file->__status_bits |= __MLIBC_ERROR_BIT;
-+			return EOF;
-+		}
- 	}
- 	return 0;
- }
-@@ -771,17 +779,18 @@ int fflush(FILE *file_base) {
- 	if(file_base == nullptr) {
- 		// Only flush the files but do not close them.
- 		frg::unique_lock list_lock(mlibc::global_file_list_mutex);
--		int last_err = 0;
-+		int error = 0;
- 		for(auto it : mlibc::global_file_list()) {
- 			frg::unique_lock lock(it->_lock);
- 			if(int e = it->flush(); e) {
--				last_err = e;
--				mlibc::infoLogger() << "mlibc warning: Failed to flush file"
--					<< frg::endlog;
-+				if(e != ESPIPE)
-+					it->__status_bits |= __MLIBC_ERROR_BIT;
-+				if(!error && e != ESPIPE)
-+					error = e;
- 			}
- 		}
--		if(last_err) {
--			errno = last_err;
-+		if(error) {
-+			errno = error;
- 			return EOF;
- 		}
- 		return 0;
-@@ -790,8 +799,11 @@ int fflush(FILE *file_base) {
- 	auto file = static_cast<mlibc::abstract_file *>(file_base);
- 	frg::unique_lock lock(file->_lock);
- 	if (int e = file->flush(); e) {
--		errno = e;
--		return EOF;
-+		if(e != ESPIPE) {
-+			errno = e;
-+			file->__status_bits |= __MLIBC_ERROR_BIT;
-+			return EOF;
-+		}
- 	}
- 	return 0;
- }
-diff --git a/options/ansi/generic/stdio.cpp b/options/ansi/generic/stdio.cpp
-index 70eeee30b..60a1b68cc 100644
---- a/options/ansi/generic/stdio.cpp
-+++ b/options/ansi/generic/stdio.cpp
-@@ -2126,28 +2126,11 @@ int puts(const char *string) {
- 	auto file = static_cast<mlibc::abstract_file *>(stdout);
- 	frg::unique_lock lock(file->_lock);
- 
--	size_t progress = 0;
- 	size_t len = strlen(string);
--	while(progress < len) {
--		size_t chunk;
--		if(int e = file->write(string + progress,
--				len - progress, &chunk); e) {
--			errno = e;
--			file->__status_bits |= __MLIBC_ERROR_BIT;
--			return EOF;
--		}else if(!chunk) {
--			return EOF;
--		}
--
--		progress += chunk;
--	}
--
--	size_t unused;
--	if (int e = file->write("\n", 1, &unused); e) {
--		errno = e;
--		file->__status_bits |= __MLIBC_ERROR_BIT;
-+	if(fwrite_unlocked_ignore_orientation(string, 1, len, file) != len)
-+		return EOF;
-+	if(fwrite_unlocked_ignore_orientation("\n", 1, 1, file) != 1)
- 		return EOF;
--	}
- 
- 	return 1;
- }
--- 
-2.43.0
-
-
-From bdd38c78758f9de80d95731d6d0a7d550603e489 Mon Sep 17 00:00:00 2001
+From 79a76e76e038e46ba975756c115aa2e4669d02ca Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Fri, 4 Sep 2026 21:04:15 +0700
-Subject: [PATCH 25/30] feat(sysdeps/petra): implement scheduler and affinity
+Subject: [PATCH 23/28] feat(sysdeps/petra): implement scheduler and affinity
  syscalls, sysinfo, and headers
 
 ---
  .../include/mlibc/sysdep-signatures.hpp       |  8 +-
  .../internal/include/mlibc/sysdep-tags.hpp    |  8 +-
- options/linux/generic/sched.cpp               | 25 ++++-
+ options/linux/generic/sched.cpp               | 17 ++++
  .../linux/include/bits/linux/linux_sched.h    | 14 +++
  options/posix/generic/sched.cpp               | 32 ++++++
  options/posix/include/sched.h                 |  2 +-
@@ -8879,7 +8519,7 @@ Subject: [PATCH 25/30] feat(sysdeps/petra): implement scheduler and affinity
  sysdeps/petra/include/sys/syscall.h           | 35 +++++++
  sysdeps/petra/include/sys/sysinfo.h           | 46 +++++++++
  sysdeps/petra/meson.build                     | 19 ++++
- 14 files changed, 392 insertions(+), 13 deletions(-)
+ 14 files changed, 387 insertions(+), 10 deletions(-)
  create mode 100644 sysdeps/petra/generic/sched.cpp
  create mode 100644 sysdeps/petra/include/bits/linux/cpu_set.h
  create mode 100644 sysdeps/petra/include/bits/linux/linux_sched.h
@@ -8966,24 +8606,13 @@ index c740d335b..533ba356f 100644
  struct Swapon {};
  // int sys_swapoff(const char *path);
 diff --git a/options/linux/generic/sched.cpp b/options/linux/generic/sched.cpp
-index c7db3e030..ea47d01bf 100644
+index feed1cd16..ef3b76df9 100644
 --- a/options/linux/generic/sched.cpp
 +++ b/options/linux/generic/sched.cpp
-@@ -37,9 +37,28 @@ int unshare(int flags) {
+@@ -45,6 +45,23 @@ int sched_setaffinity(pid_t pid, size_t cpusetsize, const cpu_set_t *mask) {
  	return 0;
  }
  
--int sched_setaffinity(pid_t, size_t, const cpu_set_t *) {
--	__ensure(!"Not implemented");
--	__builtin_unreachable();
-+int sched_setaffinity(pid_t pid, size_t cpusetsize, const cpu_set_t *mask) {
-+	if(int e = mlibc::sysdep_or_enosys<SetAffinity>(pid, cpusetsize, mask); e) {
-+		errno = e;
-+		return -1;
-+	}
-+	return 0;
-+}
-+
 +int sched_setattr(pid_t pid, struct sched_attr *attr, unsigned int flags) {
 +	if(int e = mlibc::sysdep_or_enosys<SetAttr>(pid, attr, flags); e) {
 +		errno = e;
@@ -8998,9 +8627,12 @@ index c7db3e030..ea47d01bf 100644
 +		return -1;
 +	}
 +	return 0;
- }
- 
++}
++}
++
  int clone(int (*)(void *), void *, int, void *, ...) {
+ 	__ensure(!"Not implemented");
+ 	__builtin_unreachable();
 diff --git a/options/linux/include/bits/linux/linux_sched.h b/options/linux/include/bits/linux/linux_sched.h
 index 087f71858..ddf11d11b 100644
 --- a/options/linux/include/bits/linux/linux_sched.h
@@ -9525,10 +9157,10 @@ index 9938142b3..cc05f3d36 100644
 2.43.0
 
 
-From ddc5b2341f179e1857ae6062a14f3eeb4ea629b5 Mon Sep 17 00:00:00 2001
+From 0b039b5cc1c3266af1539fa91c86ecf791cf7e4a Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sat, 5 Sep 2026 20:06:53 +0700
-Subject: [PATCH 26/30] feat(sysdeps/petra): implement _SC_SIGSTKSZ and sysconf
+Subject: [PATCH 24/28] feat(sysdeps/petra): implement _SC_SIGSTKSZ and sysconf
  limits, and mlibc file logging
 
 ---
@@ -9690,10 +9322,10 @@ index 7414504fb..4819ae640 100644
 2.43.0
 
 
-From 5ea8b264daccf64f85076cbd22208efcccb01b8b Mon Sep 17 00:00:00 2001
+From 213a2b343f60702e5c808957d2b76af6fcefbc0e Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Tue, 8 Sep 2026 19:47:26 +0700
-Subject: [PATCH 27/30] feat(sysdeps/petra): wire credential syscalls
+Subject: [PATCH 25/28] feat(sysdeps/petra): wire credential syscalls
  (setreuid/setregid/setgroups/setresuid/getresuid/setresgid/getresgid/setfsuid/setfsgid)
 
 ---
@@ -9818,10 +9450,10 @@ index 400a0bc52..87653a555 100644
 2.43.0
 
 
-From ed2ee66f66f72662f65e5b41163b0d288893627f Mon Sep 17 00:00:00 2001
+From c9dd1467d0f423afff03719c6f433918604729c0 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sat, 12 Sep 2026 09:53:14 +0700
-Subject: [PATCH 28/30] feat(sysdeps/petra): implement reboot syscall and
+Subject: [PATCH 26/28] feat(sysdeps/petra): implement reboot syscall and
  enable linux-reboot
 
 ---
@@ -9906,10 +9538,10 @@ index cc05f3d36..6d32edfee 100644
 2.43.0
 
 
-From e4a85c5c48c54122994384405a60c910f7ac2f07 Mon Sep 17 00:00:00 2001
+From afca020eba05a69a24d8fe38cad36a6eb0832765 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sat, 12 Sep 2026 10:58:32 +0700
-Subject: [PATCH 29/30] feat(stdio_ext): implement __freadptr and __freadptrinc
+Subject: [PATCH 27/28] feat(stdio_ext): implement __freadptr and __freadptrinc
 
 ---
  options/glibc/generic/stdio_ext.cpp | 14 ++++++++------
@@ -9946,10 +9578,10 @@ index ccb37257e..54b6945bd 100644
 2.43.0
 
 
-From 00318ec4af52c3d7649e51388393d30d0dc789e8 Mon Sep 17 00:00:00 2001
+From f0d9f55276a1cb83a6a51816951f8307d8a7f978 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sat, 12 Sep 2026 12:39:49 +0700
-Subject: [PATCH 30/30] feat(shadow): implement lckpwdf and ulckpwdf silently
+Subject: [PATCH 28/28] feat(shadow): implement lckpwdf and ulckpwdf silently
  like musl
 
 ---
