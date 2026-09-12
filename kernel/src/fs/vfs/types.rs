@@ -244,6 +244,16 @@ pub trait InodeOps: Send + Sync {
         Err(VfsError::NotSupported)
     }
 
+    /// Increment hard link count.
+    fn inc_nlink(&self) -> Result<(), VfsError> {
+        Ok(())
+    }
+
+    /// Decrement hard link count.
+    fn dec_nlink(&self) -> Result<(), VfsError> {
+        Ok(())
+    }
+
     /// Rename an entry from `old_name` to `new_name` in `new_dir`.
     fn rename(
         &self,

@@ -22,6 +22,7 @@ pub struct InodeMetadata {
     pub mode: u32,
     pub uid: u32,
     pub gid: u32,
+    pub nlink: u32,
     pub atime: u64,
     pub mtime: u64,
     pub ctime: u64,
@@ -35,6 +36,7 @@ impl InodeMetadata {
             mode,
             uid: 0,
             gid: 0,
+            nlink: 1,
             atime: now,
             mtime: now,
             ctime: now,
@@ -51,6 +53,7 @@ impl InodeMetadata {
             mode,
             uid,
             gid,
+            nlink: 1,
             atime: now,
             mtime: now,
             ctime: now,
@@ -92,6 +95,22 @@ fn apply_utimens(meta: &SharedMetadata, atime: u64, mtime: u64) -> Result<(), Vf
     Ok(())
 }
 
+/// Increment hard link count on shared metadata.
+fn apply_inc_nlink(meta: &SharedMetadata) -> Result<(), VfsError> {
+    let mut metadata = meta.lock();
+    metadata.nlink = metadata.nlink.saturating_add(1);
+    metadata.ctime = now_secs();
+    Ok(())
+}
+
+/// Decrement hard link count on shared metadata.
+fn apply_dec_nlink(meta: &SharedMetadata) -> Result<(), VfsError> {
+    let mut metadata = meta.lock();
+    metadata.nlink = metadata.nlink.saturating_sub(1);
+    metadata.ctime = now_secs();
+    Ok(())
+}
+
 /// Build a [`Stat`] from shared metadata plus the caller-supplied size/link/block info.
 fn metadata_stat(
     meta: &SharedMetadata,
@@ -101,10 +120,11 @@ fn metadata_stat(
     blocks: u64,
 ) -> Result<Stat, VfsError> {
     let metadata = meta.lock();
+    let effective_nlink = if nlink != 0 { nlink } else { metadata.nlink };
     Ok(Stat {
         ino,
         mode: metadata.mode,
-        nlink,
+        nlink: effective_nlink,
         uid: metadata.uid,
         gid: metadata.gid,
         size,
@@ -199,7 +219,15 @@ impl InodeOps for RamFileInode {
 
     fn stat(&self) -> Result<Stat, VfsError> {
         let size = self.content.read().len() as u64;
-        metadata_stat(&self.meta, self.ino, size, 1, (size + 511) / 512)
+        metadata_stat(&self.meta, self.ino, size, 0, (size + 511) / 512)
+    }
+
+    fn inc_nlink(&self) -> Result<(), VfsError> {
+        apply_inc_nlink(&self.meta)
+    }
+
+    fn dec_nlink(&self) -> Result<(), VfsError> {
+        apply_dec_nlink(&self.meta)
     }
 
     fn truncate(&self, size: usize) -> Result<(), VfsError> {
@@ -245,7 +273,15 @@ impl InodeOps for RamSymlinkInode {
     }
 
     fn stat(&self) -> Result<Stat, VfsError> {
-        metadata_stat(&self.meta, self.ino, self.target.len() as u64, 1, 0)
+        metadata_stat(&self.meta, self.ino, self.target.len() as u64, 0, 0)
+    }
+
+    fn inc_nlink(&self) -> Result<(), VfsError> {
+        apply_inc_nlink(&self.meta)
+    }
+
+    fn dec_nlink(&self) -> Result<(), VfsError> {
+        apply_dec_nlink(&self.meta)
     }
 
     fn chmod(&self, mode: u32) -> Result<(), VfsError> {
@@ -363,6 +399,7 @@ impl InodeOps for RamDirInode {
         if entries.contains_key(name) {
             return Err(VfsError::AlreadyExists);
         }
+        target_inode.ops.inc_nlink()?;
         entries.insert(name.into(), target_inode.clone());
         Ok(())
     }
@@ -388,7 +425,9 @@ impl InodeOps for RamDirInode {
         if target.inode_type == InodeType::Directory {
             return Err(VfsError::IsDirectory);
         }
+        let target_inode = target.clone();
         entries.remove(name);
+        let _ = target_inode.ops.dec_nlink();
         Ok(())
     }
 
