@@ -1,0 +1,52 @@
+sources:
+  - name: sudo
+    subdir: sources
+    url: 'https://www.sudo.ws/dist/sudo-1.9.17p2.tar.gz'
+    format: tar.gz
+    extract_path: 'sudo-1.9.17p2'
+    version: '1.9.17p2'
+    patch_path_strip: 1
+
+packages:
+  - name: sudo
+    architecture: x86_64
+    from_source: sudo
+    tools_required:
+      - host-gcc
+    pkgs_required:
+      - mlibc
+      - libxcrypt
+    configure:
+      - args:
+          - '@THIS_SOURCE_DIR@/configure'
+          - '--host=x86_64-petra'
+          - '--prefix=/usr'
+          - '--sysconfdir=/etc'
+          - '--with-rundir=/run/sudo'
+          - '--with-vardir=/var/db/sudo'
+          - '--with-secure-path=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
+          - '--with-env-editor'
+          - '--with-editor=/usr/bin/vi'
+          - '--without-sendmail'
+          - '--without-pam'
+          - '--without-sssd'
+          - '--without-ldap'
+          - '--without-selinux'
+          - '--without-linux-audit'
+          - '--without-apparmor'
+          - '--disable-nls'
+          - '--disable-zlib'
+          - '--disable-openssl'
+          - '--disable-pam-session'
+          - '--disable-rpath'
+    build:
+      - args: ['make', '-j@PARALLELISM@']
+      # NOTE: xbstrap 0.36 `Build` only executes `configure`+`build`
+      # (package `install:` steps are parsed but never run), so install
+      # directly here via DESTDIR. Keep `install:` below for compat
+      # with fixed xbstrap / documentation.
+      # INSTALL_OWNER= : sudo's install defaults to `chown 0:0`
+      # (-o 0 -g 0), which fails for non-root staging builds.
+      - args: ['make', 'DESTDIR=@SYSROOT_DIR@', 'INSTALL_OWNER=', 'install']
+    install:
+      - args: ['make', 'DESTDIR=@SYSROOT_DIR@', 'INSTALL_OWNER=', 'install']

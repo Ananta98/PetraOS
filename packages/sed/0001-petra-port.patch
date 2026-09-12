@@ -1,0 +1,24 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Ananta <kusumaananta042@gmail.com>
+Date: Sat, 12 Sep 2026 13:40:00 +0700
+Subject: [PATCH] feat(petra): add PetraOS support to sed 4.10
+
+Signed-off-by: Ananta <kusumaananta042@gmail.com>
+---
+ build-aux/config.sub | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/build-aux/config.sub b/build-aux/config.sub
+index 1234567..abcdef0 100755
+--- a/build-aux/config.sub
++++ b/build-aux/config.sub
+@@ -2049,6 +2049,7 @@ case $os in
+ 	| mirbsd* \
+ 	| mks* \
+ 	| mlibc* \
++	| petra* \
+ 	| mmixware* \
+ 	| mon960* \
+ 	| morphos* \
+-- 
+2.43.0

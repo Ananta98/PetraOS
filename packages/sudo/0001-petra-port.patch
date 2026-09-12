@@ -1,0 +1,25 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Ananta <kusumaananta042@gmail.com>
+Date: Sat, 12 Sep 2026 13:40:00 +0700
+Subject: [PATCH] feat(petra): add PetraOS support to sudo 1.9.17p2
+
+Signed-off-by: Ananta <kusumaananta042@gmail.com>
+---
+ scripts/config.sub | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/scripts/config.sub b/scripts/config.sub
+index 1234567..abcdef0 100755
+--- a/scripts/config.sub
++++ b/scripts/config.sub
+@@ -1766,7 +1766,7 @@ case $os in
+ 	     | onefs* | tirtos* | phoenix* | fuchsia* | redox* | bme* \
+ 	     | midnightbsd* | amdhsa* | unleashed* | emscripten* | wasi* \
+ 	     | nsk* | powerunix* | genode* | zvmoe* | qnx* | emx* | zephyr* \
+-	     | fiwix* | mlibc* | cos* | mbr* )
++	     | fiwix* | mlibc* | petra* | cos* | mbr* )
+ 		;;
+ 	# This one is extra strict with allowed versions
+ 	sco3.2v2 | sco3.2v[4-9]* | sco5v6*)
+-- 
+2.43.0

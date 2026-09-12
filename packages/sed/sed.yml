@@ -1,0 +1,39 @@
+sources:
+  - name: sed
+    subdir: sources
+    url: 'https://mirror.ibcp.fr/pub/gnu/sed/sed-4.10.tar.xz'
+    format: tar.xz
+    extract_path: 'sed-4.10'
+    version: '4.10'
+    patch_path_strip: 1
+
+packages:
+  - name: sed
+    architecture: x86_64
+    from_source: sed
+    tools_required:
+      - host-gcc
+    pkgs_required:
+      - mlibc
+    configure:
+      - args:
+          - '@THIS_SOURCE_DIR@/configure'
+          - '--host=x86_64-petra'
+          - '--prefix=/usr'
+          - '--disable-nls'
+          - '--disable-acl'
+          - '--without-selinux'
+    build:
+      # NOTE: plain `make` also builds gnulib-tests, whose
+      # getlocalename_l-unsafe.c has `#error "Please port gnulib ..."`
+      # for unknown libcs (mlibc/Petra). The sed binary itself builds
+      # fine, so build/install only the top dir (all-am/install-am)
+      # and skip gnulib-tests.
+      - args: ['make', '-j@PARALLELISM@', 'all-am']
+      # NOTE: xbstrap 0.36 `Build` only executes `configure`+`build`
+      # (package `install:` steps are parsed but never run), so install
+      # directly here via DESTDIR. Keep `install:` below for compat
+      # with fixed xbstrap / documentation.
+      - args: ['make', 'DESTDIR=@SYSROOT_DIR@', 'install-am']
+    install:
+      - args: ['make', 'DESTDIR=@SYSROOT_DIR@', 'install-am']

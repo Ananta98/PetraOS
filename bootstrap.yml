@@ -24,3 +24,5 @@ imports:
   - file: packages/gawk/gawk.yml
   - file: packages/libxcrypt/libxcrypt.yml
   - file: packages/shadow/shadow.yml
+  - file: packages/sed/sed.yml
+  - file: packages/sudo/sudo.yml
