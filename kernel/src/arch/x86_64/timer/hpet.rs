@@ -79,24 +79,7 @@ impl Hpet {
 
 /// Parse ACPI tables to locate the HPET base physical address.
 pub fn parse_hpet_base() -> Option<u64> {
-    let child_table = acpi::find_table(b"HPET")?;
-    let hhdm = crate::mm::hhdm_offset();
-
-    // ACPI HPET table layout:
-    // Header: 36 bytes
-    // Hardware Block ID: 4 bytes (offset 36)
-    // Base Address GAS structure: 12 bytes (offset 40)
-    // Physical Address field is at offset 44 (GAS address field)
-    let base_addr_ptr =
-        (child_table.length() >= 52).then(|| (child_table.phys_addr() + hhdm + 44) as *const u64)?;
-
-    // SAFETY: HPET table is mapped and base_addr_ptr is within the table bounds.
-    let phys_addr = unsafe { core::ptr::read_unaligned(base_addr_ptr) };
-    if phys_addr != 0 {
-        Some(phys_addr)
-    } else {
-        None
-    }
+    acpi::parse_hpet_base()
 }
 
 /// Initialize High Precision Event Timer hardware.

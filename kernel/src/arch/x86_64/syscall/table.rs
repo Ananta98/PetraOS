@@ -2,7 +2,7 @@
 
 use crate::define_syscall_table;
 use crate::syscalls::{
-    arch_prctl, fs, ioctl, ipc, mm, net, proc, random, sched, signals, sync, sys_info, time,
+    arch_prctl, fs, ioctl, ipc, mm, net, power, proc, random, sched, signals, sync, sys_info, time,
 };
 
 // Entries in SYSCALL_TABLE must be kept sorted by system call number for binary search.
@@ -121,6 +121,7 @@ define_syscall_table! {
     SYS_SCHED_GET_PRIORITY_MIN = 147 => ("sched_get_priority_min", sched::sys_sched_get_priority_min),
     SYS_ARCH_PRCTL     = 158 => ("arch_prctl",     arch_prctl::sys_arch_prctl),
     SYS_SETRLIMIT      = 160 => ("setrlimit",      proc::sys_setrlimit),
+    SYS_REBOOT         = 169 => ("reboot",         power::sys_reboot),
     SYS_FUTEX          = 202 => ("futex",          sync::sys_futex),
     SYS_SCHED_SETAFFINITY = 203 => ("sched_setaffinity", sched::sys_sched_setaffinity),
     SYS_SCHED_GETAFFINITY = 204 => ("sched_getaffinity", sched::sys_sched_getaffinity),

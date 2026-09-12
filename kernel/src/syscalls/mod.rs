@@ -4,6 +4,7 @@ pub mod ioctl;
 pub mod ipc;
 pub mod mm;
 pub mod net;
+pub mod power;
 pub mod proc;
 pub mod random;
 pub mod sched;
