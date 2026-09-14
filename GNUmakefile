@@ -55,16 +55,6 @@ build-userspace:
 	@echo "==> Building all userspace packages (this may take a long time)..."
 	@bash tools/build_userland.sh build-all
 
-.PHONY: fetch-userspace
-fetch-userspace:
-	@bash tools/build_userland.sh fetch --all
-
-.PHONY: compile-userspace
-compile-userspace: build-userspace
-
-.PHONY: install-userspace
-install-userspace: build-userspace
-
 .PHONY: clean-userspace
 clean-userspace:
 	@bash tools/build_userland.sh clean --all
