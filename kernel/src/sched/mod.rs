@@ -22,6 +22,7 @@ use crate::arch::cpu::msr;
 
 use crate::proc::thread::{Thread, ThreadId};
 use crate::sync::Mutex;
+use crate::sync::futex::*;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 
@@ -130,6 +131,9 @@ impl PerCpuScheduler {
     /// Updates scheduling accounting on timer ticks.
     pub fn tick(&self, cpu_id: u32, delta_ns: u64) {
         self.ensure_cpu(cpu_id);
+        FUTEX_MANAGER
+            .lock()
+            .check_timeouts(crate::clock::elapsed_ns());
         let should_preempt =
             crate::arch::without_interrupts(|| self.queues.lock()[cpu_id as usize].tick(delta_ns));
         if should_preempt {

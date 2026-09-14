@@ -11,6 +11,7 @@ use crate::proc::thread::{Thread, ThreadId};
 use crate::sync::Mutex;
 use alloc::collections::{BTreeMap, VecDeque};
 use alloc::sync::Arc;
+use core::sync::atomic::{AtomicBool, Ordering};
 
 // Standard Linux Futex Operation Commands
 pub const FUTEX_WAIT: u32 = 0;
@@ -64,7 +65,7 @@ pub struct FutexWaiter {
     /// Absolute monotonic deadline in nanoseconds, if a timeout was specified.
     pub deadline_ns: Option<u64>,
     /// Indicates whether the thread was explicitly woken by a wake/requeue operation.
-    pub woken: bool,
+    pub woken: Arc<AtomicBool>,
 }
 
 /// Global manager for kernel futex wait queues.
@@ -95,13 +96,19 @@ impl FutexManager {
         expected_val: u32,
         bitset: u32,
         deadline_ns: Option<u64>,
+        woken: Arc<AtomicBool>,
     ) -> Result<(), FutexError> {
         if bitset == 0 {
             return Err(FutexError::InvalidArgument);
         }
 
-        // SAFETY: The caller guarantees `uaddr` is valid and mapped. We perform volatile read.
-        let current_val = unsafe { core::ptr::read_volatile(uaddr) };
+        // Validate pointer and safely read user value via UserPtr abstraction
+        let user_ptr = crate::mm::user::UserPtr::<u32>::from_ptr(uaddr);
+        let current_val = match user_ptr.read() {
+            Some(val) => val,
+            None => return Err(FutexError::Fault),
+        };
+
         if current_val != expected_val {
             return Err(FutexError::WouldBlock);
         }
@@ -110,7 +117,7 @@ impl FutexManager {
             thread,
             bitset,
             deadline_ns,
-            woken: false,
+            woken,
         };
 
         self.queues.entry(key).or_default().push_back(waiter);
@@ -132,11 +139,11 @@ impl FutexManager {
             let mut i = 0;
             while i < queue.len() && woken_count < max_count {
                 if (queue[i].bitset & bitset) != 0 {
-                    let mut waiter = match queue.remove(i) {
+                    let waiter = match queue.remove(i) {
                         Some(w) => w,
                         None => break,
                     };
-                    waiter.woken = true;
+                    waiter.woken.store(true, Ordering::SeqCst);
                     Thread::unblock(waiter.thread);
                     woken_count += 1;
                 } else {
@@ -181,9 +188,9 @@ impl FutexManager {
 
         // Step 1: Wake up to `wake_count` waiters
         let mut remaining = VecDeque::new();
-        while let Some(mut waiter) = queue1.pop_front() {
+        while let Some(waiter) = queue1.pop_front() {
             if woken_count < wake_count && (waiter.bitset & bitset) != 0 {
-                waiter.woken = true;
+                waiter.woken.store(true, Ordering::SeqCst);
                 Thread::unblock(waiter.thread);
                 woken_count += 1;
             } else {

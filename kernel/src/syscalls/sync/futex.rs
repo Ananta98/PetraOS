@@ -1,7 +1,6 @@
 //! sys_futex system call handler.
 
 use super::*;
-use crate::syscalls::{SyscallError, SyscallResult, UserPtr};
 use crate::arch::syscall::syscall::SyscallFrame;
 use crate::proc::thread::ThreadState;
 use crate::sync::futex::{
@@ -10,7 +9,9 @@ use crate::sync::futex::{
     FUTEX_REQUEUE, FUTEX_TRYLOCK_PI, FUTEX_UNLOCK_PI, FUTEX_WAIT, FUTEX_WAIT_BITSET,
     FUTEX_WAIT_REQUEUE_PI, FUTEX_WAKE, FUTEX_WAKE_BITSET, FUTEX_WAKE_OP,
 };
-
+use crate::syscalls::{SyscallError, SyscallResult, UserPtr};
+use alloc::sync::Arc;
+use core::sync::atomic::{AtomicBool, Ordering};
 
 pub fn sys_futex(frame: &mut SyscallFrame) -> SyscallResult {
     let uaddr = UserPtr::<u32>::from_u64(frame.arg1());
@@ -55,34 +56,49 @@ pub fn sys_futex(frame: &mut SyscallFrame) -> SyscallResult {
                 }
             });
 
-            // Atomically verify futex word and enqueue thread into wait queue
-            {
-                let mut mgr = FUTEX_MANAGER.lock();
-                // SAFETY: `uaddr` is verified and valid for 4-byte read.
-                unsafe {
-                    mgr.wait_prepare(
-                        key,
-                        thread_arc.clone(),
-                        uaddr.as_ptr(),
-                        val,
-                        FUTEX_BITSET_MATCH_ANY,
-                        deadline_ns,
-                    )?;
-                }
-            }
+            let woken = Arc::new(AtomicBool::new(false));
 
-            // Put current thread to sleep and switch context
-            {
+            // Atomically set thread sleeping, verify futex word, and enqueue into wait queue
+            let mut mgr = FUTEX_MANAGER.lock();
+
+            let mut t = thread_arc.lock();
+            t.state = ThreadState::Sleeping;
+            drop(t);
+
+            // SAFETY: `uaddr` is verified and valid for 4-byte read.
+            if let Err(err) = unsafe {
+                mgr.wait_prepare(
+                    key,
+                    thread_arc.clone(),
+                    uaddr.as_ptr(),
+                    val,
+                    FUTEX_BITSET_MATCH_ANY,
+                    deadline_ns,
+                    woken.clone(),
+                )
+            } {
                 let mut t = thread_arc.lock();
-                t.state = ThreadState::Sleeping;
+                t.state = ThreadState::Running;
+                return Err(err.into());
             }
-            crate::sched::schedule(false);
 
-            // Once unblocked, check if woken by timeout
+            drop(mgr);
+
+            // If not yet unblocked/woken by another core, schedule away
+            if !woken.load(Ordering::SeqCst) {
+                crate::sched::schedule(false);
+            }
+
+            // Restore running state upon resumption
+            let mut t = thread_arc.lock();
+            t.state = ThreadState::Running;
+            drop(t);
+
+            // Once unblocked, check if woken by timeout or explicit wake
             let tid = thread_arc.lock().tid;
             let now_ns = crate::clock::elapsed_ns();
             if let Some(deadline) = deadline_ns {
-                if now_ns >= deadline {
+                if now_ns >= deadline && !woken.load(Ordering::SeqCst) {
                     let mut mgr = FUTEX_MANAGER.lock();
                     if mgr.remove_waiter(&key, tid) {
                         return Err(SyscallError::ETIMEDOUT);
@@ -152,27 +168,50 @@ pub fn sys_futex(frame: &mut SyscallFrame) -> SyscallResult {
                     .saturating_add(ts.tv_nsec as u64)
             });
 
-            // Enqueue thread in futex wait queue under lock
+            let woken = Arc::new(AtomicBool::new(false));
+
+            // Atomically set thread sleeping, verify futex word, and enqueue into wait queue
             {
                 let mut mgr = FUTEX_MANAGER.lock();
+                {
+                    let mut t = thread_arc.lock();
+                    t.state = ThreadState::Sleeping;
+                }
+
                 // SAFETY: `uaddr` is verified and valid for 4-byte read.
-                unsafe {
-                    mgr.wait_prepare(key, thread_arc.clone(), uaddr.as_ptr(), val, bitset, deadline_ns)?;
+                if let Err(err) = unsafe {
+                    mgr.wait_prepare(
+                        key,
+                        thread_arc.clone(),
+                        uaddr.as_ptr(),
+                        val,
+                        bitset,
+                        deadline_ns,
+                        woken.clone(),
+                    )
+                } {
+                    let mut t = thread_arc.lock();
+                    t.state = ThreadState::Running;
+                    return Err(err.into());
                 }
             }
 
-            // Put current thread to sleep and switch context
+            // If not yet unblocked/woken by another core, schedule away
+            if !woken.load(Ordering::SeqCst) {
+                crate::sched::schedule(false);
+            }
+
+            // Restore running state upon resumption
             {
                 let mut t = thread_arc.lock();
-                t.state = ThreadState::Sleeping;
+                t.state = ThreadState::Running;
             }
-            crate::sched::schedule(false);
 
-            // Once unblocked, check if woken by timeout
+            // Once unblocked, check if woken by timeout or explicit wake
             let tid = thread_arc.lock().tid;
             let now_ns = crate::clock::elapsed_ns();
             if let Some(deadline) = deadline_ns {
-                if now_ns >= deadline {
+                if now_ns >= deadline && !woken.load(Ordering::SeqCst) {
                     let mut mgr = FUTEX_MANAGER.lock();
                     if mgr.remove_waiter(&key, tid) {
                         return Err(SyscallError::ETIMEDOUT);
