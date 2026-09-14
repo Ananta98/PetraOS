@@ -11,7 +11,7 @@ sources:
       - args: ['./bootstrap']
       - args: |
           set -e
-          git clone https://github.com/autoconf-archive/autoconf-archive.git --branch=v2021.02.19 --depth=1
+          git clone https://github.com/autoconf-archive/autoconf-archive.git --branch=master --depth=1
 
 tools:
   - name: host-automake-v1.16

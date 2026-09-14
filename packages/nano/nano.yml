@@ -1,7 +1,7 @@
 sources:
   - name: nano
     subdir: sources
-    url: 'https://ftpmirror.gnu.org/gnu/nano/nano-7.2.tar.xz'
+    url: 'https://ftp.fau.de/gnu/nano/nano-8.4.tar.xz'
     format: 'tar.xz'
     extract_path: 'nano-7.2'
     version: '7.2'
