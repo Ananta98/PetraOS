@@ -46,7 +46,7 @@ PROMPT_PATTERNS = [
     re.compile(rb"bash[#$]\s*"),
     re.compile(rb"[a-zA-Z0-9_\-\.]+@[a-zA-Z0-9_\-\.]+:[^#$]*[#$]\s*"),
     re.compile(rb"\[[a-zA-Z0-9_\-\.]+@[a-zA-Z0-9_\-\.]+\s+[^#$]*\][#$]\s*"),
-    re.compile(rb"[#$]\s+"),
+    re.compile(rb"[\r\n][a-zA-Z0-9_.~/-]*[#$]\s+"),
 ]
 
 # Regex for stripping ANSI escape sequences
