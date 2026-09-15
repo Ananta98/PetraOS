@@ -16,31 +16,43 @@ use alloc::vec::Vec;
 pub fn mkdir_p(path: &str) -> Result<Arc<Dentry>, VfsError> {
     let clean = path.trim_start_matches('/');
     if clean.is_empty() {
-        return crate::fs::resolve_path("/");
+        return crate::fs::vfs::path::resolve_path("/");
     }
 
-    let mut current_dentry = crate::fs::resolve_path("/")?;
+    // Obtain the VFS root dentry directly from the mount table to avoid the
+    // full resolve_path() round-trip (MOUNT_TABLE.read + normalize + loop) on
+    // every component.  We then walk forward through the dentry cache and only
+    // fall back to ops.mkdir / ops.lookup when a child is not yet cached.
+    let root_dentry = {
+        let mt = crate::fs::vfs::mount::MOUNT_TABLE.read();
+        mt.root()
+            .map(|m| m.root_dentry.clone())
+            .ok_or(VfsError::NotFound)?
+    };
+
+    let mut current_dentry = root_dentry;
     for part in clean.split('/').filter(|s| !s.is_empty()) {
-        let next_dentry = match current_dentry.children.lock().get(part).cloned() {
-            Some(child) => {
-                if child.inode.inode_type != InodeType::Directory {
+        let cached = { current_dentry.children.lock().get(part).cloned() };
+        if let Some(child) = cached {
+            if child.inode.inode_type != InodeType::Directory {
+                return Err(VfsError::NotDirectory);
+            }
+            current_dentry = child;
+            continue;
+        }
+
+        // Slow path: create or discover the directory via inode ops.
+        let next_dentry = match current_dentry.inode.ops.mkdir(part) {
+            Ok(inode) => Dentry::add_child(&current_dentry, part.into(), inode),
+            Err(VfsError::AlreadyExists) => {
+                let inode = current_dentry.inode.ops.lookup(part)?;
+                if inode.inode_type != InodeType::Directory {
                     return Err(VfsError::NotDirectory);
                 }
-                child
+                // Populate the dentry cache so the next lookup is a fast-path hit.
+                Dentry::add_child(&current_dentry, part.into(), inode)
             }
-            None => {
-                match current_dentry.inode.ops.mkdir(part) {
-                    Ok(inode) => Dentry::add_child(&current_dentry, part.into(), inode),
-                    Err(VfsError::AlreadyExists) => {
-                        let inode = current_dentry.inode.ops.lookup(part)?;
-                        if inode.inode_type != InodeType::Directory {
-                            return Err(VfsError::NotDirectory);
-                        }
-                        Dentry::add_child(&current_dentry, part.into(), inode)
-                    }
-                    Err(err) => return Err(err),
-                }
-            }
+            Err(err) => return Err(err),
         };
         current_dentry = next_dentry;
     }
@@ -127,7 +139,11 @@ pub fn extract_cpio_archive(data: &[u8]) -> Result<usize, &'static str> {
         let entry = match entry_res {
             Ok(e) => e,
             Err(e) => {
-                log::warn!("[Initramfs] CPIO parse error at file {}: {:?}", extracted_count, e);
+                log::warn!(
+                    "[Initramfs] CPIO parse error at file {}: {:?}",
+                    extracted_count,
+                    e
+                );
                 return Err("Failed to parse CPIO entry header");
             }
         };
@@ -196,7 +212,8 @@ pub fn extract_cpio_archive(data: &[u8]) -> Result<usize, &'static str> {
                         extracted_count += 1;
 
                         if nlink > 1 {
-                            let entry_record = hardlinks.entry(ino).or_insert_with(|| (None, Vec::new()));
+                            let entry_record =
+                                hardlinks.entry(ino).or_insert_with(|| (None, Vec::new()));
                             entry_record.0 = Some(full_path.clone());
                             let pending_paths = core::mem::take(&mut entry_record.1);
                             for pending in pending_paths {

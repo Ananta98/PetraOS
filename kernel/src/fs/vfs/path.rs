@@ -108,6 +108,8 @@ fn resolve_path_symlink(path: &str, depth: usize) -> Result<Arc<Dentry>, VfsErro
 
     let parts: Vec<&str> = remainder.split('/').filter(|s| !s.is_empty()).collect();
 
+    let multi_mount = mt.mount_count() > 1;
+
     for (idx, part) in parts.iter().enumerate() {
         // 1. Check local children dentry cache first
         let dentry = if let Some(cached_child) = current.children.lock().get(*part).cloned() {
@@ -141,12 +143,6 @@ fn resolve_path_symlink(path: &str, depth: usize) -> Result<Arc<Dentry>, VfsErro
         if dentry.inode.inode_type == InodeType::Symlink {
             let target = dentry.inode.ops.readlink()?;
             drop(mt);
-            // Relative symlink targets resolve against the symlink's parent
-            // directory (POSIX), not the symlink path itself. Using the full
-            // symlink path would produce e.g.
-            // "/usr/lib/libreadline.so.8/libreadline.so.8.3" instead of
-            // "/usr/lib/libreadline.so.8.3" and break UsrMerge links like
-            // /bin -> usr/bin plus versioned .so symlinks.
             let symlink_path = dentry.full_path();
             let mut target_full = if target.starts_with('/') {
                 target
@@ -171,13 +167,19 @@ fn resolve_path_symlink(path: &str, depth: usize) -> Result<Arc<Dentry>, VfsErro
             return resolve_path_symlink(&norm, depth + 1);
         }
 
-        // 3. Mount boundary traversal
-        let child_path = dentry.full_path();
-        if let Some((child_mount, _)) = mt.lookup(&child_path) {
-            if child_mount.mount_point == child_path && child_mount.mount_point != mount.mount_point
-            {
-                current = child_mount.root_dentry.clone();
-                continue;
+        // 3. Mount boundary traversal — only needed when more than one
+        //    filesystem is mounted.  full_path() is O(depth) and allocates;
+        //    avoiding it in the single-mount case eliminates the O(N·D)
+        //    overhead that caused initramfs extraction to hang.
+        if multi_mount {
+            let child_path = dentry.full_path();
+            if let Some((child_mount, _)) = mt.lookup(&child_path) {
+                if child_mount.mount_point == child_path
+                    && child_mount.mount_point != mount.mount_point
+                {
+                    current = child_mount.root_dentry.clone();
+                    continue;
+                }
             }
         }
 
@@ -294,7 +296,11 @@ pub fn link(old_path: &str, new_path: &str) -> Result<Arc<Dentry>, VfsError> {
     }
     let (new_parent, new_name) = resolve_parent_and_name(new_path)?;
     new_parent.inode.ops.link(new_name, &target_dentry.inode)?;
-    Ok(Dentry::add_child(&new_parent, new_name.into(), target_dentry.inode.clone()))
+    Ok(Dentry::add_child(
+        &new_parent,
+        new_name.into(),
+        target_dentry.inode.clone(),
+    ))
 }
 
 /// Change mode permissions of the file at `path`.

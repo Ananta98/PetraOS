@@ -86,4 +86,12 @@ impl MountTable {
     pub fn root(&self) -> Option<Arc<Mount>> {
         self.mounts.get("/").cloned()
     }
+
+    /// Return the total number of registered mounts.
+    ///
+    /// Used by path resolution to skip the per-component mount-boundary check
+    /// when only the root filesystem is present (the common early-boot case).
+    pub fn mount_count(&self) -> usize {
+        self.mounts.len()
+    }
 }
