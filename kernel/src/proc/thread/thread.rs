@@ -120,26 +120,6 @@ impl Thread {
         self.kernel_stack = Some(kstack);
     }
 
-    /// Configure execution context for a forked child thread.
-    pub fn setup_fork_context(
-        &mut self,
-        kstack: KernelStack,
-        child_rsp: u64,
-        cr3: usize,
-        fs_base: u64,
-        gs_base: u64,
-        sig_mask: SigSet,
-    ) {
-        self.context.rsp = child_rsp as usize;
-        self.context.cr3 = cr3;
-        self.context.rflags = 0x202;
-        self.context.fs_base = fs_base;
-        self.context.gs_base = gs_base;
-        self.sig_mask = sig_mask;
-        self.kernel_stack = Some(kstack);
-        self.state = ThreadState::Ready;
-    }
-
     /// Sets the thread nice value and updates its associated CPU weight.
     pub fn set_nice(&mut self, nice: Nice) {
         self.nice = nice;

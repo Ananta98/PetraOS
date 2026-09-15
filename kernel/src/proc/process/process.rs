@@ -271,14 +271,14 @@ impl Process {
             .map_err(|_| "Failed to allocate kernel stack for child process")?;
         let child_rsp = crate::arch::cpu::stack::init_fork_stack(&mut child_kstack, parent_frame);
 
-        child_thread.setup_fork_context(
-            child_kstack,
-            child_rsp,
-            child_cr3,
-            fs_base,
-            gs_base,
-            sig_mask,
-        );
+        child_thread.context.rsp = child_rsp as usize;
+        child_thread.context.cr3 = child_cr3;
+        child_thread.context.rflags = 0x202;
+        child_thread.context.fs_base = fs_base;
+        child_thread.context.gs_base = gs_base;
+        child_thread.sig_mask = sig_mask;
+        child_thread.kernel_stack = Some(child_kstack);
+        child_thread.state = ThreadState::Ready;
 
         let c_thread_arc = Arc::new(Mutex::new(child_thread));
         child_threads.insert(child_tid, c_thread_arc.clone());
