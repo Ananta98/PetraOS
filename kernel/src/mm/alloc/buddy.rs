@@ -116,13 +116,19 @@ impl BuddyFrameAllocator {
     }
 
     /// Allocate $2^{\text{order}}$ physical memory pages.
+    ///
+    /// The returned block is contiguous and page-aligned. Alignment is kept at
+    /// `PAGE_SIZE` (not block size) so large orders (e.g. 46 MiB libc.a needs
+    /// order 14 = 64 MiB) can be satisfied from any contiguous run. Requiring
+    /// size-alignment would spuriously fail when the heap is split around the
+    /// early metadata carve-out, turning initramfs extraction into an OOM hang.
     pub fn alloc_pages(&mut self, order: usize) -> Option<PhysAddr> {
         if order >= BUDDY_MAX_ORDER {
             return None;
         }
 
         let size = (1usize << order) * (PAGE_SIZE as usize);
-        let layout = match Layout::from_size_align(size, size) {
+        let layout = match Layout::from_size_align(size, PAGE_SIZE as usize) {
             Ok(l) => l,
             Err(_) => return None,
         };
@@ -204,7 +210,8 @@ impl BuddyFrameAllocator {
         self.allocated_pages = self.allocated_pages.saturating_sub(count);
 
         let size = (1usize << order) * (PAGE_SIZE as usize);
-        if let Ok(layout) = Layout::from_size_align(size, size) {
+        // SAFETY: Layout matches alloc_pages (size, PAGE_SIZE alignment).
+        if let Ok(layout) = Layout::from_size_align(size, PAGE_SIZE as usize) {
             let vptr_val = (paddr.as_u64() + self.hhdm_offset) as *mut u8;
             if let Some(nonnull) = NonNull::new(vptr_val) {
                 // SAFETY: We verified the page was allocated, ref_count reached 0, and bounds are valid.
