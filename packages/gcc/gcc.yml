@@ -65,6 +65,7 @@ tools:
           - args: ['make', '-j@PARALLELISM@', 'all-gcc', 'all-fixincludes']
         install:
           - args: ['make', 'install-gcc', 'install-fixincludes']
+          - args: ['sh', '-c', 'cat @THIS_SOURCE_DIR@/gcc/limitx.h @THIS_SOURCE_DIR@/gcc/glimits.h @THIS_SOURCE_DIR@/gcc/limity.h > @PREFIX@/lib/gcc/x86_64-petra/12.1.0/include-fixed/limits.h']
           - args: ['mkdir', '-p', '@PREFIX@/x86_64-petra/bin']
           - args: ['ln', '-sf', '../../../host-binutils/x86_64-petra/bin/as',
                    '@PREFIX@/x86_64-petra/bin/as']
@@ -118,6 +119,16 @@ packages:
           - 'CXXFLAGS=-O2 -pipe'
     build:
       - args: ['make', '-j@PARALLELISM@', 'all-gcc', 'all-target-libgcc']
+      # NOTE: xbstrap 0.36 `Build` only executes `configure`+`build`
+      # (package `install:` steps are parsed but never run), so install
+      # directly here via DESTDIR. Keep `install:` below for compat
+      # with fixed xbstrap / documentation.
+      - args: ['make', 'DESTDIR=@SYSROOT_DIR@', 'install-gcc', 'install-target-libgcc']
+      - args: ['sh', '-c', 'cp -rv @BUILD_ROOT@/tools/host-gcc/lib/gcc/x86_64-petra/12.1.0/* @SYSROOT_DIR@/usr/lib/gcc/x86_64-petra/12.1.0/ || true']
+      - args: ['sh', '-c', 'cp -rv @BUILD_ROOT@/tools/host-gcc/x86_64-petra/include/* @SYSROOT_DIR@/usr/include/ || true']
+      - args: ['ln', '-sf', '/usr/bin/gcc', '@SYSROOT_DIR@/usr/bin/cc']
+      - args: ['ln', '-sf', '/usr/libexec/gcc/x86_64-petra/12.1.0/cc1', '@SYSROOT_DIR@/usr/lib/gcc/x86_64-petra/12.1.0/cc1']
+      - args: ['ln', '-sf', '/usr/libexec/gcc/x86_64-petra/12.1.0/cc1plus', '@SYSROOT_DIR@/usr/lib/gcc/x86_64-petra/12.1.0/cc1plus']
     install:
       - args: ['make', 'DESTDIR=@SYSROOT_DIR@', 'install-gcc', 'install-target-libgcc']
       - args: ['sh', '-c', 'cp -rv @BUILD_ROOT@/tools/host-gcc/lib/gcc/x86_64-petra/12.1.0/* @SYSROOT_DIR@/usr/lib/gcc/x86_64-petra/12.1.0/ || true']

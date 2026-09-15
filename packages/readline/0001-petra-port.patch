@@ -1,16 +1,15 @@
-From 1fa5e824e5c1defb99ce29523bb5b913ae38c1b1 Mon Sep 17 00:00:00 2001
+From b44760cbe81a0fda25ccf4bc2abb931a990894c7 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
-Date: Sat, 15 Aug 2026 21:55:00 +0700
-Subject: [PATCH] feat(petra): add PetraOS support to GNU Readline 8.2
+Date: Mon, 14 Sep 2026 21:11:31 +0700
+Subject: [PATCH] feat(petra): add PetraOS support to GNU Readline 8.3
 
-Signed-off-by: Ananta <kusumaananta042@gmail.com>
 ---
  support/shlib-install | 2 +-
  support/shobj-conf    | 2 +-
  2 files changed, 2 insertions(+), 2 deletions(-)
 
 diff --git a/support/shlib-install b/support/shlib-install
-index 661355d..ebe0dd6 100644
+index 661355d..ebe0dd6 100755
 --- a/support/shlib-install
 +++ b/support/shlib-install
 @@ -71,7 +71,7 @@ fi
@@ -23,7 +22,7 @@ index 661355d..ebe0dd6 100644
  		chmod 755 ${INSTALLDIR}/${LIBNAME}
  	fi ;;
 diff --git a/support/shobj-conf b/support/shobj-conf
-index cd7634d..075c5a4 100644
+index c3df351..41a7c09 100644
 --- a/support/shobj-conf
 +++ b/support/shobj-conf
 @@ -123,7 +123,7 @@ sunos5*|solaris2*)
@@ -37,3 +36,4 @@ index cd7634d..075c5a4 100644
  	SHOBJ_LDFLAGS='-shared -Wl,-soname,$@'
 -- 
 2.43.0
+

@@ -1,16 +1,14 @@
-From e9f191b5c464c208c90353c7a23c6f85e4952673 Mon Sep 17 00:00:00 2001
+From b7218c8f3e8a945facecf49418ca0e41fc9d92d8 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
-Date: Sat, 15 Aug 2026 21:28:00 +0700
-Subject: [PATCH] feat(petra): add PetraOS support to GNU Bash 5.2
+Date: Mon, 14 Sep 2026 21:05:48 +0700
+Subject: [PATCH] feat(petra): add PetraOS support to GNU Bash 5.3
 
-Signed-off-by: Ananta <kusumaananta042@gmail.com>
 ---
  externs.h          | 2 +-
- lib/sh/random.c    | 4 ++++
  subst.c            | 1 +
  support/config.sub | 1 +
  support/shobj-conf | 4 ++++
- 5 files changed, 11 insertions(+), 1 deletion(-)
+ 4 files changed, 7 insertions(+), 1 deletion(-)
 
 diff --git a/externs.h b/externs.h
 index 47b80f6..063912f 100644
@@ -25,21 +23,6 @@ index 47b80f6..063912f 100644
  #endif /* !HAVE_GETHOSTNAME */
  
  extern int getmaxgroups (void);
-diff --git a/lib/sh/random.c b/lib/sh/random.c
-index a1b2c3d..e4f5a6b 100644
---- a/lib/sh/random.c
-+++ b/lib/sh/random.c
-@@ -26,6 +26,10 @@
- #  include <sys/random.h>
- #endif
- 
-+#ifndef GRND_NONBLOCK
-+#  define GRND_NONBLOCK 0x0001
-+#endif
-+
- #if defined (HAVE_UNISTD_H)
- #  include <unistd.h>
- #endif
 diff --git a/subst.c b/subst.c
 index e9d3e75..f787665 100644
 --- a/subst.c
@@ -53,19 +36,19 @@ index e9d3e75..f787665 100644
  #if defined (HAVE_UNISTD_H)
  #  include <unistd.h>
 diff --git a/support/config.sub b/support/config.sub
-index 1754a1b..1754c2d 100755
+index 4aaae46..a879c30 100644
 --- a/support/config.sub
 +++ b/support/config.sub
-@@ -1754,6 +1754,7 @@ case $os in
- 	     | onefs* | tirtos* | phoenix* | fuchsia* | redox* | bme* \
- 	     | midnightbsd* | amdhsa* | unleashed* | emscripten* | wasi* \
- 	     | nsk* | powerunix* | genode* | zvmoe* | qnx* | emx* | zephyr* \
-+	     | petra* \
- 	     | fiwix* )
- 		;;
- 	# This one is extra strict with allowed versions
+@@ -2082,6 +2082,7 @@ case $os in
+ 	| oskit* \
+ 	| osx* \
+ 	| palmos* \
++	| petra* \
+ 	| phoenix* \
+ 	| plan9* \
+ 	| powermax* \
 diff --git a/support/shobj-conf b/support/shobj-conf
-index c3df351..0576089 100755
+index c3df351..5be5af9 100755
 --- a/support/shobj-conf
 +++ b/support/shobj-conf
 @@ -79,6 +79,10 @@ nsk-cc-tandem|nsk-c99-tandem)
@@ -81,3 +64,4 @@ index c3df351..0576089 100755
  	SHOBJ_LD=/usr/bin/ld
 -- 
 2.43.0
+

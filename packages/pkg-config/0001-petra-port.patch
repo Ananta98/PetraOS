@@ -26,15 +26,20 @@ diff --git a/glib/glib/gconvert.c b/glib/glib/gconvert.c
 index 1234567..89abcdef 100644
 --- a/glib/glib/gconvert.c
 +++ b/glib/glib/gconvert.c
-@@ -24,8 +24,20 @@
- #include "glibconfig.h"
-+#include <errno.h>
-+#include <stdio.h>
-+#include <string.h>
-+#include <stdlib.h>
+@@ -22,15 +22,27 @@
  
- #ifndef G_OS_WIN32
+ #include "config.h"
+ #include "glibconfig.h"
+-
+-#ifndef G_OS_WIN32
 -#include <iconv.h>
+-#endif
+ #include <errno.h>
+ #include <stdio.h>
+ #include <string.h>
+ #include <stdlib.h>
+ 
++#ifndef G_OS_WIN32
 +typedef void *iconv_t;
 +static inline iconv_t iconv_open (const char *to, const char *from) { (void)to; (void)from; return (iconv_t)1; }
 +static inline size_t iconv (iconv_t cd, char **inbuf, size_t *inbytesleft, char **outbuf, size_t *outbytesleft) {
@@ -48,10 +53,10 @@ index 1234567..89abcdef 100644
 +    return 0;
 +}
 +static inline int iconv_close (iconv_t cd) { (void)cd; return 0; }
++#endif
++
+ #ifdef G_OS_WIN32
+ #include "win_iconv.c"
  #endif
--#include <errno.h>
--#include <stdio.h>
--#include <string.h>
--#include <stdlib.h>
 -- 
 2.43.0

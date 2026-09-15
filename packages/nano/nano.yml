@@ -3,8 +3,8 @@ sources:
     subdir: sources
     url: 'https://ftp.fau.de/gnu/nano/nano-8.4.tar.xz'
     format: 'tar.xz'
-    extract_path: 'nano-7.2'
-    version: '7.2'
+    extract_path: 'nano-8.4'
+    version: '8.4'
     patch_path_strip: 1
     tools_required:
       - host-automake-v1.16
@@ -39,8 +39,14 @@ packages:
           - 'NCURSESW_LIBS=-L@SYSROOT_DIR@/usr/lib -lncursesw -ltinfow'
           - 'NCURSES_CFLAGS=-I@SYSROOT_DIR@/usr/include/ncursesw -I@SYSROOT_DIR@/usr/include'
           - 'NCURSES_LIBS=-L@SYSROOT_DIR@/usr/lib -lncursesw -ltinfow'
+          - 'gl_cv_func_strcasecmp_works=yes'
+          - 'gl_cv_func_getopt_posix=yes'
     build:
       - args: ['make', '-j@PARALLELISM@']
+      - args: ['make', 'DESTDIR=@SYSROOT_DIR@', 'install']
+      - args: |
+          mkdir -p @SYSROOT_DIR@/usr/bin
+          cp -f src/nano @SYSROOT_DIR@/usr/bin/nano
     install:
       - args: ['make', 'DESTDIR=@SYSROOT_DIR@', 'install']
       - args: |

@@ -1,7 +1,7 @@
-From 2360324cc5a936ab022fbd853cd4aeacabc8a517 Mon Sep 17 00:00:00 2001
+From 50c59fed89098d4229652bb67b6ad22e15b5a53b Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sat, 15 Aug 2026 11:59:14 +0700
-Subject: [PATCH 01/28] feat(sysdeps): add PetraOS support and GCC 13
+Subject: [PATCH 01/29] feat(sysdeps): add PetraOS support and GCC 13
  compatibility
 
 ---
@@ -159,7 +159,7 @@ Subject: [PATCH 01/28] feat(sysdeps): add PetraOS support and GCC 13
  create mode 100644 sysdeps/petra/meson.build
 
 diff --git a/meson.build b/meson.build
-index 186e446f0..b3833bf59 100644
+index 186e446..b3833bf 100644
 --- a/meson.build
 +++ b/meson.build
 @@ -320,6 +320,13 @@ elif host_machine.system() == 'ethereal'
@@ -177,7 +177,7 @@ index 186e446f0..b3833bf59 100644
  elif host_machine.system() == 'demo'
  	subdir('sysdeps/demo')
 diff --git a/options/ansi/generic/stdlib.cpp b/options/ansi/generic/stdlib.cpp
-index 4e2a16f2c..00bd02f15 100644
+index 4e2a16f..00bd02f 100644
 --- a/options/ansi/generic/stdlib.cpp
 +++ b/options/ansi/generic/stdlib.cpp
 @@ -371,16 +371,16 @@ static void qsort_impl(void *base, size_t count, size_t size, Compare compare) {
@@ -202,7 +202,7 @@ index 4e2a16f2c..00bd02f15 100644
  
  void qsort(void *base, size_t count, size_t size,
 diff --git a/options/ansi/x86_64/meson.build b/options/ansi/x86_64/meson.build
-index f54f200a8..5856d624a 100644
+index f54f200..5856d62 100644
 --- a/options/ansi/x86_64/meson.build
 +++ b/options/ansi/x86_64/meson.build
 @@ -1,14 +1 @@
@@ -222,7 +222,7 @@ index f54f200a8..5856d624a 100644
 -static_cpp_args += arch_defines
 +# Generic string functions used for PetraOS on GCC 13
 diff --git a/options/internal/include/mlibc/allocator.hpp b/options/internal/include/mlibc/allocator.hpp
-index d5496df8f..490fc8bee 100644
+index d5496df..490fc8b 100644
 --- a/options/internal/include/mlibc/allocator.hpp
 +++ b/options/internal/include/mlibc/allocator.hpp
 @@ -80,20 +80,34 @@ template <typename T>
@@ -270,7 +270,7 @@ index d5496df8f..490fc8bee 100644
  
  private:
 diff --git a/subprojects/frigg.wrap b/subprojects/frigg.wrap
-index 00e356e67..c946ebc3e 100644
+index 00e356e..c946ebc 100644
 --- a/subprojects/frigg.wrap
 +++ b/subprojects/frigg.wrap
 @@ -1,3 +1,4 @@
@@ -280,7 +280,7 @@ index 00e356e67..c946ebc3e 100644
 +patch_directory = frigg
 diff --git a/subprojects/packagefiles/frigg/include/frg/span.hpp b/subprojects/packagefiles/frigg/include/frg/span.hpp
 new file mode 100644
-index 000000000..d0e44600c
+index 0000000..d0e4460
 --- /dev/null
 +++ b/subprojects/packagefiles/frigg/include/frg/span.hpp
 @@ -0,0 +1,69 @@
@@ -355,7 +355,7 @@ index 000000000..d0e44600c
 +} // namespace frg
 diff --git a/sysdeps/petra/crt-x86_64/Scrt1.S b/sysdeps/petra/crt-x86_64/Scrt1.S
 new file mode 100644
-index 000000000..2715c9b50
+index 0000000..2715c9b
 --- /dev/null
 +++ b/sysdeps/petra/crt-x86_64/Scrt1.S
 @@ -0,0 +1,8 @@
@@ -369,7 +369,7 @@ index 000000000..2715c9b50
 +.section .note.GNU-stack,"",%progbits
 diff --git a/sysdeps/petra/crt-x86_64/crt1.S b/sysdeps/petra/crt-x86_64/crt1.S
 new file mode 100644
-index 000000000..2715c9b50
+index 0000000..2715c9b
 --- /dev/null
 +++ b/sysdeps/petra/crt-x86_64/crt1.S
 @@ -0,0 +1,8 @@
@@ -383,7 +383,7 @@ index 000000000..2715c9b50
 +.section .note.GNU-stack,"",%progbits
 diff --git a/sysdeps/petra/crt-x86_64/crti.S b/sysdeps/petra/crt-x86_64/crti.S
 new file mode 100644
-index 000000000..903c9d03c
+index 0000000..903c9d0
 --- /dev/null
 +++ b/sysdeps/petra/crt-x86_64/crti.S
 @@ -0,0 +1,15 @@
@@ -404,7 +404,7 @@ index 000000000..903c9d03c
 +.section .note.GNU-stack,"",%progbits
 diff --git a/sysdeps/petra/crt-x86_64/crtn.S b/sysdeps/petra/crt-x86_64/crtn.S
 new file mode 100644
-index 000000000..4730e79ad
+index 0000000..4730e79
 --- /dev/null
 +++ b/sysdeps/petra/crt-x86_64/crtn.S
 @@ -0,0 +1,11 @@
@@ -421,7 +421,7 @@ index 000000000..4730e79ad
 +.section .note.GNU-stack,"",%progbits
 diff --git a/sysdeps/petra/generic/entry.cpp b/sysdeps/petra/generic/entry.cpp
 new file mode 100644
-index 000000000..f7dca05d3
+index 0000000..f7dca05
 --- /dev/null
 +++ b/sysdeps/petra/generic/entry.cpp
 @@ -0,0 +1,16 @@
@@ -443,7 +443,7 @@ index 000000000..f7dca05d3
 +}
 diff --git a/sysdeps/petra/generic/generic.cpp b/sysdeps/petra/generic/generic.cpp
 new file mode 100644
-index 000000000..c8493d432
+index 0000000..c8493d4
 --- /dev/null
 +++ b/sysdeps/petra/generic/generic.cpp
 @@ -0,0 +1,461 @@
@@ -910,7 +910,7 @@ index 000000000..c8493d432
 +} // namespace mlibc
 diff --git a/sysdeps/petra/include/abi-bits/access.h b/sysdeps/petra/include/abi-bits/access.h
 new file mode 120000
-index 000000000..cb8393167
+index 0000000..cb83931
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/access.h
 @@ -0,0 +1 @@
@@ -918,7 +918,7 @@ index 000000000..cb8393167
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/aio.h b/sysdeps/petra/include/abi-bits/aio.h
 new file mode 120000
-index 000000000..79b41689e
+index 0000000..79b4168
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/aio.h
 @@ -0,0 +1 @@
@@ -926,7 +926,7 @@ index 000000000..79b41689e
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/auxv.h b/sysdeps/petra/include/abi-bits/auxv.h
 new file mode 120000
-index 000000000..c43f87864
+index 0000000..c43f878
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/auxv.h
 @@ -0,0 +1 @@
@@ -934,7 +934,7 @@ index 000000000..c43f87864
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/blkcnt_t.h b/sysdeps/petra/include/abi-bits/blkcnt_t.h
 new file mode 120000
-index 000000000..0b0ec270d
+index 0000000..0b0ec27
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/blkcnt_t.h
 @@ -0,0 +1 @@
@@ -942,7 +942,7 @@ index 000000000..0b0ec270d
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/blksize_t.h b/sysdeps/petra/include/abi-bits/blksize_t.h
 new file mode 120000
-index 000000000..7dc8d7cfa
+index 0000000..7dc8d7c
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/blksize_t.h
 @@ -0,0 +1 @@
@@ -950,7 +950,7 @@ index 000000000..7dc8d7cfa
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/clockid_t.h b/sysdeps/petra/include/abi-bits/clockid_t.h
 new file mode 120000
-index 000000000..6a42da56a
+index 0000000..6a42da5
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/clockid_t.h
 @@ -0,0 +1 @@
@@ -958,7 +958,7 @@ index 000000000..6a42da56a
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/clone-flags.h b/sysdeps/petra/include/abi-bits/clone-flags.h
 new file mode 120000
-index 000000000..ed3dfd696
+index 0000000..ed3dfd6
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/clone-flags.h
 @@ -0,0 +1 @@
@@ -966,7 +966,7 @@ index 000000000..ed3dfd696
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/dev_t.h b/sysdeps/petra/include/abi-bits/dev_t.h
 new file mode 120000
-index 000000000..bca881e92
+index 0000000..bca881e
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/dev_t.h
 @@ -0,0 +1 @@
@@ -974,7 +974,7 @@ index 000000000..bca881e92
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/epoll.h b/sysdeps/petra/include/abi-bits/epoll.h
 new file mode 120000
-index 000000000..eb4b76dcf
+index 0000000..eb4b76d
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/epoll.h
 @@ -0,0 +1 @@
@@ -982,7 +982,7 @@ index 000000000..eb4b76dcf
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/errno.h b/sysdeps/petra/include/abi-bits/errno.h
 new file mode 120000
-index 000000000..6e507deff
+index 0000000..6e507de
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/errno.h
 @@ -0,0 +1 @@
@@ -990,7 +990,7 @@ index 000000000..6e507deff
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/fcntl.h b/sysdeps/petra/include/abi-bits/fcntl.h
 new file mode 120000
-index 000000000..463e2c954
+index 0000000..463e2c9
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/fcntl.h
 @@ -0,0 +1 @@
@@ -998,7 +998,7 @@ index 000000000..463e2c954
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/fd_set.h b/sysdeps/petra/include/abi-bits/fd_set.h
 new file mode 120000
-index 000000000..b43142c4d
+index 0000000..b43142c
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/fd_set.h
 @@ -0,0 +1 @@
@@ -1006,7 +1006,7 @@ index 000000000..b43142c4d
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/fsblkcnt_t.h b/sysdeps/petra/include/abi-bits/fsblkcnt_t.h
 new file mode 120000
-index 000000000..898dfb2f3
+index 0000000..898dfb2
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/fsblkcnt_t.h
 @@ -0,0 +1 @@
@@ -1014,7 +1014,7 @@ index 000000000..898dfb2f3
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/fsfilcnt_t.h b/sysdeps/petra/include/abi-bits/fsfilcnt_t.h
 new file mode 120000
-index 000000000..791755c9c
+index 0000000..791755c
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/fsfilcnt_t.h
 @@ -0,0 +1 @@
@@ -1022,7 +1022,7 @@ index 000000000..791755c9c
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/gid_t.h b/sysdeps/petra/include/abi-bits/gid_t.h
 new file mode 120000
-index 000000000..abce6d69a
+index 0000000..abce6d6
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/gid_t.h
 @@ -0,0 +1 @@
@@ -1030,7 +1030,7 @@ index 000000000..abce6d69a
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/in.h b/sysdeps/petra/include/abi-bits/in.h
 new file mode 120000
-index 000000000..418d1d5c0
+index 0000000..418d1d5
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/in.h
 @@ -0,0 +1 @@
@@ -1038,7 +1038,7 @@ index 000000000..418d1d5c0
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/ino_t.h b/sysdeps/petra/include/abi-bits/ino_t.h
 new file mode 120000
-index 000000000..4c20aca26
+index 0000000..4c20aca
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/ino_t.h
 @@ -0,0 +1 @@
@@ -1046,7 +1046,7 @@ index 000000000..4c20aca26
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/inotify.h b/sysdeps/petra/include/abi-bits/inotify.h
 new file mode 120000
-index 000000000..b5cb28237
+index 0000000..b5cb282
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/inotify.h
 @@ -0,0 +1 @@
@@ -1054,7 +1054,7 @@ index 000000000..b5cb28237
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/ioctls.h b/sysdeps/petra/include/abi-bits/ioctls.h
 new file mode 120000
-index 000000000..595106b6f
+index 0000000..595106b
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/ioctls.h
 @@ -0,0 +1 @@
@@ -1062,7 +1062,7 @@ index 000000000..595106b6f
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/ipc.h b/sysdeps/petra/include/abi-bits/ipc.h
 new file mode 120000
-index 000000000..2c7ffc4c9
+index 0000000..2c7ffc4
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/ipc.h
 @@ -0,0 +1 @@
@@ -1070,7 +1070,7 @@ index 000000000..2c7ffc4c9
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/limits.h b/sysdeps/petra/include/abi-bits/limits.h
 new file mode 120000
-index 000000000..6c88db2ed
+index 0000000..6c88db2
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/limits.h
 @@ -0,0 +1 @@
@@ -1078,7 +1078,7 @@ index 000000000..6c88db2ed
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/mode_t.h b/sysdeps/petra/include/abi-bits/mode_t.h
 new file mode 120000
-index 000000000..5d78fdfc3
+index 0000000..5d78fdf
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/mode_t.h
 @@ -0,0 +1 @@
@@ -1086,7 +1086,7 @@ index 000000000..5d78fdfc3
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/mqueue.h b/sysdeps/petra/include/abi-bits/mqueue.h
 new file mode 120000
-index 000000000..fa87b078a
+index 0000000..fa87b07
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/mqueue.h
 @@ -0,0 +1 @@
@@ -1094,7 +1094,7 @@ index 000000000..fa87b078a
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/msg.h b/sysdeps/petra/include/abi-bits/msg.h
 new file mode 120000
-index 000000000..f402b4930
+index 0000000..f402b49
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/msg.h
 @@ -0,0 +1 @@
@@ -1102,7 +1102,7 @@ index 000000000..f402b4930
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/nlink_t.h b/sysdeps/petra/include/abi-bits/nlink_t.h
 new file mode 120000
-index 000000000..bb3b625c3
+index 0000000..bb3b625
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/nlink_t.h
 @@ -0,0 +1 @@
@@ -1110,7 +1110,7 @@ index 000000000..bb3b625c3
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/packet.h b/sysdeps/petra/include/abi-bits/packet.h
 new file mode 120000
-index 000000000..998ef1ab0
+index 0000000..998ef1a
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/packet.h
 @@ -0,0 +1 @@
@@ -1118,7 +1118,7 @@ index 000000000..998ef1ab0
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/pid_t.h b/sysdeps/petra/include/abi-bits/pid_t.h
 new file mode 120000
-index 000000000..baa90f6af
+index 0000000..baa90f6
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/pid_t.h
 @@ -0,0 +1 @@
@@ -1126,7 +1126,7 @@ index 000000000..baa90f6af
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/poll.h b/sysdeps/petra/include/abi-bits/poll.h
 new file mode 120000
-index 000000000..8ea6a0a39
+index 0000000..8ea6a0a
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/poll.h
 @@ -0,0 +1 @@
@@ -1134,7 +1134,7 @@ index 000000000..8ea6a0a39
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/ptrace.h b/sysdeps/petra/include/abi-bits/ptrace.h
 new file mode 120000
-index 000000000..b2517b2cf
+index 0000000..b2517b2
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/ptrace.h
 @@ -0,0 +1 @@
@@ -1142,7 +1142,7 @@ index 000000000..b2517b2cf
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/random.h b/sysdeps/petra/include/abi-bits/random.h
 new file mode 120000
-index 000000000..83fc3d961
+index 0000000..83fc3d9
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/random.h
 @@ -0,0 +1 @@
@@ -1150,7 +1150,7 @@ index 000000000..83fc3d961
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/reboot.h b/sysdeps/petra/include/abi-bits/reboot.h
 new file mode 120000
-index 000000000..77013a416
+index 0000000..77013a4
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/reboot.h
 @@ -0,0 +1 @@
@@ -1158,7 +1158,7 @@ index 000000000..77013a416
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/resource.h b/sysdeps/petra/include/abi-bits/resource.h
 new file mode 120000
-index 000000000..88d74025f
+index 0000000..88d7402
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/resource.h
 @@ -0,0 +1 @@
@@ -1166,7 +1166,7 @@ index 000000000..88d74025f
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/riscv-hwprobe.h b/sysdeps/petra/include/abi-bits/riscv-hwprobe.h
 new file mode 120000
-index 000000000..e65132501
+index 0000000..e651325
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/riscv-hwprobe.h
 @@ -0,0 +1 @@
@@ -1174,7 +1174,7 @@ index 000000000..e65132501
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/rlim_t.h b/sysdeps/petra/include/abi-bits/rlim_t.h
 new file mode 120000
-index 000000000..e92eb5fb8
+index 0000000..e92eb5f
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/rlim_t.h
 @@ -0,0 +1 @@
@@ -1182,7 +1182,7 @@ index 000000000..e92eb5fb8
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/route.h b/sysdeps/petra/include/abi-bits/route.h
 new file mode 120000
-index 000000000..313ead67b
+index 0000000..313ead6
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/route.h
 @@ -0,0 +1 @@
@@ -1190,7 +1190,7 @@ index 000000000..313ead67b
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/sa_family_t.h b/sysdeps/petra/include/abi-bits/sa_family_t.h
 new file mode 120000
-index 000000000..a75e22967
+index 0000000..a75e229
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/sa_family_t.h
 @@ -0,0 +1 @@
@@ -1198,7 +1198,7 @@ index 000000000..a75e22967
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/sched_param.h b/sysdeps/petra/include/abi-bits/sched_param.h
 new file mode 120000
-index 000000000..fa4eb2c78
+index 0000000..fa4eb2c
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/sched_param.h
 @@ -0,0 +1 @@
@@ -1206,7 +1206,7 @@ index 000000000..fa4eb2c78
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/seek-whence.h b/sysdeps/petra/include/abi-bits/seek-whence.h
 new file mode 120000
-index 000000000..df7bccf02
+index 0000000..df7bccf
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/seek-whence.h
 @@ -0,0 +1 @@
@@ -1214,7 +1214,7 @@ index 000000000..df7bccf02
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/sem.h b/sysdeps/petra/include/abi-bits/sem.h
 new file mode 120000
-index 000000000..699d7afa5
+index 0000000..699d7af
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/sem.h
 @@ -0,0 +1 @@
@@ -1222,7 +1222,7 @@ index 000000000..699d7afa5
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/shm.h b/sysdeps/petra/include/abi-bits/shm.h
 new file mode 120000
-index 000000000..067d8c4fa
+index 0000000..067d8c4
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/shm.h
 @@ -0,0 +1 @@
@@ -1230,7 +1230,7 @@ index 000000000..067d8c4fa
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/sig-limits.h b/sysdeps/petra/include/abi-bits/sig-limits.h
 new file mode 120000
-index 000000000..f829738ed
+index 0000000..f829738
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/sig-limits.h
 @@ -0,0 +1 @@
@@ -1238,7 +1238,7 @@ index 000000000..f829738ed
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/sigevent.h b/sysdeps/petra/include/abi-bits/sigevent.h
 new file mode 120000
-index 000000000..83d069b5b
+index 0000000..83d069b
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/sigevent.h
 @@ -0,0 +1 @@
@@ -1246,7 +1246,7 @@ index 000000000..83d069b5b
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/signal.h b/sysdeps/petra/include/abi-bits/signal.h
 new file mode 120000
-index 000000000..4dcb0b7ce
+index 0000000..4dcb0b7
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/signal.h
 @@ -0,0 +1 @@
@@ -1254,7 +1254,7 @@ index 000000000..4dcb0b7ce
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/sigset_t.h b/sysdeps/petra/include/abi-bits/sigset_t.h
 new file mode 120000
-index 000000000..8b8e81e8b
+index 0000000..8b8e81e
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/sigset_t.h
 @@ -0,0 +1 @@
@@ -1262,7 +1262,7 @@ index 000000000..8b8e81e8b
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/sigval.h b/sysdeps/petra/include/abi-bits/sigval.h
 new file mode 120000
-index 000000000..ccd43a550
+index 0000000..ccd43a5
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/sigval.h
 @@ -0,0 +1 @@
@@ -1270,7 +1270,7 @@ index 000000000..ccd43a550
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/sockaddr_storage.h b/sysdeps/petra/include/abi-bits/sockaddr_storage.h
 new file mode 120000
-index 000000000..b3748654f
+index 0000000..b374865
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/sockaddr_storage.h
 @@ -0,0 +1 @@
@@ -1278,7 +1278,7 @@ index 000000000..b3748654f
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/socket.h b/sysdeps/petra/include/abi-bits/socket.h
 new file mode 120000
-index 000000000..f1dc016e6
+index 0000000..f1dc016
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/socket.h
 @@ -0,0 +1 @@
@@ -1286,7 +1286,7 @@ index 000000000..f1dc016e6
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/socklen_t.h b/sysdeps/petra/include/abi-bits/socklen_t.h
 new file mode 120000
-index 000000000..41f3b11f3
+index 0000000..41f3b11
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/socklen_t.h
 @@ -0,0 +1 @@
@@ -1294,7 +1294,7 @@ index 000000000..41f3b11f3
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/stat.h b/sysdeps/petra/include/abi-bits/stat.h
 new file mode 120000
-index 000000000..1f63b41fd
+index 0000000..1f63b41
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/stat.h
 @@ -0,0 +1 @@
@@ -1302,7 +1302,7 @@ index 000000000..1f63b41fd
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/statfs.h b/sysdeps/petra/include/abi-bits/statfs.h
 new file mode 120000
-index 000000000..e3d202f53
+index 0000000..e3d202f
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/statfs.h
 @@ -0,0 +1 @@
@@ -1310,7 +1310,7 @@ index 000000000..e3d202f53
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/statvfs.h b/sysdeps/petra/include/abi-bits/statvfs.h
 new file mode 120000
-index 000000000..1fc80c2a7
+index 0000000..1fc80c2
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/statvfs.h
 @@ -0,0 +1 @@
@@ -1318,7 +1318,7 @@ index 000000000..1fc80c2a7
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/statx.h b/sysdeps/petra/include/abi-bits/statx.h
 new file mode 120000
-index 000000000..8702a1d00
+index 0000000..8702a1d
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/statx.h
 @@ -0,0 +1 @@
@@ -1326,7 +1326,7 @@ index 000000000..8702a1d00
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/suseconds_t.h b/sysdeps/petra/include/abi-bits/suseconds_t.h
 new file mode 120000
-index 000000000..9ed659770
+index 0000000..9ed6597
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/suseconds_t.h
 @@ -0,0 +1 @@
@@ -1334,7 +1334,7 @@ index 000000000..9ed659770
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/termios.h b/sysdeps/petra/include/abi-bits/termios.h
 new file mode 120000
-index 000000000..ee8f0b091
+index 0000000..ee8f0b0
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/termios.h
 @@ -0,0 +1 @@
@@ -1342,7 +1342,7 @@ index 000000000..ee8f0b091
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/time.h b/sysdeps/petra/include/abi-bits/time.h
 new file mode 120000
-index 000000000..2a0262574
+index 0000000..2a02625
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/time.h
 @@ -0,0 +1 @@
@@ -1350,7 +1350,7 @@ index 000000000..2a0262574
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/uid_t.h b/sysdeps/petra/include/abi-bits/uid_t.h
 new file mode 120000
-index 000000000..b30677785
+index 0000000..b306777
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/uid_t.h
 @@ -0,0 +1 @@
@@ -1358,7 +1358,7 @@ index 000000000..b30677785
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/utmp-defines.h b/sysdeps/petra/include/abi-bits/utmp-defines.h
 new file mode 120000
-index 000000000..861764359
+index 0000000..8617643
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/utmp-defines.h
 @@ -0,0 +1 @@
@@ -1366,7 +1366,7 @@ index 000000000..861764359
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/utmpx.h b/sysdeps/petra/include/abi-bits/utmpx.h
 new file mode 120000
-index 000000000..c6a26774f
+index 0000000..c6a2677
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/utmpx.h
 @@ -0,0 +1 @@
@@ -1374,7 +1374,7 @@ index 000000000..c6a26774f
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/utsname.h b/sysdeps/petra/include/abi-bits/utsname.h
 new file mode 120000
-index 000000000..b28575474
+index 0000000..b285754
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/utsname.h
 @@ -0,0 +1 @@
@@ -1382,7 +1382,7 @@ index 000000000..b28575474
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/vm-flags.h b/sysdeps/petra/include/abi-bits/vm-flags.h
 new file mode 120000
-index 000000000..bbe258cff
+index 0000000..bbe258c
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/vm-flags.h
 @@ -0,0 +1 @@
@@ -1390,7 +1390,7 @@ index 000000000..bbe258cff
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/vt.h b/sysdeps/petra/include/abi-bits/vt.h
 new file mode 120000
-index 000000000..5798a4ac9
+index 0000000..5798a4a
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/vt.h
 @@ -0,0 +1 @@
@@ -1398,7 +1398,7 @@ index 000000000..5798a4ac9
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/wait.h b/sysdeps/petra/include/abi-bits/wait.h
 new file mode 120000
-index 000000000..feb2840c5
+index 0000000..feb2840
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/wait.h
 @@ -0,0 +1 @@
@@ -1406,7 +1406,7 @@ index 000000000..feb2840c5
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/abi-bits/xattr.h b/sysdeps/petra/include/abi-bits/xattr.h
 new file mode 120000
-index 000000000..66412d706
+index 0000000..66412d7
 --- /dev/null
 +++ b/sysdeps/petra/include/abi-bits/xattr.h
 @@ -0,0 +1 @@
@@ -1414,7 +1414,7 @@ index 000000000..66412d706
 \ No newline at end of file
 diff --git a/sysdeps/petra/include/mlibc/sysdeps.hpp b/sysdeps/petra/include/mlibc/sysdeps.hpp
 new file mode 100644
-index 000000000..5681c78f3
+index 0000000..5681c78
 --- /dev/null
 +++ b/sysdeps/petra/include/mlibc/sysdeps.hpp
 @@ -0,0 +1,69 @@
@@ -1489,7 +1489,7 @@ index 000000000..5681c78f3
 +} // namespace mlibc
 diff --git a/sysdeps/petra/include/sys/syscall.h b/sysdeps/petra/include/sys/syscall.h
 new file mode 100644
-index 000000000..88915e85d
+index 0000000..88915e8
 --- /dev/null
 +++ b/sysdeps/petra/include/sys/syscall.h
 @@ -0,0 +1,119 @@
@@ -1614,7 +1614,7 @@ index 000000000..88915e85d
 +#endif /* _SYS_SYSCALL_H */
 diff --git a/sysdeps/petra/meson.build b/sysdeps/petra/meson.build
 new file mode 100644
-index 000000000..44587ad27
+index 0000000..44587ad
 --- /dev/null
 +++ b/sysdeps/petra/meson.build
 @@ -0,0 +1,118 @@
@@ -1740,10 +1740,10 @@ index 000000000..44587ad27
 2.43.0
 
 
-From 1ce4c850354c1f37e55c8f6bfcbc17e442f2a8ea Mon Sep 17 00:00:00 2001
+From e08a27e0095a7085c79383ba95815547d8da1ea6 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sun, 16 Aug 2026 17:18:00 +0700
-Subject: [PATCH 02/28] feat(sysdeps/petra): add terminal control, poll, and
+Subject: [PATCH 02/29] feat(sysdeps/petra): add terminal control, poll, and
  select sysdeps
 
 ---
@@ -1752,7 +1752,7 @@ Subject: [PATCH 02/28] feat(sysdeps/petra): add terminal control, poll, and
  2 files changed, 87 insertions(+)
 
 diff --git a/sysdeps/petra/generic/generic.cpp b/sysdeps/petra/generic/generic.cpp
-index c8493d432..12ef809c2 100644
+index c8493d4..12ef809 100644
 --- a/sysdeps/petra/generic/generic.cpp
 +++ b/sysdeps/petra/generic/generic.cpp
 @@ -15,6 +15,9 @@
@@ -1854,7 +1854,7 @@ index c8493d432..12ef809c2 100644
 +
  } // namespace mlibc
 diff --git a/sysdeps/petra/meson.build b/sysdeps/petra/meson.build
-index 44587ad27..24a2b48d8 100644
+index 44587ad..24a2b48 100644
 --- a/sysdeps/petra/meson.build
 +++ b/sysdeps/petra/meson.build
 @@ -2,6 +2,7 @@ sysdep_supported_options = {
@@ -1869,10 +1869,10 @@ index 44587ad27..24a2b48d8 100644
 2.43.0
 
 
-From d71a318f3c9be37daa8e32b927f1b44a391010e7 Mon Sep 17 00:00:00 2001
+From 8fdd8bd9e800a32a539c8c7eba25ea04424a3dfc Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sun, 16 Aug 2026 17:19:03 +0700
-Subject: [PATCH 03/28] fix(sysdeps/petra): remove linux from
+Subject: [PATCH 03/29] fix(sysdeps/petra): remove linux from
  sysdep_supported_options
 
 ---
@@ -1880,7 +1880,7 @@ Subject: [PATCH 03/28] fix(sysdeps/petra): remove linux from
  1 file changed, 1 deletion(-)
 
 diff --git a/sysdeps/petra/meson.build b/sysdeps/petra/meson.build
-index 24a2b48d8..44587ad27 100644
+index 24a2b48..44587ad 100644
 --- a/sysdeps/petra/meson.build
 +++ b/sysdeps/petra/meson.build
 @@ -2,7 +2,6 @@ sysdep_supported_options = {
@@ -1895,10 +1895,10 @@ index 24a2b48d8..44587ad27 100644
 2.43.0
 
 
-From aa16edd1de987de59861e34e3ff64b57cf6bc9f1 Mon Sep 17 00:00:00 2001
+From a5d534276c18eb46af2c98287236e7a9abb5f8d3 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sun, 16 Aug 2026 17:19:35 +0700
-Subject: [PATCH 04/28] feat(sysdeps/petra): declare terminal and poll tags in
+Subject: [PATCH 04/29] feat(sysdeps/petra): declare terminal and poll tags in
  PetraSysdepTags
 
 ---
@@ -1906,7 +1906,7 @@ Subject: [PATCH 04/28] feat(sysdeps/petra): declare terminal and poll tags in
  1 file changed, 10 insertions(+), 1 deletion(-)
 
 diff --git a/sysdeps/petra/include/mlibc/sysdeps.hpp b/sysdeps/petra/include/mlibc/sysdeps.hpp
-index 5681c78f3..7abf63e81 100644
+index 5681c78..7abf63e 100644
 --- a/sysdeps/petra/include/mlibc/sysdeps.hpp
 +++ b/sysdeps/petra/include/mlibc/sysdeps.hpp
 @@ -56,7 +56,16 @@ struct PetraSysdepTags :
@@ -1931,17 +1931,17 @@ index 5681c78f3..7abf63e81 100644
 2.43.0
 
 
-From db809b26e0205f64504f92a4a094e595a2c311ef Mon Sep 17 00:00:00 2001
+From c4a0c1ccc58c86f650721e8365843f6bd73da372 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sun, 16 Aug 2026 17:20:01 +0700
-Subject: [PATCH 05/28] fix(sysdeps/petra): use memset for sigset_t
+Subject: [PATCH 05/29] fix(sysdeps/petra): use memset for sigset_t
 
 ---
  sysdeps/petra/generic/generic.cpp | 2 +-
  1 file changed, 1 insertion(+), 1 deletion(-)
 
 diff --git a/sysdeps/petra/generic/generic.cpp b/sysdeps/petra/generic/generic.cpp
-index 12ef809c2..413db4ace 100644
+index 12ef809..413db4a 100644
 --- a/sysdeps/petra/generic/generic.cpp
 +++ b/sysdeps/petra/generic/generic.cpp
 @@ -539,7 +539,7 @@ int Sysdeps<Pselect>::operator()(int nfds, fd_set *read_set, fd_set *write_set,
@@ -1957,10 +1957,10 @@ index 12ef809c2..413db4ace 100644
 2.43.0
 
 
-From 58794950bc30122f2188a587859c0f6f350130af Mon Sep 17 00:00:00 2001
+From 55ef383d5d25a3971856f4d24f9ee025249b6ee6 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sun, 16 Aug 2026 17:21:15 +0700
-Subject: [PATCH 06/28] fix(sysdeps/petra): direct bit check in Pselect without
+Subject: [PATCH 06/29] fix(sysdeps/petra): direct bit check in Pselect without
  __FD_ISSET
 
 ---
@@ -1968,7 +1968,7 @@ Subject: [PATCH 06/28] fix(sysdeps/petra): direct bit check in Pselect without
  1 file changed, 2 insertions(+), 2 deletions(-)
 
 diff --git a/sysdeps/petra/generic/generic.cpp b/sysdeps/petra/generic/generic.cpp
-index 413db4ace..a7cd878eb 100644
+index 413db4a..a7cd878 100644
 --- a/sysdeps/petra/generic/generic.cpp
 +++ b/sysdeps/petra/generic/generic.cpp
 @@ -524,10 +524,10 @@ int Sysdeps<Pselect>::operator()(int nfds, fd_set *read_set, fd_set *write_set,
@@ -1988,17 +1988,17 @@ index 413db4ace..a7cd878eb 100644
 2.43.0
 
 
-From 644c5f18a1dd50e21d187cf4d2f7c61f54cc92fa Mon Sep 17 00:00:00 2001
+From 5bc43821a5d34c49153a0f3acad232639f8fdc6c Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sun, 16 Aug 2026 17:21:39 +0700
-Subject: [PATCH 07/28] fix(sysdeps/petra): use fds_bits in Pselect
+Subject: [PATCH 07/29] fix(sysdeps/petra): use fds_bits in Pselect
 
 ---
  sysdeps/petra/generic/generic.cpp | 4 ++--
  1 file changed, 2 insertions(+), 2 deletions(-)
 
 diff --git a/sysdeps/petra/generic/generic.cpp b/sysdeps/petra/generic/generic.cpp
-index a7cd878eb..0e3b2d304 100644
+index a7cd878..0e3b2d3 100644
 --- a/sysdeps/petra/generic/generic.cpp
 +++ b/sysdeps/petra/generic/generic.cpp
 @@ -524,10 +524,10 @@ int Sysdeps<Pselect>::operator()(int nfds, fd_set *read_set, fd_set *write_set,
@@ -2018,10 +2018,10 @@ index a7cd878eb..0e3b2d304 100644
 2.43.0
 
 
-From d552cf372ce68ecef14fb3d6e9361dbba16c3b83 Mon Sep 17 00:00:00 2001
+From 37f7e571e240930396d68f4dbba21aaf8a74ead9 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sun, 16 Aug 2026 18:12:18 +0700
-Subject: [PATCH 08/28] feat(sysdeps/petra): implement ttyname, gethostname,
+Subject: [PATCH 08/29] feat(sysdeps/petra): implement ttyname, gethostname,
  termios fallback and pselect wrapper
 
 - Implement sys_ttyname: verify fd is a TTY via isatty, then report /dev/tty.
@@ -2035,7 +2035,7 @@ Subject: [PATCH 08/28] feat(sysdeps/petra): implement ttyname, gethostname,
  2 files changed, 109 insertions(+), 12 deletions(-)
 
 diff --git a/sysdeps/petra/generic/generic.cpp b/sysdeps/petra/generic/generic.cpp
-index 0e3b2d304..0f8230277 100644
+index 0e3b2d3..0f82302 100644
 --- a/sysdeps/petra/generic/generic.cpp
 +++ b/sysdeps/petra/generic/generic.cpp
 @@ -19,6 +19,7 @@
@@ -2197,7 +2197,7 @@ index 0e3b2d304..0f8230277 100644
  int Sysdeps<Sigpending>::operator()(sigset_t *set) {
      if (set) {
 diff --git a/sysdeps/petra/include/mlibc/sysdeps.hpp b/sysdeps/petra/include/mlibc/sysdeps.hpp
-index 7abf63e81..47b92d23f 100644
+index 7abf63e..47b92d2 100644
 --- a/sysdeps/petra/include/mlibc/sysdeps.hpp
 +++ b/sysdeps/petra/include/mlibc/sysdeps.hpp
 @@ -59,6 +59,8 @@ struct PetraSysdepTags :
@@ -2213,10 +2213,10 @@ index 7abf63e81..47b92d23f 100644
 2.43.0
 
 
-From 2bf03e78fe5b274628d2fc6709e14ae24a6aeabf Mon Sep 17 00:00:00 2001
+From 51b778f69f852471d1e6f0ec1ce0923977325e3d Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sun, 16 Aug 2026 21:54:12 +0700
-Subject: [PATCH 09/28] feat(sysdeps/petra): implement OpenDir and ReadEntries
+Subject: [PATCH 09/29] feat(sysdeps/petra): implement OpenDir and ReadEntries
  using getdents64
 
 ---
@@ -2226,7 +2226,7 @@ Subject: [PATCH 09/28] feat(sysdeps/petra): implement OpenDir and ReadEntries
  3 files changed, 17 insertions(+), 1 deletion(-)
 
 diff --git a/sysdeps/petra/generic/generic.cpp b/sysdeps/petra/generic/generic.cpp
-index 0f8230277..1da8ed59f 100644
+index 0f82302..1da8ed5 100644
 --- a/sysdeps/petra/generic/generic.cpp
 +++ b/sysdeps/petra/generic/generic.cpp
 @@ -639,4 +639,17 @@ int Sysdeps<Sigpending>::operator()(sigset_t *set) {
@@ -2248,7 +2248,7 @@ index 0f8230277..1da8ed59f 100644
 +
  } // namespace mlibc
 diff --git a/sysdeps/petra/include/mlibc/sysdeps.hpp b/sysdeps/petra/include/mlibc/sysdeps.hpp
-index 47b92d23f..f774f2190 100644
+index 47b92d2..f774f21 100644
 --- a/sysdeps/petra/include/mlibc/sysdeps.hpp
 +++ b/sysdeps/petra/include/mlibc/sysdeps.hpp
 @@ -67,7 +67,9 @@ struct PetraSysdepTags :
@@ -2263,7 +2263,7 @@ index 47b92d23f..f774f2190 100644
  
  template<typename Tag>
 diff --git a/sysdeps/petra/include/sys/syscall.h b/sysdeps/petra/include/sys/syscall.h
-index 88915e85d..90885b831 100644
+index 88915e8..90885b8 100644
 --- a/sysdeps/petra/include/sys/syscall.h
 +++ b/sysdeps/petra/include/sys/syscall.h
 @@ -55,6 +55,7 @@
@@ -2278,10 +2278,10 @@ index 88915e85d..90885b831 100644
 2.43.0
 
 
-From 4f72c40313e6bbefabd4aa7d88ba9d42de58e062 Mon Sep 17 00:00:00 2001
+From 9a07df0e032e477024323e368a8c2790bc13f477 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Wed, 19 Aug 2026 19:25:53 +0700
-Subject: [PATCH 10/28] feat(sysdeps/petra): implement Sysdeps<Sysconf>
+Subject: [PATCH 10/29] feat(sysdeps/petra): implement Sysdeps<Sysconf>
  handling
 
 ---
@@ -2290,7 +2290,7 @@ Subject: [PATCH 10/28] feat(sysdeps/petra): implement Sysdeps<Sysconf>
  2 files changed, 49 insertions(+), 1 deletion(-)
 
 diff --git a/sysdeps/petra/generic/generic.cpp b/sysdeps/petra/generic/generic.cpp
-index 1da8ed59f..0c51aeacd 100644
+index 1da8ed5..0c51aea 100644
 --- a/sysdeps/petra/generic/generic.cpp
 +++ b/sysdeps/petra/generic/generic.cpp
 @@ -20,6 +20,7 @@
@@ -2353,7 +2353,7 @@ index 1da8ed59f..0c51aeacd 100644
  } // namespace mlibc
 +
 diff --git a/sysdeps/petra/include/mlibc/sysdeps.hpp b/sysdeps/petra/include/mlibc/sysdeps.hpp
-index f774f2190..71c973805 100644
+index f774f21..71c9738 100644
 --- a/sysdeps/petra/include/mlibc/sysdeps.hpp
 +++ b/sysdeps/petra/include/mlibc/sysdeps.hpp
 @@ -69,7 +69,8 @@ struct PetraSysdepTags :
@@ -2370,10 +2370,10 @@ index f774f2190..71c973805 100644
 2.43.0
 
 
-From b753cd41079b12803aa9976823bc15667670b45b Mon Sep 17 00:00:00 2001
+From 880000a3c7f45fd6f5b7be0749f31c3b3d91b469 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Wed, 19 Aug 2026 20:37:20 +0700
-Subject: [PATCH 11/28] feat(sysdeps/petra): implement brk, fchmodat, and
+Subject: [PATCH 11/29] feat(sysdeps/petra): implement brk, fchmodat, and
  utimensat sysdeps
 
 ---
@@ -2383,7 +2383,7 @@ Subject: [PATCH 11/28] feat(sysdeps/petra): implement brk, fchmodat, and
  3 files changed, 32 insertions(+), 1 deletion(-)
 
 diff --git a/sysdeps/petra/generic/generic.cpp b/sysdeps/petra/generic/generic.cpp
-index 0c51aeacd..b6059da8d 100644
+index 0c51aea..b6059da 100644
 --- a/sysdeps/petra/generic/generic.cpp
 +++ b/sysdeps/petra/generic/generic.cpp
 @@ -698,5 +698,31 @@ int Sysdeps<Sysconf>::operator()(int num, long *ret) {
@@ -2419,7 +2419,7 @@ index 0c51aeacd..b6059da8d 100644
  
 +
 diff --git a/sysdeps/petra/include/mlibc/sysdeps.hpp b/sysdeps/petra/include/mlibc/sysdeps.hpp
-index 71c973805..045a9709a 100644
+index 71c9738..045a970 100644
 --- a/sysdeps/petra/include/mlibc/sysdeps.hpp
 +++ b/sysdeps/petra/include/mlibc/sysdeps.hpp
 @@ -70,7 +70,10 @@ struct PetraSysdepTags :
@@ -2435,7 +2435,7 @@ index 71c973805..045a9709a 100644
  
  template<typename Tag>
 diff --git a/sysdeps/petra/include/sys/syscall.h b/sysdeps/petra/include/sys/syscall.h
-index 90885b831..c6d9cbd5d 100644
+index 90885b8..c6d9cbd 100644
 --- a/sysdeps/petra/include/sys/syscall.h
 +++ b/sysdeps/petra/include/sys/syscall.h
 @@ -60,7 +60,9 @@
@@ -2452,10 +2452,10 @@ index 90885b831..c6d9cbd5d 100644
 2.43.0
 
 
-From f851d0f7d245406f8339e81ee68fabde63fea486 Mon Sep 17 00:00:00 2001
+From 43e313027ff8cefb63e33902528be75d1421c8be Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Wed, 19 Aug 2026 20:47:47 +0700
-Subject: [PATCH 12/28] fix(ansi): flush stdout on read and default stdout to
+Subject: [PATCH 12/29] fix(ansi): flush stdout on read and default stdout to
  unbuffered for immediate terminal echo
 
 ---
@@ -2463,7 +2463,7 @@ Subject: [PATCH 12/28] fix(ansi): flush stdout on read and default stdout to
  1 file changed, 5 insertions(+), 1 deletion(-)
 
 diff --git a/options/ansi/generic/file-io.cpp b/options/ansi/generic/file-io.cpp
-index be0456947..1c9337622 100644
+index be04569..1c93376 100644
 --- a/options/ansi/generic/file-io.cpp
 +++ b/options/ansi/generic/file-io.cpp
 @@ -107,6 +107,10 @@ void abstract_file::dispose() {
@@ -2490,10 +2490,10 @@ index be0456947..1c9337622 100644
 2.43.0
 
 
-From a7f7fab9b26f86dd3b599c0c6f9c84040d1ceb6b Mon Sep 17 00:00:00 2001
+From 09a2773cd5a47710a05a92808ce7f38c4cc13355 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Wed, 19 Aug 2026 20:59:14 +0700
-Subject: [PATCH 13/28] fix(stdio): default interactive terminal streams to
+Subject: [PATCH 13/29] fix(stdio): default interactive terminal streams to
  unbuffered for immediate character echoing
 
 ---
@@ -2501,7 +2501,7 @@ Subject: [PATCH 13/28] fix(stdio): default interactive terminal streams to
  1 file changed, 2 insertions(+), 2 deletions(-)
 
 diff --git a/options/ansi/generic/file-io.cpp b/options/ansi/generic/file-io.cpp
-index 1c9337622..cc161a49e 100644
+index 1c93376..cc161a4 100644
 --- a/options/ansi/generic/file-io.cpp
 +++ b/options/ansi/generic/file-io.cpp
 @@ -108,7 +108,7 @@ int abstract_file::read(char *buffer, size_t max_size, size_t *actual_size) {
@@ -2526,10 +2526,10 @@ index 1c9337622..cc161a49e 100644
 2.43.0
 
 
-From 7d82cbf953e1b333bd1c7d5ff0d6e52c1001c7da Mon Sep 17 00:00:00 2001
+From c467e559a6961b60b4528a9d46cf814c08e4dd65 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sat, 22 Aug 2026 10:05:46 +0700
-Subject: [PATCH 14/28] fix(sysdeps/petra): replace busy-loop Sleep with
+Subject: [PATCH 14/29] fix(sysdeps/petra): replace busy-loop Sleep with
  sys_nanosleep syscall
 
 ---
@@ -2537,7 +2537,7 @@ Subject: [PATCH 14/28] fix(sysdeps/petra): replace busy-loop Sleep with
  1 file changed, 30 insertions(+), 40 deletions(-)
 
 diff --git a/sysdeps/petra/generic/generic.cpp b/sysdeps/petra/generic/generic.cpp
-index b6059da8d..540bbc483 100644
+index b6059da..540bbc4 100644
 --- a/sysdeps/petra/generic/generic.cpp
 +++ b/sysdeps/petra/generic/generic.cpp
 @@ -443,47 +443,30 @@ int Sysdeps<GetCwd>::operator()(char *buffer, size_t size) {
@@ -2643,10 +2643,10 @@ index b6059da8d..540bbc483 100644
 2.43.0
 
 
-From 99507880f0e434ae7805ddc0419d3f81c6d6ceee Mon Sep 17 00:00:00 2001
+From 61e319ff63a58c48cf5faf623b41ae6cfcf17b9a Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Mon, 24 Aug 2026 12:51:05 +0700
-Subject: [PATCH 15/28] feat(sysdeps/petra): implement System V semaphore
+Subject: [PATCH 15/29] feat(sysdeps/petra): implement System V semaphore
  syscall support
 
 Add kernel-facing syscall numbers and userspace Sysdeps<> implementations
@@ -2673,7 +2673,7 @@ for the full System V IPC semaphore API:
  7 files changed, 316 insertions(+), 4 deletions(-)
 
 diff --git a/options/internal/include/mlibc/sysdep-signatures.hpp b/options/internal/include/mlibc/sysdep-signatures.hpp
-index 20d8637eb..fceed3392 100644
+index 20d8637..fceed33 100644
 --- a/options/internal/include/mlibc/sysdep-signatures.hpp
 +++ b/options/internal/include/mlibc/sysdep-signatures.hpp
 @@ -248,6 +248,8 @@ SYSDEP_FUNC(ThreadGetname, void *tcb, char *name, size_t size);
@@ -2686,7 +2686,7 @@ index 20d8637eb..fceed3392 100644
  SYSDEP_FUNC(GetThreadaffinity, pid_t tid, size_t cpusetsize, cpu_set_t *mask);
  SYSDEP_FUNC(SetAffinity, pid_t pid, size_t cpusetsize, const cpu_set_t *mask);
 diff --git a/options/internal/include/mlibc/sysdep-tags.hpp b/options/internal/include/mlibc/sysdep-tags.hpp
-index 6630cd5a0..c740d335b 100644
+index 6630cd5..c740d33 100644
 --- a/options/internal/include/mlibc/sysdep-tags.hpp
 +++ b/options/internal/include/mlibc/sysdep-tags.hpp
 @@ -514,6 +514,10 @@ struct Sysconf {};
@@ -2701,7 +2701,7 @@ index 6630cd5a0..c740d335b 100644
  struct GetAffinity {};
  // int sys_getthreadaffinity(pid_t tid, size_t cpusetsize, cpu_set_t *mask);
 diff --git a/options/posix/generic/sys-sem.cpp b/options/posix/generic/sys-sem.cpp
-index 0c128832e..0ce7c38ff 100644
+index 0c12883..0ce7c38 100644
 --- a/options/posix/generic/sys-sem.cpp
 +++ b/options/posix/generic/sys-sem.cpp
 @@ -3,6 +3,7 @@
@@ -2738,7 +2738,7 @@ index 0c128832e..0ce7c38ff 100644
  
  union semun {
 diff --git a/options/posix/include/sys/sem.h b/options/posix/include/sys/sem.h
-index 1aa56eee1..c0f84983f 100644
+index 1aa56ee..c0f8498 100644
 --- a/options/posix/include/sys/sem.h
 +++ b/options/posix/include/sys/sem.h
 @@ -5,6 +5,7 @@
@@ -2759,7 +2759,7 @@ index 1aa56eee1..c0f84983f 100644
  
  #endif /* !__MLIBC_ABI_ONLY */
 diff --git a/sysdeps/petra/generic/generic.cpp b/sysdeps/petra/generic/generic.cpp
-index 540bbc483..e0e5a13f7 100644
+index 540bbc4..e0e5a13 100644
 --- a/sysdeps/petra/generic/generic.cpp
 +++ b/sysdeps/petra/generic/generic.cpp
 @@ -21,6 +21,7 @@
@@ -3004,7 +3004,7 @@ index 540bbc483..e0e5a13f7 100644
  
  
 diff --git a/sysdeps/petra/include/mlibc/sysdeps.hpp b/sysdeps/petra/include/mlibc/sysdeps.hpp
-index 045a9709a..0c16c1293 100644
+index 045a970..0c16c12 100644
 --- a/sysdeps/petra/include/mlibc/sysdeps.hpp
 +++ b/sysdeps/petra/include/mlibc/sysdeps.hpp
 @@ -73,7 +73,33 @@ struct PetraSysdepTags :
@@ -3043,7 +3043,7 @@ index 045a9709a..0c16c1293 100644
  
  template<typename Tag>
 diff --git a/sysdeps/petra/include/sys/syscall.h b/sysdeps/petra/include/sys/syscall.h
-index c6d9cbd5d..44e9825e0 100644
+index c6d9cbd..44e9825 100644
 --- a/sysdeps/petra/include/sys/syscall.h
 +++ b/sysdeps/petra/include/sys/syscall.h
 @@ -10,6 +10,8 @@
@@ -3130,10 +3130,10 @@ index c6d9cbd5d..44e9825e0 100644
 2.43.0
 
 
-From dbb294719fa768071d1439f3508bbba186c68911 Mon Sep 17 00:00:00 2001
+From 5d035756f8107305da5485bc10c64db1b61d42a8 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Tue, 25 Aug 2026 09:42:26 +0700
-Subject: [PATCH 16/28] feat(sysdeps/petra): implement fadvise and System V
+Subject: [PATCH 16/29] feat(sysdeps/petra): implement fadvise and System V
  shared memory sysdeps
 
 ---
@@ -3143,7 +3143,7 @@ Subject: [PATCH 16/28] feat(sysdeps/petra): implement fadvise and System V
  3 files changed, 62 insertions(+), 1 deletion(-)
 
 diff --git a/sysdeps/petra/generic/generic.cpp b/sysdeps/petra/generic/generic.cpp
-index e0e5a13f7..c868b355f 100644
+index e0e5a13..c868b35 100644
 --- a/sysdeps/petra/generic/generic.cpp
 +++ b/sysdeps/petra/generic/generic.cpp
 @@ -22,6 +22,7 @@
@@ -3211,7 +3211,7 @@ index e0e5a13f7..c868b355f 100644
  
  
 diff --git a/sysdeps/petra/include/mlibc/sysdeps.hpp b/sysdeps/petra/include/mlibc/sysdeps.hpp
-index 0c16c1293..076ff7dba 100644
+index 0c16c12..076ff7d 100644
 --- a/sysdeps/petra/include/mlibc/sysdeps.hpp
 +++ b/sysdeps/petra/include/mlibc/sysdeps.hpp
 @@ -99,7 +99,12 @@ struct PetraSysdepTags :
@@ -3229,7 +3229,7 @@ index 0c16c1293..076ff7dba 100644
  
  template<typename Tag>
 diff --git a/sysdeps/petra/include/sys/syscall.h b/sysdeps/petra/include/sys/syscall.h
-index 44e9825e0..22b2c37f4 100644
+index 44e9825..22b2c37 100644
 --- a/sysdeps/petra/include/sys/syscall.h
 +++ b/sysdeps/petra/include/sys/syscall.h
 @@ -27,6 +27,9 @@
@@ -3263,10 +3263,10 @@ index 44e9825e0..22b2c37f4 100644
 2.43.0
 
 
-From 7fe7bcd16c80fd59a3cf1085d7773d1507850d71 Mon Sep 17 00:00:00 2001
+From 2a45c008b95157e527788e4e07b264387f8de8c2 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Tue, 25 Aug 2026 10:08:11 +0700
-Subject: [PATCH 17/28] feat(sysdeps/petra): implement socket and network
+Subject: [PATCH 17/29] feat(sysdeps/petra): implement socket and network
  system call sysdeps
 
 ---
@@ -3276,7 +3276,7 @@ Subject: [PATCH 17/28] feat(sysdeps/petra): implement socket and network
  3 files changed, 184 insertions(+), 1 deletion(-)
 
 diff --git a/sysdeps/petra/generic/generic.cpp b/sysdeps/petra/generic/generic.cpp
-index c868b355f..2f2160ea3 100644
+index c868b35..2f2160e 100644
 --- a/sysdeps/petra/generic/generic.cpp
 +++ b/sysdeps/petra/generic/generic.cpp
 @@ -23,6 +23,7 @@
@@ -3446,7 +3446,7 @@ index c868b355f..2f2160ea3 100644
  
  
 diff --git a/sysdeps/petra/include/mlibc/sysdeps.hpp b/sysdeps/petra/include/mlibc/sysdeps.hpp
-index 076ff7dba..c22a7f35f 100644
+index 076ff7d..c22a7f3 100644
 --- a/sysdeps/petra/include/mlibc/sysdeps.hpp
 +++ b/sysdeps/petra/include/mlibc/sysdeps.hpp
 @@ -104,7 +104,22 @@ struct PetraSysdepTags :
@@ -3474,7 +3474,7 @@ index 076ff7dba..c22a7f35f 100644
  
  template<typename Tag>
 diff --git a/sysdeps/petra/include/sys/syscall.h b/sysdeps/petra/include/sys/syscall.h
-index 22b2c37f4..a6c79f745 100644
+index 22b2c37..a6c79f7 100644
 --- a/sysdeps/petra/include/sys/syscall.h
 +++ b/sysdeps/petra/include/sys/syscall.h
 @@ -34,6 +34,21 @@
@@ -3511,10 +3511,10 @@ index 22b2c37f4..a6c79f745 100644
 2.43.0
 
 
-From e16b25bd7d9eacc8aa1fcd4e3d28c0a49d97675a Mon Sep 17 00:00:00 2001
+From 5756f5b21c1d1d83c362089fc75ff2004452ba80 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Tue, 25 Aug 2026 20:04:30 +0700
-Subject: [PATCH 18/28] feat(sysdeps/petra): implement ppoll, poll, and
+Subject: [PATCH 18/29] feat(sysdeps/petra): implement ppoll, poll, and
  terminal winsize sysdeps
 
 ---
@@ -3523,7 +3523,7 @@ Subject: [PATCH 18/28] feat(sysdeps/petra): implement ppoll, poll, and
  2 files changed, 30 insertions(+), 11 deletions(-)
 
 diff --git a/sysdeps/petra/generic/generic.cpp b/sysdeps/petra/generic/generic.cpp
-index 2f2160ea3..65de87b67 100644
+index 2f2160e..65de87b 100644
 --- a/sysdeps/petra/generic/generic.cpp
 +++ b/sysdeps/petra/generic/generic.cpp
 @@ -482,6 +482,22 @@ int Sysdeps<Tcsetattr>::operator()(int fd, int optional_action, const struct ter
@@ -3587,7 +3587,7 @@ index 2f2160ea3..65de87b67 100644
  
  #ifndef MLIBC_BUILDING_RTLD
 diff --git a/sysdeps/petra/include/mlibc/sysdeps.hpp b/sysdeps/petra/include/mlibc/sysdeps.hpp
-index c22a7f35f..3befdfd3a 100644
+index c22a7f3..3befdfd 100644
 --- a/sysdeps/petra/include/mlibc/sysdeps.hpp
 +++ b/sysdeps/petra/include/mlibc/sysdeps.hpp
 @@ -59,6 +59,8 @@ struct PetraSysdepTags :
@@ -3603,10 +3603,10 @@ index c22a7f35f..3befdfd3a 100644
 2.43.0
 
 
-From c28c18fe78c034366158211c5a7f65e3ce108b80 Mon Sep 17 00:00:00 2001
+From 131ee2b1073e161230207bb4ea0171e812fd9781 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Wed, 26 Aug 2026 19:11:42 +0700
-Subject: [PATCH 19/28] feat(sysdeps/petra): complete remaining sysdeps
+Subject: [PATCH 19/29] feat(sysdeps/petra): complete remaining sysdeps
  matching Astral parity with named constants
 
 ---
@@ -3616,7 +3616,7 @@ Subject: [PATCH 19/28] feat(sysdeps/petra): complete remaining sysdeps
  3 files changed, 642 insertions(+), 51 deletions(-)
 
 diff --git a/sysdeps/petra/generic/generic.cpp b/sysdeps/petra/generic/generic.cpp
-index 65de87b67..1fcf28da3 100644
+index 65de87b..1fcf28d 100644
 --- a/sysdeps/petra/generic/generic.cpp
 +++ b/sysdeps/petra/generic/generic.cpp
 @@ -15,6 +15,9 @@
@@ -4384,7 +4384,7 @@ index 65de87b67..1fcf28da3 100644
 +
 +} // namespace mlibc
 diff --git a/sysdeps/petra/include/mlibc/sysdeps.hpp b/sysdeps/petra/include/mlibc/sysdeps.hpp
-index 3befdfd3a..385882fa3 100644
+index 3befdfd..385882f 100644
 --- a/sysdeps/petra/include/mlibc/sysdeps.hpp
 +++ b/sysdeps/petra/include/mlibc/sysdeps.hpp
 @@ -5,6 +5,7 @@
@@ -4610,7 +4610,7 @@ index 3befdfd3a..385882fa3 100644
  
  template<typename Tag>
 diff --git a/sysdeps/petra/include/sys/syscall.h b/sysdeps/petra/include/sys/syscall.h
-index a6c79f745..b002185bf 100644
+index a6c79f7..b002185 100644
 --- a/sysdeps/petra/include/sys/syscall.h
 +++ b/sysdeps/petra/include/sys/syscall.h
 @@ -21,6 +21,8 @@
@@ -4650,10 +4650,10 @@ index a6c79f745..b002185bf 100644
 2.43.0
 
 
-From 8f5e2437f8bf697a0ef2109f5adb1a81f31ebb9b Mon Sep 17 00:00:00 2001
+From 87033c13dda70fe1333912c68a2c917181983e54 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Wed, 26 Aug 2026 19:58:47 +0700
-Subject: [PATCH 20/28] fix(ioctls): export TIOCGWINSZ and standard ioctls in
+Subject: [PATCH 20/29] fix(ioctls): export TIOCGWINSZ and standard ioctls in
  header files
 
 ---
@@ -4663,7 +4663,7 @@ Subject: [PATCH 20/28] fix(ioctls): export TIOCGWINSZ and standard ioctls in
  3 files changed, 70 insertions(+), 7 deletions(-)
 
 diff --git a/abis/linux/ioctls.h b/abis/linux/ioctls.h
-index 61971fb44..cd06df7d3 100644
+index 61971fb..cd06df7 100644
 --- a/abis/linux/ioctls.h
 +++ b/abis/linux/ioctls.h
 @@ -3,9 +3,70 @@
@@ -4742,7 +4742,7 @@ index 61971fb44..cd06df7d3 100644
  
  #endif /* _ABIBITS_IOCTLS_H */
 diff --git a/options/glibc/include/sys/ioctl.h b/options/glibc/include/sys/ioctl.h
-index f9707b853..1a8e96b6a 100644
+index f9707b8..1a8e96b 100644
 --- a/options/glibc/include/sys/ioctl.h
 +++ b/options/glibc/include/sys/ioctl.h
 @@ -3,11 +3,11 @@
@@ -4759,7 +4759,7 @@ index f9707b853..1a8e96b6a 100644
  #endif
  
 diff --git a/options/posix/include/termios.h b/options/posix/include/termios.h
-index 41381e88b..04012f187 100644
+index 41381e8..04012f1 100644
 --- a/options/posix/include/termios.h
 +++ b/options/posix/include/termios.h
 @@ -99,14 +99,16 @@ void cfmakeraw(struct termios *__tios);
@@ -4785,10 +4785,10 @@ index 41381e88b..04012f187 100644
 2.43.0
 
 
-From da4329754b5962e2837dff7e5719c27d866a17b7 Mon Sep 17 00:00:00 2001
+From f664513cb025299b606c0b635b1eb9facd71a390 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Fri, 28 Aug 2026 20:55:26 +0700
-Subject: [PATCH 21/28] feat(sysdeps/petra): implement GetRusage sysdep
+Subject: [PATCH 21/29] feat(sysdeps/petra): implement GetRusage sysdep
 
 ---
  sysdeps/petra/generic/generic.cpp       | 13 +++++++++++++
@@ -4797,7 +4797,7 @@ Subject: [PATCH 21/28] feat(sysdeps/petra): implement GetRusage sysdep
  3 files changed, 15 insertions(+)
 
 diff --git a/sysdeps/petra/generic/generic.cpp b/sysdeps/petra/generic/generic.cpp
-index 1fcf28da3..db9e4817e 100644
+index 1fcf28d..db9e481 100644
 --- a/sysdeps/petra/generic/generic.cpp
 +++ b/sysdeps/petra/generic/generic.cpp
 @@ -348,6 +348,19 @@ int Sysdeps<SetRlimit>::operator()(int resource, const struct rlimit *limit) {
@@ -4821,7 +4821,7 @@ index 1fcf28da3..db9e4817e 100644
      int64_t ret = __petra_syscall2(SYSCALL_ACCESS, (int64_t)path, mode);
      if (ret < 0) {
 diff --git a/sysdeps/petra/include/mlibc/sysdeps.hpp b/sysdeps/petra/include/mlibc/sysdeps.hpp
-index 385882fa3..c86f1450b 100644
+index 385882f..c86f145 100644
 --- a/sysdeps/petra/include/mlibc/sysdeps.hpp
 +++ b/sysdeps/petra/include/mlibc/sysdeps.hpp
 @@ -77,6 +77,7 @@ struct PetraSysdepTags :
@@ -4833,7 +4833,7 @@ index 385882fa3..c86f1450b 100644
      SetPriority,
      ThreadSetname,
 diff --git a/sysdeps/petra/include/sys/syscall.h b/sysdeps/petra/include/sys/syscall.h
-index b002185bf..0f38fd0ce 100644
+index b002185..0f38fd0 100644
 --- a/sysdeps/petra/include/sys/syscall.h
 +++ b/sysdeps/petra/include/sys/syscall.h
 @@ -86,6 +86,7 @@
@@ -4848,10 +4848,10 @@ index b002185bf..0f38fd0ce 100644
 2.43.0
 
 
-From fa4b341cceca2f68032c49419da578519235ed10 Mon Sep 17 00:00:00 2001
+From 7c7de6dddf1bf2e46743c0262f5102a608dcc78e Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sun, 30 Aug 2026 18:16:21 +0700
-Subject: [PATCH 22/28] refactor(sysdeps/petra): modularize generic sysdeps and
+Subject: [PATCH 22/29] refactor(sysdeps/petra): modularize generic sysdeps and
  extract constants into include headers
 
 ---
@@ -4892,7 +4892,7 @@ Subject: [PATCH 22/28] refactor(sysdeps/petra): modularize generic sysdeps and
 
 diff --git a/sysdeps/petra/generic/fs.cpp b/sysdeps/petra/generic/fs.cpp
 new file mode 100644
-index 000000000..9854ef29a
+index 0000000..9854ef2
 --- /dev/null
 +++ b/sysdeps/petra/generic/fs.cpp
 @@ -0,0 +1,562 @@
@@ -5460,7 +5460,7 @@ index 000000000..9854ef29a
 +} // namespace mlibc
 diff --git a/sysdeps/petra/generic/generic.cpp b/sysdeps/petra/generic/generic.cpp
 deleted file mode 100644
-index db9e4817e..000000000
+index db9e481..0000000
 --- a/sysdeps/petra/generic/generic.cpp
 +++ /dev/null
 @@ -1,1673 +0,0 @@
@@ -7139,7 +7139,7 @@ index db9e4817e..000000000
 -} // namespace mlibc
 diff --git a/sysdeps/petra/generic/ipc.cpp b/sysdeps/petra/generic/ipc.cpp
 new file mode 100644
-index 000000000..367cbc464
+index 0000000..367cbc4
 --- /dev/null
 +++ b/sysdeps/petra/generic/ipc.cpp
 @@ -0,0 +1,91 @@
@@ -7236,7 +7236,7 @@ index 000000000..367cbc464
 +} // namespace mlibc
 diff --git a/sysdeps/petra/generic/memory.cpp b/sysdeps/petra/generic/memory.cpp
 new file mode 100644
-index 000000000..e7afa2d3e
+index 0000000..e7afa2d
 --- /dev/null
 +++ b/sysdeps/petra/generic/memory.cpp
 @@ -0,0 +1,63 @@
@@ -7305,7 +7305,7 @@ index 000000000..e7afa2d3e
 +} // namespace mlibc
 diff --git a/sysdeps/petra/generic/process.cpp b/sysdeps/petra/generic/process.cpp
 new file mode 100644
-index 000000000..a2ba333f9
+index 0000000..a2ba333
 --- /dev/null
 +++ b/sysdeps/petra/generic/process.cpp
 @@ -0,0 +1,224 @@
@@ -7535,7 +7535,7 @@ index 000000000..a2ba333f9
 +} // namespace mlibc
 diff --git a/sysdeps/petra/generic/signals.cpp b/sysdeps/petra/generic/signals.cpp
 new file mode 100644
-index 000000000..cd703455a
+index 0000000..cd70345
 --- /dev/null
 +++ b/sysdeps/petra/generic/signals.cpp
 @@ -0,0 +1,63 @@
@@ -7604,7 +7604,7 @@ index 000000000..cd703455a
 +} // namespace mlibc
 diff --git a/sysdeps/petra/generic/socket.cpp b/sysdeps/petra/generic/socket.cpp
 new file mode 100644
-index 000000000..c842f79f5
+index 0000000..c842f79
 --- /dev/null
 +++ b/sysdeps/petra/generic/socket.cpp
 @@ -0,0 +1,206 @@
@@ -7816,7 +7816,7 @@ index 000000000..c842f79f5
 +} // namespace mlibc
 diff --git a/sysdeps/petra/generic/sync.cpp b/sysdeps/petra/generic/sync.cpp
 new file mode 100644
-index 000000000..0151d72f7
+index 0000000..0151d72
 --- /dev/null
 +++ b/sysdeps/petra/generic/sync.cpp
 @@ -0,0 +1,45 @@
@@ -7867,7 +7867,7 @@ index 000000000..0151d72f7
 +} // namespace mlibc
 diff --git a/sysdeps/petra/generic/sys.cpp b/sysdeps/petra/generic/sys.cpp
 new file mode 100644
-index 000000000..3ac691352
+index 0000000..3ac6913
 --- /dev/null
 +++ b/sysdeps/petra/generic/sys.cpp
 @@ -0,0 +1,186 @@
@@ -8059,7 +8059,7 @@ index 000000000..3ac691352
 +} // namespace mlibc
 diff --git a/sysdeps/petra/generic/terminal.cpp b/sysdeps/petra/generic/terminal.cpp
 new file mode 100644
-index 000000000..58b37e107
+index 0000000..58b37e1
 --- /dev/null
 +++ b/sysdeps/petra/generic/terminal.cpp
 @@ -0,0 +1,215 @@
@@ -8280,7 +8280,7 @@ index 000000000..58b37e107
 +} // namespace mlibc
 diff --git a/sysdeps/petra/generic/time.cpp b/sysdeps/petra/generic/time.cpp
 new file mode 100644
-index 000000000..fc754b729
+index 0000000..fc754b7
 --- /dev/null
 +++ b/sysdeps/petra/generic/time.cpp
 @@ -0,0 +1,85 @@
@@ -8371,7 +8371,7 @@ index 000000000..fc754b729
 +} // namespace mlibc
 diff --git a/sysdeps/petra/include/ioctl_defs.h b/sysdeps/petra/include/ioctl_defs.h
 new file mode 100644
-index 000000000..818919c84
+index 0000000..818919c
 --- /dev/null
 +++ b/sysdeps/petra/include/ioctl_defs.h
 @@ -0,0 +1,13 @@
@@ -8390,7 +8390,7 @@ index 000000000..818919c84
 +#endif /* _PETRA_IOCTL_DEFS_H */
 diff --git a/sysdeps/petra/include/mem_defs.h b/sysdeps/petra/include/mem_defs.h
 new file mode 100644
-index 000000000..45f6f1c4b
+index 0000000..45f6f1c
 --- /dev/null
 +++ b/sysdeps/petra/include/mem_defs.h
 @@ -0,0 +1,11 @@
@@ -8407,7 +8407,7 @@ index 000000000..45f6f1c4b
 +#endif /* _PETRA_MEM_DEFS_H */
 diff --git a/sysdeps/petra/include/proc_defs.h b/sysdeps/petra/include/proc_defs.h
 new file mode 100644
-index 000000000..083dbaa15
+index 0000000..083dbaa
 --- /dev/null
 +++ b/sysdeps/petra/include/proc_defs.h
 @@ -0,0 +1,9 @@
@@ -8422,7 +8422,7 @@ index 000000000..083dbaa15
 +#endif /* _PETRA_PROC_DEFS_H */
 diff --git a/sysdeps/petra/include/sync_defs.h b/sysdeps/petra/include/sync_defs.h
 new file mode 100644
-index 000000000..5db8f67f7
+index 0000000..5db8f67
 --- /dev/null
 +++ b/sysdeps/petra/include/sync_defs.h
 @@ -0,0 +1,7 @@
@@ -8435,7 +8435,7 @@ index 000000000..5db8f67f7
 +#endif /* _PETRA_SYNC_DEFS_H */
 diff --git a/sysdeps/petra/include/sys_defs.h b/sysdeps/petra/include/sys_defs.h
 new file mode 100644
-index 000000000..7414504fb
+index 0000000..7414504
 --- /dev/null
 +++ b/sysdeps/petra/include/sys_defs.h
 @@ -0,0 +1,18 @@
@@ -8458,7 +8458,7 @@ index 000000000..7414504fb
 +
 +#endif /* _PETRA_SYS_DEFS_H */
 diff --git a/sysdeps/petra/meson.build b/sysdeps/petra/meson.build
-index 44587ad27..9938142b3 100644
+index 44587ad..9938142 100644
 --- a/sysdeps/petra/meson.build
 +++ b/sysdeps/petra/meson.build
 @@ -5,12 +5,30 @@ sysdep_supported_options = {
@@ -8498,10 +8498,10 @@ index 44587ad27..9938142b3 100644
 2.43.0
 
 
-From 79a76e76e038e46ba975756c115aa2e4669d02ca Mon Sep 17 00:00:00 2001
+From 92d3dc79831a9e93f1099e4bd0cfd85a0f2e5605 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Fri, 4 Sep 2026 21:04:15 +0700
-Subject: [PATCH 23/28] feat(sysdeps/petra): implement scheduler and affinity
+Subject: [PATCH 23/29] feat(sysdeps/petra): implement scheduler and affinity
  syscalls, sysinfo, and headers
 
 ---
@@ -8526,7 +8526,7 @@ Subject: [PATCH 23/28] feat(sysdeps/petra): implement scheduler and affinity
  create mode 100644 sysdeps/petra/include/sys/sysinfo.h
 
 diff --git a/options/internal/include/mlibc/sysdep-signatures.hpp b/options/internal/include/mlibc/sysdep-signatures.hpp
-index fceed3392..ab97f9024 100644
+index fceed33..ab97f90 100644
 --- a/options/internal/include/mlibc/sysdep-signatures.hpp
 +++ b/options/internal/include/mlibc/sysdep-signatures.hpp
 @@ -23,6 +23,9 @@
@@ -8573,7 +8573,7 @@ index fceed3392..ab97f9024 100644
  SYSDEP_FUNC(Swapoff, const char *path);
  SYSDEP_FUNC(Setxattr, const char *path, const char *name, const void *val, size_t size, int flags);
 diff --git a/options/internal/include/mlibc/sysdep-tags.hpp b/options/internal/include/mlibc/sysdep-tags.hpp
-index c740d335b..533ba356f 100644
+index c740d33..533ba35 100644
 --- a/options/internal/include/mlibc/sysdep-tags.hpp
 +++ b/options/internal/include/mlibc/sysdep-tags.hpp
 @@ -314,6 +314,10 @@ struct SetParam {};
@@ -8606,7 +8606,7 @@ index c740d335b..533ba356f 100644
  struct Swapon {};
  // int sys_swapoff(const char *path);
 diff --git a/options/linux/generic/sched.cpp b/options/linux/generic/sched.cpp
-index feed1cd16..ef3b76df9 100644
+index feed1cd..ef3b76d 100644
 --- a/options/linux/generic/sched.cpp
 +++ b/options/linux/generic/sched.cpp
 @@ -45,6 +45,23 @@ int sched_setaffinity(pid_t pid, size_t cpusetsize, const cpu_set_t *mask) {
@@ -8634,7 +8634,7 @@ index feed1cd16..ef3b76df9 100644
  	__ensure(!"Not implemented");
  	__builtin_unreachable();
 diff --git a/options/linux/include/bits/linux/linux_sched.h b/options/linux/include/bits/linux/linux_sched.h
-index 087f71858..ddf11d11b 100644
+index 087f718..ddf11d1 100644
 --- a/options/linux/include/bits/linux/linux_sched.h
 +++ b/options/linux/include/bits/linux/linux_sched.h
 @@ -10,11 +10,25 @@ extern "C" {
@@ -8664,7 +8664,7 @@ index 087f71858..ddf11d11b 100644
  int unshare(int flags);
  int clone(int (*)(void *), void *, int, void *, ...);
 diff --git a/options/posix/generic/sched.cpp b/options/posix/generic/sched.cpp
-index 33949c487..80da0f77a 100644
+index 33949c4..80da0f7 100644
 --- a/options/posix/generic/sched.cpp
 +++ b/options/posix/generic/sched.cpp
 @@ -67,3 +67,35 @@ int sched_setparam(pid_t pid, const struct sched_param *param) {
@@ -8704,7 +8704,7 @@ index 33949c487..80da0f77a 100644
 +	return 0;
 +}
 diff --git a/options/posix/include/sched.h b/options/posix/include/sched.h
-index 976c18e85..2e46ef232 100644
+index 976c18e..2e46ef2 100644
 --- a/options/posix/include/sched.h
 +++ b/options/posix/include/sched.h
 @@ -17,7 +17,7 @@
@@ -8718,7 +8718,7 @@ index 976c18e85..2e46ef232 100644
  #endif
 diff --git a/sysdeps/petra/generic/sched.cpp b/sysdeps/petra/generic/sched.cpp
 new file mode 100644
-index 000000000..2aae4a947
+index 0000000..2aae4a9
 --- /dev/null
 +++ b/sysdeps/petra/generic/sched.cpp
 @@ -0,0 +1,99 @@
@@ -8822,7 +8822,7 @@ index 000000000..2aae4a947
 +
 +} // namespace mlibc
 diff --git a/sysdeps/petra/generic/sys.cpp b/sysdeps/petra/generic/sys.cpp
-index 3ac691352..d12c2df82 100644
+index 3ac6913..d12c2df 100644
 --- a/sysdeps/petra/generic/sys.cpp
 +++ b/sysdeps/petra/generic/sys.cpp
 @@ -10,9 +10,7 @@
@@ -8853,7 +8853,7 @@ index 3ac691352..d12c2df82 100644
  int Sysdeps<GetEntropy>::operator()(void *buffer, size_t length) {
 diff --git a/sysdeps/petra/include/bits/linux/cpu_set.h b/sysdeps/petra/include/bits/linux/cpu_set.h
 new file mode 100644
-index 000000000..280d19483
+index 0000000..280d194
 --- /dev/null
 +++ b/sysdeps/petra/include/bits/linux/cpu_set.h
 @@ -0,0 +1,49 @@
@@ -8908,7 +8908,7 @@ index 000000000..280d19483
 +#endif /* _BITS_LINUX_CPU_SET_H */
 diff --git a/sysdeps/petra/include/bits/linux/linux_sched.h b/sysdeps/petra/include/bits/linux/linux_sched.h
 new file mode 100644
-index 000000000..ddf11d11b
+index 0000000..ddf11d1
 --- /dev/null
 +++ b/sysdeps/petra/include/bits/linux/linux_sched.h
 @@ -0,0 +1,49 @@
@@ -8962,7 +8962,7 @@ index 000000000..ddf11d11b
 +
 +#endif /* _BITS_LINUX_SCHED_H */
 diff --git a/sysdeps/petra/include/mlibc/sysdeps.hpp b/sysdeps/petra/include/mlibc/sysdeps.hpp
-index c86f1450b..99fd40f19 100644
+index c86f145..99fd40f 100644
 --- a/sysdeps/petra/include/mlibc/sysdeps.hpp
 +++ b/sysdeps/petra/include/mlibc/sysdeps.hpp
 @@ -81,6 +81,12 @@ struct PetraSysdepTags :
@@ -9002,7 +9002,7 @@ index c86f1450b..99fd40f19 100644
      Mount,
      Setxattr,
 diff --git a/sysdeps/petra/include/sys/syscall.h b/sysdeps/petra/include/sys/syscall.h
-index 0f38fd0ce..400a0bc52 100644
+index 0f38fd0..400a0bc 100644
 --- a/sysdeps/petra/include/sys/syscall.h
 +++ b/sysdeps/petra/include/sys/syscall.h
 @@ -131,8 +131,43 @@
@@ -9051,7 +9051,7 @@ index 0f38fd0ce..400a0bc52 100644
  static inline int64_t __petra_syscall0(int64_t sc) {
 diff --git a/sysdeps/petra/include/sys/sysinfo.h b/sysdeps/petra/include/sys/sysinfo.h
 new file mode 100644
-index 000000000..194b94e9e
+index 0000000..194b94e
 --- /dev/null
 +++ b/sysdeps/petra/include/sys/sysinfo.h
 @@ -0,0 +1,46 @@
@@ -9102,7 +9102,7 @@ index 000000000..194b94e9e
 +
 +#endif /* _SYS_SYSINFO_H */
 diff --git a/sysdeps/petra/meson.build b/sysdeps/petra/meson.build
-index 9938142b3..cc05f3d36 100644
+index 9938142..cc05f3d 100644
 --- a/sysdeps/petra/meson.build
 +++ b/sysdeps/petra/meson.build
 @@ -15,6 +15,7 @@ rtld_sources += files(
@@ -9157,10 +9157,10 @@ index 9938142b3..cc05f3d36 100644
 2.43.0
 
 
-From 0b039b5cc1c3266af1539fa91c86ecf791cf7e4a Mon Sep 17 00:00:00 2001
+From af959af8b196c1af8c4a826a74eb543960872f78 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sat, 5 Sep 2026 20:06:53 +0700
-Subject: [PATCH 24/28] feat(sysdeps/petra): implement _SC_SIGSTKSZ and sysconf
+Subject: [PATCH 24/29] feat(sysdeps/petra): implement _SC_SIGSTKSZ and sysconf
  limits, and mlibc file logging
 
 ---
@@ -9169,7 +9169,7 @@ Subject: [PATCH 24/28] feat(sysdeps/petra): implement _SC_SIGSTKSZ and sysconf
  2 files changed, 116 insertions(+)
 
 diff --git a/sysdeps/petra/generic/sys.cpp b/sysdeps/petra/generic/sys.cpp
-index d12c2df82..41b56d1c0 100644
+index d12c2df..41b56d1 100644
 --- a/sysdeps/petra/generic/sys.cpp
 +++ b/sysdeps/petra/generic/sys.cpp
 @@ -18,12 +18,42 @@ void Sysdeps<LibcLog>::operator()(const char *message) {
@@ -9303,7 +9303,7 @@ index d12c2df82..41b56d1c0 100644
              return EINVAL;
          }
 diff --git a/sysdeps/petra/include/sys_defs.h b/sysdeps/petra/include/sys_defs.h
-index 7414504fb..4819ae640 100644
+index 7414504..4819ae6 100644
 --- a/sysdeps/petra/include/sys_defs.h
 +++ b/sysdeps/petra/include/sys_defs.h
 @@ -14,5 +14,11 @@
@@ -9322,10 +9322,10 @@ index 7414504fb..4819ae640 100644
 2.43.0
 
 
-From 213a2b343f60702e5c808957d2b76af6fcefbc0e Mon Sep 17 00:00:00 2001
+From 7645c65837f12c1f8b65bab1b0cf8e38a55f9b5d Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Tue, 8 Sep 2026 19:47:26 +0700
-Subject: [PATCH 25/28] feat(sysdeps/petra): wire credential syscalls
+Subject: [PATCH 25/29] feat(sysdeps/petra): wire credential syscalls
  (setreuid/setregid/setgroups/setresuid/getresuid/setresgid/getresgid/setfsuid/setfsgid)
 
 ---
@@ -9335,7 +9335,7 @@ Subject: [PATCH 25/28] feat(sysdeps/petra): wire credential syscalls
  3 files changed, 47 insertions(+), 12 deletions(-)
 
 diff --git a/sysdeps/petra/generic/process.cpp b/sysdeps/petra/generic/process.cpp
-index a2ba333f9..883cb7bf7 100644
+index a2ba333..883cb7b 100644
 --- a/sysdeps/petra/generic/process.cpp
 +++ b/sysdeps/petra/generic/process.cpp
 @@ -93,28 +93,50 @@ int Sysdeps<SetEgid>::operator()(gid_t id) {
@@ -9413,7 +9413,7 @@ index a2ba333f9..883cb7bf7 100644
  }
  
 diff --git a/sysdeps/petra/include/mlibc/sysdeps.hpp b/sysdeps/petra/include/mlibc/sysdeps.hpp
-index 99fd40f19..aad3f9bb6 100644
+index 99fd40f..aad3f9b 100644
 --- a/sysdeps/petra/include/mlibc/sysdeps.hpp
 +++ b/sysdeps/petra/include/mlibc/sysdeps.hpp
 @@ -71,6 +71,8 @@ struct PetraSysdepTags :
@@ -9426,7 +9426,7 @@ index 99fd40f19..aad3f9bb6 100644
      GetSid,
      GetGroups,
 diff --git a/sysdeps/petra/include/sys/syscall.h b/sysdeps/petra/include/sys/syscall.h
-index 400a0bc52..87653a555 100644
+index 400a0bc..87653a5 100644
 --- a/sysdeps/petra/include/sys/syscall.h
 +++ b/sysdeps/petra/include/sys/syscall.h
 @@ -98,7 +98,16 @@
@@ -9450,10 +9450,10 @@ index 400a0bc52..87653a555 100644
 2.43.0
 
 
-From c9dd1467d0f423afff03719c6f433918604729c0 Mon Sep 17 00:00:00 2001
+From d275e618fafd79ebcb8bd3fa7b54bc9c9f76cc50 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sat, 12 Sep 2026 09:53:14 +0700
-Subject: [PATCH 26/28] feat(sysdeps/petra): implement reboot syscall and
+Subject: [PATCH 26/29] feat(sysdeps/petra): implement reboot syscall and
  enable linux-reboot
 
 ---
@@ -9464,7 +9464,7 @@ Subject: [PATCH 26/28] feat(sysdeps/petra): implement reboot syscall and
  4 files changed, 19 insertions(+), 1 deletion(-)
 
 diff --git a/sysdeps/petra/generic/sys.cpp b/sysdeps/petra/generic/sys.cpp
-index 41b56d1c0..cb896df83 100644
+index 41b56d1..cb896df 100644
 --- a/sysdeps/petra/generic/sys.cpp
 +++ b/sysdeps/petra/generic/sys.cpp
 @@ -9,6 +9,7 @@
@@ -9497,7 +9497,7 @@ index 41b56d1c0..cb896df83 100644
  
  } // namespace mlibc
 diff --git a/sysdeps/petra/include/mlibc/sysdeps.hpp b/sysdeps/petra/include/mlibc/sysdeps.hpp
-index aad3f9bb6..01417c56b 100644
+index aad3f9b..01417c5 100644
 --- a/sysdeps/petra/include/mlibc/sysdeps.hpp
 +++ b/sysdeps/petra/include/mlibc/sysdeps.hpp
 @@ -201,7 +201,8 @@ struct PetraSysdepTags :
@@ -9511,7 +9511,7 @@ index aad3f9bb6..01417c56b 100644
      ,
      Statfs,
 diff --git a/sysdeps/petra/include/sys/syscall.h b/sysdeps/petra/include/sys/syscall.h
-index 87653a555..82fe00773 100644
+index 87653a5..82fe007 100644
 --- a/sysdeps/petra/include/sys/syscall.h
 +++ b/sysdeps/petra/include/sys/syscall.h
 @@ -112,6 +112,7 @@
@@ -9523,7 +9523,7 @@ index 87653a555..82fe00773 100644
  #define SYSCALL_ISATTY         215
  #define SYSCALL_GETDENTS64     217
 diff --git a/sysdeps/petra/meson.build b/sysdeps/petra/meson.build
-index cc05f3d36..6d32edfee 100644
+index cc05f3d..6d32edf 100644
 --- a/sysdeps/petra/meson.build
 +++ b/sysdeps/petra/meson.build
 @@ -2,6 +2,7 @@ sysdep_supported_options = {
@@ -9538,17 +9538,17 @@ index cc05f3d36..6d32edfee 100644
 2.43.0
 
 
-From afca020eba05a69a24d8fe38cad36a6eb0832765 Mon Sep 17 00:00:00 2001
+From e6f63143d721d20758fcc745ee925ccc3d44f90b Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sat, 12 Sep 2026 10:58:32 +0700
-Subject: [PATCH 27/28] feat(stdio_ext): implement __freadptr and __freadptrinc
+Subject: [PATCH 27/29] feat(stdio_ext): implement __freadptr and __freadptrinc
 
 ---
  options/glibc/generic/stdio_ext.cpp | 14 ++++++++------
  1 file changed, 8 insertions(+), 6 deletions(-)
 
 diff --git a/options/glibc/generic/stdio_ext.cpp b/options/glibc/generic/stdio_ext.cpp
-index ccb37257e..54b6945bd 100644
+index ccb3725..54b6945 100644
 --- a/options/glibc/generic/stdio_ext.cpp
 +++ b/options/glibc/generic/stdio_ext.cpp
 @@ -71,14 +71,16 @@ size_t __freadahead(FILE *file_base) {
@@ -9578,10 +9578,10 @@ index ccb37257e..54b6945bd 100644
 2.43.0
 
 
-From f0d9f55276a1cb83a6a51816951f8307d8a7f978 Mon Sep 17 00:00:00 2001
+From 266e7cdfd2ab12d0ead30672204379a53732659b Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sat, 12 Sep 2026 12:39:49 +0700
-Subject: [PATCH 28/28] feat(shadow): implement lckpwdf and ulckpwdf silently
+Subject: [PATCH 28/29] feat(shadow): implement lckpwdf and ulckpwdf silently
  like musl
 
 ---
@@ -9589,7 +9589,7 @@ Subject: [PATCH 28/28] feat(shadow): implement lckpwdf and ulckpwdf silently
  1 file changed, 2 deletions(-)
 
 diff --git a/options/glibc/generic/shadow.cpp b/options/glibc/generic/shadow.cpp
-index 5447fd3b9..80e47ebbe 100644
+index 5447fd3..80e47eb 100644
 --- a/options/glibc/generic/shadow.cpp
 +++ b/options/glibc/generic/shadow.cpp
 @@ -179,12 +179,10 @@ int getspnam_r(const char *name, struct spwd *sp, char *buf, size_t size, struct
@@ -9605,6 +9605,58 @@ index 5447fd3b9..80e47ebbe 100644
  	return 0;
  }
  
+-- 
+2.43.0
+
+
+From cc5fde5026ca8e1c65e6d94eadb3d99f880c4ca7 Mon Sep 17 00:00:00 2001
+From: Ananta <kusumaananta042@gmail.com>
+Date: Mon, 14 Sep 2026 21:49:49 +0700
+Subject: [PATCH 29/29] feat(sysdeps/petra): install malloc.h header for
+ userspace packages
+
+---
+ sysdeps/petra/include/malloc.h | 15 +++++++++++++++
+ sysdeps/petra/meson.build      |  4 ++++
+ 2 files changed, 19 insertions(+)
+ create mode 100644 sysdeps/petra/include/malloc.h
+
+diff --git a/sysdeps/petra/include/malloc.h b/sysdeps/petra/include/malloc.h
+new file mode 100644
+index 0000000..cceda62
+--- /dev/null
++++ b/sysdeps/petra/include/malloc.h
+@@ -0,0 +1,15 @@
++#ifndef _MALLOC_H
++#define _MALLOC_H
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++#include <stdlib.h>
++#include <bits/glibc/glibc_malloc.h>
++
++#ifdef __cplusplus
++}
++#endif
++
++#endif /* _MALLOC_H */
+diff --git a/sysdeps/petra/meson.build b/sysdeps/petra/meson.build
+index 6d32edf..eb60aea 100644
+--- a/sysdeps/petra/meson.build
++++ b/sysdeps/petra/meson.build
+@@ -115,6 +115,10 @@ if not no_headers
+         'include/bits/linux/cpu_set.h',
+         subdir: 'bits/linux'
+     )
++
++    install_headers(
++        'include/malloc.h'
++    )
+ endif
+ 
+ if not headers_only
 -- 
 2.43.0
 

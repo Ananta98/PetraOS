@@ -2,8 +2,8 @@ sources:
   - name: readline
     subdir: sources
     git: 'https://git.savannah.gnu.org/git/readline.git'
-    tag: 'readline-8.2'
-    version: '8.2'
+    tag: 'readline-8.3'
+    version: '8.3'
     patch_path_strip: 1
     tools_required:
       - host-autoconf-v2.69
@@ -31,9 +31,38 @@ packages:
           - '--enable-multibyte'
     build:
       - args: ['make', '-j1']
+      - args: ['make', 'DESTDIR=@SYSROOT_DIR@', 'install']
+      - args: |
+          cd @SYSROOT_DIR@/usr/lib
+          for f in libreadline.so.8.* libhistory.so.8.*; do
+            [ -f "$f" ] || continue
+            case "$f" in
+              *.old) continue ;;
+              libreadline.so.8.*)
+                ln -sf "$f" libreadline.so.8
+                ln -sf "$f" libreadline.so
+                ;;
+              libhistory.so.8.*)
+                ln -sf "$f" libhistory.so.8
+                ln -sf "$f" libhistory.so
+                ;;
+            esac
+          done
     install:
       - args: ['make', 'DESTDIR=@SYSROOT_DIR@', 'install']
-      - args: ['cp', '-f', 'shlib/libreadline.so.8', '@SYSROOT_DIR@/usr/lib/libreadline.so.8']
-      - args: ['cp', '-f', 'shlib/libhistory.so.8', '@SYSROOT_DIR@/usr/lib/libhistory.so.8']
-      - args: ['ln', '-sf', 'libreadline.so.8', '@SYSROOT_DIR@/usr/lib/libreadline.so']
-      - args: ['ln', '-sf', 'libhistory.so.8', '@SYSROOT_DIR@/usr/lib/libhistory.so']
+      - args: |
+          cd @SYSROOT_DIR@/usr/lib
+          for f in libreadline.so.8.* libhistory.so.8.*; do
+            [ -f "$f" ] || continue
+            case "$f" in
+              *.old) continue ;;
+              libreadline.so.8.*)
+                ln -sf "$f" libreadline.so.8
+                ln -sf "$f" libreadline.so
+                ;;
+              libhistory.so.8.*)
+                ln -sf "$f" libhistory.so.8
+                ln -sf "$f" libhistory.so
+                ;;
+            esac
+          done

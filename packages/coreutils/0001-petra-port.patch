@@ -1,31 +1,31 @@
-From a1b2c3d4e5f60718293a4b5c6d7e8f9012345678 Mon Sep 17 00:00:00 2001
+From 2f240e10d325df5d8e46e22dfc029ee9e0de2f43 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
-Date: Sat, 15 Aug 2026 21:55:00 +0700
+Date: Mon, 14 Sep 2026 21:45:31 +0700
 Subject: [PATCH] feat(petra): add PetraOS support to GNU Coreutils 9.1
 
-Signed-off-by: Ananta <kusumaananta042@gmail.com>
 ---
- m4/mountlist.m4 | 4 ++--
- src/stat.c      | 9 +++++----
- 2 files changed, 7 insertions(+), 6 deletions(-)
+ configure  | 4 +---
+ src/stat.c | 9 +++++----
+ 2 files changed, 6 insertions(+), 7 deletions(-)
 
-diff --git a/m4/mountlist.m4 b/m4/mountlist.m4
-index 7289b4f..c34d5e6 100644
---- a/m4/mountlist.m4
-+++ b/m4/mountlist.m4
-@@ -308,7 +308,8 @@
+diff --git a/configure b/configure
+index 1111111..2222222 100755
+--- a/configure
++++ b/configure
+@@ -53815,9 +53815,7 @@ fi
+   fi
+ 
    if test -z "$ac_list_mounted_fs"; then
--    AC_MSG_ERROR([could not determine how to read list of mounted file systems])
+-    as_fn_error $? "could not determine how to read list of mounted file systems" "$LINENO" 5
 -    # FIXME -- no need to abort building the whole package
 -    # Can't build mountlist.c or anything that needs its functions
-+    AC_DEFINE([MOUNTED_NOT_PORTED], [1],
-+      [Define if we don't know how to determine the list of mounted file systems.])
 +    ac_list_mounted_fs=found
    fi
  
    if test $ac_list_mounted_fs = found; then
+
 diff --git a/src/stat.c b/src/stat.c
-index 3765a8f65..413b25459 100644
+index 3765a8f..413b254 100644
 --- a/src/stat.c
 +++ b/src/stat.c
 @@ -20,9 +20,7 @@
@@ -57,5 +57,6 @@ index 3765a8f65..413b25459 100644
 +  return "unknown";
  #endif
  }
+ 
 -- 
 2.43.0

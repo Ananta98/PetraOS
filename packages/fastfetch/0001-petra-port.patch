@@ -560,6 +560,20 @@ index 2248201..1909125 100644
      FFstrbuf playerName;
      FFDsForceDrmType dsForceDrm;
      #elif defined(_WIN32)
+diff --git a/src/common/mallocHelper.h b/src/common/mallocHelper.h
+index b180fc4..6a6d6d7 100644
+--- a/src/common/mallocHelper.h
++++ b/src/common/mallocHelper.h
+@@ -6,6 +6,8 @@
+ #if FF_HAVE_MALLOC_USABLE_SIZE || FF_HAVE_MSVC_MSIZE
+     #if __has_include(<malloc.h>)
+         #include <malloc.h>
++    #elif defined(__petra__) || __has_include(<bits/glibc/glibc_malloc.h>)
++        #include <bits/glibc/glibc_malloc.h>
+     #else
+         #include <malloc_np.h> // For DragonFly BSD
+     #endif
 -- 
 2.43.0
+
 

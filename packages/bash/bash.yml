@@ -34,6 +34,15 @@ packages:
       - args:
           - make
           - -j@PARALLELISM@
+      - args:
+          - make
+          - DESTDIR=@SYSROOT_DIR@
+          - install
+      - args:
+          - ln
+          - -sf
+          - bash
+          - '@SYSROOT_DIR@/usr/bin/sh'
     install:
       - args:
           - make
