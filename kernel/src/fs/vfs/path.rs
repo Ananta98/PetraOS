@@ -1,4 +1,3 @@
-use super::dcache::{dcache_evict, dcache_insert, dcache_lookup};
 use super::dentry::Dentry;
 use super::file::File;
 use super::mount::MOUNT_TABLE;
@@ -44,36 +43,6 @@ pub fn normalize_path(base: &str, path: &str) -> String {
     }
 }
 
-/// Build an absolute path string by walking up the dentry parent chain.
-pub fn build_path(dentry: &Dentry) -> String {
-    let mut components = Vec::new();
-    components.push(dentry.name.clone());
-
-    let mut current_parent = dentry.parent.lock().as_ref().and_then(|w| w.upgrade());
-    while let Some(parent) = current_parent {
-        if parent.name != "/" {
-            components.push(parent.name.clone());
-        }
-        current_parent = parent.parent.lock().as_ref().and_then(|w| w.upgrade());
-    }
-
-    components.reverse();
-    let mut path = String::from("/");
-    for (i, comp) in components.iter().enumerate() {
-        if comp == "/" {
-            continue;
-        }
-        if i > 0 && !path.ends_with('/') {
-            path.push('/');
-        }
-        path.push_str(comp);
-    }
-    if path.is_empty() {
-        path.push('/');
-    }
-    path
-}
-
 // ===== Shared Parent-Resolution Helper =====
 
 /// Split a path into (resolved parent dentry, leaf name).
@@ -81,21 +50,30 @@ pub fn build_path(dentry: &Dentry) -> String {
 /// Both `create_file`, `mkdir`, `unlink`, `rmdir`, `symlink` share this pattern.
 /// The parent must already exist; the leaf name must be non-empty.
 fn resolve_parent_and_name(path: &str) -> Result<(Arc<Dentry>, &str), VfsError> {
-    let last_slash = path.rfind('/').ok_or(VfsError::InvalidInput)?;
-    let parent_path = &path[..last_slash];
-    let leaf_name = &path[last_slash + 1..];
-
-    if leaf_name.is_empty() {
+    let clean_path = path.trim_end_matches('/');
+    if clean_path.is_empty() {
         return Err(VfsError::InvalidInput);
     }
 
-    let parent_dentry = if parent_path.is_empty() {
-        resolve_path("/")?
-    } else {
-        resolve_path(parent_path)?
-    };
+    if let Some(last_slash) = clean_path.rfind('/') {
+        let parent_path = &clean_path[..last_slash];
+        let leaf_name = &clean_path[last_slash + 1..];
+        if leaf_name.is_empty() {
+            return Err(VfsError::InvalidInput);
+        }
 
-    Ok((parent_dentry, leaf_name))
+        let parent_dentry = if parent_path.is_empty() {
+            resolve_path("/")?
+        } else {
+            resolve_path(parent_path)?
+        };
+
+        Ok((parent_dentry, leaf_name))
+    } else {
+        // Relative path without slashes (e.g. "foo") -> parent is current directory
+        let parent_dentry = resolve_path(".")?;
+        Ok((parent_dentry, clean_path))
+    }
 }
 
 // ===== Path Resolution =====
@@ -131,17 +109,14 @@ fn resolve_path_symlink(path: &str, depth: usize) -> Result<Arc<Dentry>, VfsErro
     let parts: Vec<&str> = remainder.split('/').filter(|s| !s.is_empty()).collect();
 
     for (idx, part) in parts.iter().enumerate() {
-        // 1. Check global dcache and local children dentry cache first
-        let dentry = if let Some(cached) = dcache_lookup(&current, part) {
-            cached
-        } else if let Some(cached_child) = current.children.lock().get(*part).cloned() {
-            dcache_insert(&current, part, cached_child.clone());
+        // 1. Check local children dentry cache first
+        let dentry = if let Some(cached_child) = current.children.lock().get(*part).cloned() {
             cached_child
         } else {
             if current.inode.inode_type != InodeType::Directory {
                 log::trace!(
                     "[resolve_path] in '{}', component '{}' failed: node is {:?} (not a directory)",
-                    build_path(&current),
+                    current.full_path(),
                     part,
                     current.inode.inode_type
                 );
@@ -152,43 +127,54 @@ fn resolve_path_symlink(path: &str, depth: usize) -> Result<Arc<Dentry>, VfsErro
                 Err(err) => {
                     log::trace!(
                         "[resolve_path] in '{}', lookup('{}') failed: {:?}",
-                        build_path(&current),
+                        current.full_path(),
                         part,
                         err
                     );
                     return Err(err);
                 }
             };
-            let child_dentry = Dentry::add_child(&current, (*part).into(), child_inode);
-            dcache_insert(&current, part, child_dentry.clone());
-            child_dentry
+            Dentry::add_child(&current, (*part).into(), child_inode)
         };
 
         // 2. Handle symbolic link resolution
         if dentry.inode.inode_type == InodeType::Symlink {
-            if let Ok(target) = dentry.inode.ops.readlink() {
-                drop(mt);
-                let current_dir = build_path(&current);
-                let mut target_full = if target.starts_with('/') {
-                    target
+            let target = dentry.inode.ops.readlink()?;
+            drop(mt);
+            // Relative symlink targets resolve against the symlink's parent
+            // directory (POSIX), not the symlink path itself. Using the full
+            // symlink path would produce e.g.
+            // "/usr/lib/libreadline.so.8/libreadline.so.8.3" instead of
+            // "/usr/lib/libreadline.so.8.3" and break UsrMerge links like
+            // /bin -> usr/bin plus versioned .so symlinks.
+            let symlink_path = dentry.full_path();
+            let mut target_full = if target.starts_with('/') {
+                target
+            } else {
+                let parent_end = symlink_path.rfind('/').unwrap_or(0);
+                let parent_dir = if parent_end == 0 {
+                    "/"
                 } else {
-                    let base = current_dir.trim_end_matches('/');
-                    alloc::format!("{}/{}", base, target)
+                    &symlink_path[..parent_end]
                 };
-                for rem in &parts[idx + 1..] {
-                    target_full.push('/');
-                    target_full.push_str(rem);
+                if parent_dir == "/" {
+                    alloc::format!("/{}", target)
+                } else {
+                    alloc::format!("{}/{}", parent_dir, target)
                 }
-                let norm = normalize_path("/", &target_full);
-                return resolve_path_symlink(&norm, depth + 1);
+            };
+            for rem in &parts[idx + 1..] {
+                target_full.push('/');
+                target_full.push_str(rem);
             }
+            let norm = normalize_path("/", &target_full);
+            return resolve_path_symlink(&norm, depth + 1);
         }
 
         // 3. Mount boundary traversal
-        let child_path = build_path(&dentry);
+        let child_path = dentry.full_path();
         if let Some((child_mount, _)) = mt.lookup(&child_path) {
-            if child_mount.mount_point == child_path
-                && child_mount.mount_point != mount.mount_point
+            if child_mount.mount_point == child_path && child_mount.mount_point != mount.mount_point
             {
                 current = child_mount.root_dentry.clone();
                 continue;
@@ -214,9 +200,11 @@ pub fn create_file(path: &str) -> Result<Arc<Dentry>, VfsError> {
     }
 
     let child_inode = parent_dentry.inode.ops.create(file_name)?;
-    let child_dentry = Dentry::add_child(&parent_dentry, file_name.into(), child_inode);
-    dcache_insert(&parent_dentry, file_name, child_dentry.clone());
-    Ok(child_dentry)
+    Ok(Dentry::add_child(
+        &parent_dentry,
+        file_name.into(),
+        child_inode,
+    ))
 }
 
 /// Create a new directory at the given absolute path.
@@ -228,9 +216,11 @@ pub fn mkdir(path: &str) -> Result<Arc<Dentry>, VfsError> {
     }
 
     let child_inode = parent_dentry.inode.ops.mkdir(dir_name)?;
-    let child_dentry = Dentry::add_child(&parent_dentry, dir_name.into(), child_inode);
-    dcache_insert(&parent_dentry, dir_name, child_dentry.clone());
-    Ok(child_dentry)
+    Ok(Dentry::add_child(
+        &parent_dentry,
+        dir_name.into(),
+        child_inode,
+    ))
 }
 
 /// Unlink (delete) a file entry at the given absolute path.
@@ -238,7 +228,6 @@ pub fn unlink(path: &str) -> Result<(), VfsError> {
     let (parent_dentry, file_name) = resolve_parent_and_name(path)?;
     parent_dentry.inode.ops.unlink(file_name)?;
     Dentry::remove_child(&parent_dentry, file_name);
-    dcache_evict(&parent_dentry, file_name);
     Ok(())
 }
 
@@ -247,7 +236,6 @@ pub fn rmdir(path: &str) -> Result<(), VfsError> {
     let (parent_dentry, dir_name) = resolve_parent_and_name(path)?;
     parent_dentry.inode.ops.rmdir(dir_name)?;
     Dentry::remove_child(&parent_dentry, dir_name);
-    dcache_evict(&parent_dentry, dir_name);
     Ok(())
 }
 
@@ -255,9 +243,11 @@ pub fn rmdir(path: &str) -> Result<(), VfsError> {
 pub fn symlink(path: &str, target: &str) -> Result<Arc<Dentry>, VfsError> {
     let (parent_dentry, link_name) = resolve_parent_and_name(path)?;
     let child_inode = parent_dentry.inode.ops.symlink(link_name, target)?;
-    let child_dentry = Dentry::add_child(&parent_dentry, link_name.into(), child_inode);
-    dcache_insert(&parent_dentry, link_name, child_dentry.clone());
-    Ok(child_dentry)
+    Ok(Dentry::add_child(
+        &parent_dentry,
+        link_name.into(),
+        child_inode,
+    ))
 }
 
 /// Read the target of a symbolic link at `path`.
@@ -282,31 +272,29 @@ pub fn rename(old_path: &str, new_path: &str) -> Result<(), VfsError> {
         .ops
         .rename(old_name, &new_parent_dentry.inode, new_name)?;
 
-    // Evict old entry from old parent dentry cache and global dcache
+    // Evict old entry from old parent dentry cache
     Dentry::remove_child(&old_parent_dentry, old_name);
-    dcache_evict(&old_parent_dentry, old_name);
 
-    // Evict overwritten new entry from new parent dentry cache and global dcache (if any)
+    // Evict overwritten new entry from new parent dentry cache (if any)
     Dentry::remove_child(&new_parent_dentry, new_name);
-    dcache_evict(&new_parent_dentry, new_name);
 
-    // Insert new dentry into new parent cache and global dcache
+    // Insert new dentry into new parent cache
     if let Ok(new_inode) = new_parent_dentry.inode.ops.lookup(new_name) {
-        let child_dentry = Dentry::add_child(&new_parent_dentry, new_name.into(), new_inode);
-        dcache_insert(&new_parent_dentry, new_name, child_dentry);
+        Dentry::add_child(&new_parent_dentry, new_name.into(), new_inode);
     }
 
     Ok(())
 }
 
 /// Create a hard link from `old_path` to `new_path`.
-pub fn link(old_path: &str, new_path: &str) -> Result<(), VfsError> {
+pub fn link(old_path: &str, new_path: &str) -> Result<Arc<Dentry>, VfsError> {
     let target_dentry = resolve_path(old_path)?;
+    if target_dentry.inode.inode_type == InodeType::Directory {
+        return Err(VfsError::PermissionDenied);
+    }
     let (new_parent, new_name) = resolve_parent_and_name(new_path)?;
     new_parent.inode.ops.link(new_name, &target_dentry.inode)?;
-    let child_dentry = Dentry::add_child(&new_parent, new_name.into(), target_dentry.inode.clone());
-    dcache_insert(&new_parent, new_name, child_dentry);
-    Ok(())
+    Ok(Dentry::add_child(&new_parent, new_name.into(), target_dentry.inode.clone()))
 }
 
 /// Change mode permissions of the file at `path`.
@@ -384,11 +372,7 @@ pub fn resolve_path_nofollow(path: &str) -> Result<Arc<Dentry>, VfsError> {
         resolve_path(parent_path)?
     };
 
-    if let Some(cached) = dcache_lookup(&parent_dentry, leaf_name) {
-        return Ok(cached);
-    }
     if let Some(cached_child) = parent_dentry.children.lock().get(leaf_name).cloned() {
-        dcache_insert(&parent_dentry, leaf_name, cached_child.clone());
         return Ok(cached_child);
     }
 
@@ -397,9 +381,11 @@ pub fn resolve_path_nofollow(path: &str) -> Result<Arc<Dentry>, VfsError> {
     }
 
     let child_inode = parent_dentry.inode.ops.lookup(leaf_name)?;
-    let child_dentry = Dentry::add_child(&parent_dentry, leaf_name.into(), child_inode);
-    dcache_insert(&parent_dentry, leaf_name, child_dentry.clone());
-    Ok(child_dentry)
+    Ok(Dentry::add_child(
+        &parent_dentry,
+        leaf_name.into(),
+        child_inode,
+    ))
 }
 
 /// Read the entire contents of a file at `path` into a byte vector.

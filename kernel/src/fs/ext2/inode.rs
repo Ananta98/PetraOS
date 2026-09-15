@@ -472,12 +472,14 @@ impl InodeOps for Ext2InodeOps {
             return Err(VfsError::NotDirectory);
         }
 
-        let child_ino = ext2_remove_entry(&self.volume, &mut dir_inode, self.ino, name)?;
+        let child_ino = ext2_lookup(&self.volume, &dir_inode, name)?;
         let mut child_inode = self.volume.read_inode(child_ino)?;
 
         if child_inode.is_dir() {
             return Err(VfsError::IsDirectory);
         }
+
+        ext2_remove_entry(&self.volume, &mut dir_inode, self.ino, name)?;
 
         child_inode.links_count = child_inode.links_count.saturating_sub(1);
         if child_inode.links_count == 0 {

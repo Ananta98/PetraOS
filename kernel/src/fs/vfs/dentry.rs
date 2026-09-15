@@ -40,19 +40,16 @@ impl Dentry {
     /// Compute the absolute path from root dentry down to this node.
     pub fn full_path(&self) -> String {
         let mut components = Vec::new();
-        let mut current_name = self.name.clone();
-        let mut current_parent = self.parent.lock().clone();
+        if !self.name.is_empty() && self.name != "/" {
+            components.push(self.name.clone());
+        }
 
-        while let Some(weak_parent) = current_parent {
-            if let Some(parent_arc) = weak_parent.upgrade() {
-                if !current_name.is_empty() && current_name != "/" {
-                    components.push(current_name);
-                }
-                current_name = parent_arc.name.clone();
-                current_parent = parent_arc.parent.lock().clone();
-            } else {
-                break;
+        let mut current_parent = self.parent.lock().as_ref().and_then(|w| w.upgrade());
+        while let Some(parent) = current_parent {
+            if !parent.name.is_empty() && parent.name != "/" {
+                components.push(parent.name.clone());
             }
+            current_parent = parent.parent.lock().as_ref().and_then(|w| w.upgrade());
         }
 
         if components.is_empty() {
@@ -62,9 +59,16 @@ impl Dentry {
         components.reverse();
         let mut path = String::new();
         for comp in components {
-            path.push('/');
-            path.push_str(&comp);
+            let clean = comp.trim_matches('/');
+            if !clean.is_empty() {
+                path.push('/');
+                path.push_str(clean);
+            }
         }
-        path
+        if path.is_empty() {
+            String::from("/")
+        } else {
+            path
+        }
     }
 }

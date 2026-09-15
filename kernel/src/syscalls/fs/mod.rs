@@ -45,8 +45,8 @@ pub use mknod::sys_mknodat;
 pub use open::{sys_open, sys_openat};
 pub use pipe::{sys_pipe, sys_pipe2};
 pub use poll::{
-    sys_poll, sys_ppoll, sys_pselect6, sys_select, PollFd, POLLERR, POLLHUP, POLLIN, POLLNVAL,
-    POLLOUT, POLLPRI,
+    POLLERR, POLLHUP, POLLIN, POLLNVAL, POLLOUT, POLLPRI, PollFd, sys_poll, sys_ppoll,
+    sys_pselect6, sys_select,
 };
 pub use read::{sys_pread64, sys_read, sys_readv};
 pub use rename::{sys_rename, sys_renameat, sys_renameat2};
@@ -55,7 +55,7 @@ pub use statfs::{sys_fstatfs, sys_statfs};
 pub use truncate::{sys_ftruncate, sys_truncate};
 pub use umask::sys_umask;
 pub use unlink::{sys_unlink, sys_unlinkat};
-pub use utimensat::{sys_futimesat, sys_utimensat, LinuxTimespec};
+pub use utimensat::{LinuxTimespec, sys_futimesat, sys_utimensat};
 pub use write::{sys_pwrite64, sys_write, sys_writev};
 
 // ── Common filesystem syscall types & constants ─────────────────────────────
@@ -86,11 +86,12 @@ pub fn resolve_at_path(dfd: i32, path: &str) -> Result<String, SyscallError> {
         let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
         let proc = proc_arc.lock();
         let file = proc.fd_table.get(dfd)?;
-        let dir_path = crate::fs::build_path(&file.dentry);
+        if file.dentry.inode.inode_type != crate::fs::InodeType::Directory {
+            return Err(SyscallError::ENOTDIR);
+        }
+        let dir_path = file.dentry.full_path();
         Ok(crate::fs::normalize_path(&dir_path, path))
     } else {
-        let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
-        let proc = proc_arc.lock();
-        Ok(crate::fs::normalize_path(&proc.cwd, path))
+        Err(SyscallError::EBADF)
     }
 }

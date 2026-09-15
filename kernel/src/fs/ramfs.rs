@@ -437,6 +437,10 @@ impl InodeOps for RamDirInode {
         if target.inode_type != InodeType::Directory {
             return Err(VfsError::NotDirectory);
         }
+        let child_entries = target.ops.readdir()?;
+        if !child_entries.is_empty() {
+            return Err(VfsError::NotEmpty);
+        }
         entries.remove(name);
         Ok(())
     }
@@ -466,6 +470,7 @@ impl InodeOps for RamDirInode {
                 self.entries.write().insert(old_name.into(), inode);
                 return Err(e);
             }
+            let _ = inode.ops.dec_nlink();
             Ok(())
         }
     }

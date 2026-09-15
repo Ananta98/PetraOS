@@ -39,13 +39,14 @@ impl FdTable {
     }
 
     /// Allocate a new FD with specific descriptor flags (e.g. `FD_CLOEXEC`).
+    ///
+    /// Finds the lowest-numbered file descriptor not currently open, conforming to POSIX.
     pub fn alloc_with_flags(&self, file: Arc<File>, flags: u32) -> i32 {
         let mut map = self.fds.write();
-        let mut candidate = self.next_fd.load(Ordering::SeqCst);
+        let mut candidate = 0;
         while map.contains_key(&candidate) {
             candidate += 1;
         }
-        self.next_fd.store(candidate + 1, Ordering::SeqCst);
         map.insert(candidate, Descriptor { file, flags });
         candidate
     }

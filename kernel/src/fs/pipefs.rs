@@ -71,7 +71,7 @@ impl FileOps for PipeReadFileOps {
             }
 
             if nonblocking {
-                return Err(VfsError::InvalidInput); // EAGAIN / WouldBlock
+                return Err(VfsError::WouldBlock);
             }
 
             drop(pipe);
@@ -169,7 +169,7 @@ impl FileOps for PipeWriteFileOps {
                 if total_written > 0 {
                     return Ok(total_written);
                 }
-                return Err(VfsError::InvalidInput); // EAGAIN / WouldBlock
+                return Err(VfsError::WouldBlock);
             }
 
             drop(pipe);

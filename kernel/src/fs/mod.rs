@@ -4,20 +4,19 @@ pub mod fd;
 pub mod initramfs;
 pub mod pipefs;
 pub mod ramfs;
-pub mod socket_fs;
+pub mod socketfs;
 pub mod vfs;
 
 pub use initramfs::Initramfs;
-pub use socket_fs::create_socket_file;
+pub use socketfs::create_socket_file;
 
 pub use fd::FdTable;
 pub use vfs::dentry::Dentry;
 pub use vfs::file::File;
 pub use vfs::mount::{MOUNT_TABLE, Mount};
 pub use vfs::path::{
-    build_path, chmod, chown, create_file, link, lstat, mkdir, normalize_path, open_file,
-    read_file, readlink, rename, resolve_path, resolve_path_nofollow, rmdir, stat, symlink,
-    truncate, unlink, utimens,
+    chmod, chown, create_file, link, lstat, mkdir, normalize_path, open_file, read_file, readlink,
+    rename, resolve_path, resolve_path_nofollow, rmdir, stat, symlink, truncate, unlink, utimens,
 };
 pub use vfs::perm;
 pub use vfs::perm::{

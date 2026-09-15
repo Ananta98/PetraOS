@@ -118,9 +118,13 @@ impl File {
         }
 
         // Delegate to FileOps if it provides a custom seek implementation.
-        if let Ok(new_pos) = self.ops.lseek(offset, whence) {
-            *self.offset.lock() = new_pos;
-            return Ok(new_pos);
+        match self.ops.lseek(offset, whence) {
+            Ok(new_pos) => {
+                *self.offset.lock() = new_pos;
+                return Ok(new_pos);
+            }
+            Err(VfsError::NotSupported) => {}
+            Err(e) => return Err(e),
         }
 
         // Fallback: compute the new offset ourselves — single lock acquisition.
