@@ -1,7 +1,7 @@
 From 50c59fed89098d4229652bb67b6ad22e15b5a53b Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sat, 15 Aug 2026 11:59:14 +0700
-Subject: [PATCH 01/29] feat(sysdeps): add PetraOS support and GCC 13
+Subject: [PATCH 01/30] feat(sysdeps): add PetraOS support and GCC 13
  compatibility
 
 ---
@@ -1743,7 +1743,7 @@ index 0000000..44587ad
 From e08a27e0095a7085c79383ba95815547d8da1ea6 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sun, 16 Aug 2026 17:18:00 +0700
-Subject: [PATCH 02/29] feat(sysdeps/petra): add terminal control, poll, and
+Subject: [PATCH 02/30] feat(sysdeps/petra): add terminal control, poll, and
  select sysdeps
 
 ---
@@ -1872,7 +1872,7 @@ index 44587ad..24a2b48 100644
 From 8fdd8bd9e800a32a539c8c7eba25ea04424a3dfc Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sun, 16 Aug 2026 17:19:03 +0700
-Subject: [PATCH 03/29] fix(sysdeps/petra): remove linux from
+Subject: [PATCH 03/30] fix(sysdeps/petra): remove linux from
  sysdep_supported_options
 
 ---
@@ -1898,7 +1898,7 @@ index 24a2b48..44587ad 100644
 From a5d534276c18eb46af2c98287236e7a9abb5f8d3 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sun, 16 Aug 2026 17:19:35 +0700
-Subject: [PATCH 04/29] feat(sysdeps/petra): declare terminal and poll tags in
+Subject: [PATCH 04/30] feat(sysdeps/petra): declare terminal and poll tags in
  PetraSysdepTags
 
 ---
@@ -1934,7 +1934,7 @@ index 5681c78..7abf63e 100644
 From c4a0c1ccc58c86f650721e8365843f6bd73da372 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sun, 16 Aug 2026 17:20:01 +0700
-Subject: [PATCH 05/29] fix(sysdeps/petra): use memset for sigset_t
+Subject: [PATCH 05/30] fix(sysdeps/petra): use memset for sigset_t
 
 ---
  sysdeps/petra/generic/generic.cpp | 2 +-
@@ -1960,7 +1960,7 @@ index 12ef809..413db4a 100644
 From 55ef383d5d25a3971856f4d24f9ee025249b6ee6 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sun, 16 Aug 2026 17:21:15 +0700
-Subject: [PATCH 06/29] fix(sysdeps/petra): direct bit check in Pselect without
+Subject: [PATCH 06/30] fix(sysdeps/petra): direct bit check in Pselect without
  __FD_ISSET
 
 ---
@@ -1991,7 +1991,7 @@ index 413db4a..a7cd878 100644
 From 5bc43821a5d34c49153a0f3acad232639f8fdc6c Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sun, 16 Aug 2026 17:21:39 +0700
-Subject: [PATCH 07/29] fix(sysdeps/petra): use fds_bits in Pselect
+Subject: [PATCH 07/30] fix(sysdeps/petra): use fds_bits in Pselect
 
 ---
  sysdeps/petra/generic/generic.cpp | 4 ++--
@@ -2021,7 +2021,7 @@ index a7cd878..0e3b2d3 100644
 From 37f7e571e240930396d68f4dbba21aaf8a74ead9 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sun, 16 Aug 2026 18:12:18 +0700
-Subject: [PATCH 08/29] feat(sysdeps/petra): implement ttyname, gethostname,
+Subject: [PATCH 08/30] feat(sysdeps/petra): implement ttyname, gethostname,
  termios fallback and pselect wrapper
 
 - Implement sys_ttyname: verify fd is a TTY via isatty, then report /dev/tty.
@@ -2216,7 +2216,7 @@ index 7abf63e..47b92d2 100644
 From 51b778f69f852471d1e6f0ec1ce0923977325e3d Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sun, 16 Aug 2026 21:54:12 +0700
-Subject: [PATCH 09/29] feat(sysdeps/petra): implement OpenDir and ReadEntries
+Subject: [PATCH 09/30] feat(sysdeps/petra): implement OpenDir and ReadEntries
  using getdents64
 
 ---
@@ -2281,7 +2281,7 @@ index 88915e8..90885b8 100644
 From 9a07df0e032e477024323e368a8c2790bc13f477 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Wed, 19 Aug 2026 19:25:53 +0700
-Subject: [PATCH 10/29] feat(sysdeps/petra): implement Sysdeps<Sysconf>
+Subject: [PATCH 10/30] feat(sysdeps/petra): implement Sysdeps<Sysconf>
  handling
 
 ---
@@ -2373,7 +2373,7 @@ index f774f21..71c9738 100644
 From 880000a3c7f45fd6f5b7be0749f31c3b3d91b469 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Wed, 19 Aug 2026 20:37:20 +0700
-Subject: [PATCH 11/29] feat(sysdeps/petra): implement brk, fchmodat, and
+Subject: [PATCH 11/30] feat(sysdeps/petra): implement brk, fchmodat, and
  utimensat sysdeps
 
 ---
@@ -2455,7 +2455,7 @@ index 90885b8..c6d9cbd 100644
 From 43e313027ff8cefb63e33902528be75d1421c8be Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Wed, 19 Aug 2026 20:47:47 +0700
-Subject: [PATCH 12/29] fix(ansi): flush stdout on read and default stdout to
+Subject: [PATCH 12/30] fix(ansi): flush stdout on read and default stdout to
  unbuffered for immediate terminal echo
 
 ---
@@ -2493,7 +2493,7 @@ index be04569..1c93376 100644
 From 09a2773cd5a47710a05a92808ce7f38c4cc13355 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Wed, 19 Aug 2026 20:59:14 +0700
-Subject: [PATCH 13/29] fix(stdio): default interactive terminal streams to
+Subject: [PATCH 13/30] fix(stdio): default interactive terminal streams to
  unbuffered for immediate character echoing
 
 ---
@@ -2529,7 +2529,7 @@ index 1c93376..cc161a4 100644
 From c467e559a6961b60b4528a9d46cf814c08e4dd65 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sat, 22 Aug 2026 10:05:46 +0700
-Subject: [PATCH 14/29] fix(sysdeps/petra): replace busy-loop Sleep with
+Subject: [PATCH 14/30] fix(sysdeps/petra): replace busy-loop Sleep with
  sys_nanosleep syscall
 
 ---
@@ -2646,7 +2646,7 @@ index b6059da..540bbc4 100644
 From 61e319ff63a58c48cf5faf623b41ae6cfcf17b9a Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Mon, 24 Aug 2026 12:51:05 +0700
-Subject: [PATCH 15/29] feat(sysdeps/petra): implement System V semaphore
+Subject: [PATCH 15/30] feat(sysdeps/petra): implement System V semaphore
  syscall support
 
 Add kernel-facing syscall numbers and userspace Sysdeps<> implementations
@@ -3133,7 +3133,7 @@ index c6d9cbd..44e9825 100644
 From 5d035756f8107305da5485bc10c64db1b61d42a8 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Tue, 25 Aug 2026 09:42:26 +0700
-Subject: [PATCH 16/29] feat(sysdeps/petra): implement fadvise and System V
+Subject: [PATCH 16/30] feat(sysdeps/petra): implement fadvise and System V
  shared memory sysdeps
 
 ---
@@ -3266,7 +3266,7 @@ index 44e9825..22b2c37 100644
 From 2a45c008b95157e527788e4e07b264387f8de8c2 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Tue, 25 Aug 2026 10:08:11 +0700
-Subject: [PATCH 17/29] feat(sysdeps/petra): implement socket and network
+Subject: [PATCH 17/30] feat(sysdeps/petra): implement socket and network
  system call sysdeps
 
 ---
@@ -3514,7 +3514,7 @@ index 22b2c37..a6c79f7 100644
 From 5756f5b21c1d1d83c362089fc75ff2004452ba80 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Tue, 25 Aug 2026 20:04:30 +0700
-Subject: [PATCH 18/29] feat(sysdeps/petra): implement ppoll, poll, and
+Subject: [PATCH 18/30] feat(sysdeps/petra): implement ppoll, poll, and
  terminal winsize sysdeps
 
 ---
@@ -3606,7 +3606,7 @@ index c22a7f3..3befdfd 100644
 From 131ee2b1073e161230207bb4ea0171e812fd9781 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Wed, 26 Aug 2026 19:11:42 +0700
-Subject: [PATCH 19/29] feat(sysdeps/petra): complete remaining sysdeps
+Subject: [PATCH 19/30] feat(sysdeps/petra): complete remaining sysdeps
  matching Astral parity with named constants
 
 ---
@@ -4653,7 +4653,7 @@ index a6c79f7..b002185 100644
 From 87033c13dda70fe1333912c68a2c917181983e54 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Wed, 26 Aug 2026 19:58:47 +0700
-Subject: [PATCH 20/29] fix(ioctls): export TIOCGWINSZ and standard ioctls in
+Subject: [PATCH 20/30] fix(ioctls): export TIOCGWINSZ and standard ioctls in
  header files
 
 ---
@@ -4788,7 +4788,7 @@ index 41381e8..04012f1 100644
 From f664513cb025299b606c0b635b1eb9facd71a390 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Fri, 28 Aug 2026 20:55:26 +0700
-Subject: [PATCH 21/29] feat(sysdeps/petra): implement GetRusage sysdep
+Subject: [PATCH 21/30] feat(sysdeps/petra): implement GetRusage sysdep
 
 ---
  sysdeps/petra/generic/generic.cpp       | 13 +++++++++++++
@@ -4851,7 +4851,7 @@ index b002185..0f38fd0 100644
 From 7c7de6dddf1bf2e46743c0262f5102a608dcc78e Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sun, 30 Aug 2026 18:16:21 +0700
-Subject: [PATCH 22/29] refactor(sysdeps/petra): modularize generic sysdeps and
+Subject: [PATCH 22/30] refactor(sysdeps/petra): modularize generic sysdeps and
  extract constants into include headers
 
 ---
@@ -8501,7 +8501,7 @@ index 44587ad..9938142 100644
 From 92d3dc79831a9e93f1099e4bd0cfd85a0f2e5605 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Fri, 4 Sep 2026 21:04:15 +0700
-Subject: [PATCH 23/29] feat(sysdeps/petra): implement scheduler and affinity
+Subject: [PATCH 23/30] feat(sysdeps/petra): implement scheduler and affinity
  syscalls, sysinfo, and headers
 
 ---
@@ -9160,7 +9160,7 @@ index 9938142..cc05f3d 100644
 From af959af8b196c1af8c4a826a74eb543960872f78 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sat, 5 Sep 2026 20:06:53 +0700
-Subject: [PATCH 24/29] feat(sysdeps/petra): implement _SC_SIGSTKSZ and sysconf
+Subject: [PATCH 24/30] feat(sysdeps/petra): implement _SC_SIGSTKSZ and sysconf
  limits, and mlibc file logging
 
 ---
@@ -9325,7 +9325,7 @@ index 7414504..4819ae6 100644
 From 7645c65837f12c1f8b65bab1b0cf8e38a55f9b5d Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Tue, 8 Sep 2026 19:47:26 +0700
-Subject: [PATCH 25/29] feat(sysdeps/petra): wire credential syscalls
+Subject: [PATCH 25/30] feat(sysdeps/petra): wire credential syscalls
  (setreuid/setregid/setgroups/setresuid/getresuid/setresgid/getresgid/setfsuid/setfsgid)
 
 ---
@@ -9453,7 +9453,7 @@ index 400a0bc..87653a5 100644
 From d275e618fafd79ebcb8bd3fa7b54bc9c9f76cc50 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sat, 12 Sep 2026 09:53:14 +0700
-Subject: [PATCH 26/29] feat(sysdeps/petra): implement reboot syscall and
+Subject: [PATCH 26/30] feat(sysdeps/petra): implement reboot syscall and
  enable linux-reboot
 
 ---
@@ -9541,7 +9541,7 @@ index cc05f3d..6d32edf 100644
 From e6f63143d721d20758fcc745ee925ccc3d44f90b Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sat, 12 Sep 2026 10:58:32 +0700
-Subject: [PATCH 27/29] feat(stdio_ext): implement __freadptr and __freadptrinc
+Subject: [PATCH 27/30] feat(stdio_ext): implement __freadptr and __freadptrinc
 
 ---
  options/glibc/generic/stdio_ext.cpp | 14 ++++++++------
@@ -9581,7 +9581,7 @@ index ccb3725..54b6945 100644
 From 266e7cdfd2ab12d0ead30672204379a53732659b Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sat, 12 Sep 2026 12:39:49 +0700
-Subject: [PATCH 28/29] feat(shadow): implement lckpwdf and ulckpwdf silently
+Subject: [PATCH 28/30] feat(shadow): implement lckpwdf and ulckpwdf silently
  like musl
 
 ---
@@ -9612,7 +9612,7 @@ index 5447fd3..80e47eb 100644
 From cc5fde5026ca8e1c65e6d94eadb3d99f880c4ca7 Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Mon, 14 Sep 2026 21:49:49 +0700
-Subject: [PATCH 29/29] feat(sysdeps/petra): install malloc.h header for
+Subject: [PATCH 29/30] feat(sysdeps/petra): install malloc.h header for
  userspace packages
 
 ---
@@ -9657,6 +9657,45 @@ index 6d32edf..eb60aea 100644
  endif
  
  if not headers_only
+-- 
+2.43.0
+
+
+From dc948cb8b39cee7faee54ca8a61baa291b05f42c Mon Sep 17 00:00:00 2001
+From: Ananta <kusumaananta042@gmail.com>
+Date: Tue, 15 Sep 2026 22:03:58 +0700
+Subject: [PATCH 30/30] feat(sysdeps/petra): install sys/sysmacros.h from linux
+ option
+
+The petra sysdep was missing sys/sysmacros.h from the installed sysroot
+headers. This header defines the major(), minor() and makedev() macros
+backed by the __mlibc_dev_* inline functions in bits/sysmacros.h.
+
+Without it, autoconf-based packages (e.g. sudo) fail to detect
+HAVE_SYS_SYSMACROS_H and MAJOR_IN_SYSMACROS, causing undefined references
+to major()/minor() at link time.
+
+Signed-off-by: Ananta <kusumaananta042@gmail.com>
+---
+ sysdeps/petra/meson.build | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/sysdeps/petra/meson.build b/sysdeps/petra/meson.build
+index eb60aea..1524cd9 100644
+--- a/sysdeps/petra/meson.build
++++ b/sysdeps/petra/meson.build
+@@ -110,6 +110,11 @@ if not no_headers
+         subdir: 'sys'
+     )
+ 
++    install_headers(
++        '../../options/linux/include/sys/sysmacros.h',
++        subdir: 'sys'
++    )
++
+     install_headers(
+         'include/bits/linux/linux_sched.h',
+         'include/bits/linux/cpu_set.h',
 -- 
 2.43.0
 
