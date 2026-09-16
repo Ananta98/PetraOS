@@ -47,8 +47,3 @@ packages:
       - args: |
           mkdir -p @SYSROOT_DIR@/usr/bin
           cp -f src/nano @SYSROOT_DIR@/usr/bin/nano
-    install:
-      - args: ['make', 'DESTDIR=@SYSROOT_DIR@', 'install']
-      - args: |
-          mkdir -p @SYSROOT_DIR@/usr/bin
-          cp -f src/nano @SYSROOT_DIR@/usr/bin/nano

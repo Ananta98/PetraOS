@@ -1,4 +1,3 @@
-From fe2f8ec7fcc0ff3946685fd27cd4c1c5502ed00c Mon Sep 17 00:00:00 2001
 From: Ananta <kusumaananta042@gmail.com>
 Date: Sat, 15 Aug 2026 21:55:00 +0700
 Subject: [PATCH] feat(petra): add PetraOS support to ncurses 6.3
@@ -8,28 +7,26 @@ Signed-off-by: Ananta <kusumaananta042@gmail.com>
  configure | 12 ++++++++++++
  1 file changed, 12 insertions(+)
 
- diff --git a/configure b/configure
- index 421cf859..7a1669fa 100755
- --- a/configure
- +++ b/configure
- @@ -6423,6 +6423,18 @@ CF_EOF
-  		LINK_PROGS="$SHELL ${rel_builddir}/mk_prog.sh"
-  		LINK_TESTS="$SHELL ${rel_builddir}/mk_prog.sh"
-  		;;
- +	(petra*)
- +		CC_SHARED_OPTS='-fPIC'
- +		test "$cf_cv_shlib_version" = auto && cf_cv_shlib_version=rel
- +		if test "$cf_cv_shlib_version" = rel; then
- +			cf_cv_shared_soname='`basename $@ .${REL_VERSION}`.${ABI_VERSION}'
- +		else
- +			cf_cv_shared_soname='`basename $@`'
- +		fi
- +		MK_SHARED_LIB='${CC} ${LDFLAGS} ${CFLAGS} -shared -Wl,-soname,'$cf_cv_shared_soname' -o $@'
- +		cf_cv_shlib_version=rel
- +		cf_cv_shlib_version_infix=no
- +		;;
-  	(mingw*)
-  		cf_cv_shlib_version=mingw
-  		cf_cv_shlib_version_infix=mingw
--- 
-2.43.0
+diff --git a/configure b/configure
+index 421cf85..7e35044 100755
+--- a/configure
++++ b/configure
+@@ -6423,6 +6423,18 @@ CF_EOF
+ 		LINK_PROGS="$SHELL ${rel_builddir}/mk_prog.sh"
+ 		LINK_TESTS="$SHELL ${rel_builddir}/mk_prog.sh"
+ 		;;
++	(petra*)
++		CC_SHARED_OPTS='-fPIC'
++		test "$cf_cv_shlib_version" = auto && cf_cv_shlib_version=rel
++		if test "$cf_cv_shlib_version" = rel; then
++			cf_cv_shared_soname='`basename $@ .${REL_VERSION}`.${ABI_VERSION}'
++		else
++			cf_cv_shared_soname='`basename $@`'
++		fi
++		MK_SHARED_LIB='${CC} ${LDFLAGS} ${CFLAGS} -shared -Wl,-soname,'$cf_cv_shared_soname' -o $@'
++		cf_cv_shlib_version=rel
++		cf_cv_shlib_version_infix=no
++		;;
+ 	(mingw*)
+ 		cf_cv_shlib_version=mingw
+ 		cf_cv_shlib_version_infix=mingw

@@ -40,24 +40,37 @@ run: run-$(KARCH)
 #
 # All xbstrap operations (workspace init, source fetching, patching, package
 # compilation and cleaning) live in tools/build_userland.sh:
-#   ./tools/build_userland.sh            # full userland pipeline + QEMU
-#
-# For convenience, long-running operations are also exposed as make targets:
-#   make build-userspace      - fetch + compile + install ALL packages
-#   make fetch-userspace      - fetch all sources only (no compile)
-#   make compile-userspace    - alias for build-userspace
-#   make install-userspace    - alias for build-userspace
-#   make clean-userspace      - clean xbstrap workspace
+#   make build-tools          - build host cross-compiler tools & mlibc runtime (Phase 1)
+#   make build-packages       - build target userspace packages (Phase 2)
+#   make build-userspace      - full pipeline (build-tools then build-packages)
+#   make fetch-userspace      - fetch all package sources without building
+#   make clean-userspace      - wipe xbstrap workspace and downloaded sources
 # ==============================================================================
+
+.PHONY: build-tools
+build-tools:
+	@echo "==> Building host cross-compiler tools and toolchain..."
+	@bash tools/build_userland.sh build-tools
+
+.PHONY: build-packages
+build-packages:
+	@echo "==> Building target userspace packages into sysroot..."
+	@bash tools/build_userland.sh build-packages
 
 .PHONY: build-userspace
 build-userspace:
-	@echo "==> Building all userspace packages (this may take a long time)..."
+	@echo "==> Building full userspace (tools + packages)..."
 	@bash tools/build_userland.sh build-all
+
+.PHONY: fetch-userspace
+fetch-userspace:
+	@echo "==> Fetching all userspace sources..."
+	@bash tools/build_userland.sh fetch all
 
 .PHONY: clean-userspace
 clean-userspace:
-	@bash tools/build_userland.sh clean --all
+	@echo "==> Cleaning userspace build directory and sources..."
+	@bash tools/build_userland.sh clean all
 
 .PHONY: sync-initramfs sync_ramfs
 sync-initramfs sync_ramfs:
@@ -66,13 +79,14 @@ sync-initramfs sync_ramfs:
 	fi
 
 .PHONY: initramfs
-initramfs: $(INITRAMFS_CPIO)
-
-$(INITRAMFS_CPIO): tools/build_initramfs.sh
+initramfs:
 	@mkdir -p $(BUILD_DIR)
 	@if [ -f tools/build_initramfs.sh ]; then \
 		chmod +x tools/build_initramfs.sh && ./tools/build_initramfs.sh $(INITRAMFS_ROOT) $(INITRAMFS_CPIO) $(SYSROOT); \
 	fi
+
+$(INITRAMFS_CPIO):
+	@$(MAKE) initramfs
 
 .PHONY: run-hdd
 run-hdd: run-hdd-$(KARCH)

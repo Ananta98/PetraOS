@@ -55,16 +55,9 @@ packages:
           - '--with-sha-crypt=yes'
     build:
       - args: ['make', '-j@PARALLELISM@']
-      # NOTE: xbstrap 0.36 `Build` only executes `configure`+`build`
-      # (package `install:` steps are parsed but never run), so install
-      # directly here via DESTDIR. Keep `install:` below for compat
-      # with fixed xbstrap / documentation.
       - args: ['make', 'DESTDIR=@SYSROOT_DIR@', 'install']
       - args: ['make', '-C', 'src', 'DESTDIR=@SYSROOT_DIR@', 'install']
       - args: |
           set -e
           ls -lh @SYSROOT_DIR@/bin/login @SYSROOT_DIR@/usr/bin/passwd @SYSROOT_DIR@/etc/login.defs
           echo "shadow install completed"
-    install:
-      - args: ['make', 'DESTDIR=@SYSROOT_DIR@', 'install']
-      - args: ['make', '-C', 'src', 'DESTDIR=@SYSROOT_DIR@', 'install']

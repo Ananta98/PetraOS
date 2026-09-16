@@ -34,9 +34,4 @@ packages:
           - '--disable-werror'
     build:
       - args: ['make', '-j@PARALLELISM@']
-      # NOTE: xbstrap 0.36 `Build` only executes `configure`+`build`
-      # (package `install:` is ignored), so install via DESTDIR here.
-      # `install-strip` skips libxcrypt headers; use plain `install`.
-      - args: ['make', 'DESTDIR=@SYSROOT_DIR@', 'install']
-    install:
       - args: ['make', 'DESTDIR=@SYSROOT_DIR@', 'install']

@@ -6,12 +6,13 @@
 #   - Initialize the xbstrap workspace
 #   - Download / fetch package source code
 #   - Verify patches (applied by xbstrap during source prepare)
-#   - Compile & install a single package or all packages into the sysroot
-#   - Clean build artifacts
+#   - Compile & install host cross-tools (toolchain bootstrap)
+#   - Compile & install target packages into sysroot
+#   - Clean build artifacts and sources
 #   - Package initramfs, and launch PetraOS in QEMU
 #
 # Usage:
-#   ./tools/build_userland.sh                  # Full pipeline (ALL packages) + QEMU
+#   ./tools/build_userland.sh                  # Full pipeline (tools + packages) + QEMU
 #   ./tools/build_userland.sh <action> [pkg]   # Individual operation, see help
 # ==============================================================================
 
@@ -63,7 +64,7 @@ xbstrap_in_workspace() {
 }
 
 # ------------------------------------------------------------------------------
-# xbstrap operations
+# Workspace operations
 # ------------------------------------------------------------------------------
 
 cmd_init() {
@@ -91,7 +92,6 @@ cmd_fetch() {
         xbstrap_in_workspace fetch --all
         log_success "All package sources fetched."
     else
-        # Check if source is already downloaded and non-empty
         if [ -d "${SOURCES_DIR}/${pkg}" ] && [ "$(ls -A "${SOURCES_DIR}/${pkg}" 2>/dev/null)" ]; then
             log_info "Source for '${pkg}' already exists at sources/${pkg}."
         else
@@ -128,13 +128,16 @@ cmd_patch() {
     fi
 }
 
+# ------------------------------------------------------------------------------
+# Build operations
+# ------------------------------------------------------------------------------
+
 build_package() {
     local pkg="${1}"
-    # Fetch source first if missing; patches are applied by xbstrap on prepare.
     cmd_fetch "${pkg}"
 
     log_info "Building package '${pkg}' into sysroot..."
-    xbstrap_in_workspace install "${pkg}"
+    xbstrap_in_workspace build "${pkg}"
     log_success "Package '${pkg}' built and installed successfully."
 }
 
@@ -149,114 +152,119 @@ cmd_build() {
     build_package "${pkg}"
 }
 
-discover_all_packages() {
-    local packages=()
-    local yml_file pkg_name
+cmd_build_tools() {
+    ensure_xbstrap
+    cmd_init
 
-    # Try authoritative list from xbstrap if workspace is initialized.
-    if [ -f "${BUILD_DIR_XBSTRAP}/bootstrap.link" ] && command -v xbstrap &>/dev/null; then
-        local xb_pkgs
-        xb_pkgs="$( (cd "${BUILD_DIR_XBSTRAP}" && xbstrap list-pkgs 2>/dev/null) || true )"
-        if [ -n "${xb_pkgs}" ]; then
-            # Ensure mlibc (and mlibc-headers) come first
-            local ordered=()
-            if echo "${xb_pkgs}" | grep -qw "mlibc"; then
-                ordered+=("mlibc")
-            fi
-            local pkg
-            while read -r pkg; do
-                for pkg in ${pkg}; do
-                    if [ "${pkg}" = "mlibc" ] || [ "${pkg}" = "mlibc-headers" ]; then
-                        continue
-                    fi
-                    if [[ " ${ordered[*]} " != *" ${pkg} "* ]]; then
-                        ordered+=("${pkg}")
-                    fi
-                done
-            done <<< "${xb_pkgs}"
-            if echo "${xb_pkgs}" | grep -qw "mlibc-headers"; then
-                local tmp=()
-                for pkg in "${ordered[@]}"; do
-                    tmp+=("${pkg}")
-                    if [ "${pkg}" = "mlibc" ]; then
-                        tmp+=("mlibc-headers")
-                    fi
-                done
-                ordered=()
-                local seen=""
-                for pkg in "${tmp[@]}"; do
-                    if [[ "${seen}" != *"|${pkg}|"* ]]; then
-                        ordered+=("${pkg}")
-                        seen="${seen}|${pkg}|"
-                    fi
-                done
-            fi
-            echo "${ordered[*]:-}"
-            return 0
-        fi
-    fi
+    log_info "============================================================"
+    log_info " [Phase 1/2] Building Cross-Compiler Tools & C Library      "
+    log_info "============================================================"
 
-    # Fallback: scan YML files that actually define a packages: section.
-    for yml_file in "${PACKAGES_DIR}"/*/*.yml; do
-        if ! grep -qE '^[[:space:]]*packages:' "${yml_file}" 2>/dev/null; then
-            continue
-        fi
-        pkg_name="$(basename "${yml_file}" .yml)"
-        if [ "${pkg_name}" = "mlibc" ]; then
-            continue
-        fi
-        if grep -qE "name:[[:space:]]+${pkg_name}([[:space:]]|$)" "${yml_file}" 2>/dev/null || \
-           grep -qE "name:[[:space:]]+mlibc" "${yml_file}" 2>/dev/null; then
-            packages+=("${pkg_name}")
-        else
-            if grep -qE '^[[:space:]]*-[[:space:]]*name:' "${yml_file}" 2>/dev/null; then
-                packages+=("${pkg_name}")
-            fi
-        fi
+    # 1. Host autotools for configuration generation
+    log_info "--> [1/6] Building host-autoconf-v2.69..."
+    xbstrap_in_workspace install-tool host-autoconf-v2.69
+
+    log_info "--> [2/6] Building host-automake-v1.16..."
+    xbstrap_in_workspace install-tool host-automake-v1.16
+
+    # 2. Host cross-binutils (as, ld for x86_64-petra)
+    log_info "--> [3/6] Building host-binutils..."
+    xbstrap_in_workspace install-tool host-binutils
+
+    # 3. Target C library headers
+    log_info "--> [4/7] Building mlibc-headers..."
+    xbstrap_in_workspace build mlibc-headers
+
+    # 4. Target C library runtime (crt0, crti, crtn, libc.a, libc.so)
+    log_info "--> [5/7] Building mlibc runtime..."
+    xbstrap_in_workspace build mlibc
+
+    # 5. Host cross-GCC and C++ runtime (compiler -> libgcc -> libstdc++)
+    log_info "--> [6/7] Building host-gcc and runtime libraries..."
+    xbstrap_in_workspace install-tool host-gcc
+
+    # 6. Additional host utilities
+    log_info "--> [7/7] Building host utilities (host-zic, host-gnulib)..."
+    xbstrap_in_workspace install-tool host-zic
+    xbstrap_in_workspace install-tool host-gnulib
+
+    log_success "Host tools and cross-compiler toolchain built successfully."
+}
+
+cmd_build_packages() {
+    ensure_xbstrap
+    cmd_init
+
+    log_info "============================================================"
+    log_info " [Phase 2/2] Building Target Userspace Packages            "
+    log_info "============================================================"
+
+    local target_pkgs=(
+        base-files
+        ncurses
+        readline
+        bash
+        coreutils
+        sed
+        grep
+        gawk
+        libxcrypt
+        shadow
+        sudo
+        tzdata
+        nano
+        vim
+        fastfetch
+        pkg-config
+        libtool
+        autoconf
+        automake
+        binutils
+        gcc
+    )
+
+    local total="${#target_pkgs[@]}"
+    local i=1
+    for pkg in "${target_pkgs[@]}"; do
+        log_info "--> [${i}/${total}] Building target package: ${pkg}..."
+        xbstrap_in_workspace build "${pkg}"
+        i=$((i + 1))
     done
-    if [ -f "${PACKAGES_DIR}/mlibc/mlibc.yml" ]; then
-        echo "mlibc ${packages[*]:-}"
-    else
-        echo "${packages[*]:-}"
-    fi
+
+    log_success "All target userspace packages built and installed into sysroot."
 }
 
 cmd_build_all() {
     ensure_xbstrap
     cmd_init
-
-    log_info "Fetching all package sources..."
-    xbstrap_in_workspace fetch --all
-
-    local packages
-    read -r -a packages <<< "$(discover_all_packages)"
-    if [ "${#packages[@]}" -eq 0 ]; then
-        log_warn "No package definitions found in ${PACKAGES_DIR}."
-        return 0
-    fi
-
-    log_info "Compiling all ${#packages[@]} packages in bootstrap.yml..."
-    local pkg
-    for pkg in "${packages[@]}"; do
-        log_info "==> Building ${pkg}..."
-        xbstrap_in_workspace install "${pkg}"
-    done
-    log_success "All packages built successfully."
+    cmd_build_tools
+    cmd_build_packages
+    log_success "Full userspace build (tools + packages) completed successfully."
 }
 
 cmd_clean() {
-    local pkg="${1:-}"
-    if [ -z "${pkg}" ] || [ "${pkg}" = "all" ] || [ "${pkg}" = "--all" ]; then
+    local target="${1:-}"
+    if [ -z "${target}" ] || [ "${target}" = "all" ] || [ "${target}" = "--all" ]; then
         log_info "Cleaning full xbstrap build workspace (${BUILD_DIR_XBSTRAP})..."
         rm -rf "${BUILD_DIR_XBSTRAP}"
-        log_success "Cleaned full xbstrap build directory."
+        log_info "Cleaning downloaded sources (${SOURCES_DIR})..."
+        rm -rf "${SOURCES_DIR}"
+        log_success "Cleaned full xbstrap build directory and sources directory (clean slate)."
+    elif [ "${target}" = "build" ]; then
+        log_info "Cleaning build workspace only (${BUILD_DIR_XBSTRAP})..."
+        rm -rf "${BUILD_DIR_XBSTRAP}"
+        log_success "Cleaned xbstrap build directory."
+    elif [ "${target}" = "sources" ]; then
+        log_info "Cleaning sources directory (${SOURCES_DIR})..."
+        rm -rf "${SOURCES_DIR}"
+        log_success "Cleaned sources directory."
     else
-        log_info "Cleaning build artifacts for package '${pkg}'..."
-        rm -rf "${BUILD_DIR_XBSTRAP}/packages/${pkg}"*
-        rm -rf "${BUILD_DIR_XBSTRAP}/pkg-builds/${pkg}"*
-        rm -rf "${BUILD_DIR_XBSTRAP}/pkg-stamps/${pkg}"*
-        rm -f "${SYSROOT}/etc/xbstrap/${pkg}.installed"
-        log_success "Cleaned build artifacts for '${pkg}'."
+        log_info "Cleaning build artifacts for package '${target}'..."
+        rm -rf "${BUILD_DIR_XBSTRAP}/packages/${target}"*
+        rm -rf "${BUILD_DIR_XBSTRAP}/pkg-builds/${target}"*
+        rm -rf "${BUILD_DIR_XBSTRAP}/pkg-stamps/${target}"*
+        rm -f "${SYSROOT}/etc/xbstrap/${target}.installed"
+        log_success "Cleaned build artifacts for '${target}'."
     fi
 }
 
@@ -282,19 +290,16 @@ run_pipeline() {
     echo "          PetraOS Userland Build & Launch Pipeline          "
     echo "============================================================"
 
-    echo "[1/5] Initializing xbstrap workspace..."
+    echo "[1/4] Initializing xbstrap workspace..."
     cmd_init
 
-    echo "[2/5] Downloading all sources via xbstrap-fetch..."
-    cmd_fetch all
-
-    echo "[3/5] Building all userland packages..."
+    echo "[2/4] Building full userspace (tools + packages)..."
     cmd_build_all
 
-    echo "[4/5] Packaging initramfs cpio archive..."
+    echo "[3/4] Packaging initramfs cpio archive..."
     make initramfs
 
-    echo "[5/5] Launching PetraOS in QEMU..."
+    echo "[4/4] Launching PetraOS in QEMU..."
     make run QEMUFLAGS="${QEMU_EXTRA_FLAGS}"
 }
 
@@ -305,16 +310,18 @@ show_help() {
     echo -e "${BOLD}Usage:${RESET} $0 [action] [package_name]"
     echo ""
     echo -e "${BOLD}Pipeline:${RESET}"
-    echo "  (no args) | run   Full pipeline: init, fetch all, build all, initramfs, run QEMU"
+    echo "  (no args) | run   Full pipeline: init, build tools, build packages, initramfs, run QEMU"
     echo ""
     echo -e "${BOLD}Actions:${RESET}"
     echo "  init              Initialize xbstrap build directory"
     echo "  fetch [pkg]       Download package source code (all packages by default)"
-    echo "  patch <pkg>       Inspect / verify package patches (applied by xbstrap at prepare)"
-    echo "  build <pkg>       Fetch, patch, compile and install package to sysroot"
+    echo "  patch <pkg>       Inspect / verify package patches"
+    echo "  build-tools       Build host cross-compiler tools & mlibc runtime (Phase 1)"
+    echo "  build-packages    Build all target userspace packages into sysroot (Phase 2)"
+    echo "  build-all         Full userspace build: build-tools then build-packages"
+    echo "  build <pkg>       Build and install a single package"
     echo "  install <pkg>     Alias for build"
-    echo "  build-all         Fetch and recompile all userspace packages"
-    echo "  clean [pkg]       Clean package build cache or entire xbstrap workspace"
+    echo "  clean [target]    Clean workspace ('all' or empty wipes build + sources; 'build', 'sources', or <pkg>)"
     echo "  status [pkg]      Show package and workspace status"
     echo "  help              Show this help message"
 }
@@ -335,11 +342,17 @@ case "${ACTION}" in
     patch)
         cmd_patch "${PKG_NAME}"
         ;;
-    build|install)
-        cmd_build "${PKG_NAME}"
+    build-tools|tools)
+        cmd_build_tools
+        ;;
+    build-packages|packages)
+        cmd_build_packages
         ;;
     build-all|rebuild-all)
         cmd_build_all
+        ;;
+    build|install)
+        cmd_build "${PKG_NAME}"
         ;;
     clean)
         cmd_clean "${PKG_NAME}"

@@ -1,0 +1,40 @@
+{
+  "$schema": "https://github.com/fastfetch-cli/fastfetch/raw/dev/doc/json_schema.json",
+  "logo": {
+    "source": "petra",
+    "padding": { "top": 1, "right": 2 }
+  },
+  "general": {
+    "processingTimeout": 500,
+    "detectVersion": false,
+    "thread": false
+  },
+  "display": {
+    "separator": ": ",
+    "showErrors": false
+  },
+  "modules": [
+    "title",
+    "separator",
+    "os",
+    "kernel",
+    "uptime",
+    "loadavg",
+    "processes",
+    {
+      "type": "cpu",
+      "showPeCoreCount": true
+    },
+    "memory",
+    {
+      "type": "swap",
+      "separate": true
+    },
+    "disk",
+    "shell",
+    "terminal",
+    "locale",
+    "break",
+    "colors"
+  ]
+}

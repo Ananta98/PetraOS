@@ -30,5 +30,3 @@ packages:
       # directly here via DESTDIR. Keep `install:` below for compat
       # with fixed xbstrap / documentation.
       - args: ['make', 'DESTDIR=@SYSROOT_DIR@', 'install-strip']
-    install:
-      - args: ['make', 'DESTDIR=@SYSROOT_DIR@', 'install-strip']

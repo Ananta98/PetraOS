@@ -50,14 +50,6 @@ packages:
           vim_cv_bcopy_handles_overlap: 'yes'
     build:
       - args: ['make', '-C', 'src', '-j@PARALLELISM@']
-      # NOTE: xbstrap 0.36 `Build` only executes `configure`+`build`
-      # (package `install:` steps are parsed but never run), so install
-      # directly here via DESTDIR. Keep `install:` below for compat
-      # with fixed xbstrap / documentation.
-      - args: |
-          make -C src DESTDIR=@SYSROOT_DIR@ install
-          ln -sf vim @SYSROOT_DIR@/usr/bin/vi
-    install:
       - args: |
           make -C src DESTDIR=@SYSROOT_DIR@ install
           ln -sf vim @SYSROOT_DIR@/usr/bin/vi

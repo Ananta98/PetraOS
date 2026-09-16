@@ -2,6 +2,7 @@
 /build/
 /build-xbstrap/
 /.xbstrap/
+*.xbstrap
 bootstrap.link
 pkg-builds/
 sysroot/

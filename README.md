@@ -1,101 +1,62 @@
 # PetraOS
 
-PetraOS is a modular monolithic, UNIX-like operating system written in Rust (`no_std` kernel) featuring a standard POSIX userland powered by mlibc, GNU toolchains, and xbstrap package orchestration.
+PetraOS is a modular monolithic, UNIX-like operating system written in Rust (`no_std` kernel) featuring a POSIX userland powered by mlibc, GNU toolchains, and xbstrap package orchestration.
 
 ---
 
-## 1. Directory Structure
-
-```
-PetraOS/
-├── kernel/          # Rust kernel crate (no_std, architecture, drivers, VFS, mm)
-├── base-files/      # Root filesystem skeleton conforming to UsrMerge (/bin, /etc, etc.)
-├── packages/        # Userland package definitions and patches (xbstrap YAMLs)
-├── cross-files/     # Meson and CMake cross-compilation definition files
-├── tools/           # Build and testing scripts
-│   ├── build_userland.sh   # Unified userspace build engine (xbstrap wrapper)
-│   ├── build_initramfs.sh  # Initramfs CPIO archive generator
-│   └── test_cli.py         # Automated QEMU CLI test runner
-├── limine/          # Bootloader assets and configuration (limine.conf)
-├── bootstrap.yml    # Main xbstrap orchestration manifest
-└── GNUmakefile      # Top-level build orchestration (ISO, HDD, QEMU runner)
-```
-
----
-
-## 2. Requirements & Dependencies
+## 1. Prerequisites
 
 ### Host System Tools
-Install the essential host build tools:
+Ensure the required build tools and xbstrap are installed:
 ```bash
-# Debian / Ubuntu
+# Ubuntu / Debian
 sudo apt update
-sudo apt install -y build-essential git cpio xorriso gdisk mtools qemu-system-x86 python3 python3-pip curl
+sudo apt install -y build-essential git cpio xorriso gdisk mtools qemu-system-x86 python3 python3-pip curl ninja-build meson cmake
+pip install xbstrap || pip install --break-system-packages xbstrap
 
-# Install xbstrap (userspace package orchestrator)
-pip install xbstrap
-```
-
-### Rust Toolchain
-Rust is required to build the kernel crate:
-```bash
+# Rust bare-metal target for kernel
 rustup target add x86_64-unknown-none
 ```
 
 ---
 
-## 3. Quick Start
+## 2. Quick Start
 
 ### Build Everything & Run in QEMU
-To initialize the workspace, fetch sources, compile all userspace packages, build the kernel, package the initramfs, and launch in QEMU:
+To build the complete userspace, kernel, initramfs, and launch PetraOS in QEMU:
 ```bash
-./tools/build_userland.sh
-```
-*(Alternatively, run `make run` to boot with current artifacts).*
-
-### Build Kernel Only
-```bash
-make -C kernel
-```
-
-### Build Initramfs Only
-```bash
-./tools/build_initramfs.sh
-# or: make initramfs
+make build-userspace
+make run
 ```
 
 ---
 
-## 4. Working with Userland Packages (`xbstrap`)
+## 3. Userspace Build System
 
-PetraOS uses `xbstrap` to cross-compile software into `build-xbstrap/system-root`. All package definitions reside in `packages/<package-name>/<package-name>.yml` and are managed via `tools/build_userland.sh`.
+All package recipes reside under `packages/<package>/<package>.yml`. Userspace compilation uses a two-phase bootstrapping architecture managed via `GNUmakefile` and `tools/build_userland.sh`:
 
-### Common Commands
+| Command | Action |
+| :--- | :--- |
+| `make build-userspace` | Full pipeline: builds host tools & toolchain, then builds all target packages into the sysroot |
+| `make build-tools` | Phase 1: Builds host cross-compiler tools (`host-binutils`, `host-gcc`, `mlibc-headers`, `mlibc`) |
+| `make build-packages` | Phase 2: Compiles all target userspace packages (`bash`, `coreutils`, `ncurses`, `vim`, etc.) |
+| `make fetch-userspace` | Downloads all package sources to `sources/` without compiling |
+| `make clean-userspace` | Completely resets the workspace (`build-xbstrap` and `sources/`) for a clean slate build |
 
-| Task | Command | Description |
-| :--- | :--- | :--- |
-| **Build a Package** | `./tools/build_userland.sh build <pkg>` | Fetches, patches, compiles, and installs package into sysroot |
-| **Fetch Source** | `./tools/build_userland.sh fetch <pkg>` | Downloads package source to `sources/<pkg>` |
-| **Inspect Patches** | `./tools/build_userland.sh patch <pkg>` | Lists active patch files for the package |
-| **Clean Package** | `./tools/build_userland.sh clean <pkg>` | Cleans build cache and stamps for a specific package |
-| **Clean All** | `./tools/build_userland.sh clean` | Wipes the `build-xbstrap` build directory |
-| **Status** | `./tools/build_userland.sh status [pkg]` | Displays workspace and package build status |
-
-### Adding or Patching a Package
-
-1. **Adding a New Port**:
-   - Create `packages/<name>/<name>.yml` with source URL, build steps, and `DESTDIR=@SYSROOT_DIR@`.
-   - Add `- file: packages/<name>/<name>.yml` to `bootstrap.yml`.
-   - Run `./tools/build_userland.sh build <name>`.
-
-2. **Creating & Applying Patches**:
-   - Place patch files in `packages/<pkg>/` named sequentially (e.g., `0001-petra-port.patch`).
-   - Use `-p1` strip level (`patch_path_strip: 1` in YML).
-   - Patches are applied automatically by `xbstrap` during the source prepare phase.
-   - Clean and rebuild to verify:
-     ```bash
-     ./tools/build_userland.sh clean <pkg>
-     ./tools/build_userland.sh build <pkg>
-     ```
+### Single Package Operations
+You can also compile or inspect individual packages via `tools/build_userland.sh`:
+```bash
+./tools/build_userland.sh build <pkg>    # Build single package into sysroot
+./tools/build_userland.sh clean <pkg>    # Clean build cache for single package
+./tools/build_userland.sh status [pkg]   # Check build/download status
+```
 
 ---
+
+## 4. Kernel & Initramfs
+
+```bash
+make -C kernel       # Build the Rust kernel binary
+make initramfs       # Sync sysroot and package build/initramfs.cpio
+make run             # Boot ISO in QEMU (4GB RAM, serial stdio)
+```

@@ -1,12 +1,12 @@
 sources:
   - name: binutils
     subdir: sources
-    git: 'git://sourceware.org/git/binutils-gdb.git'
-    tag: 'binutils-2_38'
+    url: 'https://ftpmirror.gnu.org/binutils/binutils-2.38.tar.xz'
+    format: 'tar.xz'
+    extract_path: 'binutils-2.38'
     version: '2.38'
     patch_path_strip: 1
     tools_required:
-      - host-autoconf-v2.69
       - host-automake-v1.16
     regenerate:
       - args: ['cp',
@@ -50,10 +50,4 @@ packages:
           - '--disable-werror'
     build:
       - args: ['make', '-j@PARALLELISM@', 'all-binutils', 'all-gas', 'all-ld']
-      # NOTE: xbstrap 0.36 `Build` only executes `configure`+`build`
-      # (package `install:` steps are parsed but never run), so install
-      # directly here via DESTDIR. Keep `install:` below for compat
-      # with fixed xbstrap / documentation.
-      - args: ['make', 'DESTDIR=@SYSROOT_DIR@', 'install-strip-binutils', 'install-strip-gas', 'install-strip-ld']
-    install:
-      - args: ['make', 'DESTDIR=@SYSROOT_DIR@', 'install-strip-binutils', 'install-strip-gas', 'install-strip-ld']
+      - args: ['make', 'DESTDIR=@SYSROOT_DIR@', 'install-binutils', 'install-gas', 'install-ld']

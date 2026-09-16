@@ -24,16 +24,8 @@ packages:
           - '--disable-acl'
           - '--without-selinux'
     build:
-      # NOTE: plain `make` also builds gnulib-tests, whose
-      # getlocalename_l-unsafe.c has `#error "Please port gnulib ..."`
-      # for unknown libcs (mlibc/Petra). The sed binary itself builds
-      # fine, so build/install only the top dir (all-am/install-am)
-      # and skip gnulib-tests.
-      - args: ['make', '-j@PARALLELISM@', 'all-am']
-      # NOTE: xbstrap 0.36 `Build` only executes `configure`+`build`
-      # (package `install:` steps are parsed but never run), so install
-      # directly here via DESTDIR. Keep `install:` below for compat
-      # with fixed xbstrap / documentation.
-      - args: ['make', 'DESTDIR=@SYSROOT_DIR@', 'install-am']
-    install:
-      - args: ['make', 'DESTDIR=@SYSROOT_DIR@', 'install-am']
+      # Build and install only po and . (skipping gnulib-tests which fails on non-glibc).
+      # Using SUBDIRS="po ." ensures BUILT_SOURCES are generated before objects in .
+      - args: ['make', '-j@PARALLELISM@', 'SUBDIRS=po .']
+      - args: ['make', 'DESTDIR=@SYSROOT_DIR@', 'SUBDIRS=po .', 'install']
+

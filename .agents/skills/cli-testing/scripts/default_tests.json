@@ -19,7 +19,7 @@
     {
       "name": "test_pwd",
       "command": "pwd",
-      "expect_regex": "^/",
+      "expect_contains": "/root",
       "expect_exit_code": 0,
       "timeout": 10.0
     },

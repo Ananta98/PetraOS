@@ -48,21 +48,3 @@ packages:
                 ;;
             esac
           done
-    install:
-      - args: ['make', 'DESTDIR=@SYSROOT_DIR@', 'install']
-      - args: |
-          cd @SYSROOT_DIR@/usr/lib
-          for f in libreadline.so.8.* libhistory.so.8.*; do
-            [ -f "$f" ] || continue
-            case "$f" in
-              *.old) continue ;;
-              libreadline.so.8.*)
-                ln -sf "$f" libreadline.so.8
-                ln -sf "$f" libreadline.so
-                ;;
-              libhistory.so.8.*)
-                ln -sf "$f" libhistory.so.8
-                ln -sf "$f" libhistory.so
-                ;;
-            esac
-          done

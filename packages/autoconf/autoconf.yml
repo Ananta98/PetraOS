@@ -35,5 +35,3 @@ packages:
     build:
       - args: ['make', '-j@PARALLELISM@']
       - args: ['make', 'DESTDIR=@SYSROOT_DIR@', 'install-strip']
-    install:
-      - args: ['make', 'DESTDIR=@SYSROOT_DIR@', 'install-strip']

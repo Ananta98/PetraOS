@@ -13,7 +13,7 @@ packages:
       - args:
           - meson
           - setup
-          - '@BUILD_ROOT@/pkg-builds/mlibc-headers'
+          - '@SOURCE_ROOT@/build-xbstrap/pkg-builds/mlibc-headers'
           - '@THIS_SOURCE_DIR@'
           - --cross-file=@SOURCE_ROOT@/cross-files/petra-x86_64.ini
           - --prefix=/usr
@@ -22,15 +22,14 @@ packages:
       - args:
           - ninja
           - -C
-          - '@BUILD_ROOT@/pkg-builds/mlibc-headers'
-    install:
+          - '@SOURCE_ROOT@/build-xbstrap/pkg-builds/mlibc-headers'
       - args:
           - ninja
           - -C
-          - '@BUILD_ROOT@/pkg-builds/mlibc-headers'
+          - '@SOURCE_ROOT@/build-xbstrap/pkg-builds/mlibc-headers'
           - install
         environ:
-          DESTDIR: '@SYSROOT_DIR@'
+          DESTDIR: '@SOURCE_ROOT@/build-xbstrap/system-root'
 
   - name: mlibc
     architecture: x86_64
@@ -41,7 +40,7 @@ packages:
       - args:
           - meson
           - setup
-          - '@BUILD_ROOT@/pkg-builds/mlibc'
+          - '@SOURCE_ROOT@/build-xbstrap/pkg-builds/mlibc'
           - '@THIS_SOURCE_DIR@'
           - --cross-file=@SOURCE_ROOT@/cross-files/petra-x86_64.ini
           - --prefix=/usr
@@ -51,12 +50,11 @@ packages:
       - args:
           - ninja
           - -C
-          - '@BUILD_ROOT@/pkg-builds/mlibc'
-    install:
+          - '@SOURCE_ROOT@/build-xbstrap/pkg-builds/mlibc'
       - args:
           - ninja
           - -C
-          - '@BUILD_ROOT@/pkg-builds/mlibc'
+          - '@SOURCE_ROOT@/build-xbstrap/pkg-builds/mlibc'
           - install
         environ:
-          DESTDIR: '@SYSROOT_DIR@'
+          DESTDIR: '@SOURCE_ROOT@/build-xbstrap/system-root'

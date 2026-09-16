@@ -41,12 +41,4 @@ packages:
           - '--disable-rpath'
     build:
       - args: ['make', '-j@PARALLELISM@']
-      # NOTE: xbstrap 0.36 `Build` only executes `configure`+`build`
-      # (package `install:` steps are parsed but never run), so install
-      # directly here via DESTDIR. Keep `install:` below for compat
-      # with fixed xbstrap / documentation.
-      # INSTALL_OWNER= : sudo's install defaults to `chown 0:0`
-      # (-o 0 -g 0), which fails for non-root staging builds.
-      - args: ['make', 'DESTDIR=@SYSROOT_DIR@', 'INSTALL_OWNER=', 'install']
-    install:
       - args: ['make', 'DESTDIR=@SYSROOT_DIR@', 'INSTALL_OWNER=', 'install']

@@ -53,5 +53,4 @@ packages:
                '@THIS_SOURCE_DIR@/doc/libtool.1',
                '@THIS_SOURCE_DIR@/doc/libtoolize.1']
       - args: ['make', '-j@PARALLELISM@', 'HELP2MAN=/usr/bin/true']
-    install:
       - args: ['make', 'DESTDIR=@SYSROOT_DIR@', 'install-strip']

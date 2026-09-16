@@ -51,5 +51,4 @@ packages:
           - '--prefix=/usr'
     build:
       - args: ['make', '-j@PARALLELISM@']
-    install:
       - args: ['make', 'DESTDIR=@SYSROOT_DIR@', 'install-strip']

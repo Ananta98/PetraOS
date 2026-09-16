@@ -38,6 +38,3 @@ packages:
       # with fixed xbstrap / documentation.
       - args: ['make', 'DESTDIR=@SYSROOT_DIR@', 'install']
       - args: ['ln', '-sf', 'gawk', '@SYSROOT_DIR@/usr/bin/awk']
-    install:
-      - args: ['make', 'DESTDIR=@SYSROOT_DIR@', 'install']
-      - args: ['ln', '-sf', 'gawk', '@SYSROOT_DIR@/usr/bin/awk']

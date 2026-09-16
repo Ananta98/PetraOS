@@ -1,7 +1,7 @@
 sources:
   - name: gcc
     subdir: sources
-    git: 'git://gcc.gnu.org/git/gcc.git'
+    git: 'https://gcc.gnu.org/git/gcc.git'
     tag: 'releases/gcc-12.1.0'
     patch_path_strip: 1
     version: '12.1.0'
@@ -12,19 +12,19 @@ sources:
       - args: ['./contrib/download_prerequisites']
         workdir: '@THIS_SOURCE_DIR@'
       - args: ['cp',
-               '@BUILD_ROOT@/tools/host-automake-v1.16/share/automake-1.16/config.sub',
+               '@SOURCE_ROOT@/build-xbstrap/tools/host-automake-v1.16/share/automake-1.16/config.sub',
                '@THIS_SOURCE_DIR@/']
       - args: ['cp',
-               '@BUILD_ROOT@/tools/host-automake-v1.16/share/automake-1.16/config.sub',
+               '@SOURCE_ROOT@/build-xbstrap/tools/host-automake-v1.16/share/automake-1.16/config.sub',
                '@THIS_SOURCE_DIR@/gmp-6.2.1/configfsf.sub']
       - args: ['cp',
-               '@BUILD_ROOT@/tools/host-automake-v1.16/share/automake-1.16/config.sub',
+               '@SOURCE_ROOT@/build-xbstrap/tools/host-automake-v1.16/share/automake-1.16/config.sub',
                '@THIS_SOURCE_DIR@/isl-0.24/config.sub']
       - args: ['cp', '-f',
-               '@BUILD_ROOT@/tools/host-automake-v1.16/share/automake-1.16/config.sub',
+               '@SOURCE_ROOT@/build-xbstrap/tools/host-automake-v1.16/share/automake-1.16/config.sub',
                '@THIS_SOURCE_DIR@/mpc-1.2.1/build-aux/config.sub']
       - args: ['cp',
-               '@BUILD_ROOT@/tools/host-automake-v1.16/share/automake-1.16/config.sub',
+               '@SOURCE_ROOT@/build-xbstrap/tools/host-automake-v1.16/share/automake-1.16/config.sub',
                '@THIS_SOURCE_DIR@/mpfr-4.1.0/config.sub']
       - args: ['autoconf']
         workdir: '@THIS_SOURCE_DIR@/gcc'
@@ -56,11 +56,6 @@ tools:
         pkgs_required:
           - mlibc-headers
         compile:
-          # Pass 1 (-j1): build the host generator programs (build/gen*) and
-          # run them to produce all insn-*.cc / insn-*.h files. These have
-          # move-if-change races under high -j so must be serialized.
-          # Pass 2 (-j@PARALLELISM@): compile all the generated .cc files and
-          # link cc1/cc1plus in parallel (the real time saver).
           - args: ['make', '-j1', 'all-gcc']
           - args: ['make', '-j@PARALLELISM@', 'all-gcc', 'all-fixincludes']
         install:
@@ -119,17 +114,6 @@ packages:
           - 'CXXFLAGS=-O2 -pipe'
     build:
       - args: ['make', '-j@PARALLELISM@', 'all-gcc', 'all-target-libgcc']
-      # NOTE: xbstrap 0.36 `Build` only executes `configure`+`build`
-      # (package `install:` steps are parsed but never run), so install
-      # directly here via DESTDIR. Keep `install:` below for compat
-      # with fixed xbstrap / documentation.
-      - args: ['make', 'DESTDIR=@SYSROOT_DIR@', 'install-gcc', 'install-target-libgcc']
-      - args: ['sh', '-c', 'cp -rv @BUILD_ROOT@/tools/host-gcc/lib/gcc/x86_64-petra/12.1.0/* @SYSROOT_DIR@/usr/lib/gcc/x86_64-petra/12.1.0/ || true']
-      - args: ['sh', '-c', 'cp -rv @BUILD_ROOT@/tools/host-gcc/x86_64-petra/include/* @SYSROOT_DIR@/usr/include/ || true']
-      - args: ['ln', '-sf', '/usr/bin/gcc', '@SYSROOT_DIR@/usr/bin/cc']
-      - args: ['ln', '-sf', '/usr/libexec/gcc/x86_64-petra/12.1.0/cc1', '@SYSROOT_DIR@/usr/lib/gcc/x86_64-petra/12.1.0/cc1']
-      - args: ['ln', '-sf', '/usr/libexec/gcc/x86_64-petra/12.1.0/cc1plus', '@SYSROOT_DIR@/usr/lib/gcc/x86_64-petra/12.1.0/cc1plus']
-    install:
       - args: ['make', 'DESTDIR=@SYSROOT_DIR@', 'install-gcc', 'install-target-libgcc']
       - args: ['sh', '-c', 'cp -rv @BUILD_ROOT@/tools/host-gcc/lib/gcc/x86_64-petra/12.1.0/* @SYSROOT_DIR@/usr/lib/gcc/x86_64-petra/12.1.0/ || true']
       - args: ['sh', '-c', 'cp -rv @BUILD_ROOT@/tools/host-gcc/x86_64-petra/include/* @SYSROOT_DIR@/usr/include/ || true']

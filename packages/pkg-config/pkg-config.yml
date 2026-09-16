@@ -40,5 +40,4 @@ packages:
           - 'glib_cv_working_bcopy=no'
     build:
       - args: ['make', '-j@PARALLELISM@']
-    install:
       - args: ['make', 'DESTDIR=@SYSROOT_DIR@', 'install-strip']

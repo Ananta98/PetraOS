@@ -26,23 +26,3 @@ packages:
               fi
             done
             cp -a --remove-destination "@SOURCE_ROOT@/base-files/." "@SYSROOT_DIR@/"
-    install:
-      - args:
-          - 'sh'
-          - '-c'
-          - |
-            set -e
-            mkdir -p "@SYSROOT_DIR@/usr/bin" "@SYSROOT_DIR@/usr/lib"
-            for d in bin sbin usr/sbin; do
-              if [ -d "@SYSROOT_DIR@/$d" ] && [ ! -L "@SYSROOT_DIR@/$d" ]; then
-                cp -rn "@SYSROOT_DIR@/$d/." "@SYSROOT_DIR@/usr/bin/" 2>/dev/null || true
-                rm -rf "@SYSROOT_DIR@/$d"
-              fi
-            done
-            for d in lib lib64 usr/lib64; do
-              if [ -d "@SYSROOT_DIR@/$d" ] && [ ! -L "@SYSROOT_DIR@/$d" ]; then
-                cp -rn "@SYSROOT_DIR@/$d/." "@SYSROOT_DIR@/usr/lib/" 2>/dev/null || true
-                rm -rf "@SYSROOT_DIR@/$d"
-              fi
-            done
-            cp -a --remove-destination "@SOURCE_ROOT@/base-files/." "@SYSROOT_DIR@/"
