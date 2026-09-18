@@ -6,6 +6,7 @@ pub use loader::elf::{Elf, LoadedElf};
 pub use process::{
     all_processes, find_process, find_processes_by_pgid, next_pid, register_process,
     unregister_process, Process, ProcessId, ProcessState, ProcessTable, PROCESS_TABLE,
+    KernelStack,
 };
 pub use thread::{Thread, ThreadContext, ThreadId, ThreadState};
 
