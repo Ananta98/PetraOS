@@ -6,30 +6,6 @@
 use crate::arch::cpu::msr;
 use crate::arch::cpu::tss;
 
-/// Trampoline for newly started kernel threads.
-///
-/// Under System V AMD64 ABI:
-/// - The first argument must be passed in `%rdi`.
-///
-/// When `switch_context` or `switch_context_to` executes `ret`, it jumps to this trampoline.
-/// Registers were popped from `StackFrame`:
-/// - `r12`: entry argument (`*mut u8`)
-/// - `r13`: entry function pointer (`extern "C" fn(*mut u8)`)
-///
-/// This trampoline loads `rdi` from `r12` and calls `r13`.
-/// If the entry point returns, it enters a safe halt loop.
-#[unsafe(naked)]
-pub unsafe extern "C" fn thread_entry_trampoline() -> ! {
-    core::arch::naked_asm!(
-        "mov rdi, r12",
-        "call r13",
-        // If the entry function returns, halt in a safe idle loop
-        "1:",
-        "hlt",
-        "jmp 1b",
-    );
-}
-
 /// Saves callee-saved registers of current thread, stores RSP into `*prev_rsp_ptr`,
 /// loads next RSP from `next_rsp`, restores callee-saved registers, and returns.
 ///

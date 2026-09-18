@@ -329,7 +329,7 @@ impl<'a> Elf<'a> {
 
         // 1. Push 16 bytes of random entropy for AT_RANDOM (stack canary)
         let mut random_entropy = [0u8; 16];
-        crate::arch::cpu::rdtsc::fill_random_bytes(&mut random_entropy);
+        crate::arch::cpu::random::fill_random_bytes(&mut random_entropy);
         // Ensure canary is not zero and last byte is newline-free
         if random_entropy[0] == 0 {
             random_entropy[0] = 0x42;

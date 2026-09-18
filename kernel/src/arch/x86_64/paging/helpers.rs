@@ -3,7 +3,7 @@
 //! Provides routines for reading control registers, toggling NXE, and mapping MMIO ranges.
 
 use super::table::ArchPageTable;
-use crate::arch::cpu::msr::{rdmsr, wrmsr, IA32_EFER};
+use crate::arch::cpu::msr::{IA32_EFER, rdmsr, wrmsr};
 use crate::arch::{active_address_space_root, read_cr2 as arch_read_cr2};
 use crate::mm::hhdm_offset;
 use crate::mm::{PageTable, PageTableFlags, PhysAddr, VirtAddr};
@@ -78,4 +78,25 @@ pub fn map_mmio(phys_addr: u64, size: usize) {
             curr_phys += 4096;
         }
     }
+}
+
+/// Checks if CPU hardware supports 5-level (57-bit) linear address paging via CPUID.(EAX=7, ECX=0):ECX[bit 16].
+pub fn supports_five_level_paging() -> bool {
+    let ecx: u32;
+    unsafe {
+        core::arch::asm!(
+            "push rbx",
+            "mov eax, 7",
+            "xor ecx, ecx",
+            "cpuid",
+            "mov {ecx_out:e}, ecx",
+            "pop rbx",
+            ecx_out = out(reg) ecx,
+            out("eax") _,
+            out("ecx") _,
+            out("edx") _,
+            options(nomem, preserves_flags)
+        );
+    }
+    (ecx & (1 << 16)) != 0
 }

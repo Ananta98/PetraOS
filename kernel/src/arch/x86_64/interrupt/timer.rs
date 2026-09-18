@@ -5,7 +5,7 @@
 use crate::arch::idt::InterruptStackFrame;
 
 /// LAPIC Timer interrupt handler.
-pub extern "C" fn timer_handler(stack_frame: &mut InterruptStackFrame) {
+pub extern "C" fn handle_timer(stack_frame: &mut InterruptStackFrame) {
     let cpu_id = unsafe { crate::arch::interrupt::lapic::get_lapic().id() };
 
     // SAFETY: LAPIC is initialized and must acknowledge the timer tick with an EOI.
@@ -22,8 +22,8 @@ pub extern "C" fn timer_handler(stack_frame: &mut InterruptStackFrame) {
 }
 
 /// Spurious APIC interrupt handler.
-pub extern "C" fn spurious_interrupt_handler(_stack_frame: &mut InterruptStackFrame) {
-    // Spurious interrupts must NOT send EOI per the Intel APIC specification.
-    // They occur when an interrupt is raised and then de-asserted before delivery.
+///
+/// Spurious interrupts must NOT send EOI per the Intel APIC specification.
+pub extern "C" fn handle_spurious(_stack_frame: &mut InterruptStackFrame) {
     log::trace!("Spurious interrupt received.");
 }

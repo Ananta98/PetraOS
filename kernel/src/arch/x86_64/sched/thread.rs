@@ -3,8 +3,31 @@
 //! Defines the register execution context (`ThreadContext`) and routines to initialize
 //! execution stacks compliant with System V AMD64 ABI conventions.
 
-use crate::arch::cpu::stack::StackFrame;
-use super::switch::thread_entry_trampoline;
+use crate::arch::cpu::fork::StackFrame;
+
+/// Trampoline for newly started kernel threads.
+///
+/// Under System V AMD64 ABI:
+/// - The first argument must be passed in `%rdi`.
+///
+/// When `switch_context` or `switch_context_to` executes `ret`, it jumps to this trampoline.
+/// Registers were popped from `StackFrame`:
+/// - `r12`: entry argument (`*mut u8`)
+/// - `r13`: entry function pointer (`extern "C" fn(*mut u8)`)
+///
+/// This trampoline loads `rdi` from `r12` and calls `r13`.
+/// If the entry point returns, it enters a safe halt loop.
+#[unsafe(naked)]
+pub unsafe extern "C" fn thread_entry_trampoline() -> ! {
+    core::arch::naked_asm!(
+        "mov rdi, r12",
+        "call r13",
+        // If the entry function returns, halt in a safe idle loop
+        "1:",
+        "hlt",
+        "jmp 1b",
+    );
+}
 
 /// The architecture-specific execution context (registers and execution state) for x86_64.
 #[derive(Debug, Clone, Copy)]

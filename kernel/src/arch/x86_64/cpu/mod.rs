@@ -1,112 +1,22 @@
 pub mod control;
+pub mod fork;
 pub mod gdt;
 pub mod msr;
 pub mod ports;
-pub mod rdtsc;
+pub mod random;
 pub mod smp;
-pub mod stack;
 pub mod tss;
 pub mod userspace;
 
-use crate::panic::StackFrame;
+pub use control::{
+    active_address_space_root, cpu_count, cpu_id, enable_and_hlt, halt, idle, read_cr0, read_cr2,
+    read_cr3, read_cr4, read_frame_pointer, set_address_space_root, write_cr0, write_cr3,
+    write_cr4,
+};
 use core::arch::asm;
-
-/// Read Control Register 0 (CR0).
-#[inline(always)]
-pub fn read_cr0() -> u64 {
-    let val: u64;
-    unsafe {
-        asm!("mov {}, cr0", out(reg) val, options(nomem, nostack, preserves_flags));
-    }
-    val
-}
-
-/// Write Control Register 0 (CR0).
-#[inline(always)]
-pub unsafe fn write_cr0(val: u64) {
-    unsafe {
-        asm!("mov cr0, {}", in(reg) val, options(nomem, nostack, preserves_flags));
-    }
-}
-
-/// Read Control Register 2 (CR2) - Linear address of fault.
-#[inline(always)]
-pub fn read_cr2() -> u64 {
-    let val: u64;
-    unsafe {
-        asm!("mov {}, cr2", out(reg) val, options(nomem, nostack, preserves_flags));
-    }
-    val
-}
-
-/// Read Control Register 3 (CR3) - Page table root directory physical address.
-#[inline(always)]
-pub fn read_cr3() -> u64 {
-    let val: u64;
-    unsafe {
-        asm!("mov {}, cr3", out(reg) val, options(nomem, nostack, preserves_flags));
-    }
-    val
-}
-
-/// Write Control Register 3 (CR3).
-#[inline(always)]
-pub unsafe fn write_cr3(val: u64) {
-    unsafe {
-        asm!("mov cr3, {}", in(reg) val, options(nomem, nostack, preserves_flags));
-    }
-}
-
-/// Read Control Register 4 (CR4).
-#[inline(always)]
-pub fn read_cr4() -> u64 {
-    let val: u64;
-    unsafe {
-        asm!("mov {}, cr4", out(reg) val, options(nomem, nostack, preserves_flags));
-    }
-    val
-}
-
-/// Write Control Register 4 (CR4).
-#[inline(always)]
-pub unsafe fn write_cr4(val: u64) {
-    unsafe {
-        asm!("mov cr4, {}", in(reg) val, options(nomem, nostack, preserves_flags));
-    }
-}
-
-/// Read the current CPU base/frame pointer (RBP register).
-#[inline(always)]
-pub fn read_frame_pointer() -> *const StackFrame {
-    let rbp: *const StackFrame;
-    // SAFETY: Reading the RBP register produces the current activation frame
-    // and has no side effects on processor state or memory.
-    unsafe {
-        core::arch::asm!(
-            "mov {}, rbp",
-            out(reg) rbp,
-            options(nomem, nostack, preserves_flags)
-        );
-    }
-    rbp
-}
-
-/// Sets the active page table physical root address (CR3).
-///
-/// # Safety
-/// The caller must ensure `root` points to a valid root page table (PML4/PML5) physical address.
-#[inline(always)]
-pub unsafe fn set_address_space_root(root: u64) {
-    unsafe {
-        write_cr3(root);
-    }
-}
-
-/// Returns the current active page table physical root address (CR3).
-#[inline(always)]
-pub fn active_address_space_root() -> u64 {
-    read_cr3() & 0x000F_FFFF_FFFF_F000
-}
+pub use fork::{StackFrame, fork_return, init_fork_stack};
+pub use ports::*;
+pub use userspace::{USER_CS, USER_DS, jump_to_userspace};
 
 /// Enable FPU and SSE/SSE2 instructions for user and kernel space.
 ///
@@ -173,6 +83,7 @@ pub unsafe fn enable_syscall() {
     }
 }
 
+/// Bootstrap CPU initialization: GDT/TSS, SSE, and SYSCALL MSRs.
 pub fn init() {
     gdt::init();
 

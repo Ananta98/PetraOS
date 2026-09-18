@@ -13,6 +13,7 @@ pub mod signal;
 pub mod syscall;
 pub mod timer;
 
+pub use acpi::power::{poweroff, reboot};
 pub use cpu::control::{cpu_count, cpu_id, enable_and_hlt, idle};
 pub use cpu::gdt;
 pub use cpu::ports;
@@ -21,9 +22,8 @@ pub use cpu::userspace;
 pub use cpu::{active_address_space_root, read_cr2, set_address_space_root};
 pub use interrupt::flags::{disable_interrupts, enable_interrupts, without_interrupts};
 pub use interrupt::idt;
-pub use interrupt::interrupts;
 pub use interrupt::lapic;
-pub use acpi::power::{poweroff, reboot};
+pub use interrupt::load_idt;
 pub use sched::arch_switch_context;
 pub use timer::lapic_timer;
 

@@ -1,6 +1,6 @@
 use core::arch::global_asm;
 
-global_asm!(include_str!("Syscall.S"));
+global_asm!(include_str!("syscall.S"));
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]

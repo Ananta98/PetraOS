@@ -1,5 +1,5 @@
 use super::tid::ThreadId;
-use crate::arch::cpu::stack::KernelStack;
+use crate::proc::KernelStack;
 use crate::arch::sched::ThreadContext;
 use crate::ipc::signal::{PendingSignals, SigSet};
 use crate::ipc::signal::{SIG_BLOCK, SIG_SETMASK, SIG_UNBLOCK, SIGKILL, SIGSTOP};

@@ -1,4 +1,4 @@
-use crate::arch::cpu::rdtsc;
+use crate::arch::cpu::random;
 use crate::fs::vfs::types;
 use crate::fs::vfs::types::{FileOps, InodeOps, VfsError};
 use alloc::sync::Arc;
@@ -25,7 +25,7 @@ pub struct UrandomFileOps;
 
 impl FileOps for UrandomFileOps {
     fn read(&self, _offset: usize, buf: &mut [u8]) -> Result<usize, VfsError> {
-        rdtsc::fill_random_bytes(buf);
+        random::fill_random_bytes(buf);
         Ok(buf.len())
     }
 

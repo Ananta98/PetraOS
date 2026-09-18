@@ -1,9 +1,10 @@
-use crate::arch::cpu::stack::KernelStack;
 use crate::arch::userspace::jump_to_userspace;
 use crate::mm::vmm::paging::PageTable;
+use crate::proc::KernelStack;
 use crate::proc::process::cmdline::CommandLine;
 use crate::proc::process::pid::ProcessId;
 use crate::proc::process::process::Process;
+use crate::proc::thread::{Thread, ThreadState};
 use crate::sync::Mutex;
 use alloc::string::String;
 use alloc::sync::Arc;
@@ -59,7 +60,7 @@ pub fn create_init_process() -> Result<(Arc<Mutex<Process>>, u64, u64), &'static
 
             // Create and attach the primary thread for the init process
             let init_tid = crate::proc::thread::next_tid();
-            let init_thread = Arc::new(Mutex::new(crate::proc::thread::Thread::new(
+            let init_thread = Arc::new(Mutex::new(Thread::new(
                 init_tid,
                 String::from("init"),
                 1024,
@@ -79,7 +80,7 @@ pub fn create_init_process() -> Result<(Arc<Mutex<Process>>, u64, u64), &'static
 
             let mut t_lock = init_thread.lock();
             t_lock.context.cr3 = root_page_table;
-            t_lock.state = crate::proc::thread::ThreadState::Running;
+            t_lock.state = ThreadState::Running;
             t_lock.set_kernel_stack(kernel_stack);
             drop(t_lock);
 
@@ -125,4 +126,3 @@ pub fn run_init_process() -> ! {
         jump_to_userspace(entry_point, stack_top, kernel_rsp0, cr3);
     }
 }
-

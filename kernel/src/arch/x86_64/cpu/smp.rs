@@ -6,7 +6,8 @@
 
 use crate::arch::enable_interrupts;
 use crate::arch::tss::*;
-use crate::arch::{gdt, interrupts, lapic, lapic_timer};
+use crate::arch::{gdt, lapic, lapic_timer};
+use crate::arch::interrupt;
 use crate::mm::map_mmio;
 use core::sync::atomic::{AtomicU32, Ordering};
 
@@ -37,7 +38,7 @@ unsafe extern "C" fn ap_entry(cpu: &limine::mp::Cpu) -> ! {
     // Load the shared IDT so exception/interrupt handlers are available.
     // SAFETY: IDT is fully initialised before any AP is released.
     unsafe {
-        interrupts::load_idt();
+        interrupt::load_idt();
     }
 
     // Enable this AP's Local APIC.
