@@ -1,22 +1,123 @@
-//! Physical Frame Allocator (Buddy System).
+//! Physical Frame Allocator (`buddy_system_allocator::FrameAllocator`).
 //!
-//! Manages physical page frames (4 KiB units) using the `buddy_system_allocator` crate,
-//! coupled with page-level metadata tracking for reference counting (COW) and safe double-free guards.
+//! Manages 4 KiB physical page frames as frame numbers (`phys >> PAGE_SHIFT`).
+//! Per-frame state (usable/allocated, buddy order, COW reference count) lives
+//! in the bump-allocated [`PageFrameMetadata`] array; free-block membership
+//! lives in the [`FrameAllocator`] index sets.
+//!
+//! Re-entrancy note: [`FrameAllocator`] keeps its index in `BTreeSet`s, whose
+//! nodes allocate from the kernel global allocator — and that allocator grows
+//! from these very frames (`slab`). Every mutating entry point below therefore
+//! holds a [`FrameAllocGuard`], which routes small in-flight allocations to a
+//! dedicated static early heap; frees are routed back by address, so pairing
+//! stays correct under any interleaving. See `slab.rs` for the protocol.
 
-use super::frame::{PAGE_SIZE, PageFrameFlags, PageFrameMetadata, phys_to_page_idx};
+use super::slab::FrameAllocGuard;
 use crate::mm::PhysAddr;
-use buddy_system_allocator::Heap;
-use core::alloc::Layout;
-use core::ptr::NonNull;
+use bitflags::bitflags;
+use buddy_system_allocator::FrameAllocator;
 
-/// Maximum order supported by the buddy heap (order 0..32, up to 4 GiB blocks).
-pub const BUDDY_MAX_ORDER: usize = 40;
+pub const PAGE_SIZE: u64 = 4096;
+pub const PAGE_SHIFT: u64 = 12;
 
-/// Physical memory manager utilizing buddy system allocation.
+/// Number of buddy orders. The largest block holds `2^(ORDERS - 1)` frames
+/// (`24` orders → 8 Mi frames = 32 GiB maximum single block).
+pub const FRAME_BUDDY_ORDERS: usize = 24;
+
+bitflags! {
+    /// Flags representing physical page frame state.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+    pub struct PageFrameFlags: u16 {
+        /// Page is in usable RAM identified by the bootloader.
+        const USABLE    = 1 << 0;
+        /// Page is currently allocated to virtual memory, kernel, or slab.
+        const ALLOCATED = 1 << 1;
+        /// Page is reserved (kernel image, early metadata, firmware).
+        const RESERVED  = 1 << 2;
+    }
+}
+
+/// Metadata tracked for each 4 KiB physical frame in the system.
+#[derive(Clone, Copy, Debug)]
+#[repr(C)]
+pub struct PageFrameMetadata {
+    pub ref_count: u32,
+    pub flags: PageFrameFlags,
+    pub order: u8,
+}
+
+impl PageFrameMetadata {
+    pub const fn new() -> Self {
+        Self {
+            ref_count: 0,
+            flags: PageFrameFlags::empty(),
+            order: 0,
+        }
+    }
+
+    #[inline(always)]
+    pub fn is_usable(&self) -> bool {
+        self.flags.contains(PageFrameFlags::USABLE)
+    }
+
+    #[inline(always)]
+    pub fn is_allocated(&self) -> bool {
+        self.flags.contains(PageFrameFlags::ALLOCATED)
+    }
+
+    #[inline(always)]
+    pub fn is_reserved(&self) -> bool {
+        self.flags.contains(PageFrameFlags::RESERVED)
+    }
+
+    #[inline(always)]
+    pub fn set_allocated(&mut self, order: u8) {
+        self.flags.insert(PageFrameFlags::ALLOCATED);
+        self.order = order;
+        self.ref_count = 1;
+    }
+
+    #[inline(always)]
+    pub fn clear_allocated(&mut self) {
+        self.flags.remove(PageFrameFlags::ALLOCATED);
+        self.order = 0;
+        self.ref_count = 0;
+    }
+
+    #[inline(always)]
+    pub fn inc_ref(&mut self) -> u32 {
+        self.ref_count = self.ref_count.saturating_add(1);
+        self.ref_count
+    }
+
+    #[inline(always)]
+    pub fn dec_ref(&mut self) -> u32 {
+        if self.ref_count > 0 {
+            self.ref_count -= 1;
+        }
+        self.ref_count
+    }
+
+    #[inline(always)]
+    pub fn get_ref(&self) -> u32 {
+        self.ref_count
+    }
+}
+
+#[inline(always)]
+pub fn phys_to_page_idx(paddr: PhysAddr) -> usize {
+    (paddr.as_u64() >> PAGE_SHIFT) as usize
+}
+
+#[inline(always)]
+pub fn page_idx_to_phys(idx: usize) -> PhysAddr {
+    PhysAddr::new((idx as u64) << PAGE_SHIFT)
+}
+
+/// Physical memory manager utilizing the buddy-system frame allocator.
 pub struct BuddyFrameAllocator {
-    heap: Heap<BUDDY_MAX_ORDER>,
+    frames: FrameAllocator<FRAME_BUDDY_ORDERS>,
     metadata: Option<&'static mut [PageFrameMetadata]>,
-    hhdm_offset: u64,
     total_pages: usize,
     allocated_pages: usize,
 }
@@ -28,31 +129,35 @@ impl BuddyFrameAllocator {
     /// Creates an uninitialized buddy frame allocator instance.
     pub const fn new() -> Self {
         Self {
-            heap: Heap::new(),
+            frames: FrameAllocator::new(),
             metadata: None,
-            hhdm_offset: 0,
             total_pages: 0,
             allocated_pages: 0,
         }
     }
 
     /// Initializes the buddy allocator with available memory map entries
-    /// and pre-allocated page metadata slice.
+    /// and the pre-allocated page metadata slice.
+    ///
+    /// Returns the usable page count. The caller logs it after releasing the
+    /// allocator lock so boot logging never nests inside the frame critical
+    /// section.
     pub fn init(
         &mut self,
         metadata: &'static mut [PageFrameMetadata],
         metadata_phys_start: u64,
         metadata_phys_end: u64,
-        hhdm_offset: u64,
-    ) {
+    ) -> usize {
+        // SAFETY: Routes index-set traffic to the early heap (see slab.rs).
+        let _guard = FrameAllocGuard::enter();
         self.metadata = Some(metadata);
-        self.hhdm_offset = hhdm_offset;
+        self.frames = FrameAllocator::new();
+        self.total_pages = 0;
+        self.allocated_pages = 0;
 
         let memmap_response = crate::limine::MEMORY_MAP_REQUEST
             .get_response()
             .expect("BuddyAllocator init: Limine memory map response is missing");
-
-        let mut total_usable_pages = 0;
 
         for entry in memmap_response.entries() {
             if entry.entry_type != limine::memory_map::EntryType::USABLE {
@@ -72,31 +177,22 @@ impl BuddyFrameAllocator {
             if aligned_start < metadata_phys_end && aligned_end > metadata_phys_start {
                 // Segment 1: before metadata
                 if aligned_start < metadata_phys_start {
-                    self.add_usable_range(
-                        aligned_start,
-                        metadata_phys_start,
-                        &mut total_usable_pages,
-                    );
+                    self.add_usable_range(aligned_start, metadata_phys_start);
                 }
                 // Segment 2: after metadata
                 if aligned_end > metadata_phys_end {
-                    self.add_usable_range(metadata_phys_end, aligned_end, &mut total_usable_pages);
+                    self.add_usable_range(metadata_phys_end, aligned_end);
                 }
             } else {
-                self.add_usable_range(aligned_start, aligned_end, &mut total_usable_pages);
+                self.add_usable_range(aligned_start, aligned_end);
             }
         }
 
-        self.total_pages = total_usable_pages;
-        log::info!(
-            "BuddyFrameAllocator: initialized with {} usable pages (~{} MiB)",
-            total_usable_pages,
-            (total_usable_pages * (PAGE_SIZE as usize)) / (1024 * 1024)
-        );
+        self.total_pages
     }
 
-    /// Helper to register and populate a usable physical memory range into the buddy heap.
-    fn add_usable_range(&mut self, start_phys: u64, end_phys: u64, total_pages: &mut usize) {
+    /// Registers `[start_phys, end_phys)` as free frames.
+    fn add_usable_range(&mut self, start_phys: u64, end_phys: u64) {
         let meta = match self.metadata {
             Some(ref mut m) => m,
             None => return,
@@ -104,61 +200,46 @@ impl BuddyFrameAllocator {
 
         let start_idx = phys_to_page_idx(PhysAddr::new(start_phys));
         let end_idx = phys_to_page_idx(PhysAddr::new(end_phys)).min(meta.len());
+        if start_idx >= end_idx {
+            return;
+        }
 
         for i in start_idx..end_idx {
             meta[i].flags.insert(PageFrameFlags::USABLE);
-            *total_pages += 1;
         }
-
-        let start_virt = (start_phys + self.hhdm_offset) as usize;
-        let end_virt = (end_phys + self.hhdm_offset) as usize;
-
-        // SAFETY: The physical range is verified as usable RAM and accessed via valid HHDM.
-        unsafe {
-            self.heap.add_to_heap(start_virt, end_virt);
-        }
+        self.total_pages += end_idx - start_idx;
+        self.frames.add_frame(start_idx, end_idx);
     }
 
-    /// Allocate $2^{\text{order}}$ physical memory pages.
-    ///
-    /// The returned block is contiguous and page-aligned. Alignment is kept at
-    /// `PAGE_SIZE` (not block size) so large orders (e.g. 46 MiB libc.a needs
-    /// order 14 = 64 MiB) can be satisfied from any contiguous run. Requiring
-    /// size-alignment would spuriously fail when the heap is split around the
-    /// early metadata carve-out, turning initramfs extraction into an OOM hang.
+    /// Allocate `2^order` contiguous, size-aligned physical pages.
     pub fn alloc_pages(&mut self, order: usize) -> Option<PhysAddr> {
-        if order >= BUDDY_MAX_ORDER {
+        if order >= FRAME_BUDDY_ORDERS {
             return None;
         }
+        // SAFETY: Routes index-set traffic to the early heap (see slab.rs).
+        let _guard = FrameAllocGuard::enter();
 
-        let size = (1usize << order) * (PAGE_SIZE as usize);
-        let layout = match Layout::from_size_align(size, PAGE_SIZE as usize) {
-            Ok(l) => l,
-            Err(_) => return None,
+        let meta = match self.metadata {
+            Some(ref mut m) => m,
+            None => return None,
         };
 
-        let vptr = match self.heap.alloc(layout) {
-            Ok(p) => p,
-            Err(_) => return None,
-        };
+        let count = 1usize << order;
+        let head = self.frames.alloc(count)?;
 
-        let paddr_val = (vptr.as_ptr() as u64) - self.hhdm_offset;
-        let head_idx = phys_to_page_idx(PhysAddr::new(paddr_val));
-
-        if let Some(ref mut meta) = self.metadata {
-            if head_idx < meta.len() {
-                meta[head_idx].set_allocated(order as u8);
-                let count = 1usize << order;
-                for i in 1..count {
-                    if head_idx + i < meta.len() {
-                        meta[head_idx + i].flags.insert(PageFrameFlags::ALLOCATED);
-                    }
-                }
+        if head >= meta.len() {
+            self.frames.dealloc(head, count);
+            return None;
+        }
+        meta[head].set_allocated(order as u8);
+        for i in 1..count {
+            if head + i < meta.len() {
+                meta[head + i].flags.insert(PageFrameFlags::ALLOCATED);
             }
         }
 
-        self.allocated_pages += 1usize << order;
-        Some(PhysAddr::new(paddr_val))
+        self.allocated_pages += count;
+        Some(page_idx_to_phys(head))
     }
 
     /// Allocate a single 4 KiB physical page (order 0).
@@ -166,7 +247,7 @@ impl BuddyFrameAllocator {
         self.alloc_pages(0)
     }
 
-    /// Free a block of $2^{\text{order}}$ physical pages back to the buddy allocator.
+    /// Free a block of `2^order` physical pages back to the buddy allocator.
     pub fn free_pages(&mut self, paddr: PhysAddr, order: usize) {
         if !paddr.is_aligned(PAGE_SIZE) {
             log::error!(
@@ -225,6 +306,15 @@ impl BuddyFrameAllocator {
             order
         };
 
+        if actual_order >= FRAME_BUDDY_ORDERS {
+            log::error!(
+                "free_pages: recorded order {} out of range at {:#x}",
+                actual_order,
+                paddr.as_u64()
+            );
+            return;
+        }
+
         let new_ref = meta[head_idx].dec_ref();
         if new_ref > 0 {
             // Page is still referenced by another shared mapping (e.g. COW)
@@ -232,35 +322,22 @@ impl BuddyFrameAllocator {
         }
 
         let count = 1usize << actual_order;
+        if head_idx + count > meta.len() {
+            log::error!(
+                "free_pages: block {:#x} order {} exceeds metadata bounds",
+                paddr.as_u64(),
+                actual_order
+            );
+            return;
+        }
         for i in 0..count {
-            if head_idx + i < meta.len() {
-                meta[head_idx + i].clear_allocated();
-            }
+            meta[head_idx + i].clear_allocated();
         }
         self.allocated_pages = self.allocated_pages.saturating_sub(count);
 
-        let size = (1usize << actual_order) * (PAGE_SIZE as usize);
-        // SAFETY: Layout matches alloc_pages (size, PAGE_SIZE alignment).
-        if let Ok(layout) = Layout::from_size_align(size, PAGE_SIZE as usize) {
-            let vptr_val = (paddr.as_u64() + self.hhdm_offset) as *mut u8;
-            if let Some(nonnull) = NonNull::new(vptr_val) {
-                // SAFETY: We verified the page was allocated, ref_count reached 0, and bounds are valid.
-                unsafe {
-                    self.heap.dealloc(nonnull, layout);
-                }
-            }
-        }
-    }
-
-    /// Associate an allocated page frame with the kernel slab allocator.
-    pub fn set_slab(&mut self, paddr: PhysAddr, slab_class: u8) {
-        let head_idx = phys_to_page_idx(paddr);
-        if let Some(ref mut meta) = self.metadata {
-            if head_idx < meta.len() {
-                meta[head_idx].flags.insert(PageFrameFlags::SLAB);
-                meta[head_idx].slab_class = slab_class;
-            }
-        }
+        // SAFETY: Routes index-set traffic to the early heap (see slab.rs).
+        let _guard = FrameAllocGuard::enter();
+        self.frames.dealloc(head_idx, count);
     }
 
     /// Free a single 4 KiB physical page (order 0).

@@ -2,16 +2,19 @@
 //!
 //! Provides a unified three-tier hybrid memory management architecture:
 //! 1. Early Bootstrapping Bump Allocator (`bump`)
-//! 2. Physical Page Frame Allocator (`buddy`, `frame`)
-//! 3. Kernel Virtual Heap SLUB Allocator (`slab`)
+//! 2. Physical Page Frame Allocator (`buddy`): `FrameAllocator` index over
+//!    frame numbers plus bump-allocated per-frame metadata
+//! 3. Kernel SLUB Allocator (`slab`): size-class caches with a buddy-`Heap`
+//!    fallback grown on demand from frames
 
 pub mod buddy;
 pub mod bump;
-pub mod frame;
 pub mod slab;
 
-pub use buddy::BuddyFrameAllocator;
-pub use frame::{page_idx_to_phys, phys_to_page_idx, PageFrameFlags, PageFrameMetadata, PAGE_SIZE};
+pub use buddy::{
+    BuddyFrameAllocator, PageFrameFlags, PageFrameMetadata, FRAME_BUDDY_ORDERS, PAGE_SIZE,
+    page_idx_to_phys, phys_to_page_idx,
+};
 pub use slab::{ALLOCATOR, SlabAllocator};
 
 use crate::mm::PhysAddr;
@@ -60,11 +63,6 @@ impl PhysicalMemoryManager {
     }
 
     #[inline(always)]
-    pub fn set_slab(&self, paddr: PhysAddr, slab_class: u8) {
-        FRAME_ALLOCATOR.lock().set_slab(paddr, slab_class);
-    }
-
-    #[inline(always)]
     pub fn total_pages(&self) -> usize {
         FRAME_ALLOCATOR.lock().total_pages()
     }
@@ -78,13 +76,24 @@ impl PhysicalMemoryManager {
 pub static PMM: PhysicalMemoryManager = PhysicalMemoryManager;
 
 /// Initialize physical and virtual memory allocation subsystems.
+///
+/// Order matters: bump-carved metadata → static early heap (frame-independent)
+/// → frame buddy (index traffic lands in the early heap) → fallback-heap
+/// pre-seed (may pull frames). Logging happens after the frame lock is
+/// released so boot logs never nest inside the frame critical section.
 pub fn init() {
     let hhdm = crate::mm::hhdm_offset();
     let bump_res = bump::early_allocate_metadata(hhdm);
-    FRAME_ALLOCATOR.lock().init(
+    slab::early_init();
+    let total_pages = FRAME_ALLOCATOR.lock().init(
         bump_res.metadata,
         bump_res.metadata_phys_start,
         bump_res.metadata_phys_end,
-        hhdm,
     );
+    log::info!(
+        "BuddyFrameAllocator: initialized with {} usable pages (~{} MiB)",
+        total_pages,
+        (total_pages * (PAGE_SIZE as usize)) / (1024 * 1024)
+    );
+    slab::init();
 }

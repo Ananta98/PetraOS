@@ -4,7 +4,7 @@
 //! before full buddy and virtual memory subsystems are initialized.
 //! Used primarily to carve out the `PageFrameMetadata` tracking array.
 
-use super::frame::{PageFrameMetadata, PAGE_SIZE};
+use super::buddy::{PageFrameMetadata, PAGE_SIZE};
 use core::mem::size_of;
 
 /// Bootstrap allocation result containing the allocated metadata slice
