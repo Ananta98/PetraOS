@@ -4,8 +4,8 @@
 //! - [`context`]: Thread execution state (`ThreadContext`) and stack initialization.
 //! - [`switch`]: Low-level assembly context switching (`switch_context`, `switch_context_to`, `arch_switch_context`).
 
-pub mod context;
 pub mod switch;
+pub mod thread;
 
-pub use context::ThreadContext;
 pub use switch::arch_switch_context;
+pub use thread::ThreadContext;
