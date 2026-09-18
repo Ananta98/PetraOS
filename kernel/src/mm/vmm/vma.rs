@@ -234,6 +234,21 @@ impl<P: PageTable> AddrSpace<P> {
             return Err(AddrSpaceError::OverlappingArea);
         }
 
+        // For PROT_NONE mappings (flags without PRESENT), do not eagerly allocate frames.
+        // It remains a pure virtual reservation in the address space.
+        if !flags.contains(PageTableFlags::PRESENT) {
+            self.vm_areas.insert(
+                start,
+                VmArea {
+                    start,
+                    end,
+                    flags,
+                    kind,
+                },
+            );
+            return Ok(());
+        }
+
         let num_pages = size / 4096;
         let mut mapped_pages: usize = 0;
         let hhdm = crate::mm::hhdm_offset();
@@ -399,44 +414,38 @@ impl<P: PageTable> AddrSpace<P> {
 
     /// Unmap and remove any VMAs or parts of VMAs overlapping [start, end).
     pub fn unmap_range(&mut self, start: VirtAddr, end: VirtAddr) -> Result<(), AddrSpaceError> {
-        let mut to_remove = alloc::vec::Vec::new();
-        let mut to_add = alloc::vec::Vec::new();
-
-        for (&vma_start, vma) in &self.vm_areas {
-            if vma.start < end && vma.end > start {
-                to_remove.push(vma_start);
-
-                if vma.start < start {
-                    to_add.push(VmArea {
-                        start: vma.start,
-                        end: start,
-                        flags: vma.flags,
-                        kind: vma.kind.clone(),
-                    });
-                }
-
-                if vma.end > end {
-                    to_add.push(VmArea {
-                        start: end,
-                        end: vma.end,
-                        flags: vma.flags,
-                        kind: vma.kind.clone(),
-                    });
-                }
-            }
+        if start >= end || !start.is_aligned(4096u64) || !end.is_aligned(4096u64) {
+            return Err(AddrSpaceError::InvalidRange);
         }
 
-        for k in to_remove {
-            self.vm_areas.remove(&k);
-        }
-        for v in to_add {
-            self.vm_areas.insert(v.start, v);
+        // 1. Split any VMAs crossing boundary addresses 'start' and 'end'.
+        self.split_vma_at(start);
+        self.split_vma_at(end);
+
+        // 2. Identify all VMAs strictly inside [start, end).
+        let removed_vmas: alloc::vec::Vec<VmArea> = self
+            .vm_areas
+            .range(start..end)
+            .map(|(_, vma)| vma.clone())
+            .collect();
+
+        // 3. Remove them from the address space VMA map.
+        for vma in &removed_vmas {
+            self.vm_areas.remove(&vma.start);
         }
 
+        // 4. Unmap physical pages from hardware page tables.
         for page_virt_u64 in (start.as_u64()..end.as_u64()).step_by(4096) {
             let page_virt = VirtAddr::new(page_virt_u64);
             if let Ok(old_frame) = self.page_table.unmap(page_virt) {
-                crate::mm::PMM.free_page(old_frame);
+                // Determine if this address was part of a Device mapping
+                let is_device = removed_vmas.iter().any(|vma| {
+                    page_virt >= vma.start && page_virt < vma.end && matches!(vma.kind, VmAreaKind::Device { .. })
+                });
+
+                if !is_device {
+                    crate::mm::PMM.free_page(old_frame);
+                }
             }
         }
 

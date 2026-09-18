@@ -17,13 +17,15 @@ pub extern "C" fn page_fault_handler(stack_frame: &mut InterruptStackFrame, erro
     let cpu_id = unsafe { crate::arch::interrupt::lapic::get_lapic().id() };
     let current_thread = crate::sched::current_thread_on_cpu(cpu_id);
 
+    let mut fault_err = None;
     if let Some(thread_arc) = current_thread {
         let thread = thread_arc.lock();
         if let Some(proc_arc) = thread.process.upgrade() {
             let proc = proc_arc.lock();
             let mut addr_space = proc.address_space.lock();
-            if addr_space.handle_page_fault(fault_virt, fault_code).is_ok() {
-                return;
+            match addr_space.handle_page_fault(fault_virt, fault_code) {
+                Ok(()) => return,
+                Err(e) => fault_err = Some(e),
             }
         }
     }
@@ -38,7 +40,7 @@ pub extern "C" fn page_fault_handler(stack_frame: &mut InterruptStackFrame, erro
             .map(|p| p.lock().cmdline.args.first().cloned().unwrap_or_default())
             .unwrap_or_default();
         log::warn!(
-            "User process page fault (SIGSEGV) PID {} comm '{}' at {:#x}, Error Code: {:#x} [{:?}], RIP={:#x}, CS={:#x}, RSP={:#x}",
+            "User process page fault (SIGSEGV) PID {} comm '{}' at {:#x}, Error Code: {:#x} [{:?}], RIP={:#x}, CS={:#x}, RSP={:#x}, Reason: {:?}",
             pid,
             comm,
             fault_virt.as_u64(),
@@ -46,7 +48,8 @@ pub extern "C" fn page_fault_handler(stack_frame: &mut InterruptStackFrame, erro
             fault_code,
             stack_frame.instruction_pointer,
             stack_frame.code_segment,
-            stack_frame.stack_pointer
+            stack_frame.stack_pointer,
+            fault_err
         );
         kill_user_process(SIGSEGV);
     }

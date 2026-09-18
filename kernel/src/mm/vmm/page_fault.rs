@@ -41,6 +41,9 @@ impl<P: PageTable> AddrSpace<P> {
         };
 
         // 2. Validate access permissions
+        if !area.flags.contains(PageTableFlags::PRESENT) {
+            return Err(PageFaultError::ProtectionViolation);
+        }
         if access.contains(PageFaultErrorCode::CAUSED_BY_WRITE)
             && !area.flags.contains(PageTableFlags::WRITABLE)
         {
@@ -60,7 +63,11 @@ impl<P: PageTable> AddrSpace<P> {
         let page_virt = VirtAddr::new(fault_addr.as_u64() & !4095);
 
         // 3. Check if page is present in page table for COW resolution
-        if let Some((parent_phys, entry_flags)) = self.page_table.get_entry(page_virt) {
+        if let Some((parent_phys, entry_flags)) = self
+            .page_table
+            .get_entry(page_virt)
+            .filter(|(_, flags)| flags.contains(PageTableFlags::PRESENT))
+        {
             let is_cow_entry = entry_flags.contains(COW_FLAG);
             if access.contains(PageFaultErrorCode::CAUSED_BY_WRITE)
                 && (is_cow_entry || area.flags.contains(PageTableFlags::WRITABLE))
@@ -81,16 +88,19 @@ impl<P: PageTable> AddrSpace<P> {
 
                     // Unmap old frame and map new frame with original VMA flags (writable, no COW)
                     let _ = self.page_table.unmap(page_virt);
-                    self.page_table
-                        .map(page_virt, new_frame, area.flags)
-                        .map_err(PageFaultError::PagingError)?;
+                    let map_flags = (area.flags | PageTableFlags::PRESENT | PageTableFlags::WRITABLE) & !COW_FLAG;
+                    if let Err(err) = self.page_table.map(page_virt, new_frame, map_flags) {
+                        crate::mm::PMM.free_page(new_frame);
+                        return Err(PageFaultError::PagingError(err));
+                    }
 
                     // Decrement reference count on old parent frame
                     crate::mm::PMM.dec_ref(parent_phys);
                 } else {
                     // Sole reference remaining: upgrade page flags to Writable (clearing COW)
+                    let remap_flags = (area.flags | PageTableFlags::PRESENT | PageTableFlags::WRITABLE) & !COW_FLAG;
                     self.page_table
-                        .remap(page_virt, area.flags)
+                        .remap(page_virt, remap_flags)
                         .map_err(PageFaultError::RemapError)?;
                 }
                 return Ok(());
@@ -163,9 +173,19 @@ impl<P: PageTable> AddrSpace<P> {
             }
         };
 
-        self.page_table
-            .map(page_virt, frame_phys, area.flags)
-            .map_err(PageFaultError::PagingError)?;
+        let map_flags = area.flags | PageTableFlags::PRESENT;
+        if let Err(err) = self.page_table.map(page_virt, frame_phys, map_flags) {
+            match &area.kind {
+                VmAreaKind::Anonymous | VmAreaKind::File { .. } => {
+                    crate::mm::PMM.free_page(frame_phys);
+                }
+                VmAreaKind::Shared { .. } => {
+                    crate::mm::PMM.dec_ref(frame_phys);
+                }
+                VmAreaKind::Device { .. } => {}
+            }
+            return Err(PageFaultError::PagingError(err));
+        }
 
         Ok(())
     }

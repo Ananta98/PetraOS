@@ -77,7 +77,10 @@ pub fn sys_mmap(frame: &mut SyscallFrame) -> SyscallResult {
         free_vaddr.as_u64()
     };
 
-    let mut map_flags = PageTableFlags::PRESENT | PageTableFlags::USER_ACCESSIBLE;
+    let mut map_flags = PageTableFlags::USER_ACCESSIBLE;
+    if prot != 0 {
+        map_flags |= PageTableFlags::PRESENT;
+    }
     if (prot & 2) != 0 {
         map_flags |= PageTableFlags::WRITABLE;
     }

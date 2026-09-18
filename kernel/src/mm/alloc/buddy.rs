@@ -3,14 +3,14 @@
 //! Manages physical page frames (4 KiB units) using the `buddy_system_allocator` crate,
 //! coupled with page-level metadata tracking for reference counting (COW) and safe double-free guards.
 
-use super::frame::{phys_to_page_idx, PageFrameFlags, PageFrameMetadata, PAGE_SIZE};
+use super::frame::{PAGE_SIZE, PageFrameFlags, PageFrameMetadata, phys_to_page_idx};
 use crate::mm::PhysAddr;
 use buddy_system_allocator::Heap;
 use core::alloc::Layout;
 use core::ptr::NonNull;
 
 /// Maximum order supported by the buddy heap (order 0..32, up to 4 GiB blocks).
-pub const BUDDY_MAX_ORDER: usize = 32;
+pub const BUDDY_MAX_ORDER: usize = 40;
 
 /// Physical memory manager utilizing buddy system allocation.
 pub struct BuddyFrameAllocator {
@@ -72,7 +72,11 @@ impl BuddyFrameAllocator {
             if aligned_start < metadata_phys_end && aligned_end > metadata_phys_start {
                 // Segment 1: before metadata
                 if aligned_start < metadata_phys_start {
-                    self.add_usable_range(aligned_start, metadata_phys_start, &mut total_usable_pages);
+                    self.add_usable_range(
+                        aligned_start,
+                        metadata_phys_start,
+                        &mut total_usable_pages,
+                    );
                 }
                 // Segment 2: after metadata
                 if aligned_end > metadata_phys_end {
@@ -165,12 +169,18 @@ impl BuddyFrameAllocator {
     /// Free a block of $2^{\text{order}}$ physical pages back to the buddy allocator.
     pub fn free_pages(&mut self, paddr: PhysAddr, order: usize) {
         if !paddr.is_aligned(PAGE_SIZE) {
-            log::error!("free_pages: address {:#x} is not page-aligned", paddr.as_u64());
+            log::error!(
+                "free_pages: address {:#x} is not page-aligned",
+                paddr.as_u64()
+            );
             return;
         }
 
         if paddr.as_u64() < 0x1000 {
-            log::warn!("free_pages: refusing to free sub-page-0 address {:#x}", paddr.as_u64());
+            log::warn!(
+                "free_pages: refusing to free sub-page-0 address {:#x}",
+                paddr.as_u64()
+            );
             return;
         }
 
@@ -181,12 +191,19 @@ impl BuddyFrameAllocator {
         };
 
         if head_idx >= meta.len() {
-            log::error!("free_pages: page index {} out of bounds for {:#x}", head_idx, paddr.as_u64());
+            log::error!(
+                "free_pages: page index {} out of bounds for {:#x}",
+                head_idx,
+                paddr.as_u64()
+            );
             return;
         }
 
         if !meta[head_idx].is_usable() {
-            log::warn!("free_pages: attempting to free non-usable page at {:#x}", paddr.as_u64());
+            log::warn!(
+                "free_pages: attempting to free non-usable page at {:#x}",
+                paddr.as_u64()
+            );
             return;
         }
 
@@ -195,13 +212,26 @@ impl BuddyFrameAllocator {
             return;
         }
 
+        let alloc_order = meta[head_idx].order as usize;
+        let actual_order = if order != alloc_order {
+            log::warn!(
+                "free_pages: order mismatch at {:#x}: requested {}, recorded in metadata {}. Using recorded order.",
+                paddr.as_u64(),
+                order,
+                alloc_order
+            );
+            alloc_order
+        } else {
+            order
+        };
+
         let new_ref = meta[head_idx].dec_ref();
         if new_ref > 0 {
             // Page is still referenced by another shared mapping (e.g. COW)
             return;
         }
 
-        let count = 1usize << order;
+        let count = 1usize << actual_order;
         for i in 0..count {
             if head_idx + i < meta.len() {
                 meta[head_idx + i].clear_allocated();
@@ -209,7 +239,7 @@ impl BuddyFrameAllocator {
         }
         self.allocated_pages = self.allocated_pages.saturating_sub(count);
 
-        let size = (1usize << order) * (PAGE_SIZE as usize);
+        let size = (1usize << actual_order) * (PAGE_SIZE as usize);
         // SAFETY: Layout matches alloc_pages (size, PAGE_SIZE alignment).
         if let Ok(layout) = Layout::from_size_align(size, PAGE_SIZE as usize) {
             let vptr_val = (paddr.as_u64() + self.hhdm_offset) as *mut u8;
@@ -218,6 +248,17 @@ impl BuddyFrameAllocator {
                 unsafe {
                     self.heap.dealloc(nonnull, layout);
                 }
+            }
+        }
+    }
+
+    /// Associate an allocated page frame with the kernel slab allocator.
+    pub fn set_slab(&mut self, paddr: PhysAddr, slab_class: u8) {
+        let head_idx = phys_to_page_idx(paddr);
+        if let Some(ref mut meta) = self.metadata {
+            if head_idx < meta.len() {
+                meta[head_idx].flags.insert(PageFrameFlags::SLAB);
+                meta[head_idx].slab_class = slab_class;
             }
         }
     }

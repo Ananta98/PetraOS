@@ -38,10 +38,13 @@ impl SlabClass {
     unsafe fn alloc(&mut self, hhdm_offset: u64) -> *mut u8 {
         if self.free_head.is_null() {
             // Request a new page from the buddy frame allocator
-            let paddr = match FRAME_ALLOCATOR.lock().alloc_page() {
+            let mut frame_alloc = FRAME_ALLOCATOR.lock();
+            let paddr = match frame_alloc.alloc_page() {
                 Some(p) => p,
                 None => return core::ptr::null_mut(),
             };
+            frame_alloc.set_slab(paddr, (self.size.trailing_zeros()) as u8);
+            drop(frame_alloc);
 
             let page_virt = (paddr.as_u64() + hhdm_offset) as usize;
             let objects_per_page = 4096 / self.size;

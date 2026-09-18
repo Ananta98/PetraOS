@@ -60,6 +60,11 @@ impl PhysicalMemoryManager {
     }
 
     #[inline(always)]
+    pub fn set_slab(&self, paddr: PhysAddr, slab_class: u8) {
+        FRAME_ALLOCATOR.lock().set_slab(paddr, slab_class);
+    }
+
+    #[inline(always)]
     pub fn total_pages(&self) -> usize {
         FRAME_ALLOCATOR.lock().total_pages()
     }
