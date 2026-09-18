@@ -75,8 +75,24 @@ impl NvmeIdentifyNamespace {
 pub struct NvmeCmdBuilder;
 
 impl NvmeCmdBuilder {
-    /// Create I/O Completion Queue (Admin Opcode 0x05)
+    /// Create I/O Completion Queue (Admin Opcode 0x05) with interrupts disabled
     pub fn create_cq(cid: u16, qid: u16, size: u16, phys_addr: u64) -> NvmeCmd {
+        Self::create_cq_with_vector(cid, qid, size, phys_addr, None)
+    }
+
+    /// Create I/O Completion Queue with optional interrupt vector (Admin Opcode 0x05)
+    pub fn create_cq_with_vector(
+        cid: u16,
+        qid: u16,
+        size: u16,
+        phys_addr: u64,
+        vector: Option<u16>,
+    ) -> NvmeCmd {
+        let cdw11 = match vector {
+            Some(v) => ((v as u32) << 16) | 0x0003, // Interrupts Enabled (bit 1) | Physically Contiguous (bit 0)
+            None => 0x0001,                         // Interrupts Disabled | Physically Contiguous
+        };
+
         NvmeCmd {
             opcode: NVME_ADMIN_CREATE_CQ,
             flags: 0,
@@ -86,13 +102,14 @@ impl NvmeCmdBuilder {
             mptr: 0,
             dptr: [phys_addr, 0],
             cdw10: ((size as u32 - 1) << 16) | (qid as u32),
-            cdw11: 0x0001, // Physically contiguous, interrupt disabled
+            cdw11,
             cdw12: 0,
             cdw13: 0,
             cdw14: 0,
             cdw15: 0,
         }
     }
+
 
     /// Create I/O Submission Queue (Admin Opcode 0x01)
     pub fn create_sq(cid: u16, qid: u16, cq_id: u16, size: u16, phys_addr: u64) -> NvmeCmd {

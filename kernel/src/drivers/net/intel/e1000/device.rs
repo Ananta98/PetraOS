@@ -63,6 +63,9 @@ impl E1000Device {
             cmd,
         );
 
+        // Configure interrupts: use MSI-X if supported, otherwise fallback to legacy PCI INTx
+        let _int_mode = pci_device.setup_interrupts(0x20, false);
+
         // Read BAR0 (MMIO Base Address)
         let bar0 = config::read_u32(
             pci_device.bus,

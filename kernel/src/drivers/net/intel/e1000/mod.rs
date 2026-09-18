@@ -50,8 +50,7 @@ impl Driver for IntelE1000Driver {
 
     fn probe(&self) -> Result<(), DriverError> {
         let discovery = PciBus::enumerate();
-        for i in 0..discovery.count {
-            let pci_dev = discovery.devices[i];
+        for pci_dev in discovery.as_slice() {
             if pci_dev.vendor_id == INTEL_VENDOR_ID
                 && INTEL_E1000_DEV_IDS.contains(&pci_dev.device_id)
             {
@@ -63,7 +62,7 @@ impl Driver for IntelE1000Driver {
                     pci_dev.device_id
                 );
 
-                match E1000Device::new(pci_dev) {
+                match E1000Device::new(*pci_dev) {
                     Ok(dev) => {
                         let mac = dev.mac_address();
                         log::info!(

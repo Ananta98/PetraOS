@@ -4,7 +4,6 @@ pub mod port;
 
 use crate::device::{BlockDevice, Device, DeviceType, DriverError};
 use crate::drivers::bus::pci::PciBus;
-use crate::drivers::pci::config;
 use crate::drivers::pci::device::PciDevice;
 use crate::mm::dma::{DmaCoherent, DmaDirection, DmaStreamer};
 use crate::mm::map_mmio;
@@ -89,6 +88,7 @@ pub struct AhciDriver {
     pub cmd_list: DmaCoherent,
     pub fis_buf: DmaCoherent,
     pub cmd_table: DmaCoherent,
+    pub msix: Option<crate::drivers::bus::pci::MsixCapability>,
 }
 
 unsafe impl Send for AhciDriver {}
@@ -104,12 +104,13 @@ impl AhciDriver {
             cmd_list: DmaCoherent::alloc(1024).map_err(|_| DriverError::AllocFailed)?,
             fis_buf: DmaCoherent::alloc(256).map_err(|_| DriverError::AllocFailed)?,
             cmd_table: DmaCoherent::alloc(CMD_TABLE_SIZE).map_err(|_| DriverError::AllocFailed)?,
+            msix: None,
         })
     }
 
     pub fn find_and_init() -> Option<Self> {
         let discovery = PciBus::enumerate();
-        for dev in &discovery.devices[..discovery.count] {
+        for dev in discovery.as_slice() {
             if dev.class_code == 0x01 && dev.subclass == 0x06 {
                 // Mass Storage / AHCI SATA
                 let mut driver = match Self::new(*dev) {
@@ -427,25 +428,34 @@ impl Device for AhciDriver {
     }
 
     fn init(&mut self) -> Result<(), DriverError> {
-        let bar5 = config::read_u32(
-            self.pci_device.bus,
-            self.pci_device.device,
-            self.pci_device.function,
-            0x24,
-        );
+        self.pci_device.enable_memory_space();
+        self.pci_device.enable_bus_master();
 
-        if bar5 == 0 || bar5 == 0xFFFFFFFF {
-            return Err(DriverError::InitFailed);
-        }
+        let phys_addr = self.pci_device.bar_phys(5).ok_or(DriverError::InitFailed)?;
 
-        let phys_addr = bar5 & 0xFFFFFFF0;
-        map_mmio(phys_addr as u64, core::mem::size_of::<HbaMem>());
+        map_mmio(phys_addr, core::mem::size_of::<HbaMem>());
 
         let hhdm = crate::mm::hhdm_offset();
-        self.hba_base = (phys_addr as u64 + hhdm) as *mut HbaMem;
+        self.hba_base = (phys_addr + hhdm) as *mut HbaMem;
 
         if self.hba_base.is_null() {
             return Err(DriverError::InitFailed);
+        }
+
+        // Initialize interrupts: use MSI-X if supported, fallback to legacy PCI INTx
+        match self.pci_device.setup_interrupts(0x25, false) {
+            crate::drivers::bus::pci::PciInterruptMode::Msix(msix) => {
+                log::info!("AHCI: Operating in MSI-X interrupt mode");
+                self.msix = Some(msix);
+            }
+            crate::drivers::bus::pci::PciInterruptMode::LegacyIntx { line, pin } => {
+                log::info!("AHCI: Operating in legacy PCI INTx mode (line={}, pin={})", line, pin);
+                self.msix = None;
+            }
+            crate::drivers::bus::pci::PciInterruptMode::None => {
+                log::info!("AHCI: Operating in polling mode");
+                self.msix = None;
+            }
         }
 
         let hba = unsafe { &mut *self.hba_base };

@@ -5,7 +5,6 @@ pub mod regs;
 
 use crate::device::{BlockDevice, Device, DeviceType, DriverError};
 use crate::drivers::pci::bus::PciBus;
-use crate::drivers::pci::config;
 use crate::drivers::pci::device::PciDevice;
 use crate::mm::dma::{DmaCoherent, DmaDirection, DmaStreamer};
 use crate::mm::map_mmio;
@@ -30,6 +29,7 @@ pub struct NvmeDriver {
     block_size: usize,
     sector_count: u64,
     cid_counter: u16,
+    pub msix: Option<crate::drivers::bus::pci::MsixCapability>,
 }
 
 unsafe impl Send for NvmeDriver {}
@@ -46,6 +46,7 @@ impl NvmeDriver {
             block_size: 512,
             sector_count: 0,
             cid_counter: 1,
+            msix: None,
         }
     }
 
@@ -60,7 +61,7 @@ impl NvmeDriver {
 
     pub fn find_and_init() -> Option<Self> {
         let discovery = PciBus::enumerate();
-        for dev in &discovery.devices[..discovery.count] {
+        for dev in discovery.as_slice() {
             if dev.class_code == 0x01 && dev.subclass == 0x08 {
                 // Mass Storage Controller / NVMe Subclass
                 let mut driver = Self::new(*dev);
@@ -83,58 +84,14 @@ impl Device for NvmeDriver {
     }
 
     fn init(&mut self) -> Result<(), DriverError> {
-        // 1. Enable PCI Memory Space Access (bit 1) and Bus Master Enable (bit 2)
-        let pci_cmd = config::read_u16(
-            self.pci_device.bus,
-            self.pci_device.device,
-            self.pci_device.function,
-            0x04, // PCI Command Register
-        );
-        config::write_u16(
-            self.pci_device.bus,
-            self.pci_device.device,
-            self.pci_device.function,
-            0x04,
-            pci_cmd | 0x06, // Enable Memory Space & Bus Master
-        );
+        // 1. Enable PCI Memory Space Access and Bus Master
+        self.pci_device.enable_memory_space();
+        self.pci_device.enable_bus_master();
 
-        // 2. Read PCI BAR0 (0x10) and BAR1 (0x14)
-        let bar0 = config::read_u32(
-            self.pci_device.bus,
-            self.pci_device.device,
-            self.pci_device.function,
-            0x10,
-        );
+        // 2. Read PCI BAR0 (and BAR1 if 64-bit)
+        let phys_addr = self.pci_device.bar_phys(0).ok_or(DriverError::InitFailed)?;
 
-        if bar0 == 0 || bar0 == 0xFFFFFFFF {
-            return Err(DriverError::InitFailed);
-        }
-
-        let is_64bit = (bar0 & 0x06) == 0x04;
-        let bar1 = if is_64bit {
-            config::read_u32(
-                self.pci_device.bus,
-                self.pci_device.device,
-                self.pci_device.function,
-                0x14,
-            )
-        } else {
-            0
-        };
-
-        let phys_addr = if is_64bit {
-            ((bar1 as u64) << 32) | ((bar0 & !0x0F) as u64)
-        } else {
-            (bar0 & !0x0F) as u64
-        };
-
-        log::info!(
-            "NVMe PCI BAR0: {:#x}, BAR1: {:#x}, 64bit: {}, phys_addr: {:#x}",
-            bar0,
-            bar1,
-            is_64bit,
-            phys_addr
-        );
+        log::info!("NVMe PCI MMIO phys_addr: {:#x}", phys_addr);
 
         // 3. Map MMIO registers
         map_mmio(phys_addr, 16384);
@@ -215,11 +172,29 @@ impl Device for NvmeDriver {
             return Err(DriverError::InitFailed);
         }
 
+        // Initialize interrupts: use MSI-X if supported, fallback to legacy PCI INTx
+        // (Vector 0 is configured masked for synchronous polling safety)
+        match self.pci_device.setup_interrupts(0x24, true) {
+            crate::drivers::bus::pci::PciInterruptMode::Msix(msix) => {
+                log::info!("NVMe: Operating in MSI-X interrupt mode");
+                self.msix = Some(msix);
+            }
+            crate::drivers::bus::pci::PciInterruptMode::LegacyIntx { line, pin } => {
+                log::info!("NVMe: Operating in legacy PCI INTx mode (line={}, pin={})", line, pin);
+                self.msix = None;
+            }
+            crate::drivers::bus::pci::PciInterruptMode::None => {
+                log::info!("NVMe: Operating in polling mode");
+                self.msix = None;
+            }
+        }
+
         // 8. Setup I/O Submission & Completion Queues (QID 1)
         let iosq = DmaCoherent::alloc(4096).map_err(|_| DriverError::AllocFailed)?;
         let iocq = DmaCoherent::alloc(4096).map_err(|_| DriverError::AllocFailed)?;
 
         let create_cq_cmd = NvmeCmdBuilder::create_cq(self.next_cid(), 1, 64, iocq.phys().as_u64());
+
         if let Some(ref mut admin_q) = self.admin_queue {
             admin_q.submit_and_wait(create_cq_cmd)?;
         }
