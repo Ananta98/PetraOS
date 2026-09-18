@@ -324,11 +324,11 @@ impl PageTable for ArchPageTable {
             .walk_to_pte_mut(page, false)?
             .ok_or(PagingError::NotMapped)?;
 
-        if !pte.is_present() {
+        let frame_addr = pte.addr();
+        if !pte.is_present() && frame_addr.as_u64() == 0 {
             return Err(PagingError::NotMapped);
         }
 
-        let frame_addr = pte.addr();
         pte.clear();
         self.flush_tlb(page);
         Ok(frame_addr)
@@ -351,7 +351,7 @@ impl PageTable for ArchPageTable {
             .walk_to_pte_mut(page, false)?
             .ok_or(PagingError::NotMapped)?;
 
-        if !pte.is_present() {
+        if !pte.is_present() && pte.addr().as_u64() == 0 {
             return Err(PagingError::NotMapped);
         }
 
@@ -480,7 +480,7 @@ impl PageTable for ArchPageTable {
         // Level 1 (PT)
         let pt = unsafe { Self::get_table_mut(curr_phys) };
         let pt_entry = pt[virt.pt_index()];
-        if !pt_entry.is_present() {
+        if !pt_entry.is_present() && pt_entry.addr().as_u64() == 0 {
             return None;
         }
 
