@@ -267,9 +267,9 @@ impl Process {
             Arc::downgrade(&child),
         );
 
-        let mut child_kstack = crate::arch::cpu::stack::KernelStack::new()
+        let mut child_kstack = crate::proc::KernelStack::new()
             .map_err(|_| "Failed to allocate kernel stack for child process")?;
-        let child_rsp = crate::arch::cpu::stack::init_fork_stack(&mut child_kstack, parent_frame);
+        let child_rsp = crate::arch::cpu::fork::init_fork_stack(&mut child_kstack, parent_frame);
 
         child_thread.context.rsp = child_rsp as usize;
         child_thread.context.cr3 = child_cr3;
