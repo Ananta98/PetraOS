@@ -7,5 +7,5 @@ pub mod flush;
 pub mod helpers;
 pub mod table;
 
-pub use helpers::{active_cr3, ensure_mapped, map_mmio, read_cr2, supports_five_level_paging};
+pub use helpers::{active_cr3, ensure_mapped, map_mmio, read_cr2};
 pub use table::ArchPageTable;

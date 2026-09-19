@@ -9,14 +9,10 @@ pub mod tss;
 pub mod userspace;
 
 pub use control::{
-    active_address_space_root, cpu_count, cpu_id, enable_and_hlt, halt, idle, read_cr0, read_cr2,
-    read_cr3, read_cr4, read_frame_pointer, set_address_space_root, write_cr0, write_cr3,
-    write_cr4,
+    active_address_space_root, read_cr0, read_cr2, read_cr3, read_cr4, read_frame_pointer,
+    set_address_space_root, write_cr0, write_cr4,
 };
 use core::arch::asm;
-pub use fork::{StackFrame, fork_return, init_fork_stack};
-pub use ports::*;
-pub use userspace::{USER_CS, USER_DS, jump_to_userspace};
 
 /// Enable FPU and SSE/SSE2 instructions for user and kernel space.
 ///

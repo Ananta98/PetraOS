@@ -12,9 +12,7 @@ use crate::arch::acpi;
 use crate::arch::interrupt::ioapic::IoApic;
 use crate::arch::lapic::LocalApic;
 use crate::mm::map_mmio;
-pub use flags::{disable_interrupts, enable_interrupts, without_interrupts};
-pub use handler::KEYBOARD_VECTOR;
-pub use idt::{InterruptDescriptorTable, InterruptStackFrame};
+pub use flags::enable_interrupts;
 pub use irq::load_idt;
 
 /// Initialize the interrupt subsystem.

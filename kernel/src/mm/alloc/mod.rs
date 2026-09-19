@@ -1,14 +1,15 @@
 //! Kernel Memory Allocation Subsystem.
 //!
-//! Provides a unified three-tier hybrid memory management architecture:
-//! 1. Early Bootstrapping Bump Allocator (`bump`)
-//! 2. Physical Page Frame Allocator (`buddy`): `FrameAllocator` index over
-//!    frame numbers plus bump-allocated per-frame metadata
-//! 3. Kernel SLUB Allocator (`slab`): size-class caches with a buddy-`Heap`
-//!    fallback grown on demand from frames
+//! Provides a two-tier memory management architecture:
+//! 1. Intrusive Buddy Frame Allocator (`buddy`): manages physical frames with
+//!    intrusive doubly-linked free lists and zero heap dependencies.
+//! 2. Kernel SLUB Allocator (`slab`): size-class caches for allocations <= 2048
+//!    bytes, with direct buddy frame fallback for large allocations.
+//!
+//! @author Ananta <kusumaananta042@gmail.com>
 
 pub mod buddy;
-pub mod bump;
+pub mod free_list;
 pub mod slab;
 
 pub use buddy::{
@@ -76,20 +77,9 @@ impl PhysicalMemoryManager {
 pub static PMM: PhysicalMemoryManager = PhysicalMemoryManager;
 
 /// Initialize physical and virtual memory allocation subsystems.
-///
-/// Order matters: bump-carved metadata → static early heap (frame-independent)
-/// → frame buddy (index traffic lands in the early heap) → fallback-heap
-/// pre-seed (may pull frames). Logging happens after the frame lock is
-/// released so boot logs never nest inside the frame critical section.
 pub fn init() {
     let hhdm = crate::mm::hhdm_offset();
-    let bump_res = bump::early_allocate_metadata(hhdm);
-    slab::early_init();
-    let total_pages = FRAME_ALLOCATOR.lock().init(
-        bump_res.metadata,
-        bump_res.metadata_phys_start,
-        bump_res.metadata_phys_end,
-    );
+    let total_pages = FRAME_ALLOCATOR.lock().init(hhdm);
     log::info!(
         "BuddyFrameAllocator: initialized with {} usable pages (~{} MiB)",
         total_pages,

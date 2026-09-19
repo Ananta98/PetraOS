@@ -435,16 +435,18 @@ impl<P: PageTable> AddrSpace<P> {
         }
 
         // 4. Unmap physical pages from hardware page tables.
-        for page_virt_u64 in (start.as_u64()..end.as_u64()).step_by(4096) {
-            let page_virt = VirtAddr::new(page_virt_u64);
-            if let Ok(old_frame) = self.page_table.unmap(page_virt) {
-                // Determine if this address was part of a Device mapping
-                let is_device = removed_vmas.iter().any(|vma| {
-                    page_virt >= vma.start && page_virt < vma.end && matches!(vma.kind, VmAreaKind::Device { .. })
-                });
+        for vma in &removed_vmas {
+            let should_free = matches!(
+                vma.kind,
+                VmAreaKind::Anonymous | VmAreaKind::File { .. } | VmAreaKind::Shared { .. }
+            );
 
-                if !is_device {
-                    crate::mm::PMM.free_page(old_frame);
+            for page_virt_u64 in (vma.start.as_u64()..vma.end.as_u64()).step_by(4096) {
+                let page_virt = VirtAddr::new(page_virt_u64);
+                if let Ok(old_frame) = self.page_table.unmap(page_virt) {
+                    if should_free {
+                        crate::mm::PMM.free_page(old_frame);
+                    }
                 }
             }
         }
@@ -459,17 +461,16 @@ impl<P: PageTable> AddrSpace<P> {
             .remove(&start)
             .ok_or(AddrSpaceError::InvalidRange)?;
 
-        let size = (area.end - area.start) as usize;
-        let num_pages = size / 4096;
+        let should_free = matches!(
+            area.kind,
+            VmAreaKind::Anonymous | VmAreaKind::File { .. } | VmAreaKind::Shared { .. }
+        );
 
-        for i in 0..num_pages {
-            let page_virt = area.start + (i as u64 * 4096);
+        for page_virt_u64 in (area.start.as_u64()..area.end.as_u64()).step_by(4096) {
+            let page_virt = VirtAddr::new(page_virt_u64);
             match self.page_table.unmap(page_virt) {
                 Ok(frame) => {
-                    if matches!(
-                        area.kind,
-                        VmAreaKind::Anonymous | VmAreaKind::File { .. } | VmAreaKind::Shared { .. }
-                    ) {
+                    if should_free {
                         crate::mm::PMM.free_page(frame);
                     }
                 }
@@ -524,14 +525,14 @@ impl<P: PageTable> AddrSpace<P> {
 impl<P: PageTable> Drop for AddrSpace<P> {
     fn drop(&mut self) {
         for vma in core::mem::take(&mut self.vm_areas).into_values() {
-            let num_pages = ((vma.end - vma.start) / 4096) as usize;
-            for i in 0..num_pages {
-                let page_virt = vma.start + (i as u64 * 4096);
+            let should_free = matches!(
+                vma.kind,
+                VmAreaKind::Anonymous | VmAreaKind::File { .. } | VmAreaKind::Shared { .. }
+            );
+            for page_virt_u64 in (vma.start.as_u64()..vma.end.as_u64()).step_by(4096) {
+                let page_virt = VirtAddr::new(page_virt_u64);
                 if let Ok(frame) = self.page_table.unmap(page_virt) {
-                    if matches!(
-                        vma.kind,
-                        VmAreaKind::Anonymous | VmAreaKind::File { .. } | VmAreaKind::Shared { .. }
-                    ) {
+                    if should_free {
                         crate::mm::PMM.free_page(frame);
                     }
                 }

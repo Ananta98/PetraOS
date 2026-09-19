@@ -23,7 +23,6 @@ pub use cpu::{active_address_space_root, read_cr2, set_address_space_root};
 pub use interrupt::flags::{disable_interrupts, enable_interrupts, without_interrupts};
 pub use interrupt::idt;
 pub use interrupt::lapic;
-pub use interrupt::load_idt;
 pub use sched::arch_switch_context;
 pub use timer::lapic_timer;
 
