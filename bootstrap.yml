@@ -26,3 +26,4 @@ imports:
   - file: packages/shadow/shadow.yml
   - file: packages/sed/sed.yml
   - file: packages/sudo/sudo.yml
+  - file: packages/curl/curl.yml

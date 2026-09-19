@@ -1,0 +1,58 @@
+sources:
+  - name: curl
+    subdir: sources
+    url: 'https://curl.se/download/curl-8.22.0.tar.xz'
+    format: tar.xz
+    extract_path: 'curl-8.22.0'
+    version: '8.22.0'
+    patch_path_strip: 1
+    tools_required:
+      - host-automake-v1.16
+    regenerate:
+      - args: ['cp',
+               '@BUILD_ROOT@/tools/host-automake-v1.16/share/automake-1.16/config.sub',
+               '@THIS_SOURCE_DIR@/config.sub']
+      - args: ['cp',
+               '@BUILD_ROOT@/tools/host-automake-v1.16/share/automake-1.16/config.guess',
+               '@THIS_SOURCE_DIR@/config.guess']
+
+packages:
+  - name: curl
+    architecture: x86_64
+    from_source: curl
+    tools_required:
+      - host-gcc
+    pkgs_required:
+      - mlibc
+    configure:
+      - args:
+          - '@THIS_SOURCE_DIR@/configure'
+          - '--host=x86_64-petra'
+          - '--prefix=/usr'
+          - '--sysconfdir=/etc'
+          - '--disable-nls'
+          - '--disable-manual'
+          - '--disable-docs'
+          - '--without-ssl'
+          - '--without-libpsl'
+          - '--without-libidn2'
+          - '--without-nghttp2'
+          - '--without-nghttp3'
+          - '--without-ngtcp2'
+          - '--without-quiche'
+          - '--without-brotli'
+          - '--without-zstd'
+          - '--without-libssh2'
+          - '--without-gssapi'
+          - '--without-zlib'
+          - '--disable-ldap'
+          - '--disable-ldaps'
+          - '--without-ca-bundle'
+          - '--without-ca-path'
+    build:
+      - args: ['make', '-j@PARALLELISM@']
+      # NOTE: xbstrap 0.36 `Build` only executes `configure`+`build`
+      # (package `install:` steps are parsed but never run), so install
+      # directly here via DESTDIR. Keep `install:` below for compat
+      # with fixed xbstrap / documentation.
+      - args: ['make', 'DESTDIR=@SYSROOT_DIR@', 'install-strip']

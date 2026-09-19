@@ -221,6 +221,7 @@ cmd_build_packages() {
         automake
         binutils
         gcc
+        curl
     )
 
     local total="${#target_pkgs[@]}"
