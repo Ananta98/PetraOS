@@ -15,7 +15,6 @@ pub mod fair;
 pub mod nice;
 pub mod percpu;
 pub mod policy;
-pub mod preempt;
 pub mod realtime;
 
 use crate::arch::cpu::msr;
@@ -32,7 +31,6 @@ pub use percpu::PerCpuRunQueue;
 pub use policy::{
     DEFAULT_RR_QUANTUM_NS, MAX_RT_PRIO, MIN_RT_PRIO, RT_PRIO_COUNT, RtPriority, SchedPolicy,
 };
-pub use preempt::{MAX_PREEMPT_CPUS, can_preempt, preempt_count, preempt_disable, preempt_enable};
 pub use realtime::RtRunQueue;
 
 /// Object-Oriented Per-CPU Scheduler manager.
