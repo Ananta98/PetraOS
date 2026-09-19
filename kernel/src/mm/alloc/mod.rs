@@ -1,9 +1,12 @@
 //! Kernel Memory Allocation Subsystem.
 //!
 //! Provides a two-tier memory management architecture:
-//! 1. Intrusive Buddy Frame Allocator (`buddy`): manages physical frames with
-//!    intrusive doubly-linked free lists and zero heap dependencies.
-//! 2. Kernel SLUB Allocator (`slab`): size-class caches for allocations <= 2048
+//! 1. General metadata-indexed free lists (`free_list`): reusable
+//!    doubly-linked lists over `u32` node indices, with no dependency on
+//!    managed memory contents.
+//! 2. Buddy Frame Allocator (`buddy`): manages physical frames on top of
+//!    `free_list`, with one list per buddy order and zero heap dependencies.
+//! 3. Kernel SLUB Allocator (`slab`): size-class caches for allocations <= 2048
 //!    bytes, with direct buddy frame fallback for large allocations.
 //!
 //! @author Ananta <kusumaananta042@gmail.com>
@@ -16,6 +19,7 @@ pub use buddy::{
     BuddyFrameAllocator, PageFrameFlags, PageFrameMetadata, FRAME_BUDDY_ORDERS, PAGE_SIZE,
     page_idx_to_phys, phys_to_page_idx,
 };
+pub use free_list::{FreeList, FreeListArray, FreeListNode, NO_FRAME, NULL_INDEX};
 pub use slab::{ALLOCATOR, SlabAllocator};
 
 use crate::mm::PhysAddr;
