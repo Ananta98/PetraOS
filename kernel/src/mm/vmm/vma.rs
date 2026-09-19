@@ -1,11 +1,9 @@
 //! Virtual Memory Area (VMA) and Address Space Management for PetraOS.
 //!
-//! Provides region-based memory management, Copy-On-Write (COW) address space duplication,
-//! and integration with architecture-specific page tables.
+//! Provides region-based memory management, eager-copy address space duplication
+//! for fork, and integration with architecture-specific page tables.
 
-use crate::mm::vmm::paging::{
-    COW_FLAG, PageTable, PageTableFlags, PagingError, PhysAddr, VirtAddr,
-};
+use crate::mm::vmm::paging::{PageTable, PageTableFlags, PagingError, PhysAddr, VirtAddr};
 use crate::mm::vmm::types::VmAreaKind;
 use alloc::collections::BTreeMap;
 
@@ -88,22 +86,39 @@ impl<P: PageTable> AddrSpace<P> {
                 match &area.kind {
                     VmAreaKind::Anonymous | VmAreaKind::File { .. } => {
                         if area.flags.contains(PageTableFlags::WRITABLE) {
-                            // COW: mark parent PTE read-only + COW first.
-                            let cow_flags = (area.flags & !PageTableFlags::WRITABLE) | COW_FLAG;
-                            if let Err(err) = self.page_table.remap(page_virt, cow_flags) {
-                                Self::rollback_clone(
-                                    &mut self.page_table,
-                                    &mut new_page_table,
-                                    &child_maps,
-                                    &self.vm_areas,
-                                );
-                                return Err(AddrSpaceError::FlagUpdateError(err));
+                            // Eager copy for fork: allocate a private frame for
+                            // the child and copy contents. Avoids COW sharing
+                            // which corrupted PID 1 heap after `exit` (command
+                            // pointer became 0xe via shared heap writes).
+                            let new_frame =
+                                match crate::mm::PMM.alloc_page() {
+                                    Some(f) => f,
+                                    None => {
+                                        Self::rollback_clone(
+                                            &mut self.page_table,
+                                            &mut new_page_table,
+                                            &child_maps,
+                                            &self.vm_areas,
+                                        );
+                                        return Err(AddrSpaceError::PagingError(
+                                            crate::mm::PagingError::FrameAllocationFailed,
+                                        ));
+                                    }
+                                };
+                            let hhdm = crate::mm::hhdm_offset();
+                            // SAFETY: both frames are newly validated live
+                            // physical pages mapped via HHDM; 4096-byte copy.
+                            unsafe {
+                                let src =
+                                    (parent_phys.as_u64() + hhdm) as *const u8;
+                                let dest =
+                                    (new_frame.as_u64() + hhdm) as *mut u8;
+                                core::ptr::copy_nonoverlapping(src, dest, 4096);
                             }
-                            // Map the same frame into the child under COW flags.
-                            if let Err(err) = new_page_table.map(page_virt, parent_phys, cow_flags)
+                            if let Err(err) =
+                                new_page_table.map(page_virt, new_frame, area.flags)
                             {
-                                // Revert the parent remap we just did.
-                                let _ = self.page_table.remap(page_virt, area.flags);
+                                crate::mm::PMM.free_page(new_frame);
                                 Self::rollback_clone(
                                     &mut self.page_table,
                                     &mut new_page_table,
@@ -112,8 +127,7 @@ impl<P: PageTable> AddrSpace<P> {
                                 );
                                 return Err(AddrSpaceError::PagingError(err));
                             }
-                            crate::mm::PMM.inc_ref(parent_phys);
-                            child_maps.push((page_virt, parent_phys, true));
+                            child_maps.push((page_virt, new_frame, false));
                         } else {
                             // Read-only page: share directly without COW remap.
                             if let Err(err) = new_page_table.map(page_virt, parent_phys, area.flags)
@@ -166,7 +180,7 @@ impl<P: PageTable> AddrSpace<P> {
         })
     }
 
-    /// Undo a partial clone on error: unmap all child pages, dec_ref their frames,
+    /// Undo a partial clone on error: unmap all child pages, release their frames,
     /// and revert any parent PTEs that were COW-remapped back to their original flags.
     fn rollback_clone(
         parent_pt: &mut P,
@@ -176,7 +190,7 @@ impl<P: PageTable> AddrSpace<P> {
     ) {
         for &(virt, phys, was_cow) in child_maps {
             let _ = child_pt.unmap(virt);
-            crate::mm::PMM.dec_ref(phys);
+            crate::mm::PMM.free_page(phys);
             if was_cow {
                 // Restore parent PTE to its original writable flags.
                 if let Some(area) = vm_areas.range(..=virt).next_back().map(|(_, a)| a) {
