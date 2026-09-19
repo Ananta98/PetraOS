@@ -69,12 +69,13 @@ impl<P: PageTable> AddrSpace<P> {
                 let is_cow = entry_flags.contains(COW_FLAG);
                 let ref_count = crate::mm::PMM.get_ref(phys_frame);
 
-                let pte_flags = if new_flags.contains(PageTableFlags::WRITABLE) && (is_cow || ref_count > 1) {
-                    // Page is shared under COW: keep PTE read-only with COW_FLAG
-                    (new_flags & !PageTableFlags::WRITABLE) | COW_FLAG
-                } else {
-                    new_flags & !COW_FLAG
-                };
+                let pte_flags =
+                    if new_flags.contains(PageTableFlags::WRITABLE) && (is_cow || ref_count > 1) {
+                        // Page is shared under COW: keep PTE read-only with COW_FLAG
+                        (new_flags & !PageTableFlags::WRITABLE) | COW_FLAG
+                    } else {
+                        new_flags & !COW_FLAG
+                    };
 
                 let _ = self.page_table.remap(page_virt, pte_flags);
             }
@@ -190,7 +191,10 @@ impl<P: PageTable> AddrSpace<P> {
             let current_key = keys[i];
             let next_key = keys[i + 1];
 
-            let can_merge = match (self.vm_areas.get(&current_key), self.vm_areas.get(&next_key)) {
+            let can_merge = match (
+                self.vm_areas.get(&current_key),
+                self.vm_areas.get(&next_key),
+            ) {
                 (Some(cur), Some(next)) => cur.end == next.start && Self::can_merge_vmas(cur, next),
                 _ => false,
             };

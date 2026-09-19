@@ -3,13 +3,12 @@
 //! Exposes sockets as first-class POSIX file descriptions so that standard
 //! `read()`, `write()`, `poll()`, `select()`, `ioctl()`, and `close()` operations work seamlessly.
 
-use alloc::sync::Arc;
-
 use crate::fs::File;
 use crate::fs::vfs::dentry::Dentry;
 use crate::fs::vfs::types::{FileOps, Inode, InodeOps, InodeType, Stat, VfsError};
 use crate::net::socket::Socket;
 use crate::sync::Mutex;
+use alloc::sync::Arc;
 
 /// Dummy inode operations for socket file descriptions.
 struct SocketInodeOps;

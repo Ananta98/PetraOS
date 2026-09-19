@@ -319,7 +319,7 @@ impl Driver for CmosRtcDriver {
     }
 }
 
-crate::MODULE_LICENSE!("BSD-2-Clause");
+crate::MODULE_LICENSE!("GPL-2.0");
 crate::MODULE_AUTHOR!("Ananta98");
 crate::MODULE_DESCRIPTION!("CMOS Real-Time Clock Driver");
 crate::MODULE_VERSION!("1.0.0");

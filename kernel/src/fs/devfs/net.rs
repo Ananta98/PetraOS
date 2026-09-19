@@ -510,6 +510,6 @@ fn register_network_devices() -> Result<(), &'static str> {
 }
 
 crate::late_initcall!(register_network_devices);
-crate::MODULE_LICENSE!("BSD-2-Clause");
+crate::MODULE_LICENSE!("GPL-2.0");
 crate::MODULE_AUTHOR!("Ananta98");
 crate::MODULE_DESCRIPTION!("Network Interface Device Filesystem Nodes");

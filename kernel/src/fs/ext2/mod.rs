@@ -100,6 +100,6 @@ impl FileSystem for Ext2Fs {
 }
 
 crate::fs_initcall!(Ext2Fs::init);
-crate::MODULE_LICENSE!("BSD-2-Clause");
+crate::MODULE_LICENSE!("GPL-2.0");
 crate::MODULE_AUTHOR!("Ananta98");
 crate::MODULE_DESCRIPTION!("Ext2 Filesystem Driver Subsystem");

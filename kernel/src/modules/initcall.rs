@@ -150,7 +150,7 @@ macro_rules! module_driver {
             let path = module_path!();
             let author = get_attr_for_module(path, ModAttrKind::Author, "Ananta98");
             let desc = get_attr_for_module(path, ModAttrKind::Description, driver.description());
-            let license = get_attr_for_module(path, ModAttrKind::License, "BSD-2-Clause");
+            let license = get_attr_for_module(path, ModAttrKind::License, "GPL-2.0");
             let version = get_attr_for_module(path, ModAttrKind::Version, "1.0.0");
 
             match driver.probe() {
