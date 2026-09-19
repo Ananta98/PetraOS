@@ -1,7 +1,7 @@
 //! Real-Time (RT) Run Queue with O(1) priority selection.
 //!
 //! Per-priority FIFO queues stored as `VecDeque<Arc<Mutex<Thread>>>`, one slot per
-//! priority level. A two-word bitmap gives O(1) highest-priority lookup via `leading_zeros`.
+//! priority level. A `BitArray` from `bitvec` gives O(1) highest-priority lookup via `last_one`.
 
 use super::policy::{RT_PRIO_COUNT, RtPriority};
 use crate::proc::thread::{Thread, ThreadId};
@@ -10,13 +10,12 @@ use crate::sync::Mutex;
 use alloc::collections::VecDeque;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
+use bitvec::prelude::*;
 
 /// Real-Time Run Queue for a single CPU core.
 pub struct RtRunQueue {
-    /// Bitmaps tracking non-empty priority levels.
-    /// `bitmap[0]`: priorities  0..63
-    /// `bitmap[1]`: priorities 64..99
-    bitmap: [u64; 2],
+    /// Bitmap tracking non-empty priority levels (0..99).
+    bitmap: BitArr!(for RT_PRIO_COUNT, in usize, Lsb0),
 
     /// Per-priority FIFO queues.
     queues: Vec<VecDeque<Arc<Mutex<Thread>>>>,
@@ -32,40 +31,19 @@ impl RtRunQueue {
         for _ in 0..RT_PRIO_COUNT {
             queues.push(VecDeque::new());
         }
-        Self { bitmap: [0; 2], queues, count: 0 }
-    }
-
-    // ── Bitmap helpers ─────────────────────────────────────────────────────
-
-    #[inline]
-    fn set_bit(&mut self, prio: u8) {
-        let (w, b) = Self::word_bit(prio);
-        self.bitmap[w] |= 1 << b;
-    }
-
-    #[inline]
-    fn clear_bit(&mut self, prio: u8) {
-        let (w, b) = Self::word_bit(prio);
-        self.bitmap[w] &= !(1 << b);
-    }
-
-    #[inline]
-    const fn word_bit(prio: u8) -> (usize, u8) {
-        if prio < 64 { (0, prio) } else { (1, prio - 64) }
+        Self {
+            bitmap: bitarr![usize, Lsb0; 0; RT_PRIO_COUNT],
+            queues,
+            count: 0,
+        }
     }
 
     // ── Public API ─────────────────────────────────────────────────────────
 
     /// Returns the highest non-empty priority level in O(1), or `None` when empty.
     pub fn highest_priority(&self) -> Option<u8> {
-        // Higher numerical value = higher RT priority. Check word 1 (64..99) first.
-        for (word_idx, offset) in [(1usize, 64u8), (0, 0)] {
-            let word = self.bitmap[word_idx];
-            if word != 0 {
-                return Some(offset + (63 - word.leading_zeros() as u8));
-            }
-        }
-        None
+        // Higher numerical value = higher RT priority (0..=99).
+        self.bitmap.last_one().map(|prio| prio as u8)
     }
 
     /// Enqueues `thread` at its RT priority level (FIFO within the level).
@@ -73,23 +51,19 @@ impl RtRunQueue {
         let prio = priority.value() as usize;
         if prio < RT_PRIO_COUNT {
             self.queues[prio].push_back(thread);
-            self.set_bit(prio as u8);
+            self.bitmap.set(prio, true);
             self.count += 1;
         }
     }
 
     /// Removes a thread by `ThreadId` across all priority levels.
     pub fn dequeue(&mut self, tid: ThreadId) -> Option<Arc<Mutex<Thread>>> {
-        for prio in (0..RT_PRIO_COUNT as u8).rev() {
-            let (w, b) = Self::word_bit(prio);
-            if (self.bitmap[w] & (1 << b)) == 0 {
-                continue;
-            }
-            let q = &mut self.queues[prio as usize];
+        for prio in self.bitmap.iter_ones().rev() {
+            let q = &mut self.queues[prio];
             if let Some(idx) = q.iter().position(|t| t.lock().tid == tid) {
-                let thread = q.remove(idx).unwrap();
+                let thread = q.remove(idx)?;
                 if q.is_empty() {
-                    self.clear_bit(prio);
+                    self.bitmap.set(prio, false);
                 }
                 self.count = self.count.saturating_sub(1);
                 return Some(thread);
@@ -104,12 +78,12 @@ impl RtRunQueue {
             let q = &mut self.queues[prio as usize];
             if let Some(thread) = q.pop_front() {
                 if q.is_empty() {
-                    self.clear_bit(prio);
+                    self.bitmap.set(prio as usize, false);
                 }
                 self.count = self.count.saturating_sub(1);
                 return Some(thread);
             }
-            self.clear_bit(prio); // stale bit — clear and retry
+            self.bitmap.set(prio as usize, false); // stale bit — clear and retry
         }
         None
     }

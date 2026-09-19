@@ -5,12 +5,14 @@
 
 use crate::fs::vfs::dentry::Dentry;
 use crate::fs::vfs::types::{InodeType, VfsError};
-use crate::utils::cpio::CpioArchive;
+use crate::utils::cpio::{CpioArchive, CpioHeader};
 use alloc::collections::BTreeMap;
 use alloc::format;
 use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
+
+type HardlinkMap = BTreeMap<u32, (Option<String>, Vec<String>)>;
 
 /// Helper function to create all parent directories recursively, returning the leaf directory Dentry.
 pub fn mkdir_p(path: &str) -> Result<Arc<Dentry>, VfsError> {
@@ -127,13 +129,160 @@ pub fn create_hardlink_with_parents(
     }
 }
 
+fn apply_attributes(dentry: &Arc<Dentry>, mode: u32, uid: u32, gid: u32, mtime: u64) {
+    let _ = dentry.inode.ops.chmod(mode);
+    let _ = dentry.inode.ops.chown(uid, gid);
+    if mtime != 0 {
+        let _ = dentry.inode.ops.utimens(mtime, mtime);
+    }
+}
+
+fn extract_directory_entry(full_path: &str, mode: u32, uid: u32, gid: u32, mtime: u64) {
+    match mkdir_p(full_path) {
+        Ok(dentry) => apply_attributes(&dentry, mode, uid, gid, mtime),
+        Err(err) => {
+            log::warn!("[Initramfs] Failed to mkdir '{}': {:?}", full_path, err);
+        }
+    }
+}
+
+fn extract_symlink_entry(full_path: &str, data: &[u8]) -> usize {
+    let Ok(raw_target) = core::str::from_utf8(data) else {
+        return 0;
+    };
+    let target = raw_target.trim_end_matches('\0');
+    match create_symlink_with_parents(full_path, target) {
+        Ok(_) => 1,
+        Err(err) => {
+            log::warn!(
+                "[Initramfs] Failed to create symlink '{}' -> '{}': {:?}",
+                full_path,
+                target,
+                err
+            );
+            0
+        }
+    }
+}
+
+/// Handle duplicate hard-link entries in SVR4 archives where payload is empty.
+fn handle_deferred_hardlink(
+    full_path: &str,
+    header: &CpioHeader,
+    hardlinks: &mut HardlinkMap,
+) -> usize {
+    if let Some((Some(primary), _)) = hardlinks.get(&header.ino) {
+        match create_hardlink_with_parents(primary, full_path) {
+            Ok(dentry) => {
+                apply_attributes(
+                    &dentry,
+                    header.mode,
+                    header.uid,
+                    header.gid,
+                    header.mtime as u64,
+                );
+                1
+            }
+            Err(err) => {
+                log::warn!(
+                    "[Initramfs] Failed to hardlink '{}' to '{}': {:?}",
+                    full_path,
+                    primary,
+                    err
+                );
+                0
+            }
+        }
+    } else {
+        let entry_record = hardlinks
+            .entry(header.ino)
+            .or_insert_with(|| (None, Vec::new()));
+        entry_record.1.push(full_path.into());
+        0
+    }
+}
+
+/// Resolve queued hardlinks once the primary entry containing the data is extracted.
+fn resolve_pending_hardlinks(
+    primary_path: &str,
+    header: &CpioHeader,
+    hardlinks: &mut HardlinkMap,
+) -> usize {
+    let entry_record = hardlinks
+        .entry(header.ino)
+        .or_insert_with(|| (None, Vec::new()));
+    entry_record.0 = Some(primary_path.into());
+    let pending_paths = core::mem::take(&mut entry_record.1);
+
+    let mut resolved_count = 0;
+    for pending in pending_paths {
+        match create_hardlink_with_parents(primary_path, &pending) {
+            Ok(dentry) => {
+                resolved_count += 1;
+                apply_attributes(
+                    &dentry,
+                    header.mode,
+                    header.uid,
+                    header.gid,
+                    header.mtime as u64,
+                );
+            }
+            Err(err) => {
+                log::warn!(
+                    "[Initramfs] Failed to link pending '{}' to '{}': {:?}",
+                    pending,
+                    primary_path,
+                    err
+                );
+            }
+        }
+    }
+    resolved_count
+}
+
+fn extract_regular_file_entry(
+    full_path: &str,
+    payload: &[u8],
+    header: &CpioHeader,
+    hardlinks: &mut HardlinkMap,
+) -> usize {
+    if header.nlink > 1 && payload.is_empty() {
+        return handle_deferred_hardlink(full_path, header, hardlinks);
+    }
+
+    match create_file_with_parents(
+        full_path,
+        payload,
+        header.mode,
+        header.uid,
+        header.gid,
+        header.mtime as u64,
+    ) {
+        Ok(_) => {
+            let mut count = 1;
+            if header.nlink > 1 {
+                count += resolve_pending_hardlinks(full_path, header, hardlinks);
+            }
+            count
+        }
+        Err(err) => {
+            log::warn!(
+                "[Initramfs] Failed to create file '{}': {:?}",
+                full_path,
+                err
+            );
+            0
+        }
+    }
+}
+
 /// Unpack an in-memory CPIO archive slice into the active root VFS.
 pub fn extract_cpio_archive(data: &[u8]) -> Result<usize, &'static str> {
     let archive = CpioArchive::new(data);
     let mut extracted_count = 0;
 
     // Track inodes with nlink > 1: ino -> (Option<String> /* primary with data */, Vec<String> /* pending links */)
-    let mut hardlinks: BTreeMap<u32, (Option<String>, Vec<String>)> = BTreeMap::new();
+    let mut hardlinks: HardlinkMap = BTreeMap::new();
 
     for entry_res in archive.entries() {
         let entry = match entry_res {
@@ -157,113 +306,21 @@ pub fn extract_cpio_archive(data: &[u8]) -> Result<usize, &'static str> {
         }
 
         let full_path = format!("/{}", raw_name);
-        let mode = entry.header().mode;
-        let uid = entry.header().uid;
-        let gid = entry.header().gid;
-        let mtime = entry.header().mtime as u64;
+        let header = entry.header();
 
         if entry.is_directory() {
-            match mkdir_p(&full_path) {
-                Ok(dentry) => {
-                    let _ = dentry.inode.ops.chmod(mode);
-                    let _ = dentry.inode.ops.chown(uid, gid);
-                    if mtime != 0 {
-                        let _ = dentry.inode.ops.utimens(mtime, mtime);
-                    }
-                }
-                Err(err) => {
-                    log::warn!("[Initramfs] Failed to mkdir '{}': {:?}", full_path, err);
-                }
-            }
+            extract_directory_entry(
+                &full_path,
+                header.mode,
+                header.uid,
+                header.gid,
+                header.mtime as u64,
+            );
         } else if entry.is_regular_file() {
-            let nlink = entry.header().nlink;
-            let ino = entry.header().ino;
-            let payload = entry.data();
-
-            if nlink > 1 && payload.is_empty() {
-                // SVR4 cpio zeroes filesize on duplicate hard-link entries.
-                // If primary was already extracted, hardlink immediately; otherwise queue it.
-                if let Some((Some(primary), _)) = hardlinks.get(&ino) {
-                    match create_hardlink_with_parents(primary, &full_path) {
-                        Ok(dentry) => {
-                            extracted_count += 1;
-                            let _ = dentry.inode.ops.chmod(mode);
-                            let _ = dentry.inode.ops.chown(uid, gid);
-                            if mtime != 0 {
-                                let _ = dentry.inode.ops.utimens(mtime, mtime);
-                            }
-                        }
-                        Err(err) => {
-                            log::warn!(
-                                "[Initramfs] Failed to hardlink '{}' to '{}': {:?}",
-                                full_path,
-                                primary,
-                                err
-                            );
-                        }
-                    }
-                } else {
-                    let entry_record = hardlinks.entry(ino).or_insert_with(|| (None, Vec::new()));
-                    entry_record.1.push(full_path);
-                }
-            } else {
-                match create_file_with_parents(&full_path, payload, mode, uid, gid, mtime) {
-                    Ok(_) => {
-                        extracted_count += 1;
-
-                        if nlink > 1 {
-                            let entry_record =
-                                hardlinks.entry(ino).or_insert_with(|| (None, Vec::new()));
-                            entry_record.0 = Some(full_path.clone());
-                            let pending_paths = core::mem::take(&mut entry_record.1);
-                            for pending in pending_paths {
-                                match create_hardlink_with_parents(&full_path, &pending) {
-                                    Ok(dentry) => {
-                                        extracted_count += 1;
-                                        let _ = dentry.inode.ops.chmod(mode);
-                                        let _ = dentry.inode.ops.chown(uid, gid);
-                                        if mtime != 0 {
-                                            let _ = dentry.inode.ops.utimens(mtime, mtime);
-                                        }
-                                    }
-                                    Err(err) => {
-                                        log::warn!(
-                                            "[Initramfs] Failed to link pending '{}' to '{}': {:?}",
-                                            pending,
-                                            full_path,
-                                            err
-                                        );
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    Err(err) => {
-                        log::warn!(
-                            "[Initramfs] Failed to create file '{}': {:?}",
-                            full_path,
-                            err
-                        );
-                    }
-                }
-            }
+            extracted_count +=
+                extract_regular_file_entry(&full_path, entry.data(), header, &mut hardlinks);
         } else if entry.is_symlink() {
-            if let Ok(raw_target) = core::str::from_utf8(entry.data()) {
-                let target = raw_target.trim_end_matches('\0');
-                match create_symlink_with_parents(&full_path, target) {
-                    Ok(_) => {
-                        extracted_count += 1;
-                    }
-                    Err(err) => {
-                        log::warn!(
-                            "[Initramfs] Failed to create symlink '{}' -> '{}': {:?}",
-                            full_path,
-                            target,
-                            err
-                        );
-                    }
-                }
-            }
+            extracted_count += extract_symlink_entry(&full_path, entry.data());
         }
     }
 

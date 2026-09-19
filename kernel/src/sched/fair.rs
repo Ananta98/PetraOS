@@ -19,14 +19,10 @@ pub const BASE_SLICE_NS: u64 = 10_000_000;
 /// Cached scheduling entity for the EEVDF run queue.
 ///
 /// Caching scheduling parameters directly in the entity avoids acquiring
-/// the thread Mutex during `pick_next` candidate evaluation.
-#[derive(Clone)]
+/// the thread Mutex during candidate evaluation in `pick_next`.
 pub struct EevdfEntity {
     pub tid: ThreadId,
     pub vruntime: u64,
-    pub vdeadline: u64,
-    pub weight: u32,
-    pub slice_ns: u64,
     pub thread: Arc<Mutex<Thread>>,
 }
 
@@ -52,10 +48,10 @@ impl EevdfScheduler {
         }
     }
 
-    /// Adds a thread to the fair run queue.
+    /// Enqueues a runnable thread into the fair run queue.
     ///
     /// Normalizes `vruntime` against `min_vruntime` and computes its virtual deadline.
-    pub fn add_thread(&mut self, thread: Arc<Mutex<Thread>>) {
+    pub fn enqueue(&mut self, thread: Arc<Mutex<Thread>>) {
         let mut t = thread.lock();
 
         // Prevent waking threads from gaining unfair CPU time after long sleeps.
@@ -74,13 +70,13 @@ impl EevdfScheduler {
         let (tid, vruntime, vdeadline) = (t.tid, t.vruntime, t.vdeadline);
         drop(t);
 
-        let entity = EevdfEntity { tid, vruntime, vdeadline, weight, slice_ns, thread };
+        let entity = EevdfEntity { tid, vruntime, thread };
         self.timeline.insert((vdeadline, tid), entity);
         self.by_tid.insert(tid, vdeadline);
     }
 
     /// Removes a thread from the fair run queue by its `ThreadId`.
-    pub fn remove_thread(&mut self, tid: ThreadId) -> Option<Arc<Mutex<Thread>>> {
+    pub fn dequeue(&mut self, tid: ThreadId) -> Option<Arc<Mutex<Thread>>> {
         let vdeadline = self.by_tid.remove(&tid)?;
         self.timeline.remove(&(vdeadline, tid)).map(|e| e.thread)
     }
@@ -116,16 +112,6 @@ impl EevdfScheduler {
         }
 
         Some(entity.thread)
-    }
-
-    /// Enqueues a runnable thread into the fair run queue.
-    pub fn enqueue(&mut self, thread: Arc<Mutex<Thread>>) {
-        self.add_thread(thread);
-    }
-
-    /// Removes a thread from the run queue by its `ThreadId`.
-    pub fn dequeue(&mut self, tid: ThreadId) -> Option<Arc<Mutex<Thread>>> {
-        self.remove_thread(tid)
     }
 
     /// Updates virtual runtime accounting and returns `true` if preemption should trigger.
