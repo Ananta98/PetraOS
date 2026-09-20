@@ -68,8 +68,8 @@ impl<P: PageTable> AddrSpace<P> {
     pub fn clone(&mut self) -> Result<Self, AddrSpaceError> {
         let mut new_page_table = P::new().map_err(AddrSpaceError::PagingError)?;
 
-        // Track every child mapping we've made: (virt, phys, was_cow).
-        // On failure we use this to unmap + dec_ref + revert parent PTEs.
+        // Track every child mapping we've made: (virt, phys, is_private).
+        // On failure we use this to unmap and free private frames or dec_ref shared frames.
         let mut child_maps: alloc::vec::Vec<(VirtAddr, PhysAddr, bool)> = alloc::vec::Vec::new();
 
         for (&_vaddr, area) in &self.vm_areas {
@@ -78,8 +78,8 @@ impl<P: PageTable> AddrSpace<P> {
 
             'pages: for i in 0..num_pages {
                 let page_virt = area.start + (i as u64 * 4096);
-                let parent_phys = match self.page_table.translate(page_virt) {
-                    Some(p) => p,
+                let (parent_phys, entry_flags) = match self.page_table.get_entry(page_virt) {
+                    Some(entry) => entry,
                     None => continue 'pages,
                 };
 
@@ -116,7 +116,7 @@ impl<P: PageTable> AddrSpace<P> {
                                 core::ptr::copy_nonoverlapping(src, dest, 4096);
                             }
                             if let Err(err) =
-                                new_page_table.map(page_virt, new_frame, area.flags)
+                                new_page_table.map(page_virt, new_frame, entry_flags)
                             {
                                 crate::mm::PMM.free_page(new_frame);
                                 Self::rollback_clone(
@@ -127,10 +127,10 @@ impl<P: PageTable> AddrSpace<P> {
                                 );
                                 return Err(AddrSpaceError::PagingError(err));
                             }
-                            child_maps.push((page_virt, new_frame, false));
+                            child_maps.push((page_virt, new_frame, true));
                         } else {
-                            // Read-only page: share directly without COW remap.
-                            if let Err(err) = new_page_table.map(page_virt, parent_phys, area.flags)
+                            // Read-only / PROT_NONE page: share directly.
+                            if let Err(err) = new_page_table.map(page_virt, parent_phys, entry_flags)
                             {
                                 Self::rollback_clone(
                                     &mut self.page_table,
@@ -146,7 +146,7 @@ impl<P: PageTable> AddrSpace<P> {
                     }
                     VmAreaKind::Device { .. } => {
                         // Device pages are shared as-is with no refcount.
-                        if let Err(err) = new_page_table.map(page_virt, parent_phys, area.flags) {
+                        if let Err(err) = new_page_table.map(page_virt, parent_phys, entry_flags) {
                             Self::rollback_clone(
                                 &mut self.page_table,
                                 &mut new_page_table,
@@ -158,7 +158,7 @@ impl<P: PageTable> AddrSpace<P> {
                     }
                     VmAreaKind::Shared { .. } => {
                         // Shared memory pages are mapped directly without COW remap.
-                        if let Err(err) = new_page_table.map(page_virt, parent_phys, area.flags) {
+                        if let Err(err) = new_page_table.map(page_virt, parent_phys, entry_flags) {
                             Self::rollback_clone(
                                 &mut self.page_table,
                                 &mut new_page_table,
@@ -180,24 +180,19 @@ impl<P: PageTable> AddrSpace<P> {
         })
     }
 
-    /// Undo a partial clone on error: unmap all child pages, release their frames,
-    /// and revert any parent PTEs that were COW-remapped back to their original flags.
+    /// Undo a partial clone on error: unmap all child pages and release allocated frames.
     fn rollback_clone(
-        parent_pt: &mut P,
+        _parent_pt: &mut P,
         child_pt: &mut P,
         child_maps: &[(VirtAddr, PhysAddr, bool)],
-        vm_areas: &alloc::collections::BTreeMap<VirtAddr, VmArea>,
+        _vm_areas: &alloc::collections::BTreeMap<VirtAddr, VmArea>,
     ) {
-        for &(virt, phys, was_cow) in child_maps {
+        for &(virt, phys, is_private) in child_maps {
             let _ = child_pt.unmap(virt);
-            crate::mm::PMM.free_page(phys);
-            if was_cow {
-                // Restore parent PTE to its original writable flags.
-                if let Some(area) = vm_areas.range(..=virt).next_back().map(|(_, a)| a) {
-                    if area.contains(virt) {
-                        let _ = parent_pt.remap(virt, area.flags);
-                    }
-                }
+            if is_private {
+                crate::mm::PMM.free_page(phys);
+            } else {
+                crate::mm::PMM.dec_ref(phys);
             }
         }
     }
