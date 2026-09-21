@@ -233,7 +233,11 @@ pub fn sync_device_to_devfs(device: &Arc<Mutex<Box<dyn Device>>>) {
                 ops,
             });
             drop(mt);
-            register_dev_node(vfs_name, inode);
+            register_dev_node(vfs_name, inode.clone());
+            if vfs_name == "mice" || vfs_name == "mouse0" || vfs_name == "kbd" {
+                register_input_node(vfs_name, inode);
+                log::info!("[DevFS] Registered input device /dev/input/{}", vfs_name);
+            }
             log::info!("[DevFS] Registered character device /dev/{}", vfs_name);
         }
         DeviceType::Network => {

@@ -114,6 +114,11 @@ pub trait CharDevice: Device {
     fn has_input(&self) -> bool {
         false
     }
+
+    /// Return a reference to the wait queue for event-driven blocking reads, if supported.
+    fn wait_queue(&self) -> Option<&'static crate::sync::WaitQueue> {
+        None
+    }
 }
 
 // ===== BlockDevice Trait =====

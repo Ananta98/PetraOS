@@ -197,6 +197,9 @@ fn handle_generic_exception(stack_frame: &mut InterruptStackFrame, error_code: u
 /// Interrupt vector assigned to the PS/2 Keyboard (ISA IRQ 1).
 pub const KEYBOARD_VECTOR: u8 = 33;
 
+/// Interrupt vector assigned to the PS/2 Mouse (ISA IRQ 12).
+pub const MOUSE_VECTOR: u8 = 44;
+
 /// Central IRQ dispatcher called from the interrupt stubs in `interrupts.rs`.
 ///
 /// # Safety
@@ -206,6 +209,7 @@ pub extern "C" fn handle_irq(stack_frame: &mut InterruptStackFrame, vector: u64)
     match vector as u8 {
         crate::arch::lapic_timer::TIMER_VECTOR => super::timer::handle_timer(stack_frame),
         KEYBOARD_VECTOR => handle_keyboard(),
+        MOUSE_VECTOR => handle_mouse(),
         0xFF => super::timer::handle_spurious(stack_frame),
         _ => {
             log::warn!("Unhandled IRQ vector {}", vector);
@@ -224,8 +228,34 @@ fn handle_keyboard() {
         }
         // SAFETY: Reading data port 0x60 clears the 8042 output buffer.
         let byte = unsafe { Ports::inb(0x60) };
-        // Only process keyboard data (bit 5 clear). Mouse data is discarded.
+        // Route keyboard data (bit 5 clear) vs mouse data (bit 5 set).
         if (status & 0x20) == 0 {
+            crate::drivers::char::keyboard::handle_scancode(byte);
+        } else {
+            crate::drivers::char::mouse::handle_mouse_byte(byte);
+        }
+    }
+    // SAFETY: LAPIC is guaranteed to be initialized when receiving interrupts.
+    unsafe {
+        crate::arch::interrupt::lapic::get_lapic().end_of_interrupt();
+    }
+}
+
+/// PS/2 Mouse interrupt handler (ISA IRQ 12).
+fn handle_mouse() {
+    // Drain pending bytes from 8042 controller output buffer.
+    loop {
+        // SAFETY: Reading status port 0x64 has no side effects.
+        let status = unsafe { Ports::inb(0x64) };
+        if (status & 0x01) == 0 {
+            break;
+        }
+        // SAFETY: Reading data port 0x60 clears the 8042 output buffer.
+        let byte = unsafe { Ports::inb(0x60) };
+        // Route mouse data (bit 5 set) vs keyboard data (bit 5 clear).
+        if (status & 0x20) != 0 {
+            crate::drivers::char::mouse::handle_mouse_byte(byte);
+        } else {
             crate::drivers::char::keyboard::handle_scancode(byte);
         }
     }

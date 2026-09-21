@@ -23,6 +23,9 @@ static KEYBOARD_INTERRUPT_COUNT: AtomicU64 = AtomicU64::new(0);
 /// Global scancode decoder state.
 static SCANCODE_DECODER: Mutex<ScancodeDecoder> = Mutex::new(ScancodeDecoder::new());
 
+/// Wait queue for blocking reads on the keyboard character buffer.
+pub static KEYBOARD_WAIT_QUEUE: crate::sync::WaitQueue = crate::sync::WaitQueue::new();
+
 /// The PS/2 Character Keyboard Device.
 pub struct Ps2Keyboard;
 
@@ -72,6 +75,14 @@ impl CharDevice for Ps2Keyboard {
     fn write_byte(&mut self, _byte: u8) -> Result<(), DriverError> {
         // Keyboard LED or command writing can be extended here
         Ok(())
+    }
+
+    fn has_input(&self) -> bool {
+        !KEY_RING_BUFFER.is_empty()
+    }
+
+    fn wait_queue(&self) -> Option<&'static crate::sync::WaitQueue> {
+        Some(&KEYBOARD_WAIT_QUEUE)
     }
 }
 
@@ -153,6 +164,7 @@ pub fn handle_scancode(scancode: u8) {
                     }
                 }
             }
+            KEYBOARD_WAIT_QUEUE.wake_all();
         }
     }
 }

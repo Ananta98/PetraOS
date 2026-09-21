@@ -37,29 +37,51 @@ pub struct GenericCharDeviceFileOps {
 }
 
 impl FileOps for GenericCharDeviceFileOps {
-    fn read(&self, _offset: usize, buf: &mut [u8]) -> Result<usize, VfsError> {
+    fn read(&self, offset: usize, buf: &mut [u8]) -> Result<usize, VfsError> {
+        self.read_with_flags(offset, buf, 0)
+    }
+
+    fn read_with_flags(
+        &self,
+        _offset: usize,
+        buf: &mut [u8],
+        flags: u32,
+    ) -> Result<usize, VfsError> {
         if buf.is_empty() {
             return Ok(0);
         }
 
-        let mut dev_lock = self.device.lock();
-        let char_dev = dev_lock.as_char_device_mut().ok_or(VfsError::NotSupported)?;
+        loop {
+            let mut dev_lock = self.device.lock();
+            let char_dev = dev_lock.as_char_device_mut().ok_or(VfsError::NotSupported)?;
 
-        let mut read_bytes = 0;
-        for slot in buf.iter_mut() {
-            match char_dev.read_byte() {
-                Ok(b) => {
-                    *slot = b;
-                    read_bytes += 1;
+            let mut read_bytes = 0;
+            for slot in buf.iter_mut() {
+                match char_dev.read_byte() {
+                    Ok(b) => {
+                        *slot = b;
+                        read_bytes += 1;
+                    }
+                    Err(_) => break,
                 }
-                Err(_) => break,
             }
-        }
 
-        if read_bytes > 0 {
-            Ok(read_bytes)
-        } else {
-            Err(VfsError::WouldBlock)
+            if read_bytes > 0 {
+                return Ok(read_bytes);
+            }
+
+            // Buffer is empty
+            if (flags & crate::fs::vfs::types::O_NONBLOCK) != 0 {
+                return Err(VfsError::WouldBlock);
+            }
+
+            if let Some(wq) = char_dev.wait_queue() {
+                drop(dev_lock);
+                wq.wait();
+            } else {
+                drop(dev_lock);
+                return Err(VfsError::WouldBlock);
+            }
         }
     }
 

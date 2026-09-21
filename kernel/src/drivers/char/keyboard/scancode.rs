@@ -65,6 +65,12 @@ pub struct Modifiers {
     pub caps_lock: bool,
     pub num_lock: bool,
     pub scroll_lock: bool,
+    pub lshift: bool,
+    pub rshift: bool,
+    pub lctrl: bool,
+    pub rctrl: bool,
+    pub lalt: bool,
+    pub ralt: bool,
 }
 
 pub struct ScancodeDecoder {
@@ -83,6 +89,12 @@ impl ScancodeDecoder {
                 caps_lock: false,
                 num_lock: false,
                 scroll_lock: false,
+                lshift: false,
+                rshift: false,
+                lctrl: false,
+                rctrl: false,
+                lalt: false,
+                ralt: false,
             },
         }
     }
@@ -128,11 +140,13 @@ impl ScancodeDecoder {
                 },
             ), // Keypad enter
             0x1D => {
-                self.modifiers.ctrl = !is_release;
+                self.modifiers.rctrl = !is_release;
+                self.modifiers.ctrl = self.modifiers.lctrl || self.modifiers.rctrl;
                 (KeyCode::RightCtrl, None)
             }
             0x38 => {
-                self.modifiers.alt = !is_release;
+                self.modifiers.ralt = !is_release;
+                self.modifiers.alt = self.modifiers.lalt || self.modifiers.ralt;
                 (KeyCode::RightAlt, None)
             }
             0x48 => (KeyCode::Up, None),
@@ -162,7 +176,12 @@ impl ScancodeDecoder {
         match make_code {
             0x2A | 0x36 => {
                 // Left Shift (0x2A), Right Shift (0x36)
-                self.modifiers.shift = !is_release;
+                if make_code == 0x2A {
+                    self.modifiers.lshift = !is_release;
+                } else {
+                    self.modifiers.rshift = !is_release;
+                }
+                self.modifiers.shift = self.modifiers.lshift || self.modifiers.rshift;
                 let code = if make_code == 0x2A {
                     KeyCode::LeftShift
                 } else {
@@ -176,7 +195,8 @@ impl ScancodeDecoder {
             }
             0x1D => {
                 // Left Ctrl
-                self.modifiers.ctrl = !is_release;
+                self.modifiers.lctrl = !is_release;
+                self.modifiers.ctrl = self.modifiers.lctrl || self.modifiers.rctrl;
                 return Some(KeyEvent {
                     code: KeyCode::LeftCtrl,
                     state,
@@ -185,7 +205,8 @@ impl ScancodeDecoder {
             }
             0x38 => {
                 // Left Alt
-                self.modifiers.alt = !is_release;
+                self.modifiers.lalt = !is_release;
+                self.modifiers.alt = self.modifiers.lalt || self.modifiers.ralt;
                 return Some(KeyEvent {
                     code: KeyCode::LeftAlt,
                     state,
@@ -267,13 +288,72 @@ impl ScancodeDecoder {
             0x52 => KeyCode::Insert,
             0x53 => KeyCode::Delete,
             _ => {
-                if let Some(ch) = self.map_ascii(make_code) {
+                if let Some(ch) = Self::map_base_char(make_code) {
+                    KeyCode::Char(ch)
+                } else if let Some(ch) = self.map_ascii(make_code) {
                     KeyCode::Char(ch)
                 } else {
                     KeyCode::Unknown(make_code)
                 }
             }
         }
+    }
+
+    /// Returns the unmodified base character for a standard US QWERTY make code,
+    /// ensuring KeyCode::Char(c) remains identical across KeyPress and KeyRelease.
+    pub fn map_base_char(make_code: u8) -> Option<char> {
+        let ch = match make_code {
+            0x02 => '1',
+            0x03 => '2',
+            0x04 => '3',
+            0x05 => '4',
+            0x06 => '5',
+            0x07 => '6',
+            0x08 => '7',
+            0x09 => '8',
+            0x0A => '9',
+            0x0B => '0',
+            0x0C => '-',
+            0x0D => '=',
+            0x10 => 'q',
+            0x11 => 'w',
+            0x12 => 'e',
+            0x13 => 'r',
+            0x14 => 't',
+            0x15 => 'y',
+            0x16 => 'u',
+            0x17 => 'i',
+            0x18 => 'o',
+            0x19 => 'p',
+            0x1A => '[',
+            0x1B => ']',
+            0x1E => 'a',
+            0x1F => 's',
+            0x20 => 'd',
+            0x21 => 'f',
+            0x22 => 'g',
+            0x23 => 'h',
+            0x24 => 'j',
+            0x25 => 'k',
+            0x26 => 'l',
+            0x27 => ';',
+            0x28 => '\'',
+            0x29 => '`',
+            0x2B => '\\',
+            0x2C => 'z',
+            0x2D => 'x',
+            0x2E => 'c',
+            0x2F => 'v',
+            0x30 => 'b',
+            0x31 => 'n',
+            0x32 => 'm',
+            0x33 => ',',
+            0x34 => '.',
+            0x35 => '/',
+            0x39 => ' ',
+            _ => return None,
+        };
+        Some(ch)
     }
 
     fn map_ascii(&self, make_code: u8) -> Option<char> {

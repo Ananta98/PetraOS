@@ -90,11 +90,28 @@ pub fn sys_mmap(frame: &mut SyscallFrame) -> SyscallResult {
 
     let kind = if !is_anonymous && fd >= 0 {
         if let Ok(file) = proc.fd_table.get(fd) {
-            let file_size = file.ops.stat().map(|s| s.size as usize).unwrap_or(0);
-            VmAreaKind::File {
-                file: file.ops.clone(),
-                offset: offset as usize,
-                file_size,
+            if file.dentry.name.starts_with("fb") {
+                if let Some(fb_info) = crate::drivers::drm::get_framebuffer_info() {
+                    let hhdm = crate::mm::hhdm_offset();
+                    let phys_addr = fb_info.address.saturating_sub(hhdm).saturating_add(offset);
+                    VmAreaKind::Device {
+                        phys_start: crate::mm::PhysAddr::new(phys_addr),
+                    }
+                } else {
+                    let file_size = file.ops.stat().map(|s| s.size as usize).unwrap_or(0);
+                    VmAreaKind::File {
+                        file: file.ops.clone(),
+                        offset: offset as usize,
+                        file_size,
+                    }
+                }
+            } else {
+                let file_size = file.ops.stat().map(|s| s.size as usize).unwrap_or(0);
+                VmAreaKind::File {
+                    file: file.ops.clone(),
+                    offset: offset as usize,
+                    file_size,
+                }
             }
         } else {
             VmAreaKind::Anonymous
