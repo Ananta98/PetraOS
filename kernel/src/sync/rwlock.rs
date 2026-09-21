@@ -37,7 +37,7 @@ unsafe impl<T: ?Sized + Send + Sync> Sync for RwLock<T> {}
 /// When this guard is dropped, the reader count is decremented.
 pub struct RwLockReadGuard<'a, T: ?Sized> {
     lock: &'a RwLock<T>,
-    was_enabled: bool,
+    _irq: crate::irq::lock::IrqGuard,
 }
 
 // SAFETY: `RwLockReadGuard` represents shared immutable access, which is thread-safe if `T: Sync`.
@@ -48,7 +48,7 @@ unsafe impl<T: ?Sized + Sync> Sync for RwLockReadGuard<'_, T> {}
 /// When this guard is dropped, the exclusive write lock is released.
 pub struct RwLockWriteGuard<'a, T: ?Sized> {
     lock: &'a RwLock<T>,
-    was_enabled: bool,
+    _irq: crate::irq::lock::IrqGuard,
 }
 
 // SAFETY: `RwLockWriteGuard` represents exclusive access to the underlying data.
@@ -75,7 +75,7 @@ impl<T: ?Sized> RwLock<T> {
     /// Multiple threads can hold shared read access concurrently as long as
     /// no thread holds exclusive write access.
     pub fn read(&self) -> RwLockReadGuard<'_, T> {
-        let was_enabled = crate::arch::disable_interrupts();
+        let irq = crate::irq::lock::irq_lock();
         loop {
             let count = self.state.load(Ordering::Relaxed);
             if count & WRITER_BIT != 0 || count == READER_MASK {
@@ -89,7 +89,7 @@ impl<T: ?Sized> RwLock<T> {
             {
                 return RwLockReadGuard {
                     lock: self,
-                    was_enabled,
+                    _irq: irq,
                 };
             }
             core::hint::spin_loop();
@@ -100,12 +100,9 @@ impl<T: ?Sized> RwLock<T> {
     ///
     /// Returns `Some(RwLockReadGuard)` if acquired, or `None` if an exclusive write lock is held.
     pub fn try_read(&self) -> Option<RwLockReadGuard<'_, T>> {
-        let was_enabled = crate::arch::disable_interrupts();
+        let irq = crate::irq::lock::irq_lock();
         let count = self.state.load(Ordering::Relaxed);
         if count & WRITER_BIT != 0 || count == READER_MASK {
-            if was_enabled {
-                crate::arch::enable_interrupts();
-            }
             return None;
         }
         if self
@@ -115,12 +112,9 @@ impl<T: ?Sized> RwLock<T> {
         {
             Some(RwLockReadGuard {
                 lock: self,
-                was_enabled,
+                _irq: irq,
             })
         } else {
-            if was_enabled {
-                crate::arch::enable_interrupts();
-            }
             None
         }
     }
@@ -129,7 +123,7 @@ impl<T: ?Sized> RwLock<T> {
     ///
     /// Only one thread can hold write access, and no threads may hold read access concurrently.
     pub fn write(&self) -> RwLockWriteGuard<'_, T> {
-        let was_enabled = crate::arch::disable_interrupts();
+        let irq = crate::irq::lock::irq_lock();
         while self
             .state
             .compare_exchange_weak(0, WRITER_BIT, Ordering::Acquire, Ordering::Relaxed)
@@ -139,7 +133,7 @@ impl<T: ?Sized> RwLock<T> {
         }
         RwLockWriteGuard {
             lock: self,
-            was_enabled,
+            _irq: irq,
         }
     }
 
@@ -147,7 +141,7 @@ impl<T: ?Sized> RwLock<T> {
     ///
     /// Returns `Some(RwLockWriteGuard)` if acquired, or `None` if any readers or writers exist.
     pub fn try_write(&self) -> Option<RwLockWriteGuard<'_, T>> {
-        let was_enabled = crate::arch::disable_interrupts();
+        let irq = crate::irq::lock::irq_lock();
         if self
             .state
             .compare_exchange(0, WRITER_BIT, Ordering::Acquire, Ordering::Relaxed)
@@ -155,12 +149,9 @@ impl<T: ?Sized> RwLock<T> {
         {
             Some(RwLockWriteGuard {
                 lock: self,
-                was_enabled,
+                _irq: irq,
             })
         } else {
-            if was_enabled {
-                crate::arch::enable_interrupts();
-            }
             None
         }
     }
@@ -209,9 +200,6 @@ impl<T: ?Sized> Deref for RwLockReadGuard<'_, T> {
 impl<T: ?Sized> Drop for RwLockReadGuard<'_, T> {
     fn drop(&mut self) {
         self.lock.state.fetch_sub(1, Ordering::Release);
-        if self.was_enabled {
-            crate::arch::enable_interrupts();
-        }
     }
 }
 
@@ -234,9 +222,6 @@ impl<T: ?Sized> DerefMut for RwLockWriteGuard<'_, T> {
 impl<T: ?Sized> Drop for RwLockWriteGuard<'_, T> {
     fn drop(&mut self) {
         self.lock.state.store(0, Ordering::Release);
-        if self.was_enabled {
-            crate::arch::enable_interrupts();
-        }
     }
 }
 

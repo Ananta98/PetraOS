@@ -12,6 +12,7 @@ pub mod device;
 pub mod drivers;
 pub mod fs;
 pub mod ipc;
+pub mod irq;
 pub mod limine;
 pub mod logger;
 pub mod mm;

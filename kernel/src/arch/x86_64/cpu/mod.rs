@@ -9,7 +9,7 @@ pub mod tss;
 pub mod userspace;
 
 pub use control::{
-    active_address_space_root, read_cr0, read_cr2, read_cr3, read_cr4, read_frame_pointer,
+    active_address_space_root, read_cr0, read_cr2, read_cr4, read_frame_pointer,
     set_address_space_root, write_cr0, write_cr4,
 };
 use core::arch::asm;

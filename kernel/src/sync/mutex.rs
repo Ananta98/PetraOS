@@ -27,7 +27,7 @@ unsafe impl<T: ?Sized + Send> Sync for Mutex<T> {}
 /// When this guard is dropped, the mutex is automatically released.
 pub struct MutexGuard<'a, T: ?Sized> {
     lock: &'a Mutex<T>,
-    was_enabled: bool,
+    _irq: crate::irq::lock::IrqGuard,
 }
 
 // SAFETY: A `MutexGuard` represents exclusive access to the underlying data.
@@ -54,7 +54,7 @@ impl<T: ?Sized> Mutex<T> {
     /// Returns an RAII [`MutexGuard`] that grants exclusive mutable access
     /// to the protected data until dropped.
     pub fn lock(&self) -> MutexGuard<'_, T> {
-        let was_enabled = crate::arch::disable_interrupts();
+        let irq = crate::irq::lock::irq_lock();
         while self
             .lock
             .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed)
@@ -64,7 +64,7 @@ impl<T: ?Sized> Mutex<T> {
         }
         MutexGuard {
             lock: self,
-            was_enabled,
+            _irq: irq,
         }
     }
 
@@ -72,7 +72,7 @@ impl<T: ?Sized> Mutex<T> {
     ///
     /// Returns `Some(MutexGuard)` if acquired, or `None` if the mutex is currently locked.
     pub fn try_lock(&self) -> Option<MutexGuard<'_, T>> {
-        let was_enabled = crate::arch::disable_interrupts();
+        let irq = crate::irq::lock::irq_lock();
         if self
             .lock
             .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
@@ -80,12 +80,9 @@ impl<T: ?Sized> Mutex<T> {
         {
             Some(MutexGuard {
                 lock: self,
-                was_enabled,
+                _irq: irq,
             })
         } else {
-            if was_enabled {
-                crate::arch::enable_interrupts();
-            }
             None
         }
     }
@@ -131,9 +128,6 @@ impl<T: ?Sized> DerefMut for MutexGuard<'_, T> {
 impl<T: ?Sized> Drop for MutexGuard<'_, T> {
     fn drop(&mut self) {
         self.lock.lock.store(false, Ordering::Release);
-        if self.was_enabled {
-            crate::arch::enable_interrupts();
-        }
     }
 }
 

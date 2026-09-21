@@ -1,45 +1,37 @@
-//! Per-CPU Run Queue implementation for PetraOS.
+//! Unified Hybrid RunQueue for PetraOS.
 //!
-//! Encapsulates the scheduling classes (Real-Time, Fair/EEVDF) and the currently
-//! executing thread for a single CPU core. All fields are accessed under the outer
-//! `Mutex<Vec<PerCpuRunQueue>>` in `PerCpuScheduler`.
+//! Encapsulates both Real-Time (`RtRunQueue`) and Fair EEVDF (`EevdfScheduler`) queues
+//! and the currently executing thread.
 
-use super::fair::{BASE_SLICE_NS, EevdfScheduler};
-use super::nice::NICE_0_WEIGHT;
-use super::policy::{DEFAULT_RR_QUANTUM_NS, SchedPolicy};
-use super::realtime::RtRunQueue;
 use crate::proc::thread::{Thread, ThreadId, ThreadState};
+use crate::sched::fair::{BASE_SLICE_NS, EevdfScheduler};
+use crate::sched::nice::NICE_0_WEIGHT;
+use crate::sched::policy::{DEFAULT_RR_QUANTUM_NS, SchedPolicy};
+use crate::sched::realtime::RtRunQueue;
 use crate::sync::Mutex;
 use alloc::sync::Arc;
 
-/// The per-CPU run queue structure.
-///
-/// Manages the scheduling class hierarchy on a specific CPU:
-/// 1. Real-Time (`RtRunQueue`): `SCHED_FIFO` and `SCHED_RR`
-/// 2. Fair (`EevdfScheduler`): `SCHED_OTHER` / EEVDF
-pub struct PerCpuRunQueue {
-    /// CPU identifier for this run queue.
-    pub cpu_id: u32,
-    /// Currently executing thread on this CPU core.
-    pub current: Option<Arc<Mutex<Thread>>>,
-    /// Real-time scheduling class run queue.
-    pub rt: RtRunQueue,
-    /// Fair (EEVDF) scheduling class run queue.
-    pub fair: EevdfScheduler,
+/// Unified Hybrid RunQueue managing Real-Time and Fair (EEVDF) tasks.
+pub struct RunQueue {
+    /// Currently executing thread.
+    current: Option<Arc<Mutex<Thread>>>,
+    /// Real-time scheduling class (FIFO, Round-Robin).
+    rt: RtRunQueue,
+    /// Fair scheduling class (EEVDF).
+    fair: EevdfScheduler,
 }
 
-impl PerCpuRunQueue {
-    /// Creates a new, empty `PerCpuRunQueue` for `cpu_id`.
-    pub fn new(cpu_id: u32) -> Self {
+impl RunQueue {
+    /// Creates a new, empty `RunQueue`.
+    pub const fn new() -> Self {
         Self {
-            cpu_id,
             current: None,
             rt: RtRunQueue::new(),
             fair: EevdfScheduler::new(),
         }
     }
 
-    /// Returns a clone of the currently executing thread handle.
+    /// Returns a clone of the currently executing thread.
     pub fn current(&self) -> Option<Arc<Mutex<Thread>>> {
         self.current.clone()
     }
@@ -49,7 +41,7 @@ impl PerCpuRunQueue {
         self.current = thread;
     }
 
-    /// Enqueues a thread into the appropriate scheduling class based on its policy.
+    /// Enqueues a thread into the appropriate queue based on its policy.
     pub fn enqueue(&mut self, thread: Arc<Mutex<Thread>>) {
         let (is_rt, rt_prio) = {
             let t = thread.lock();
@@ -62,14 +54,14 @@ impl PerCpuRunQueue {
         }
     }
 
-    /// Removes a thread from this CPU's run queues by its `ThreadId`.
+    /// Removes a thread by `ThreadId` from any active scheduling queue.
     pub fn dequeue(&mut self, tid: ThreadId) -> Option<Arc<Mutex<Thread>>> {
         self.rt.dequeue(tid).or_else(|| self.fair.dequeue(tid))
     }
 
     /// Picks the next runnable thread according to the scheduling hierarchy:
-    /// 1. Real-Time (FIFO / RR) strictly preempts Fair.
-    /// 2. Fair (EEVDF) runs when no real-time threads are available.
+    /// 1. Real-Time tasks strictly preempt Fair tasks.
+    /// 2. Fair (EEVDF) tasks run when no Real-Time tasks are runnable.
     pub fn pick_next(&mut self) -> Option<Arc<Mutex<Thread>>> {
         let next = self.rt.pick_next().or_else(|| self.fair.pick_next())?;
         next.lock().state = ThreadState::Running;
@@ -77,8 +69,7 @@ impl PerCpuRunQueue {
     }
 
     /// Updates scheduling accounting for the currently running thread.
-    ///
-    /// Returns `true` if a preemption should be triggered (e.g. quantum expired).
+    /// Returns `true` if preemption should trigger.
     pub fn tick(&mut self, delta_ns: u64) -> bool {
         let Some(ref thread) = self.current.clone() else {
             return false;
@@ -90,7 +81,7 @@ impl PerCpuRunQueue {
         }
     }
 
-    /// Voluntarily yields the currently running thread back into its run queue.
+    /// Voluntarily yields the current thread back into its run queue.
     pub fn yield_current(&mut self) {
         let Some(thread) = self.current.take() else {
             return;
@@ -100,8 +91,16 @@ impl PerCpuRunQueue {
             SchedPolicy::Fair => {
                 let (weight, slice_ns) = {
                     let t = thread.lock();
-                    let w = if t.weight > 0 { t.weight } else { NICE_0_WEIGHT };
-                    let s = if t.slice_ns > 0 { t.slice_ns } else { BASE_SLICE_NS };
+                    let w = if t.weight > 0 {
+                        t.weight
+                    } else {
+                        NICE_0_WEIGHT
+                    };
+                    let s = if t.slice_ns > 0 {
+                        t.slice_ns
+                    } else {
+                        BASE_SLICE_NS
+                    };
                     (w, s)
                 };
                 let vslice = (slice_ns * NICE_0_WEIGHT as u64) / weight as u64;
@@ -134,12 +133,12 @@ impl PerCpuRunQueue {
         }
     }
 
-    /// Total number of queued runnable threads across all scheduling classes.
+    /// Total number of queued runnable threads across all queues.
     pub fn len(&self) -> usize {
         self.rt.len() + self.fair.len()
     }
 
-    /// Returns `true` if all scheduling classes on this CPU core are empty.
+    /// Returns `true` if all scheduling queues are empty.
     pub fn is_empty(&self) -> bool {
         self.rt.is_empty() && self.fair.is_empty()
     }
