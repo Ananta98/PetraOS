@@ -5,8 +5,7 @@ use crate::fs::vfs::dentry::Dentry;
 use crate::fs::vfs::types::{
     FileOps, Inode, InodeOps, InodeType, O_RDONLY, O_WRONLY, SeekWhence, Stat, VfsError,
 };
-use crate::proc::thread::Thread;
-use crate::sync::Mutex;
+use crate::sync::{Mutex, WaitQueue};
 use crate::syscalls::fs::{POLLERR, POLLOUT};
 use alloc::collections::VecDeque;
 use alloc::sync::Arc;
@@ -34,9 +33,26 @@ impl PipeInner {
     }
 }
 
+/// Shared thread-safe anonymous pipe representation with event-driven wait queues.
+pub struct Pipe {
+    pub inner: Mutex<PipeInner>,
+    pub read_wait: WaitQueue,
+    pub write_wait: WaitQueue,
+}
+
+impl Pipe {
+    pub fn new(capacity: usize) -> Self {
+        Self {
+            inner: Mutex::new(PipeInner::new(capacity)),
+            read_wait: WaitQueue::new(),
+            write_wait: WaitQueue::new(),
+        }
+    }
+}
+
 /// Read end file operations for an anonymous pipe.
 pub struct PipeReadFileOps {
-    pipe: Arc<Mutex<PipeInner>>,
+    pipe: Arc<Pipe>,
     nonblocking: bool,
 }
 
@@ -56,17 +72,20 @@ impl FileOps for PipeReadFileOps {
         }
         let nonblocking = self.nonblocking || (flags & crate::fs::vfs::types::O_NONBLOCK) != 0;
         loop {
-            let mut pipe = self.pipe.lock();
-            if !pipe.buffer.is_empty() {
-                let to_read = core::cmp::min(buf.len(), pipe.buffer.len());
+            let mut inner = self.pipe.inner.lock();
+            if !inner.buffer.is_empty() {
+                let to_read = core::cmp::min(buf.len(), inner.buffer.len());
                 for byte in buf.iter_mut().take(to_read) {
-                    *byte = pipe.buffer.pop_front().unwrap_or(0);
+                    *byte = inner.buffer.pop_front().unwrap_or(0);
                 }
+                drop(inner);
+                // Wake any writers blocked waiting for buffer capacity
+                self.pipe.write_wait.wake_one();
                 return Ok(to_read);
             }
 
             // Buffer is empty: if no writers remain, return EOF (0 bytes)
-            if pipe.writers == 0 {
+            if inner.writers == 0 {
                 return Ok(0);
             }
 
@@ -74,21 +93,21 @@ impl FileOps for PipeReadFileOps {
                 return Err(VfsError::WouldBlock);
             }
 
-            drop(pipe);
-            Thread::yield_cpu();
+            // Event-driven sleep until a writer pushes data or closes the write end
+            self.pipe.read_wait.wait_with(|| drop(inner));
         }
     }
 
     fn poll_events(&self, events: i16) -> i16 {
         use crate::syscalls::fs::{POLLHUP, POLLIN};
-        let pipe = self.pipe.lock();
+        let inner = self.pipe.inner.lock();
         let mut revents = 0;
-        if (events & POLLIN) != 0 && (!pipe.buffer.is_empty() || pipe.writers == 0) {
+        if (events & POLLIN) != 0 && (!inner.buffer.is_empty() || inner.writers == 0) {
             revents |= POLLIN;
         }
         // Read end is never writable; report hangup once all writers are gone
         // so pollers waiting on HUP/ERR wake up instead of blocking forever.
-        if pipe.writers == 0 {
+        if inner.writers == 0 {
             revents |= POLLHUP;
         }
         revents
@@ -99,12 +118,12 @@ impl FileOps for PipeReadFileOps {
     }
 
     fn stat(&self) -> Result<Stat, VfsError> {
-        let pipe = self.pipe.lock();
+        let inner = self.pipe.inner.lock();
         Ok(Stat {
             ino: 0,
             mode: 0o010600, // S_IFIFO | rw-------
             nlink: 1,
-            size: pipe.buffer.len() as u64,
+            size: inner.buffer.len() as u64,
             blksize: 4096,
             ..Default::default()
         })
@@ -113,16 +132,22 @@ impl FileOps for PipeReadFileOps {
 
 impl Drop for PipeReadFileOps {
     fn drop(&mut self) {
-        let mut pipe = self.pipe.lock();
-        if pipe.readers > 0 {
-            pipe.readers -= 1;
+        let mut inner = self.pipe.inner.lock();
+        if inner.readers > 0 {
+            inner.readers -= 1;
+        }
+        let readers = inner.readers;
+        drop(inner);
+        if readers == 0 {
+            // Wake any blocked writers so they receive SIGPIPE/EPIPE
+            self.pipe.write_wait.wake_all();
         }
     }
 }
 
 /// Write end file operations for an anonymous pipe.
 pub struct PipeWriteFileOps {
-    pipe: Arc<Mutex<PipeInner>>,
+    pipe: Arc<Pipe>,
     nonblocking: bool,
 }
 
@@ -140,10 +165,10 @@ impl FileOps for PipeWriteFileOps {
         let mut total_written = 0;
 
         while total_written < buf.len() {
-            let mut pipe = self.pipe.lock();
+            let mut inner = self.pipe.inner.lock();
 
             // Broken pipe: no readers remain
-            if pipe.readers == 0 {
+            if inner.readers == 0 {
                 if let Some(proc_arc) = crate::proc::current_process() {
                     let mut proc = proc_arc.lock();
                     let _ = proc.send_signal(13); // SIGPIPE
@@ -151,18 +176,22 @@ impl FileOps for PipeWriteFileOps {
                 return Err(VfsError::PermissionDenied); // EPIPE
             }
 
-            let available = pipe.capacity.saturating_sub(pipe.buffer.len());
+            let available = inner.capacity.saturating_sub(inner.buffer.len());
             if available > 0 {
                 let remaining = buf.len() - total_written;
                 let chunk_size = core::cmp::min(remaining, available);
                 for &byte in &buf[total_written..total_written + chunk_size] {
-                    pipe.buffer.push_back(byte);
+                    inner.buffer.push_back(byte);
                 }
                 total_written += chunk_size;
+                drop(inner);
+                // Wake any readers waiting for incoming data
+                self.pipe.read_wait.wake_one();
 
                 if total_written == buf.len() {
                     return Ok(total_written);
                 }
+                continue;
             }
 
             if nonblocking {
@@ -172,22 +201,22 @@ impl FileOps for PipeWriteFileOps {
                 return Err(VfsError::WouldBlock);
             }
 
-            drop(pipe);
-            Thread::yield_cpu();
+            // Buffer is full: event-driven sleep until a reader consumes data
+            self.pipe.write_wait.wait_with(|| drop(inner));
         }
 
         Ok(total_written)
     }
 
     fn poll_events(&self, events: i16) -> i16 {
-        let pipe = self.pipe.lock();
+        let inner = self.pipe.inner.lock();
         let mut revents = 0;
         // Write end is never readable; report error once all readers are gone
         // so pollers don't block forever on a broken pipe.
-        if pipe.readers == 0 {
+        if inner.readers == 0 {
             revents |= POLLERR;
         }
-        if (events & POLLOUT) != 0 && (pipe.buffer.len() < pipe.capacity || pipe.readers == 0) {
+        if (events & POLLOUT) != 0 && (inner.buffer.len() < inner.capacity || inner.readers == 0) {
             revents |= POLLOUT;
         }
         revents
@@ -198,12 +227,12 @@ impl FileOps for PipeWriteFileOps {
     }
 
     fn stat(&self) -> Result<Stat, VfsError> {
-        let pipe = self.pipe.lock();
+        let inner = self.pipe.inner.lock();
         Ok(Stat {
             ino: 0,
             mode: 0o010600, // S_IFIFO | rw-------
             nlink: 1,
-            size: pipe.buffer.len() as u64,
+            size: inner.buffer.len() as u64,
             blksize: 4096,
             ..Default::default()
         })
@@ -212,9 +241,15 @@ impl FileOps for PipeWriteFileOps {
 
 impl Drop for PipeWriteFileOps {
     fn drop(&mut self) {
-        let mut pipe = self.pipe.lock();
-        if pipe.writers > 0 {
-            pipe.writers -= 1;
+        let mut inner = self.pipe.inner.lock();
+        if inner.writers > 0 {
+            inner.writers -= 1;
+        }
+        let writers = inner.writers;
+        drop(inner);
+        if writers == 0 {
+            // Wake any blocked readers so they receive EOF
+            self.pipe.read_wait.wake_all();
         }
     }
 }
@@ -228,7 +263,7 @@ pub fn create_pipe(nonblocking: bool) -> Result<(Arc<File>, Arc<File>), VfsError
     static NEXT_PIPE_INO: AtomicU64 = AtomicU64::new(100_000);
     let ino = NEXT_PIPE_INO.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
 
-    let pipe = Arc::new(Mutex::new(PipeInner::new(PIPE_BUFFER_CAPACITY)));
+    let pipe = Arc::new(Pipe::new(PIPE_BUFFER_CAPACITY));
 
     let read_ops = Arc::new(PipeReadFileOps {
         pipe: pipe.clone(),

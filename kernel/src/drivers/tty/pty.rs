@@ -11,7 +11,7 @@ use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use crate::fs::vfs::mount::MOUNT_TABLE;
 use crate::fs::vfs::types::{FileOps, Inode, InodeOps, InodeType, Stat, VfsError};
 use crate::mm::UserPtr;
-use crate::sync::Mutex;
+use crate::sync::{Mutex, WaitQueue};
 use super::termios::{
     FIONREAD, LineDiscipline, TCFLSH, TCGETS, TCSBRK, TCSETS, TCSETSF, TCSETSW, TCXONC, TIOCGPGRP,
     TIOCGPTN, TIOCGWINSZ, TIOCNOTTY, TIOCSCTTY, TIOCSPGRP, TIOCSPTLCK, TIOCSWINSZ, Termios,
@@ -26,6 +26,8 @@ pub struct PtyPair {
     pub locked: AtomicBool,
     pub slave_open_count: AtomicUsize,
     pub master_open: AtomicBool,
+    pub master_read_wait: WaitQueue,
+    pub slave_read_wait: WaitQueue,
 }
 
 impl PtyPair {
@@ -37,6 +39,8 @@ impl PtyPair {
             locked: AtomicBool::new(true), // Locked by default until unlocked via TIOCSPTLCK
             slave_open_count: AtomicUsize::new(0),
             master_open: AtomicBool::new(true),
+            master_read_wait: WaitQueue::new(),
+            slave_read_wait: WaitQueue::new(),
         }
     }
 }
@@ -146,8 +150,8 @@ impl FileOps for PtyMasterFileOps {
             if self.pair.slave_open_count.load(Ordering::SeqCst) == 0 {
                 return Ok(0);
             }
-            drop(mb);
-            crate::arch::enable_and_hlt();
+            // Event-driven sleep until slave writes output or closes
+            self.pair.master_read_wait.wait_with(|| drop(mb));
         }
     }
 
@@ -164,6 +168,13 @@ impl FileOps for PtyMasterFileOps {
                 master_buf.push_back(b);
             }
         }
+        drop(master_buf);
+        drop(ldisc);
+
+        // Wake any slave threads waiting for input
+        self.pair.slave_read_wait.wake_all();
+        // If echo bytes were generated for the master buffer, wake master readers
+        self.pair.master_read_wait.wake_all();
         Ok(buf.len())
     }
 
@@ -191,11 +202,13 @@ impl FileOps for PtyMasterFileOps {
                 let ws = ptr.read().ok_or(VfsError::InvalidInput)?;
                 let mut ldisc = self.pair.slave_ldisc.lock();
                 ldisc.winsize = ws;
-                if ldisc.foreground_pgid > 0 {
-                    let _ = crate::ipc::signal::send_signal_to_process_group(
-                        ldisc.foreground_pgid,
-                        crate::ipc::signal::SIGWINCH,
-                    );
+                let pgid = ldisc.foreground_pgid;
+                drop(ldisc);
+                if pgid > 0 {
+                    if let Some(proc_arc) = crate::proc::current_process() {
+                        let mut proc = proc_arc.lock();
+                        let _ = proc.send_signal(28); // SIGWINCH
+                    }
                 }
                 Ok(0)
             }
@@ -211,6 +224,14 @@ impl FileOps for PtyMasterFileOps {
 
     fn isatty(&self) -> bool {
         true
+    }
+}
+
+impl Drop for PtyMasterFileOps {
+    fn drop(&mut self) {
+        self.pair.master_open.store(false, Ordering::SeqCst);
+        // Wake all slave readers so they receive EOF
+        self.pair.slave_read_wait.wake_all();
     }
 }
 
@@ -260,11 +281,8 @@ impl FileOps for PtySlaveFileOps {
             if !self.pair.master_open.load(Ordering::SeqCst) {
                 return Ok(0); // Master closed (EOF)
             }
-            drop(ldisc);
-            #[cfg(target_arch = "x86_64")]
-            crate::arch::enable_and_hlt();
-            #[cfg(not(target_arch = "x86_64"))]
-            crate::proc::thread::Thread::yield_cpu();
+            // Event-driven sleep until master writes input or closes
+            self.pair.slave_read_wait.wait_with(|| drop(ldisc));
         }
     }
 
@@ -280,6 +298,10 @@ impl FileOps for PtySlaveFileOps {
         for byte in processed {
             mb.push_back(byte);
         }
+        drop(mb);
+
+        // Wake any master readers waiting for output
+        self.pair.master_read_wait.wake_all();
         Ok(buf.len())
     }
 
@@ -350,3 +372,13 @@ impl FileOps for PtySlaveFileOps {
         true
     }
 }
+
+impl Drop for PtySlaveFileOps {
+    fn drop(&mut self) {
+        if self.pair.slave_open_count.fetch_sub(1, Ordering::SeqCst) == 1 {
+            // Last slave closed: wake master so it receives EOF
+            self.pair.master_read_wait.wake_all();
+        }
+    }
+}
+

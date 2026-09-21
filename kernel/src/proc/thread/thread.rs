@@ -138,10 +138,19 @@ impl Thread {
         crate::sched::schedule(true);
     }
 
-    /// Block the current thread.
-    pub fn block(&mut self) {
-        self.state = ThreadState::Sleeping;
-        crate::sched::schedule(false);
+    /// Block the current thread (transitions to Sleeping and schedules away).
+    pub fn block_current() {
+        if let Some(thread) = crate::sched::current_thread() {
+            {
+                let mut t = thread.lock();
+                t.state = ThreadState::Sleeping;
+            }
+            crate::sched::schedule(false);
+            {
+                let mut t = thread.lock();
+                t.state = ThreadState::Running;
+            }
+        }
     }
 
     /// Unblock the thread (transition from Sleeping to Ready).
