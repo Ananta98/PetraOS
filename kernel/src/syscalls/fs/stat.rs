@@ -14,7 +14,7 @@ pub(crate) fn copy_to_linux_stat(stat: &Stat) -> LinuxStat {
         st_uid: stat.uid,
         st_gid: stat.gid,
         __pad0: 0,
-        st_rdev: 0,
+        st_rdev: stat.rdev,
         st_size: stat.size as i64,
         st_blksize: if stat.blksize > 0 {
             stat.blksize as i64

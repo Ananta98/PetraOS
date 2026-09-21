@@ -127,6 +127,7 @@ fn metadata_stat(
         nlink: effective_nlink,
         uid: metadata.uid,
         gid: metadata.gid,
+        rdev: 0,
         size,
         atime: metadata.atime,
         mtime: metadata.mtime,

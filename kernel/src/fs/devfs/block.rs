@@ -1,30 +1,27 @@
-use alloc::sync::Arc;
-use crate::sync::Mutex;
 use alloc::boxed::Box;
-use crate::device::{Device, DEVICE_MANAGER};
+use alloc::sync::Arc;
+use crate::device::Device;
 use crate::fs::vfs::types::{FileOps, InodeOps, VfsError};
+use crate::sync::Mutex;
 
 /// Inode for block devices registered in devfs.
 pub struct BlockDeviceInode {
-    pub device_name: &'static str,
+    pub device: Arc<Mutex<Box<dyn Device>>>,
 }
 
 impl InodeOps for BlockDeviceInode {
     fn open(&self) -> Result<Arc<dyn FileOps>, VfsError> {
-        // Resolve the device once at open-time and cache it in the FileOps.
-        // This avoids a linear scan of DEVICE_MANAGER on every read/write call.
-        let device = DEVICE_MANAGER
-            .read()
-            .get_by_name(self.device_name)
-            .ok_or(VfsError::NotFound)?;
-
-        Ok(Arc::new(BlockDeviceFileOps { device }))
+        Ok(Arc::new(BlockDeviceFileOps {
+            device: self.device.clone(),
+        }))
     }
 
     fn stat(&self) -> Result<crate::fs::vfs::types::Stat, VfsError> {
+        let rdev = self.device.lock().rdev();
         Ok(crate::fs::vfs::types::Stat {
             mode: 0o060660, // S_IFBLK | 0660
             nlink: 1,
+            rdev,
             ..Default::default()
         })
     }

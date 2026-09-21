@@ -118,13 +118,30 @@ impl FileOps for DevDirFileOps {
 
 // ===== Dynamic device node registration =====
 
+/// Unregister a device node from `/dev`.
+pub fn unregister_dev_node(name: &str) {
+    if let Some(root_dir) = DEV_ROOT_DIR.lock().as_ref() {
+        root_dir.entries.lock().remove(name);
+    }
+    let mt = MOUNT_TABLE.read();
+    if let Some((mount, _)) = mt.lookup("/dev") {
+        Dentry::remove_child(&mount.root_dentry, name);
+    }
+}
+
 /// Register a device node dynamically in `/dev`.
 pub fn register_dev_node(name: &str, inode: Arc<Inode>) {
     if let Some(root_dir) = DEV_ROOT_DIR.lock().as_ref() {
+        if root_dir.entries.lock().contains_key(name) {
+            return;
+        }
         root_dir.insert(name, inode.clone());
     }
     let mt = MOUNT_TABLE.read();
     if let Some((mount, _)) = mt.lookup("/dev") {
+        if mount.root_dentry.children.lock().contains_key(name) {
+            return;
+        }
         Dentry::add_child(&mount.root_dentry, name.into(), inode);
     }
 }
@@ -176,7 +193,6 @@ pub fn sync_device_to_devfs(device: &Arc<Mutex<Box<dyn Device>>>) {
         Some(n) => n,
         None => return,
     };
-    let dev_name = dev_lock.name();
     let dev_type = dev_lock.dev_type();
     drop(dev_lock);
 
@@ -194,37 +210,69 @@ pub fn sync_device_to_devfs(device: &Arc<Mutex<Box<dyn Device>>>) {
                 ino,
                 inode_type: InodeType::BlockDevice,
                 ops: Arc::new(BlockDeviceInode {
-                    device_name: dev_name,
+                    device: device.clone(),
                 }),
             });
             drop(mt);
             register_dev_node(vfs_name, inode);
             log::info!("[DevFS] Registered block device /dev/{}", vfs_name);
         }
-        DeviceType::Char | DeviceType::Network | DeviceType::Audio => {
+        DeviceType::Char | DeviceType::Audio => {
+            let ops: Arc<dyn InodeOps> = if vfs_name == "ttyS0" {
+                Arc::new(SerialInode {
+                    device: device.clone(),
+                })
+            } else {
+                Arc::new(GenericCharDeviceInode {
+                    device: device.clone(),
+                })
+            };
             let inode = Arc::new(Inode {
                 ino,
                 inode_type: InodeType::CharDevice,
-                ops: Arc::new(GenericCharDeviceInode {
-                    device_name: dev_name,
-                }),
+                ops,
             });
             drop(mt);
             register_dev_node(vfs_name, inode);
             log::info!("[DevFS] Registered character device /dev/{}", vfs_name);
         }
-        DeviceType::Drm => {
+        DeviceType::Network => {
             let inode = Arc::new(Inode {
                 ino,
                 inode_type: InodeType::CharDevice,
-                ops: Arc::new(DrmCardInode::new(0)),
+                ops: Arc::new(NetDeviceInode {
+                    iface_name: vfs_name,
+                }),
             });
             drop(mt);
-            // Register in /dev/dri/ subdirectory if available.
-            if let Some(dri_dir) = DEV_DRI_DIR.lock().as_ref() {
-                dri_dir.insert(vfs_name, inode.clone());
+            register_dev_node(vfs_name, inode);
+            log::info!("[DevFS] Registered network interface /dev/{}", vfs_name);
+        }
+        DeviceType::Drm => {
+            if vfs_name.starts_with("fb") {
+                let inode = Arc::new(Inode {
+                    ino,
+                    inode_type: InodeType::CharDevice,
+                    ops: Arc::new(FbInode),
+                });
+                drop(mt);
+                register_dev_node(vfs_name, inode);
+                log::info!("[DevFS] Registered framebuffer device /dev/{}", vfs_name);
+            } else {
+                let inode = Arc::new(Inode {
+                    ino,
+                    inode_type: InodeType::CharDevice,
+                    ops: Arc::new(DrmCardInode::new(0)),
+                });
+                if let Some(dri_dir) = DEV_DRI_DIR.lock().as_ref() {
+                    dri_dir.insert(vfs_name, inode.clone());
+                }
+                if let Some(dri_dentry) = mount.root_dentry.children.lock().get("dri").cloned() {
+                    Dentry::add_child(&dri_dentry, vfs_name.into(), inode);
+                }
+                drop(mt);
+                log::info!("[DevFS] Registered DRM device /dev/dri/{}", vfs_name);
             }
-            log::info!("[DevFS] Registered DRM device /dev/dri/{}", vfs_name);
         }
         _ => {}
     }
@@ -290,8 +338,8 @@ impl DevFs {
             Dentry::add_child(&dev_mount.root_dentry, name.into(), inode);
         };
 
-        // Declarative list of standard UNIX core pseudo and hardware device nodes.
-        let core_nodes: [DevNode; 15] = [
+        // Declarative list of standard UNIX core pseudo-devices.
+        let core_nodes: [DevNode; 13] = [
             DevNode {
                 name: "console",
                 inode_type: InodeType::CharDevice,
@@ -306,16 +354,6 @@ impl DevFs {
                 name: "tty0",
                 inode_type: InodeType::CharDevice,
                 ops: Arc::new(ConsoleInode),
-            },
-            DevNode {
-                name: "ttyS0",
-                inode_type: InodeType::CharDevice,
-                ops: Arc::new(SerialInode),
-            },
-            DevNode {
-                name: "fb0",
-                inode_type: InodeType::CharDevice,
-                ops: Arc::new(FbInode),
             },
             DevNode {
                 name: "ptmx",

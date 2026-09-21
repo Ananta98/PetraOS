@@ -4,29 +4,28 @@
 
 use alloc::boxed::Box;
 use alloc::sync::Arc;
-use crate::device::{Device, DEVICE_MANAGER};
+use crate::device::Device;
 use crate::fs::vfs::types::{FileOps, InodeOps, Stat, VfsError};
 use crate::sync::Mutex;
 
 /// Inode for dynamically registered character devices in devfs.
 pub struct GenericCharDeviceInode {
-    pub device_name: &'static str,
+    pub device: Arc<Mutex<Box<dyn Device>>>,
 }
 
 impl InodeOps for GenericCharDeviceInode {
     fn open(&self) -> Result<Arc<dyn FileOps>, VfsError> {
-        let device = DEVICE_MANAGER
-            .read()
-            .get_by_name(self.device_name)
-            .ok_or(VfsError::NotFound)?;
-
-        Ok(Arc::new(GenericCharDeviceFileOps { device }))
+        Ok(Arc::new(GenericCharDeviceFileOps {
+            device: self.device.clone(),
+        }))
     }
 
     fn stat(&self) -> Result<Stat, VfsError> {
+        let rdev = self.device.lock().rdev();
         Ok(Stat {
             mode: 0o020660, // S_IFCHR | 0660
             nlink: 1,
+            rdev,
             ..Default::default()
         })
     }

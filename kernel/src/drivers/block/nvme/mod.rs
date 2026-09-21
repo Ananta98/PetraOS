@@ -3,22 +3,19 @@ pub mod device;
 pub mod queue;
 pub mod regs;
 
-use crate::device::{BlockDevice, Device, DeviceType, DriverError};
+use crate::device::{BlockDevice, Device, DeviceType, DriverError, Major, Minor};
 use crate::drivers::pci::bus::PciBus;
 use crate::drivers::pci::device::PciDevice;
 use crate::mm::dma::{DmaCoherent, DmaDirection, DmaStreamer};
 use crate::mm::map_mmio;
-use crate::sync::Mutex;
 
 pub use command::{NvmeCmdBuilder, NvmeIdentifyNamespace};
-pub use device::{NvmeDeviceRef, NvmeModuleDriver};
+pub use device::NvmeModuleDriver;
 pub use queue::{NvmeCmd, NvmeCqe, NvmeQueue};
 pub use regs::{
     NVME_CC_CSS_NVM, NVME_CC_EN, NVME_CC_IOCQES_16, NVME_CC_IOSQES_64, NVME_CC_MPS_4K,
     NVME_CSTS_RDY, NvmeRegs,
 };
-
-pub static NVME_DRIVER: Mutex<Option<NvmeDriver>> = Mutex::new(None);
 
 pub struct NvmeDriver {
     pci_device: PciDevice,
@@ -45,7 +42,7 @@ impl NvmeDriver {
             io_queue: None,
             block_size: 512,
             sector_count: 0,
-            cid_counter: 1,
+            cid_counter: 0,
             msix: None,
         }
     }
@@ -63,11 +60,14 @@ impl NvmeDriver {
         let discovery = PciBus::enumerate();
         for dev in discovery.as_slice() {
             if dev.class_code == 0x01 && dev.subclass == 0x08 {
-                // Mass Storage Controller / NVMe Subclass
-                let mut driver = Self::new(*dev);
-                if driver.init().is_ok() {
-                    return Some(driver);
-                }
+                // Mass Storage / Non-Volatile Memory (NVMe)
+                log::info!(
+                    "Discovered NVMe Controller at PCI {}:{}:{}",
+                    dev.bus,
+                    dev.device,
+                    dev.function
+                );
+                return Some(Self::new(*dev));
             }
         }
         None
@@ -81,6 +81,26 @@ impl Device for NvmeDriver {
 
     fn name(&self) -> &'static str {
         "NVMe Controller"
+    }
+
+    fn dev_name(&self) -> Option<&'static str> {
+        Some("nvme0n1")
+    }
+
+    fn major(&self) -> Major {
+        259
+    }
+
+    fn minor(&self) -> Minor {
+        0
+    }
+
+    fn as_block_device(&self) -> Option<&dyn BlockDevice> {
+        Some(self)
+    }
+
+    fn as_block_device_mut(&mut self) -> Option<&mut dyn BlockDevice> {
+        Some(self)
     }
 
     fn init(&mut self) -> Result<(), DriverError> {

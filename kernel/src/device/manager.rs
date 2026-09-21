@@ -32,13 +32,38 @@ impl DeviceManager {
 
     /// Register a device with the manager.
     ///
-    /// The device's `name()` method must return a unique `'static` string.
-    /// Devices registered first take priority in `get_by_name` for duplicate names.
+    /// The device is indexed by both its human-readable `name()` and standard
+    /// `/dev` node name `dev_name()` (if specified).
     pub fn register(&mut self, device: Arc<Mutex<Box<dyn Device>>>) {
-        let name = device.lock().name();
+        let (name, dev_name) = {
+            let guard = device.lock();
+            (guard.name(), guard.dev_name())
+        };
         self.by_name.entry(name).or_insert_with(|| device.clone());
+        if let Some(dev_n) = dev_name {
+            self.by_name.entry(dev_n).or_insert_with(|| device.clone());
+        }
         self.devices.push(device.clone());
         devfs::sync_device_to_devfs(&device);
+    }
+
+    /// Unregister a device from the manager and DevFS by its name or dev_name.
+    pub fn unregister(&mut self, name: &str) -> Option<Arc<Mutex<Box<dyn Device>>>> {
+        let idx = self.devices.iter().position(|d| {
+            let guard = d.lock();
+            guard.name() == name || guard.dev_name() == Some(name)
+        })?;
+        let dev = self.devices.remove(idx);
+        let (d_name, d_vfs) = {
+            let guard = dev.lock();
+            (guard.name(), guard.dev_name())
+        };
+        self.by_name.remove(d_name);
+        if let Some(vfs) = d_vfs {
+            self.by_name.remove(vfs);
+            devfs::unregister_dev_node(vfs);
+        }
+        Some(dev)
     }
 
     /// Borrow the ordered slice of all registered devices.
@@ -48,8 +73,8 @@ impl DeviceManager {
         &self.devices
     }
 
-    /// Look up a device by its unique name in O(log n).
-    pub fn get_by_name(&self, name: &'static str) -> Option<Arc<Mutex<Box<dyn Device>>>> {
+    /// Look up a device by its unique name or `/dev` node name in O(log n).
+    pub fn get_by_name(&self, name: &str) -> Option<Arc<Mutex<Box<dyn Device>>>> {
         self.by_name.get(name).cloned()
     }
 

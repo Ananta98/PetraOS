@@ -1,4 +1,4 @@
-use crate::device::{CharDevice, Device, DeviceType, Driver, DriverError};
+use crate::device::{CharDevice, Device, DeviceType, Driver, DriverError, Major, Minor};
 use crate::sync::Mutex;
 use alloc::boxed::Box;
 use alloc::sync::Arc;
@@ -56,6 +56,14 @@ impl<B: SerialBackend + Send + Sync + 'static> Device for SerialPort<B> {
         Some("ttyS0")
     }
 
+    fn major(&self) -> Major {
+        4
+    }
+
+    fn minor(&self) -> Minor {
+        64
+    }
+
     fn init(&mut self) -> Result<(), DriverError> {
         self.backend.write_reg(1, 0x00); // Disable all interrupts
         self.backend.write_reg(3, 0x80); // Enable DLAB (set baud rate divisor)
@@ -86,12 +94,20 @@ impl<B: SerialBackend + Send + Sync + 'static> CharDevice for SerialPort<B> {
     }
 
     fn write_byte(&mut self, byte: u8) -> Result<(), DriverError> {
-        while !self.is_tx_ready() {
-            // Spin waiting for transmit buffer to empty
+        let mut timeout = 100_000;
+        while !self.is_tx_ready() && timeout > 0 {
             core::hint::spin_loop();
+            timeout -= 1;
+        }
+        if timeout == 0 {
+            return Err(DriverError::Timeout);
         }
         self.backend.write_reg(0, byte);
         Ok(())
+    }
+
+    fn has_input(&self) -> bool {
+        self.is_rx_ready()
     }
 }
 
@@ -127,9 +143,4 @@ crate::MODULE_LICENSE!("GPL-2.0");
 crate::MODULE_AUTHOR!("Ananta98");
 crate::MODULE_DESCRIPTION!("16550 UART Serial Driver");
 crate::MODULE_VERSION!("1.0.0");
-crate::module_driver!(
-    SERIAL_INITCALL,
-    serial_driver_init,
-    "serial",
-    SerialDriver
-);
+crate::module_driver!(SERIAL_INITCALL, serial_driver_init, "serial", SerialDriver);

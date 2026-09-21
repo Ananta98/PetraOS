@@ -43,14 +43,7 @@ pub static HPET: Mutex<Option<Hpet>> = Mutex::new(None);
 /// generic clocksource interface so the kernel can select HPET by rating.
 pub struct HpetClockSource;
 
-impl HpetClockSource {
-    const fn new() -> Self {
-        Self
-    }
-}
-
-/// Global HPET clocksource instance registered with [`crate::clock`].
-pub static HPET_CLOCKSOURCE: HpetClockSource = HpetClockSource::new();
+pub static HPET_CLOCKSOURCE: HpetClockSource = HpetClockSource;
 
 impl ClockSource for HpetClockSource {
     fn name(&self) -> &'static str {

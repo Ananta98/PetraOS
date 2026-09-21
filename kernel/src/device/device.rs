@@ -34,6 +34,15 @@ pub trait Device: Send + Sync {
         (self.major(), self.minor())
     }
 
+    /// Return POSIX `dev_t` encoding of `(major, minor)`.
+    fn rdev(&self) -> u64 {
+        let (maj, min) = self.dev_id();
+        ((maj as u64 & 0xfff) << 8)
+            | (min as u64 & 0xff)
+            | (((maj as u64) & !0xfff) << 32)
+            | (((min as u64) & !0xff) << 12)
+    }
+
     /// Return the category of this device.
     fn dev_type(&self) -> DeviceType;
 
@@ -100,6 +109,11 @@ pub trait CharDevice: Device {
 
     /// Write a single byte to the character device.
     fn write_byte(&mut self, byte: u8) -> Result<(), super::driver::DriverError>;
+
+    /// Check if input is immediately available to read without consuming.
+    fn has_input(&self) -> bool {
+        false
+    }
 }
 
 // ===== BlockDevice Trait =====

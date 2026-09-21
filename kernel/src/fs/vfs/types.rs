@@ -113,6 +113,7 @@ pub struct Stat {
     pub nlink: u32,
     pub uid: u32,
     pub gid: u32,
+    pub rdev: u64,
     pub size: u64,
     pub atime: u64,
     pub mtime: u64,

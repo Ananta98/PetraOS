@@ -2,7 +2,7 @@ pub mod fis;
 pub mod hba;
 pub mod port;
 
-use crate::device::{BlockDevice, Device, DeviceType, DriverError};
+use crate::device::{BlockDevice, Device, DeviceType, DriverError, Major, Minor};
 use crate::drivers::bus::pci::PciBus;
 use crate::drivers::pci::device::PciDevice;
 use crate::mm::dma::{DmaCoherent, DmaDirection, DmaStreamer};
@@ -20,71 +20,11 @@ use hba::{
 /// Size in bytes of a single AHCI command table (FIS + PRDT region).
 const CMD_TABLE_SIZE: usize = 256;
 
-pub static AHCI_DEVICE: Mutex<Option<AhciDriver>> = Mutex::new(None);
-
-pub struct AhciDeviceRef;
-
-impl Device for AhciDeviceRef {
-    fn dev_type(&self) -> DeviceType {
-        DeviceType::Block
-    }
-
-    fn name(&self) -> &'static str {
-        "AHCI SATA Controller"
-    }
-
-    fn dev_name(&self) -> Option<&'static str> {
-        Some("sda")
-    }
-
-    fn init(&mut self) -> Result<(), DriverError> {
-        if let Some(ref mut drv) = *AHCI_DEVICE.lock() {
-            drv.init()
-        } else {
-            Err(DriverError::Unsupported)
-        }
-    }
-
-    fn as_block_device(&self) -> Option<&dyn BlockDevice> {
-        Some(self)
-    }
-
-    fn as_block_device_mut(&mut self) -> Option<&mut dyn BlockDevice> {
-        Some(self)
-    }
-}
-
-impl BlockDevice for AhciDeviceRef {
-    fn read_block(&mut self, block_id: u64, buf: &mut [u8]) -> Result<usize, DriverError> {
-        if let Some(ref mut drv) = *AHCI_DEVICE.lock() {
-            drv.read_block(block_id, buf)
-        } else {
-            Err(DriverError::Unsupported)
-        }
-    }
-
-    fn write_block(&mut self, block_id: u64, buf: &[u8]) -> Result<usize, DriverError> {
-        if let Some(ref mut drv) = *AHCI_DEVICE.lock() {
-            drv.write_block(block_id, buf)
-        } else {
-            Err(DriverError::Unsupported)
-        }
-    }
-
-    fn block_size(&self) -> usize {
-        if let Some(ref drv) = *AHCI_DEVICE.lock() {
-            drv.block_size()
-        } else {
-            1024
-        }
-    }
-}
 
 pub struct AhciDriver {
     pci_device: PciDevice,
     hba_base: *mut HbaMem,
     pub active_port: usize,
-    pub sector_data: Mutex<alloc::collections::BTreeMap<u64, alloc::vec::Vec<u8>>>,
     pub cmd_list: DmaCoherent,
     pub fis_buf: DmaCoherent,
     pub cmd_table: DmaCoherent,
@@ -100,7 +40,6 @@ impl AhciDriver {
             pci_device,
             hba_base: core::ptr::null_mut(),
             active_port: 0,
-            sector_data: Mutex::new(alloc::collections::BTreeMap::new()),
             cmd_list: DmaCoherent::alloc(1024).map_err(|_| DriverError::AllocFailed)?,
             fis_buf: DmaCoherent::alloc(256).map_err(|_| DriverError::AllocFailed)?,
             cmd_table: DmaCoherent::alloc(CMD_TABLE_SIZE).map_err(|_| DriverError::AllocFailed)?,
@@ -277,33 +216,11 @@ impl AhciDriver {
         }
 
         if !success {
-            // If hardware DMA timed out, fall back to in-memory sector_data map
-            let sector_data = self.sector_data.lock();
-            let mut bytes_copied = 0;
-
-            for s in 0..sector_count as u64 {
-                let lba = start_lba + s;
-                let block_id = lba / 2;
-                let block_offset = ((lba % 2) * 512) as usize;
-
-                if let Some(data) = sector_data.get(&block_id) {
-                    let copy_len = core::cmp::min(512, buf.len() - bytes_copied);
-                    if block_offset < data.len() {
-                        let src_end = core::cmp::min(data.len(), block_offset + copy_len);
-                        let actual_len = src_end - block_offset;
-                        buf[bytes_copied..bytes_copied + actual_len]
-                            .copy_from_slice(&data[block_offset..src_end]);
-                    }
-                }
-                bytes_copied += 512;
-                if bytes_copied >= buf.len() {
-                    break;
-                }
-            }
-        } else {
-            // DMA completed: copy the device-filled bounce buffer into the caller buffer.
-            streamer.sync_for_cpu(buf);
+            return Err(DriverError::Timeout);
         }
+
+        // DMA completed: copy the device-filled bounce buffer into the caller buffer.
+        streamer.sync_for_cpu(buf);
 
         log::info!(
             "[AHCI Driver] Executed READ DMA EXT (Cmd 0x25): Port={}, LBA={}, Sectors={}, TargetBytes={}",
@@ -427,6 +344,26 @@ impl Device for AhciDriver {
         "AHCI SATA Controller"
     }
 
+    fn dev_name(&self) -> Option<&'static str> {
+        Some("sda")
+    }
+
+    fn major(&self) -> Major {
+        8
+    }
+
+    fn minor(&self) -> Minor {
+        0
+    }
+
+    fn as_block_device(&self) -> Option<&dyn BlockDevice> {
+        Some(self)
+    }
+
+    fn as_block_device_mut(&mut self) -> Option<&mut dyn BlockDevice> {
+        Some(self)
+    }
+
     fn init(&mut self) -> Result<(), DriverError> {
         self.pci_device.enable_memory_space();
         self.pci_device.enable_bus_master();
@@ -485,8 +422,7 @@ impl Device for AhciDriver {
 
 impl BlockDevice for AhciDriver {
     fn read_block(&mut self, block_id: u64, buf: &mut [u8]) -> Result<usize, DriverError> {
-        // Translate 1024B Ext2 Block ID to 512B hardware sectors (1 Ext2 block = 2 hardware sectors)
-        let start_lba = block_id * 2;
+        let start_lba = block_id;
         let sector_count = (buf.len() / 512) as u16;
         let active_port = self.active_port;
 
@@ -495,21 +431,16 @@ impl BlockDevice for AhciDriver {
     }
 
     fn write_block(&mut self, block_id: u64, buf: &[u8]) -> Result<usize, DriverError> {
-        let start_lba = block_id * 2;
+        let start_lba = block_id;
         let sector_count = (buf.len() / 512) as u16;
         let active_port = self.active_port;
-
-        {
-            let mut sector_data = self.sector_data.lock();
-            sector_data.insert(block_id, buf.to_vec());
-        }
 
         self.write_dma_ext(active_port, start_lba, sector_count, buf)?;
         Ok(buf.len())
     }
 
     fn block_size(&self) -> usize {
-        1024
+        512
     }
 }
 
@@ -530,10 +461,10 @@ impl crate::device::Driver for AhciModuleDriver {
     }
 
     fn probe(&self) -> Result<(), DriverError> {
-        if let Some(ahci) = AhciDriver::find_and_init() {
-            *AHCI_DEVICE.lock() = Some(ahci);
+        if let Some(mut ahci) = AhciDriver::find_and_init() {
+            ahci.init()?;
             let device_ref: Arc<Mutex<Box<dyn Device>>> =
-                Arc::new(Mutex::new(Box::new(AhciDeviceRef)));
+                Arc::new(Mutex::new(Box::new(ahci)));
             crate::device::DEVICE_MANAGER.write().register(device_ref);
             log::info!(
                 "[AHCI Module] Probed and registered AHCI SATA Controller to DEVICE_MANAGER"

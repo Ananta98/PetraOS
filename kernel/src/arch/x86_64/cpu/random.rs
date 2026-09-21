@@ -1,17 +1,10 @@
 use core::sync::atomic::{AtomicU64, Ordering};
 
-/// Read the current CPU Time-Stamp Counter (TSC).
-#[inline(always)]
-pub fn rdtsc() -> u64 {
-    // SAFETY: Reading the CPU time-stamp counter on x86_64 is always safe.
-    unsafe { core::arch::x86_64::_rdtsc() }
-}
-
 static RANDOM_STATE: AtomicU64 = AtomicU64::new(0x853c_49e6_748f_ea9b);
 
 /// Generates a pseudo-random 64-bit unsigned integer with TSC entropy mixing.
 pub fn next_random_u64() -> u64 {
-    let tsc = rdtsc();
+    let tsc = unsafe { core::arch::x86_64::_rdtsc() };
     let mut state = RANDOM_STATE.load(Ordering::Relaxed);
     if state == 0 {
         state = tsc | 1;

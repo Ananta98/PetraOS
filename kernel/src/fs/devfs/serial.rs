@@ -2,35 +2,40 @@
 //!
 //! Provides the VFS interface for 16550 UART COM1 serial communication.
 
-use alloc::sync::Arc;
-use crate::device::CharDevice;
-use crate::drivers::serial::{PortIoBackend, SerialPort};
-use crate::fs::vfs::types::{FileOps, InodeOps, Stat, VfsError, O_NONBLOCK};
+use crate::device::Device;
+use crate::fs::vfs::types::{FileOps, InodeOps, O_NONBLOCK, Stat, VfsError};
 use crate::sync::Mutex;
 use crate::syscalls::fs::{POLLIN, POLLOUT};
-
-/// Global instance for /dev/ttyS0 VFS node operations.
-static TTY_S0: Mutex<SerialPort<PortIoBackend>> = Mutex::new(SerialPort::new(PortIoBackend::new(0x3F8)));
+use alloc::boxed::Box;
+use alloc::sync::Arc;
 
 /// Inode for the `/dev/ttyS0` device.
-pub struct SerialInode;
+pub struct SerialInode {
+    pub device: Arc<Mutex<Box<dyn Device>>>,
+}
 
 impl InodeOps for SerialInode {
     fn open(&self) -> Result<Arc<dyn FileOps>, VfsError> {
-        Ok(Arc::new(SerialFileOps))
+        Ok(Arc::new(SerialFileOps {
+            device: self.device.clone(),
+        }))
     }
 
     fn stat(&self) -> Result<Stat, VfsError> {
+        let rdev = self.device.lock().rdev();
         Ok(Stat {
             mode: 0o020660, // S_IFCHR | 0660
             nlink: 1,
+            rdev,
             ..Default::default()
         })
     }
 }
 
 /// File operations for `/dev/ttyS0`.
-pub struct SerialFileOps;
+pub struct SerialFileOps {
+    device: Arc<Mutex<Box<dyn Device>>>,
+}
 
 impl FileOps for SerialFileOps {
     fn read(&self, _offset: usize, buf: &mut [u8]) -> Result<usize, VfsError> {
@@ -51,16 +56,21 @@ impl FileOps for SerialFileOps {
         let mut read_count = 0;
 
         loop {
-            let port = TTY_S0.lock();
-            while read_count < buf.len() {
-                if let Some(b) = port.try_read_byte() {
-                    buf[read_count] = b;
-                    read_count += 1;
-                } else {
-                    break;
+            let mut dev = self.device.lock();
+            if let Some(char_dev) = dev.as_char_device_mut() {
+                while read_count < buf.len() {
+                    match char_dev.read_byte() {
+                        Ok(b) => {
+                            buf[read_count] = b;
+                            read_count += 1;
+                        }
+                        Err(_) => break,
+                    }
                 }
+            } else {
+                return Err(VfsError::NotSupported);
             }
-            drop(port);
+            drop(dev);
 
             if read_count > 0 || non_blocking {
                 if read_count > 0 {
@@ -70,18 +80,16 @@ impl FileOps for SerialFileOps {
                 }
             }
 
-            // Blocking read: pause until interrupt / data available
-            crate::arch::enable_and_hlt();
+            // Yield to scheduler while waiting for serial RX
+            crate::sched::schedule(true);
         }
     }
 
     fn write(&self, _offset: usize, buf: &[u8]) -> Result<usize, VfsError> {
-        let mut port = TTY_S0.lock();
+        let mut dev = self.device.lock();
+        let char_dev = dev.as_char_device_mut().ok_or(VfsError::NotSupported)?;
         for &byte in buf {
-            while !port.is_tx_ready() {
-                core::hint::spin_loop();
-            }
-            port.write_byte(byte).map_err(|e| VfsError::DriverError(e))?;
+            char_dev.write_byte(byte).map_err(VfsError::DriverError)?;
         }
         Ok(buf.len())
     }
@@ -92,12 +100,16 @@ impl FileOps for SerialFileOps {
 
     fn poll_events(&self, events: i16) -> i16 {
         let mut revents = 0;
-        let port = TTY_S0.lock();
-        if (events & POLLOUT) != 0 && port.is_tx_ready() {
+        if (events & POLLOUT) != 0 {
             revents |= POLLOUT;
         }
-        if (events & POLLIN) != 0 && port.is_rx_ready() {
-            revents |= POLLIN;
+        if (events & POLLIN) != 0 {
+            let dev = self.device.lock();
+            if let Some(char_dev) = dev.as_char_device() {
+                if char_dev.has_input() {
+                    revents |= POLLIN;
+                }
+            }
         }
         revents
     }

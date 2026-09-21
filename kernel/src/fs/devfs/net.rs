@@ -502,6 +502,11 @@ fn new_net_inode(iface_name: &'static str) -> Result<Arc<Inode>, &'static str> {
 fn register_network_devices() -> Result<(), &'static str> {
     let names = interface_names();
     for name in names {
+        if let Some(root_dir) = crate::fs::devfs::DEV_ROOT_DIR.lock().as_ref() {
+            if root_dir.entries.lock().contains_key(name) {
+                continue;
+            }
+        }
         let inode = new_net_inode(name)?;
         crate::fs::devfs::register_dev_node(name, inode);
         log::info!("[DevFS] Registered network interface /dev/{}", name);

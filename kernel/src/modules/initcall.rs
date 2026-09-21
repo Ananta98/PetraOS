@@ -155,9 +155,10 @@ macro_rules! module_driver {
 
             match driver.probe() {
                 Ok(()) => {
-                    let module = $crate::modules::KernelModule::new(
+                    let mut module = $crate::modules::KernelModule::new(
                         $name, author, desc, license, version, $init_fn, None,
                     );
+                    module.state = $crate::modules::ModuleState::Live;
                     let _ = $crate::modules::MODULE_MANAGER.write().register(module);
                     Ok(())
                 }
