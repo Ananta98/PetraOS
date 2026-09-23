@@ -34,6 +34,10 @@ impl MousePacketParser {
         self.has_wheel = has_wheel;
     }
 
+    pub fn has_wheel(&self) -> bool {
+        self.has_wheel
+    }
+
     pub fn reset(&mut self) {
         self.index = 0;
     }

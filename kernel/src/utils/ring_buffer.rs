@@ -1,18 +1,19 @@
-//! Key and Character Lockless Ring Buffer
+//! Lock-free SPSC Ring Buffer
 //!
 //! A lock-free, wait-free Single-Producer Single-Consumer (SPSC) circular FIFO buffer
-//! for storing received characters and key events from keyboard interrupts without
-//! locks or dynamic memory allocations.
+//! for storing bytes from hardware interrupts (keyboard, mouse, serial) without locks
+//! or dynamic memory allocations.
 
 use core::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
 
-pub struct KeyBuffer<const CAP: usize = 256> {
+/// A lock-free, wait-free circular byte buffer.
+pub struct ByteRingBuffer<const CAP: usize = 512> {
     buffer: [AtomicU8; CAP],
     head: AtomicUsize,
     tail: AtomicUsize,
 }
 
-impl<const CAP: usize> KeyBuffer<CAP> {
+impl<const CAP: usize> ByteRingBuffer<CAP> {
     pub const fn new() -> Self {
         Self {
             buffer: [const { AtomicU8::new(0) }; CAP],
@@ -76,10 +77,13 @@ impl<const CAP: usize> KeyBuffer<CAP> {
     }
 }
 
-impl<const CAP: usize> Default for KeyBuffer<CAP> {
+impl<const CAP: usize> Default for ByteRingBuffer<CAP> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-pub static KEY_RING_BUFFER: KeyBuffer<256> = KeyBuffer::new();
+/// Convenience aliases for keyboard, mouse, and general driver subsystems.
+pub type RingBuffer<const CAP: usize = 512> = ByteRingBuffer<CAP>;
+pub type KeyBuffer<const CAP: usize = 256> = ByteRingBuffer<CAP>;
+pub type MouseRingBuffer<const CAP: usize = 512> = ByteRingBuffer<CAP>;

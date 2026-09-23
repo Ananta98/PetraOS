@@ -3,7 +3,6 @@
 //! Handles 8042 auxiliary port communication, packet decoding,
 //! relative movement tracking, and device registration for `/dev/input/mice`.
 
-pub mod buffer;
 pub mod packet;
 pub mod ps2;
 
@@ -13,9 +12,15 @@ use alloc::boxed::Box;
 use alloc::sync::Arc;
 use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
-pub use buffer::{MOUSE_RING_BUFFER, MOUSE_WAIT_QUEUE, MouseRingBuffer};
+pub use crate::utils::ring_buffer::MouseRingBuffer;
 pub use packet::{MousePacket, MousePacketParser};
 pub use ps2::Ps2MouseController;
+
+/// Global mouse raw byte ring buffer for `/dev/input/mice` and `/dev/psaux`.
+pub static MOUSE_RING_BUFFER: MouseRingBuffer<512> = MouseRingBuffer::new();
+
+/// Wait queue for blocking reads on mouse device.
+pub static MOUSE_WAIT_QUEUE: crate::sync::WaitQueue = crate::sync::WaitQueue::new();
 
 /// Total number of mouse interrupts handled.
 static MOUSE_INTERRUPT_COUNT: AtomicU64 = AtomicU64::new(0);
@@ -119,14 +124,41 @@ impl Driver for Ps2MouseDriver {
 pub fn handle_mouse_byte(byte: u8) {
     MOUSE_INTERRUPT_COUNT.fetch_add(1, Ordering::Relaxed);
 
-    // Push raw byte into the ring buffer for standard /dev/input/mice readers
-    MOUSE_RING_BUFFER.push(byte);
+    // Process through packet parser to maintain packet framing and synchronization
+    let maybe_packet = MOUSE_PARSER.lock().process_byte(byte);
 
-    // Also process through packet parser to maintain packet framing
-    let _ = MOUSE_PARSER.lock().process_byte(byte);
+    if let Some(packet) = maybe_packet {
+        // Construct standard 3-byte PS/2 mouse packet for /dev/input/mice:
+        // Byte 0: Flags (bit 0: L, bit 1: R, bit 2: M, bit 3: 1, bit 4: X sign, bit 5: Y sign)
+        let mut flags = 0x08u8;
+        if packet.left_button {
+            flags |= 0x01;
+        }
+        if packet.right_button {
+            flags |= 0x02;
+        }
+        if packet.middle_button {
+            flags |= 0x04;
+        }
+        if packet.dx < 0 {
+            flags |= 0x10;
+        }
+        if packet.dy < 0 {
+            flags |= 0x20;
+        }
 
-    // Wake any userland threads waiting for mouse data
-    MOUSE_WAIT_QUEUE.wake_all();
+        // Clamped 8-bit movement deltas for standard PS/2 packet format
+        let dx_byte = (packet.dx.clamp(-127, 127) as i8) as u8;
+        let dy_byte = (packet.dy.clamp(-127, 127) as i8) as u8;
+
+        // Atomically push the 3 framed bytes into the ring buffer
+        MOUSE_RING_BUFFER.push(flags);
+        MOUSE_RING_BUFFER.push(dx_byte);
+        MOUSE_RING_BUFFER.push(dy_byte);
+
+        // Wake any userland threads waiting for mouse data
+        MOUSE_WAIT_QUEUE.wake_all();
+    }
 }
 
 /// Get the count of mouse hardware interrupts received.

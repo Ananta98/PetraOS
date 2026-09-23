@@ -109,9 +109,8 @@ impl Ps2Controller {
         // 1. Flush any existing data in the controller buffer
         Self::flush_buffer();
 
-        // 2. Disable both PS/2 ports during configuration
+        // 2. Disable only First Port during configuration (do not clobber mouse port)
         let _ = Self::send_command(CMD_DISABLE_FIRST_PORT);
-        let _ = Self::send_command(CMD_DISABLE_SECOND_PORT);
 
         // 3. Flush buffer again
         Self::flush_buffer();
@@ -122,7 +121,7 @@ impl Ps2Controller {
 
         // Configure bits:
         // Bit 0 = 1: Enable First PS/2 Port Interrupt (IRQ1)
-        // Bit 4 = 0: Enable First PS/2 Port Clock
+        // Bit 4 = 0: Enable First PS/2 Port Clock (0 = enabled)
         // Bit 6 = 1: Enable First PS/2 Port Translation (Scancode Set 1 compatibility)
         config |= 0x01; // Enable Port 1 Interrupt
         config &= !0x10; // Enable Port 1 Clock (0 = enabled)

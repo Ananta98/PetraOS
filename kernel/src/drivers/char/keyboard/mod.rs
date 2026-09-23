@@ -3,7 +3,6 @@
 //! Handles 8042 PS/2 controller communication, scancode decoding,
 //! key buffering, and device registration.
 
-pub mod buffer;
 pub mod ps2;
 pub mod scancode;
 
@@ -13,7 +12,8 @@ use alloc::boxed::Box;
 use alloc::sync::Arc;
 use core::sync::atomic::{AtomicU64, Ordering};
 
-pub use buffer::{KEY_RING_BUFFER, KeyBuffer};
+pub use crate::utils::ring_buffer::KeyBuffer;
+pub static KEY_RING_BUFFER: KeyBuffer<256> = KeyBuffer::new();
 pub use ps2::Ps2Controller;
 pub use scancode::{KeyCode, KeyEvent, KeyState, Modifiers, ScancodeDecoder};
 

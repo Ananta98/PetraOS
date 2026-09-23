@@ -30,10 +30,26 @@ pub const MOUSE_RESP_ACK: u8 = 0xFA;
 pub const MOUSE_RESP_SELF_TEST_PASS: u8 = 0xAA;
 
 const TIMEOUT_CYCLES: usize = 100_000;
+const SHORT_TIMEOUT_CYCLES: usize = 10_000;
 
 pub struct Ps2MouseController;
 
 impl Ps2MouseController {
+    /// Flush any existing data out of the 8042 controller data buffer.
+    pub fn flush_buffer() {
+        for _ in 0..10_000 {
+            // SAFETY: Reading status port 0x64 is safe and has no side effects.
+            let status = unsafe { Ports::inb(STATUS_PORT) };
+            if (status & STATUS_OUTPUT_BUFFER_FULL) == 0 {
+                break;
+            }
+            // SAFETY: Discarding lingering data from data port 0x60.
+            unsafe {
+                let _ = Ports::inb(DATA_PORT);
+            }
+        }
+    }
+
     /// Wait until the controller input buffer is ready for a new byte to be written.
     pub fn wait_write() -> Result<(), DriverError> {
         for _ in 0..TIMEOUT_CYCLES {
@@ -49,6 +65,18 @@ impl Ps2MouseController {
     /// Wait until data is available to be read from the output buffer.
     pub fn wait_read() -> Result<(), DriverError> {
         for _ in 0..TIMEOUT_CYCLES {
+            // SAFETY: Reading status port 0x64 is safe.
+            let status = unsafe { Ports::inb(STATUS_PORT) };
+            if (status & STATUS_OUTPUT_BUFFER_FULL) != 0 {
+                return Ok(());
+            }
+        }
+        Err(DriverError::ReadFailed)
+    }
+
+    /// Short poll wait to drain optional trailing bytes without lengthy delays.
+    pub fn wait_read_short() -> Result<(), DriverError> {
+        for _ in 0..SHORT_TIMEOUT_CYCLES {
             // SAFETY: Reading status port 0x64 is safe.
             let status = unsafe { Ports::inb(STATUS_PORT) };
             if (status & STATUS_OUTPUT_BUFFER_FULL) != 0 {
@@ -99,19 +127,40 @@ impl Ps2MouseController {
     }
 
     /// Initialize the 8042 auxiliary port and the PS/2 mouse device.
+    /// Initialize the 8042 auxiliary port and the PS/2 mouse device.
     /// Returns `true` if IntelliMouse extension (scroll wheel) was successfully enabled.
     pub fn init_mouse() -> Result<bool, DriverError> {
-        // 1. Enable the auxiliary PS/2 port on the 8042 controller
+        // Temporarily mask IRQ 1 in the IOAPIC to prevent the keyboard ISR from
+        // intercepting 8042 controller configuration bytes and mouse responses.
+        crate::arch::interrupt::ioapic::mask_isa_irq(1);
+
+        let res = Self::init_mouse_internal();
+
+        // Always ensure Keyboard IRQ 1 is restored even if mouse initialization fails
+        crate::arch::interrupt::ioapic::unmask_isa_irq(1);
+
+        res
+    }
+
+    fn init_mouse_internal() -> Result<bool, DriverError> {
+        // 1. Flush any leftover bytes in the 8042 buffer
+        Self::flush_buffer();
+
+        // 2. Enable the auxiliary PS/2 port on the 8042 controller
         Self::send_controller_command(CMD_ENABLE_SECOND_PORT)?;
 
-        // 2. Read 8042 Controller Configuration Byte
+        // 3. Read 8042 Controller Configuration Byte
         Self::send_controller_command(CMD_READ_CONFIG_BYTE)?;
         let mut config = Self::read_response()?;
 
-        // Bit 1 = 1: Enable Second PS/2 Port Interrupt (IRQ12)
-        // Bit 5 = 0: Enable Second PS/2 Port Clock (0 = clock active)
-        config |= 0x02;
-        config &= !0x20;
+        // Configure bits:
+        // - Bit 0 = 1: Port 1 Interrupt (Keyboard) enabled
+        // - Bit 1 = 0: Port 2 Interrupt (Mouse) disabled during reset/probing
+        // - Bit 4 = 0: Port 1 Clock (Keyboard) enabled
+        // - Bit 5 = 0: Port 2 Clock (Mouse) enabled
+        // - Bit 6 = 1: Port 1 Translation (Keyboard Set 1) enabled
+        config |= 0x41;  // Port 1 IRQ and Translation
+        config &= !0x32; // Both clocks enabled (bits 4, 5 = 0), Port 2 IRQ disabled (bit 1 = 0)
 
         // Write Controller Configuration Byte back
         Self::send_controller_command(CMD_WRITE_CONFIG_BYTE)?;
@@ -121,32 +170,57 @@ impl Ps2MouseController {
             Ports::outb(DATA_PORT, config);
         }
 
-        // 3. Reset mouse device
-        let _ = Self::write_mouse(MOUSE_CMD_RESET);
-        // Drain reset responses (ACK 0xFA, self-test 0xAA, device ID 0x00) with best effort
-        let _ = Self::read_response();
-        let _ = Self::read_response();
-        let _ = Self::read_response();
+        // 4. Reset mouse device:
+        // Standard PS/2 mouse responds with:
+        // - 0xFA: ACK
+        // - 0xAA: Self-test passed (or 0xFC on failure)
+        // - 0x00: Standard mouse Device ID
+        if Self::write_mouse(MOUSE_CMD_RESET).is_ok() {
+            // Read 0xFA ACK
+            let _ = Self::read_response();
+            // Read 0xAA self-test passed
+            let _ = Self::read_response();
+            // Read optional 0x00 device ID
+            let _ = Self::read_response();
+            // Flush any remaining trailing bytes
+            Self::flush_buffer();
+        }
 
-        // 4. Set defaults (sampling rate 100, resolution 4 counts/mm)
+        // 5. Set defaults (sampling rate 100, resolution 4 counts/mm)
         let _ = Self::send_mouse_command(MOUSE_CMD_SET_DEFAULTS);
 
-        // 5. Try enabling IntelliMouse scroll wheel extension:
+        // 6. Try enabling IntelliMouse scroll wheel extension:
         // Magic sequence: sample rate 200 -> 100 -> 80
         let has_wheel = Self::try_enable_wheel().unwrap_or(false);
 
-        // 6. Set sample rate to 100 packets/sec for smooth desktop movement
+        // 7. Set sample rate to 100 packets/sec for smooth desktop movement
         let _ = Self::send_mouse_command(MOUSE_CMD_SET_SAMPLE_RATE);
         let _ = Self::send_mouse_command(100);
 
-        // 7. Set resolution to 8 counts/mm for responsive tracking
+        // 8. Set resolution to 8 counts/mm for responsive tracking
         let _ = Self::send_mouse_command(MOUSE_CMD_SET_RESOLUTION);
         let _ = Self::send_mouse_command(3);
 
-        // 8. Enable data reporting (streaming)
-        Self::send_mouse_command(MOUSE_CMD_ENABLE_STREAMING)?;
+        // 9. Enable data reporting (streaming)
+        if Self::send_mouse_command(MOUSE_CMD_ENABLE_STREAMING).is_err() {
+            return Err(DriverError::NoDevice);
+        }
 
-        // 9. Unmask ISA IRQ 12 on the IOAPIC
+        // 10. Enable Port 2 Interrupt in the 8042 Controller Configuration Byte
+        // Re-use `config` without re-reading port 0x60 (which could read incoming mouse streaming bytes)
+        config |= 0x02; // Bit 1 = 1: Enable Port 2 Interrupt (IRQ 12)
+        config |= 0x01; // Bit 0 = 1: Ensure Port 1 Interrupt (IRQ 1) remains active
+        config |= 0x40; // Bit 6 = 1: Ensure Port 1 Translation remains active
+        config &= !0x30; // Bits 4, 5 = 0: Ensure both clocks remain enabled
+
+        Self::send_controller_command(CMD_WRITE_CONFIG_BYTE)?;
+        Self::wait_write()?;
+        // SAFETY: Writing final config byte back to port 0x60.
+        unsafe {
+            Ports::outb(DATA_PORT, config);
+        }
+
+        // 11. Unmask ISA IRQ 12 (Mouse) on the IOAPIC
         crate::arch::interrupt::ioapic::unmask_isa_irq(12);
 
         log::info!(

@@ -7,7 +7,7 @@
 use core::arch::global_asm;
 
 use crate::arch::idt::InterruptDescriptorTable;
-use crate::arch::interrupt::handler::KEYBOARD_VECTOR;
+use crate::arch::interrupt::handler::{KEYBOARD_VECTOR, MOUSE_VECTOR};
 use crate::arch::lapic_timer;
 
 // Embed the GAS assembly file containing all exception and IRQ trampolines.
@@ -40,6 +40,7 @@ unsafe extern "C" {
 
     // Hardware IRQ stubs
     fn stub_irq_33();   // PS/2 Keyboard
+    fn stub_irq_44();   // PS/2 Mouse
     fn stub_irq_48();   // LAPIC Timer
     fn stub_irq_255();  // Spurious
 }
@@ -89,6 +90,8 @@ pub fn init() {
             .set_handler_fn(stub_irq_48 as *const () as u64);
         IDT.entries[KEYBOARD_VECTOR as usize]
             .set_handler_fn(stub_irq_33 as *const () as u64);
+        IDT.entries[MOUSE_VECTOR as usize]
+            .set_handler_fn(stub_irq_44 as *const () as u64);
         IDT.entries[0xFF].set_handler_fn(stub_irq_255 as *const () as u64);
 
         let idt_ref = &*core::ptr::addr_of!(IDT);

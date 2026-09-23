@@ -258,5 +258,7 @@ EXCEPTION_ERR_STUB 21      /* #CP  Control Protection Exception           */
 
 /* ── Hardware IRQ stubs ─────────────────────────────────────────────────── */
 IRQ_STUB 33         /* PS/2 Keyboard (ISA IRQ 1)                         */
+IRQ_STUB 44         /* PS/2 Mouse (ISA IRQ 12)                           */
 IRQ_STUB 48         /* LAPIC Timer                                        */
 IRQ_STUB 255        /* Spurious APIC interrupt (0xFF)                     */
+
