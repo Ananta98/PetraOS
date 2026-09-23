@@ -83,6 +83,10 @@ impl<P: PageTable> AddrSpace<P> {
                     None => continue 'pages,
                 };
 
+                if !entry_flags.contains(PageTableFlags::PRESENT) {
+                    continue 'pages;
+                }
+
                 match &area.kind {
                     VmAreaKind::Anonymous | VmAreaKind::File { .. } => {
                         if area.flags.contains(PageTableFlags::WRITABLE) {
@@ -385,10 +389,14 @@ impl<P: PageTable> AddrSpace<P> {
                     for j in 0..mapped_pages {
                         let rollback_virt = start + (j as u64 * 4096);
                         if let Ok(frame) = self.page_table.unmap(rollback_virt) {
-                            crate::mm::PMM.free_page(frame);
+                            if crate::mm::PMM.dec_ref(frame) == 0 {
+                                crate::mm::PMM.free_page(frame);
+                            }
                         }
                     }
-                    crate::mm::PMM.free_page(frame_phys);
+                    if crate::mm::PMM.dec_ref(frame_phys) == 0 {
+                        crate::mm::PMM.free_page(frame_phys);
+                    }
                     return Err(AddrSpaceError::PagingError(err));
                 }
             }
@@ -415,7 +423,9 @@ impl<P: PageTable> AddrSpace<P> {
                     kind,
                     VmAreaKind::Anonymous | VmAreaKind::File { .. } | VmAreaKind::Shared { .. }
                 ) {
-                    crate::mm::PMM.free_page(frame);
+                    if crate::mm::PMM.dec_ref(frame) == 0 {
+                        crate::mm::PMM.free_page(frame);
+                    }
                 }
             }
         }
@@ -454,7 +464,9 @@ impl<P: PageTable> AddrSpace<P> {
                 let page_virt = VirtAddr::new(page_virt_u64);
                 if let Ok(old_frame) = self.page_table.unmap(page_virt) {
                     if should_free {
-                        crate::mm::PMM.free_page(old_frame);
+                        if crate::mm::PMM.dec_ref(old_frame) == 0 {
+                            crate::mm::PMM.free_page(old_frame);
+                        }
                     }
                 }
             }
@@ -480,7 +492,9 @@ impl<P: PageTable> AddrSpace<P> {
             match self.page_table.unmap(page_virt) {
                 Ok(frame) => {
                     if should_free {
-                        crate::mm::PMM.free_page(frame);
+                        if crate::mm::PMM.dec_ref(frame) == 0 {
+                            crate::mm::PMM.free_page(frame);
+                        }
                     }
                 }
                 Err(PagingError::NotMapped) => {}
@@ -542,7 +556,9 @@ impl<P: PageTable> Drop for AddrSpace<P> {
                 let page_virt = VirtAddr::new(page_virt_u64);
                 if let Ok(frame) = self.page_table.unmap(page_virt) {
                     if should_free {
-                        crate::mm::PMM.free_page(frame);
+                        if crate::mm::PMM.dec_ref(frame) == 0 {
+                            crate::mm::PMM.free_page(frame);
+                        }
                     }
                 }
             }

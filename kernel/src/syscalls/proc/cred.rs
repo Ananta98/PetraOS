@@ -328,3 +328,39 @@ pub fn sys_setfsgid(frame: &mut SyscallFrame) -> SyscallResult {
     let prev = creds.set_fsgid(gid).map_err(map_cred_err)?;
     Ok(prev as usize)
 }
+
+/// `sys_getpgid` (SYS_GETPGID = 121)
+/// Get process group ID of specified process (0 means calling process).
+pub fn sys_getpgid(frame: &mut SyscallFrame) -> SyscallResult {
+    let pid_raw = frame.arg1() as i32;
+    if pid_raw < 0 {
+        return Err(SyscallError::EINVAL);
+    }
+    if pid_raw == 0 {
+        let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
+        let proc = proc_arc.lock();
+        return Ok(proc.pgid.as_u64() as usize);
+    }
+    let target_pid = ProcessId(pid_raw as u64);
+    let target_proc = crate::proc::find_process(target_pid).ok_or(SyscallError::ESRCH)?;
+    let proc = target_proc.lock();
+    Ok(proc.pgid.as_u64() as usize)
+}
+
+/// `sys_getsid` (SYS_GETSID = 124)
+/// Get session ID of specified process (0 means calling process).
+pub fn sys_getsid(frame: &mut SyscallFrame) -> SyscallResult {
+    let pid_raw = frame.arg1() as i32;
+    if pid_raw < 0 {
+        return Err(SyscallError::EINVAL);
+    }
+    if pid_raw == 0 {
+        let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
+        let proc = proc_arc.lock();
+        return Ok(proc.sid.as_u64() as usize);
+    }
+    let target_pid = ProcessId(pid_raw as u64);
+    let target_proc = crate::proc::find_process(target_pid).ok_or(SyscallError::ESRCH)?;
+    let proc = target_proc.lock();
+    Ok(proc.sid.as_u64() as usize)
+}

@@ -85,8 +85,7 @@ initramfs:
 		chmod +x tools/build_initramfs.sh && ./tools/build_initramfs.sh $(INITRAMFS_ROOT) $(INITRAMFS_CPIO) $(SYSROOT); \
 	fi
 
-$(INITRAMFS_CPIO):
-	@$(MAKE) initramfs
+$(INITRAMFS_CPIO): initramfs
 
 .PHONY: run-hdd
 run-hdd: run-hdd-$(KARCH)

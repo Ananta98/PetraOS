@@ -1,7 +1,9 @@
 
 // ── Modular syscall submodules ──────────────────────────────────────────
+pub mod sysinfo;
 pub mod uname;
 
+pub use sysinfo::{sys_sysinfo, LinuxSysinfo};
 pub use uname::sys_uname;
 
 
