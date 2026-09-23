@@ -5,6 +5,7 @@ pub mod drm;
 pub mod full;
 pub mod kbd;
 pub mod kmsg;
+pub mod mouse;
 pub mod net;
 pub mod null;
 pub mod rtc;
@@ -20,6 +21,7 @@ pub use drm::{DrmCardInode, FbInode};
 pub use full::FullInode;
 pub use kbd::KbdInode;
 pub use kmsg::KmsgInode;
+pub use mouse::MouseInode;
 pub use net::NetDeviceInode;
 pub use null::NullInode;
 pub use rtc::RtcInode;
@@ -222,6 +224,10 @@ pub fn sync_device_to_devfs(device: &Arc<Mutex<Box<dyn Device>>>) {
                 Arc::new(SerialInode {
                     device: device.clone(),
                 })
+            } else if vfs_name == "mice" || vfs_name == "mouse0" || vfs_name == "psaux" {
+                Arc::new(MouseInode)
+            } else if vfs_name == "kbd" {
+                Arc::new(KbdInode)
             } else {
                 Arc::new(GenericCharDeviceInode {
                     device: device.clone(),
@@ -343,7 +349,7 @@ impl DevFs {
         };
 
         // Declarative list of standard UNIX core pseudo-devices.
-        let core_nodes: [DevNode; 13] = [
+        let core_nodes: [DevNode; 15] = [
             DevNode {
                 name: "console",
                 inode_type: InodeType::CharDevice,
@@ -409,6 +415,16 @@ impl DevFs {
                 inode_type: InodeType::CharDevice,
                 ops: Arc::new(KbdInode),
             },
+            DevNode {
+                name: "mice",
+                inode_type: InodeType::CharDevice,
+                ops: Arc::new(MouseInode),
+            },
+            DevNode {
+                name: "psaux",
+                inode_type: InodeType::CharDevice,
+                ops: Arc::new(MouseInode),
+            },
         ];
 
         for node in &core_nodes {
@@ -443,7 +459,7 @@ impl DevFs {
         });
         register_node("input", input_dir_inode);
 
-        // Register /dev/input/event0
+        // Register /dev/input/event0 (Keyboard)
         let event0_ino = dev_mount.superblock.alloc_ino();
         let event0_inode = Arc::new(Inode {
             ino: event0_ino,
@@ -453,6 +469,42 @@ impl DevFs {
         input_dir.insert("event0", event0_inode.clone());
         if let Some(input_dentry) = dev_mount.root_dentry.children.lock().get("input").cloned() {
             Dentry::add_child(&input_dentry, "event0".into(), event0_inode);
+        }
+
+        // Register /dev/input/mice (Standard multiplexed mouse)
+        let mice_ino = dev_mount.superblock.alloc_ino();
+        let mice_inode = Arc::new(Inode {
+            ino: mice_ino,
+            inode_type: InodeType::CharDevice,
+            ops: Arc::new(MouseInode),
+        });
+        input_dir.insert("mice", mice_inode.clone());
+        if let Some(input_dentry) = dev_mount.root_dentry.children.lock().get("input").cloned() {
+            Dentry::add_child(&input_dentry, "mice".into(), mice_inode);
+        }
+
+        // Register /dev/input/mouse0 (First mouse device)
+        let mouse0_ino = dev_mount.superblock.alloc_ino();
+        let mouse0_inode = Arc::new(Inode {
+            ino: mouse0_ino,
+            inode_type: InodeType::CharDevice,
+            ops: Arc::new(MouseInode),
+        });
+        input_dir.insert("mouse0", mouse0_inode.clone());
+        if let Some(input_dentry) = dev_mount.root_dentry.children.lock().get("input").cloned() {
+            Dentry::add_child(&input_dentry, "mouse0".into(), mouse0_inode);
+        }
+
+        // Register /dev/input/event1 (Mouse event node)
+        let event1_ino = dev_mount.superblock.alloc_ino();
+        let event1_inode = Arc::new(Inode {
+            ino: event1_ino,
+            inode_type: InodeType::CharDevice,
+            ops: Arc::new(MouseInode),
+        });
+        input_dir.insert("event1", event1_inode.clone());
+        if let Some(input_dentry) = dev_mount.root_dentry.children.lock().get("input").cloned() {
+            Dentry::add_child(&input_dentry, "event1".into(), event1_inode);
         }
 
         log::info!("[DevFS] Mounted /dev successfully with core UNIX device nodes.");
