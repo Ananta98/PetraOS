@@ -1,7 +1,6 @@
 //! Process termination system calls (`exit`, `exit_group`).
 
-use crate::arch::syscall::syscall::SyscallFrame;
-use crate::syscalls::SyscallResult;
+use crate::syscalls::{SyscallResult, wrap_syscall};
 
 /// Common exit path shared by `sys_exit` and `sys_exit_group`.
 ///
@@ -38,16 +37,16 @@ pub(crate) fn do_exit(code: i32) -> ! {
 
 /// `sys_exit` (SYS_EXIT = 60)
 /// Terminate the calling thread or process.
-pub fn sys_exit(frame: &mut SyscallFrame) -> SyscallResult {
-    let code = frame.arg1() as i32;
+#[wrap_syscall]
+pub fn sys_exit(code: i32) -> SyscallResult {
     log::debug!("sys_exit called with status code {}", code);
     do_exit(code)
 }
 
 /// `sys_exit_group` (SYS_EXIT_GROUP = 231)
 /// Exit all threads in a process.
-pub fn sys_exit_group(frame: &mut SyscallFrame) -> SyscallResult {
-    let code = frame.arg1() as i32;
+#[wrap_syscall]
+pub fn sys_exit_group(code: i32) -> SyscallResult {
     log::debug!("sys_exit_group called with status code {}", code);
     do_exit(code)
 }

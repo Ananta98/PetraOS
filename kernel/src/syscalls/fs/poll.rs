@@ -1,9 +1,8 @@
 //! System calls for synchronous I/O multiplexing (`poll`, `ppoll`, `select`, `pselect6`).
 
 use super::*;
-use crate::arch::syscall::syscall::SyscallFrame;
 use crate::fs::File;
-use crate::syscalls::{SyscallError, SyscallResult, UserPtr};
+use crate::syscalls::{wrap_syscall, SyscallError, SyscallResult, UserPtr};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 
@@ -121,21 +120,19 @@ pub(crate) fn do_poll(fds_ptr: UserPtr<PollFd>, nfds: usize, timeout_ms: i32) ->
 
 /// `sys_poll` (SYS_POLL = 7)
 /// Wait for file descriptors to become ready for I/O.
-pub fn sys_poll(frame: &mut SyscallFrame) -> SyscallResult {
-    let fds_ptr = UserPtr::<PollFd>::from_u64(frame.arg1());
-    let nfds = frame.arg2() as usize;
-    let timeout_ms = frame.arg3() as i32;
-
+#[wrap_syscall]
+pub fn sys_poll(fds_ptr: UserPtr<PollFd>, nfds: usize, timeout_ms: i32) -> SyscallResult {
     do_poll(fds_ptr, nfds, timeout_ms)
 }
 
 /// `sys_ppoll` (SYS_PPOLL = 271)
 /// Wait for file descriptors with a timespec timeout.
-pub fn sys_ppoll(frame: &mut SyscallFrame) -> SyscallResult {
-    let fds_ptr = UserPtr::<PollFd>::from_u64(frame.arg1());
-    let nfds = frame.arg2() as usize;
-    let ts_ptr = UserPtr::<crate::syscalls::time::TimeSpec>::from_u64(frame.arg3());
-
+#[wrap_syscall]
+pub fn sys_ppoll(
+    fds_ptr: UserPtr<PollFd>,
+    nfds: usize,
+    ts_ptr: UserPtr<crate::syscalls::time::TimeSpec>,
+) -> SyscallResult {
     let timeout_ms = if ts_ptr.is_null() {
         -1
     } else {
@@ -149,15 +146,13 @@ pub fn sys_ppoll(frame: &mut SyscallFrame) -> SyscallResult {
     do_poll(fds_ptr, nfds, timeout_ms)
 }
 
-/// `sys_select` (SYS_SELECT = 23)
-/// Synchronous I/O multiplexing with file descriptor sets.
-pub fn sys_select(frame: &mut SyscallFrame) -> SyscallResult {
-    let nfds = frame.arg1() as i32;
-    let readfds = UserPtr::<FdSet>::from_u64(frame.arg2());
-    let writefds = UserPtr::<FdSet>::from_u64(frame.arg3());
-    let exceptfds = UserPtr::<FdSet>::from_u64(frame.arg4());
-    let _timeout = UserPtr::<LinuxTimespec>::from_u64(frame.arg5());
-
+pub(crate) fn do_select(
+    nfds: i32,
+    readfds: UserPtr<FdSet>,
+    writefds: UserPtr<FdSet>,
+    exceptfds: UserPtr<FdSet>,
+    _timeout: UserPtr<LinuxTimespec>,
+) -> SyscallResult {
     if nfds < 0 || nfds > FD_SETSIZE as i32 {
         return Err(SyscallError::EINVAL);
     }
@@ -259,8 +254,29 @@ pub fn sys_select(frame: &mut SyscallFrame) -> SyscallResult {
     Ok(ready_count)
 }
 
+/// `sys_select` (SYS_SELECT = 23)
+/// Synchronous I/O multiplexing with file descriptor sets.
+#[wrap_syscall]
+pub fn sys_select(
+    nfds: i32,
+    readfds: UserPtr<FdSet>,
+    writefds: UserPtr<FdSet>,
+    exceptfds: UserPtr<FdSet>,
+    timeout: UserPtr<LinuxTimespec>,
+) -> SyscallResult {
+    do_select(nfds, readfds, writefds, exceptfds, timeout)
+}
+
 /// `sys_pselect6` (SYS_PSELECT6 = 270)
 /// Synchronous I/O multiplexing with signal mask.
-pub fn sys_pselect6(frame: &mut SyscallFrame) -> SyscallResult {
-    sys_select(frame)
+#[wrap_syscall]
+pub fn sys_pselect6(
+    nfds: i32,
+    readfds: UserPtr<FdSet>,
+    writefds: UserPtr<FdSet>,
+    exceptfds: UserPtr<FdSet>,
+    timeout: UserPtr<LinuxTimespec>,
+    _sigmask: u64,
+) -> SyscallResult {
+    do_select(nfds, readfds, writefds, exceptfds, timeout)
 }

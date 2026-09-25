@@ -1,8 +1,7 @@
 //! System calls for updating file timestamps (`futimesat`, `utimensat`).
 
 use super::*;
-use crate::arch::syscall::syscall::SyscallFrame;
-use crate::syscalls::{SyscallError, SyscallResult, UserCStr, UserPtr};
+use crate::syscalls::{wrap_syscall, SyscallError, SyscallResult, UserCStr, UserPtr};
 use alloc::sync::Arc;
 
 /// `utimensat` special `tv_nsec` value: set the timestamp to the current time.
@@ -55,11 +54,12 @@ pub(crate) fn read_utimens(
 
 /// `sys_futimesat` (SYS_FUTIMESAT = 261)
 /// Change timestamps of a file relative to a directory file descriptor.
-pub fn sys_futimesat(frame: &mut SyscallFrame) -> SyscallResult {
-    let dfd = frame.arg1() as i32;
-    let path_cstr = UserCStr::from_u64(frame.arg2());
-    let utimes_ptr = UserPtr::<LinuxTimespec>::from_u64(frame.arg3());
-
+#[wrap_syscall]
+pub fn sys_futimesat(
+    dfd: i32,
+    path_cstr: UserCStr,
+    utimes_ptr: UserPtr<LinuxTimespec>,
+) -> SyscallResult {
     if path_cstr.is_null() {
         return Ok(0);
     }
@@ -82,12 +82,13 @@ pub fn sys_futimesat(frame: &mut SyscallFrame) -> SyscallResult {
 
 /// `sys_utimensat` (SYS_UTIMENSAT = 280)
 /// Change file timestamps with nanosecond precision.
-pub fn sys_utimensat(frame: &mut SyscallFrame) -> SyscallResult {
-    let dfd = frame.arg1() as i32;
-    let path_cstr = UserCStr::from_u64(frame.arg2());
-    let times_ptr = UserPtr::<LinuxTimespec>::from_u64(frame.arg3());
-    let flags = frame.arg4() as i32;
-
+#[wrap_syscall]
+pub fn sys_utimensat(
+    dfd: i32,
+    path_cstr: UserCStr,
+    times_ptr: UserPtr<LinuxTimespec>,
+    flags: i32,
+) -> SyscallResult {
     if path_cstr.is_null() || (path_cstr.as_u64() == 0) {
         if dfd < 0 {
             return Err(SyscallError::EBADF);

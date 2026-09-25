@@ -1,14 +1,12 @@
 //! sys_uname system call handler.
 
 use super::*;
-use crate::arch::syscall::syscall::SyscallFrame;
-use crate::syscalls::{SyscallError, SyscallResult, UserPtr};
+use crate::syscalls::{wrap_syscall, SyscallError, SyscallResult, UserPtr};
 
 /// `sys_uname` (SYS_UNAME = 63)
 /// Get name and information about current kernel.
-pub fn sys_uname(frame: &mut SyscallFrame) -> SyscallResult {
-    let buf = UserPtr::<UtsName>::from_u64(frame.arg1());
-
+#[wrap_syscall]
+pub fn sys_uname(buf: UserPtr<UtsName>) -> SyscallResult {
     let mut uts = UtsName::default();
     set_bytes(&mut uts.sysname, b"PetraOS");
     set_bytes(&mut uts.nodename, b"petra");

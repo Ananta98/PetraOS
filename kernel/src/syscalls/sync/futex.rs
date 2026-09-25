@@ -1,7 +1,6 @@
 //! sys_futex system call handler.
 
 use super::*;
-use crate::arch::syscall::syscall::SyscallFrame;
 use crate::proc::thread::ThreadState;
 use crate::sync::futex::{
     FUTEX_BITSET_MATCH_ANY, FUTEX_CLOCK_REALTIME, FUTEX_CMD_MASK, FUTEX_CMP_REQUEUE,
@@ -9,18 +8,19 @@ use crate::sync::futex::{
     FUTEX_REQUEUE, FUTEX_TRYLOCK_PI, FUTEX_UNLOCK_PI, FUTEX_WAIT, FUTEX_WAIT_BITSET,
     FUTEX_WAIT_REQUEUE_PI, FUTEX_WAKE, FUTEX_WAKE_BITSET, FUTEX_WAKE_OP,
 };
-use crate::syscalls::{SyscallError, SyscallResult, UserPtr};
+use crate::syscalls::{wrap_syscall, SyscallError, SyscallResult, UserPtr};
 use alloc::sync::Arc;
 use core::sync::atomic::{AtomicBool, Ordering};
 
-pub fn sys_futex(frame: &mut SyscallFrame) -> SyscallResult {
-    let uaddr = UserPtr::<u32>::from_u64(frame.arg1());
-    let futex_op = frame.arg2() as u32;
-    let val = frame.arg3() as u32;
-    let timeout_or_val2 = frame.arg4();
-    let uaddr2 = UserPtr::<u32>::from_u64(frame.arg5());
-    let val3 = frame.arg6() as u32;
-
+#[wrap_syscall]
+pub fn sys_futex(
+    uaddr: UserPtr<u32>,
+    futex_op: u32,
+    val: u32,
+    timeout_or_val2: u64,
+    uaddr2: UserPtr<u32>,
+    val3: u32,
+) -> SyscallResult {
     validate_futex_ptr(uaddr)?;
 
     let cmd = futex_op & FUTEX_CMD_MASK;

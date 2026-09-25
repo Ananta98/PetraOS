@@ -1,16 +1,14 @@
 //! System calls for changing file mode bits / permissions (`chmod`, `fchmod`, `fchmodat`).
 
 use super::*;
-use crate::arch::syscall::syscall::SyscallFrame;
-use crate::syscalls::{SyscallError, SyscallResult, UserCStr};
+use crate::syscalls::{wrap_syscall, SyscallError, SyscallResult, UserCStr};
 use alloc::sync::Arc;
 
 /// `sys_chmod` (SYS_CHMOD = 90)
 /// Change permissions of a file.
-pub fn sys_chmod(frame: &mut SyscallFrame) -> SyscallResult {
-    let mode = frame.arg2() as u32;
-
-    let path = UserCStr::from_u64(frame.arg1()).to_string(256)?;
+#[wrap_syscall]
+pub fn sys_chmod(path_ptr: UserCStr, mode: u32) -> SyscallResult {
+    let path = path_ptr.to_string(256)?;
     let full_path = resolve_at_path(AT_FDCWD, &path)?;
 
     let st = crate::fs::stat(&full_path)?;
@@ -26,10 +24,8 @@ pub fn sys_chmod(frame: &mut SyscallFrame) -> SyscallResult {
 
 /// `sys_fchmod` (SYS_FCHMOD = 91)
 /// Change permissions of an open file descriptor.
-pub fn sys_fchmod(frame: &mut SyscallFrame) -> SyscallResult {
-    let fd = frame.arg1() as i32;
-    let mode = frame.arg2() as u32;
-
+#[wrap_syscall]
+pub fn sys_fchmod(fd: i32, mode: u32) -> SyscallResult {
     if fd < 0 {
         return Err(SyscallError::EBADF);
     }
@@ -52,12 +48,9 @@ pub fn sys_fchmod(frame: &mut SyscallFrame) -> SyscallResult {
 
 /// `sys_fchmodat` (SYS_FCHMODAT = 268)
 /// Change permissions of a file relative to a directory file descriptor.
-pub fn sys_fchmodat(frame: &mut SyscallFrame) -> SyscallResult {
-    let dfd = frame.arg1() as i32;
-    let mode = frame.arg3() as u32;
-    let _flags = frame.arg4() as i32;
-
-    let path = UserCStr::from_u64(frame.arg2()).to_string(256)?;
+#[wrap_syscall]
+pub fn sys_fchmodat(dfd: i32, path_ptr: UserCStr, mode: u32, _flags: i32) -> SyscallResult {
+    let path = path_ptr.to_string(256)?;
     let full_path = resolve_at_path(dfd, &path)?;
 
     let st = crate::fs::stat(&full_path)?;

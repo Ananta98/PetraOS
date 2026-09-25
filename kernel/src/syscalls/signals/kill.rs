@@ -1,15 +1,11 @@
 //! sys_kill system call handler.
 
-use crate::syscalls::{SyscallError, SyscallResult};
-use crate::arch::syscall::syscall::SyscallFrame;
-
+use crate::syscalls::{wrap_syscall, SyscallError, SyscallResult};
 
 /// `sys_kill` (SYS_KILL = 62)
 /// Sends a signal to a process or process group.
-pub fn sys_kill(frame: &mut SyscallFrame) -> SyscallResult {
-    let pid_raw = frame.arg1() as i32;
-    let sig = frame.arg2() as u8;
-
+#[wrap_syscall]
+pub fn sys_kill(pid_raw: i32, sig: u8) -> SyscallResult {
     log::debug!("sys_kill(pid={}, sig={})", pid_raw, sig);
     if sig == 0 || sig > 64 {
         return Err(SyscallError::EINVAL);

@@ -1,26 +1,27 @@
 //! sys_accept system call handler.
 
 use super::*;
-use crate::arch::syscall::SyscallFrame;
-use crate::syscalls::{SyscallResult, UserPtr};
+use crate::syscalls::{wrap_syscall, SyscallResult, UserPtr};
 
 /// `sys_accept` (SYS_ACCEPT = 43)
 /// Accept a connection on a socket.
-pub fn sys_accept(frame: &mut SyscallFrame) -> SyscallResult {
-    let fd = frame.arg1() as i32;
-    let addr_ptr = UserPtr::<SockAddrStorage>::from_u64(frame.arg2());
-    let addrlen_ptr = UserPtr::<SockLen>::from_u64(frame.arg3());
-
+#[wrap_syscall]
+pub fn sys_accept(
+    fd: i32,
+    addr_ptr: UserPtr<SockAddrStorage>,
+    addrlen_ptr: UserPtr<SockLen>,
+) -> SyscallResult {
     accept_internal(fd, addr_ptr, addrlen_ptr, 0)
 }
 
 /// `sys_accept4` (SYS_ACCEPT4 = 288)
 /// Accept a connection on a socket with flags (SOCK_NONBLOCK, SOCK_CLOEXEC).
-pub fn sys_accept4(frame: &mut SyscallFrame) -> SyscallResult {
-    let fd = frame.arg1() as i32;
-    let addr_ptr = UserPtr::<SockAddrStorage>::from_u64(frame.arg2());
-    let addrlen_ptr = UserPtr::<SockLen>::from_u64(frame.arg3());
-    let flags = frame.arg4() as i32;
-
+#[wrap_syscall]
+pub fn sys_accept4(
+    fd: i32,
+    addr_ptr: UserPtr<SockAddrStorage>,
+    addrlen_ptr: UserPtr<SockLen>,
+    flags: i32,
+) -> SyscallResult {
     accept_internal(fd, addr_ptr, addrlen_ptr, flags)
 }

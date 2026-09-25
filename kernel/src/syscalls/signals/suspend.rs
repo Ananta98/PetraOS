@@ -1,12 +1,12 @@
 //! System calls for signal waiting and suspension: `pause`, `rt_sigpending`, `rt_sigsuspend`.
 
-use crate::arch::syscall::syscall::SyscallFrame;
 use crate::ipc::signal::SigSet;
-use crate::syscalls::{SyscallError, SyscallResult, UserPtr};
+use crate::syscalls::{wrap_syscall, SyscallError, SyscallResult, UserPtr};
 
 /// `sys_pause` (SYS_PAUSE = 34)
 /// Suspend calling thread until a signal is delivered.
-pub fn sys_pause(_frame: &mut SyscallFrame) -> SyscallResult {
+#[wrap_syscall]
+pub fn sys_pause() -> SyscallResult {
     loop {
         if let Some(proc_arc) = crate::proc::current_process() {
             let proc = proc_arc.lock();
@@ -36,10 +36,8 @@ pub fn sys_pause(_frame: &mut SyscallFrame) -> SyscallResult {
 
 /// `sys_rt_sigpending` (SYS_RT_SIGPENDING = 127)
 /// Examine pending signals that are blocked from delivery.
-pub fn sys_rt_sigpending(frame: &mut SyscallFrame) -> SyscallResult {
-    let set_ptr = UserPtr::<SigSet>::from_u64(frame.arg1());
-    let sigsetsize = frame.arg2() as usize;
-
+#[wrap_syscall]
+pub fn sys_rt_sigpending(set_ptr: UserPtr<SigSet>, sigsetsize: usize) -> SyscallResult {
     if sigsetsize != core::mem::size_of::<SigSet>() {
         return Err(SyscallError::EINVAL);
     }
@@ -61,10 +59,8 @@ pub fn sys_rt_sigpending(frame: &mut SyscallFrame) -> SyscallResult {
 
 /// `sys_rt_sigsuspend` (SYS_RT_SIGSUSPEND = 130)
 /// Atomically replaces signal mask with `mask` and suspends thread until signal.
-pub fn sys_rt_sigsuspend(frame: &mut SyscallFrame) -> SyscallResult {
-    let mask_ptr = UserPtr::<SigSet>::from_u64(frame.arg1());
-    let sigsetsize = frame.arg2() as usize;
-
+#[wrap_syscall]
+pub fn sys_rt_sigsuspend(mask_ptr: UserPtr<SigSet>, sigsetsize: usize) -> SyscallResult {
     if sigsetsize != core::mem::size_of::<SigSet>() {
         return Err(SyscallError::EINVAL);
     }

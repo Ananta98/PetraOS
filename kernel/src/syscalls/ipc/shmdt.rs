@@ -1,13 +1,11 @@
 //! sys_shmdt system call handler.
 
 use super::*;
-use crate::syscalls::{SyscallError, SyscallResult};
-use crate::arch::syscall::syscall::SyscallFrame;
 use crate::ipc::shm::SHM_MANAGER;
+use crate::syscalls::{wrap_syscall, SyscallError, SyscallResult};
 
-
-pub fn sys_shmdt(frame: &mut SyscallFrame) -> SyscallResult {
-    let shmaddr = frame.arg1();
+#[wrap_syscall]
+pub fn sys_shmdt(shmaddr: u64) -> SyscallResult {
     let pid = current_pid_u32();
 
     let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;

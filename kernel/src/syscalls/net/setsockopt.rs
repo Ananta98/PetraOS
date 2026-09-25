@@ -1,19 +1,18 @@
 //! sys_setsockopt system call handler.
 
 use super::*;
-use crate::arch::syscall::SyscallFrame;
-use crate::syscalls::{SyscallError, SyscallResult, UserPtr};
-
+use crate::syscalls::{wrap_syscall, SyscallError, SyscallResult, UserPtr};
 
 /// `sys_setsockopt` (SYS_SETSOCKOPT = 54)
 /// Set options on sockets.
-pub fn sys_setsockopt(frame: &mut SyscallFrame) -> SyscallResult {
-    let fd = frame.arg1() as i32;
-    let _level = frame.arg2() as i32;
-    let optname = frame.arg3() as i32;
-    let optval_ptr = UserPtr::<i32>::from_u64(frame.arg4());
-    let _optlen = frame.arg5() as usize;
-
+#[wrap_syscall]
+pub fn sys_setsockopt(
+    fd: i32,
+    _level: i32,
+    optname: i32,
+    optval_ptr: UserPtr<i32>,
+    _optlen: usize,
+) -> SyscallResult {
     let _socket_arc = get_socket(fd)?;
 
     if !optval_ptr.is_null() {

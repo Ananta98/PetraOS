@@ -4,15 +4,14 @@ use super::types::{
     resolve_target_thread, resolve_target_threads, SchedParam, SCHED_BATCH, SCHED_DEADLINE,
     SCHED_FIFO, SCHED_IDLE, SCHED_OTHER, SCHED_RESET_ON_FORK, SCHED_RR,
 };
-use crate::arch::syscall::SyscallFrame;
 use crate::sched::policy::{RtPriority, SchedPolicy};
-use crate::syscalls::{SyscallError, SyscallResult, UserPtr};
+use crate::syscalls::{wrap_syscall, SyscallError, SyscallResult, UserPtr};
 
 /// `sys_sched_getscheduler` (SYS_SCHED_GETSCHEDULER = 145)
 ///
 /// Returns the current scheduling policy of the target thread/process.
-pub fn sys_sched_getscheduler(frame: &mut SyscallFrame) -> SyscallResult {
-    let pid = frame.arg1() as i32;
+#[wrap_syscall]
+pub fn sys_sched_getscheduler(pid: i32) -> SyscallResult {
     let target = resolve_target_thread(pid)?;
     let policy = target.lock().sched_policy;
 
@@ -28,11 +27,12 @@ pub fn sys_sched_getscheduler(frame: &mut SyscallFrame) -> SyscallResult {
 /// `sys_sched_setscheduler` (SYS_SCHED_SETSCHEDULER = 144)
 ///
 /// Sets the scheduling policy and priority for the target process / thread.
-pub fn sys_sched_setscheduler(frame: &mut SyscallFrame) -> SyscallResult {
-    let pid = frame.arg1() as i32;
-    let raw_policy = frame.arg2() as u32;
-    let param_ptr = UserPtr::<SchedParam>::from_u64(frame.arg3());
-
+#[wrap_syscall]
+pub fn sys_sched_setscheduler(
+    pid: i32,
+    raw_policy: u32,
+    param_ptr: UserPtr<SchedParam>,
+) -> SyscallResult {
     let param = param_ptr.read().ok_or(SyscallError::EFAULT)?;
     let clean_policy = raw_policy & !SCHED_RESET_ON_FORK;
 
@@ -80,8 +80,8 @@ pub fn sys_sched_setscheduler(frame: &mut SyscallFrame) -> SyscallResult {
 /// `sys_sched_get_priority_min` (SYS_SCHED_GET_PRIORITY_MIN = 147)
 ///
 /// Returns the minimum priority value for a scheduling policy.
-pub fn sys_sched_get_priority_min(frame: &mut SyscallFrame) -> SyscallResult {
-    let raw_policy = frame.arg1() as u32;
+#[wrap_syscall]
+pub fn sys_sched_get_priority_min(raw_policy: u32) -> SyscallResult {
     let clean_policy = raw_policy & !SCHED_RESET_ON_FORK;
 
     match clean_policy {
@@ -94,8 +94,8 @@ pub fn sys_sched_get_priority_min(frame: &mut SyscallFrame) -> SyscallResult {
 /// `sys_sched_get_priority_max` (SYS_SCHED_GET_PRIORITY_MAX = 146)
 ///
 /// Returns the maximum priority value for a scheduling policy.
-pub fn sys_sched_get_priority_max(frame: &mut SyscallFrame) -> SyscallResult {
-    let raw_policy = frame.arg1() as u32;
+#[wrap_syscall]
+pub fn sys_sched_get_priority_max(raw_policy: u32) -> SyscallResult {
     let clean_policy = raw_policy & !SCHED_RESET_ON_FORK;
 
     match clean_policy {

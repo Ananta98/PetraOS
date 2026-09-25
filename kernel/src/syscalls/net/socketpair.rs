@@ -2,22 +2,21 @@
 
 use super::*;
 use alloc::sync::Arc;
-use crate::arch::syscall::SyscallFrame;
 use crate::fs::create_socket_file;
 use crate::fs::fd::FD_CLOEXEC;
 use crate::net::socket::{Socket, UnixSocket};
 use crate::sync::Mutex;
-use crate::syscalls::{SyscallError, SyscallResult, UserPtr};
-
+use crate::syscalls::{wrap_syscall, SyscallError, SyscallResult, UserPtr};
 
 /// `sys_socketpair` (SYS_SOCKETPAIR = 53)
 /// Create a pair of connected sockets.
-pub fn sys_socketpair(frame: &mut SyscallFrame) -> SyscallResult {
-    let domain = frame.arg1() as i32;
-    let socket_type = frame.arg2() as i32;
-    let _protocol = frame.arg3() as i32;
-    let sv_ptr = UserPtr::<[i32; 2]>::from_u64(frame.arg4());
-
+#[wrap_syscall]
+pub fn sys_socketpair(
+    domain: i32,
+    socket_type: i32,
+    _protocol: i32,
+    sv_ptr: UserPtr<[i32; 2]>,
+) -> SyscallResult {
     if domain as u16 != AF_UNIX {
         return Err(SyscallError::EAFNOSUPPORT);
     }

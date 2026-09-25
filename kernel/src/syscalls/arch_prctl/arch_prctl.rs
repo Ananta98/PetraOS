@@ -2,8 +2,7 @@
 //!
 //! Configures architecture-specific thread state (FS/GS base registers for TLS/TCB).
 
-use crate::arch::syscall::SyscallFrame;
-use crate::syscalls::{SyscallError, SyscallResult, UserPtr, USER_SPACE_MAX_ADDR};
+use crate::syscalls::{wrap_syscall, SyscallError, SyscallResult, UserPtr, USER_SPACE_MAX_ADDR};
 
 pub const ARCH_SET_GS: u64 = 0x1001;
 pub const ARCH_SET_FS: u64 = 0x1002;
@@ -19,10 +18,8 @@ pub const ARCH_GET_GS: u64 = 0x1004;
 /// - `ARCH_GET_FS`: Reads 64-bit FS base address and stores into user memory at `addr`.
 /// - `ARCH_SET_GS`: Sets 64-bit GS base address (stored in `IA32_KERNEL_GS_BASE` during kernel execution).
 /// - `ARCH_GET_GS`: Reads 64-bit GS base address and stores into user memory at `addr`.
-pub fn sys_arch_prctl(frame: &mut SyscallFrame) -> SyscallResult {
-    let code = frame.arg1();
-    let addr = frame.arg2();
-
+#[wrap_syscall]
+pub fn sys_arch_prctl(code: u64, addr: u64) -> SyscallResult {
     match code {
         ARCH_SET_FS => {
             log::trace!("sys_arch_prctl: ARCH_SET_FS to {:#x}", addr);
@@ -79,4 +76,3 @@ pub fn sys_arch_prctl(frame: &mut SyscallFrame) -> SyscallResult {
         }
     }
 }
-

@@ -1,16 +1,13 @@
 //! System calls for process working directory manipulation (`getcwd`, `chdir`, `fchdir`).
 
 use super::*;
-use crate::arch::syscall::syscall::SyscallFrame;
 use crate::fs::vfs::types::InodeType;
-use crate::syscalls::{SyscallError, SyscallResult, UserCStr, UserPtr};
+use crate::syscalls::{wrap_syscall, SyscallError, SyscallResult, UserCStr, UserPtr};
 
 /// `sys_getcwd` (SYS_GETCWD = 79)
 /// Get current working directory string.
-pub fn sys_getcwd(frame: &mut SyscallFrame) -> SyscallResult {
-    let buf = UserPtr::<u8>::from_u64(frame.arg1());
-    let size = frame.arg2() as usize;
-
+#[wrap_syscall]
+pub fn sys_getcwd(buf: UserPtr<u8>, size: usize) -> SyscallResult {
     if size == 0 || !buf.is_valid_for(size) {
         return Err(SyscallError::EINVAL);
     }
@@ -33,8 +30,9 @@ pub fn sys_getcwd(frame: &mut SyscallFrame) -> SyscallResult {
 
 /// `sys_chdir` (SYS_CHDIR = 80)
 /// Change working directory.
-pub fn sys_chdir(frame: &mut SyscallFrame) -> SyscallResult {
-    let path = UserCStr::from_u64(frame.arg1()).to_string(4096)?;
+#[wrap_syscall]
+pub fn sys_chdir(path_ptr: UserCStr) -> SyscallResult {
+    let path = path_ptr.to_string(4096)?;
 
     let full_path = resolve_at_path(AT_FDCWD, &path)?;
     let dentry = crate::fs::resolve_path(&full_path)?;
@@ -51,8 +49,8 @@ pub fn sys_chdir(frame: &mut SyscallFrame) -> SyscallResult {
 
 /// `sys_fchdir` (SYS_FCHDIR = 81)
 /// Change working directory using an open directory file descriptor.
-pub fn sys_fchdir(frame: &mut SyscallFrame) -> SyscallResult {
-    let fd = frame.arg1() as i32;
+#[wrap_syscall]
+pub fn sys_fchdir(fd: i32) -> SyscallResult {
     if fd < 0 {
         return Err(SyscallError::EBADF);
     }

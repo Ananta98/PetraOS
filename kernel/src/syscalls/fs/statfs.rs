@@ -1,9 +1,8 @@
 //! System calls for querying file system statistics (`statfs`, `fstatfs`).
 
 use super::*;
-use crate::arch::syscall::syscall::SyscallFrame;
 use crate::fs::vfs::types::StatFs;
-use crate::syscalls::{SyscallError, SyscallResult, UserCStr, UserPtr};
+use crate::syscalls::{wrap_syscall, SyscallError, SyscallResult, UserCStr, UserPtr};
 
 pub const RAMFS_MAGIC: i64 = 0x858458f6;
 
@@ -26,10 +25,9 @@ pub(crate) fn make_statfs() -> StatFs {
 
 /// `sys_statfs` (SYS_STATFS = 137)
 /// Get filesystem statistics by pathname.
-pub fn sys_statfs(frame: &mut SyscallFrame) -> SyscallResult {
-    let path = UserCStr::from_u64(frame.arg1()).to_string(256)?;
-    let buf_ptr = UserPtr::<StatFs>::from_u64(frame.arg2());
-
+#[wrap_syscall]
+pub fn sys_statfs(path_ptr: UserCStr, buf_ptr: UserPtr<StatFs>) -> SyscallResult {
+    let path = path_ptr.to_string(256)?;
     let full_path = resolve_at_path(AT_FDCWD, &path)?;
     let _dentry = crate::fs::resolve_path(&full_path)?;
 
@@ -40,10 +38,8 @@ pub fn sys_statfs(frame: &mut SyscallFrame) -> SyscallResult {
 
 /// `sys_fstatfs` (SYS_FSTATFS = 138)
 /// Get filesystem statistics by open file descriptor.
-pub fn sys_fstatfs(frame: &mut SyscallFrame) -> SyscallResult {
-    let fd = frame.arg1() as i32;
-    let buf_ptr = UserPtr::<StatFs>::from_u64(frame.arg2());
-
+#[wrap_syscall]
+pub fn sys_fstatfs(fd: i32, buf_ptr: UserPtr<StatFs>) -> SyscallResult {
     if fd < 0 {
         return Err(SyscallError::EBADF);
     }

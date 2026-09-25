@@ -1,20 +1,19 @@
 //! sys_recvfrom system call handler.
 
 use super::*;
-use crate::arch::syscall::SyscallFrame;
-use crate::syscalls::{SyscallError, SyscallResult, UserPtr};
-
+use crate::syscalls::{wrap_syscall, SyscallError, SyscallResult, UserPtr};
 
 /// `sys_recvfrom` (SYS_RECVFROM = 45)
 /// Receive a message from a socket and capture sender address.
-pub fn sys_recvfrom(frame: &mut SyscallFrame) -> SyscallResult {
-    let fd = frame.arg1() as i32;
-    let buf_ptr = UserPtr::<u8>::from_u64(frame.arg2());
-    let len = frame.arg3() as usize;
-    let flags = frame.arg4() as i32;
-    let src_addr_ptr = UserPtr::<SockAddrStorage>::from_u64(frame.arg5());
-    let addrlen_ptr = UserPtr::<SockLen>::from_u64(frame.arg6());
-
+#[wrap_syscall]
+pub fn sys_recvfrom(
+    fd: i32,
+    buf_ptr: UserPtr<u8>,
+    len: usize,
+    flags: i32,
+    src_addr_ptr: UserPtr<SockAddrStorage>,
+    addrlen_ptr: UserPtr<SockLen>,
+) -> SyscallResult {
     let buf_slice = buf_ptr.as_slice_mut(len).ok_or(SyscallError::EFAULT)?;
     let socket_arc = get_socket(fd)?;
 

@@ -1,20 +1,14 @@
 //! sys_semctl system call handler.
 
 use super::*;
-use crate::syscalls::{SyscallError, SyscallResult, UserPtr};
-use crate::arch::syscall::syscall::SyscallFrame;
 use crate::ipc::semaphore::{
     GETALL, GETNCNT, GETPID, GETVAL, GETZCNT, IPC_RMID, IPC_SET, IPC_STAT,
     SEMAPHORE_MANAGER, SETALL, SETVAL, SemidDs,
 };
+use crate::syscalls::{wrap_syscall, SyscallError, SyscallResult, UserPtr};
 
-
-pub fn sys_semctl(frame: &mut SyscallFrame) -> SyscallResult {
-    let semid = frame.arg1() as i32;
-    let semnum = frame.arg2() as i32;
-    let cmd = frame.arg3() as i32;
-    let arg_raw: SemunRaw = frame.arg4();
-
+#[wrap_syscall]
+pub fn sys_semctl(semid: i32, semnum: i32, cmd: i32, arg_raw: SemunRaw) -> SyscallResult {
     let (uid, _gid) = current_uid_gid();
 
     // Strip IPC_64 flag (value 0 on x86_64 – no-op)

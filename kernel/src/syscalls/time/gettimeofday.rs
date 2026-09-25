@@ -1,16 +1,12 @@
 //! sys_gettimeofday system call handler.
 
 use super::*;
-use crate::syscalls::{SyscallError, SyscallResult, UserPtr};
-use crate::arch::syscall::syscall::SyscallFrame;
-
+use crate::syscalls::{wrap_syscall, SyscallError, SyscallResult, UserPtr};
 
 /// `sys_gettimeofday` (SYS_GETTIMEOFDAY = 96)
 /// Returns system wall-clock time in seconds and microseconds since Unix epoch.
-pub fn sys_gettimeofday(frame: &mut SyscallFrame) -> SyscallResult {
-    let tv_ptr = UserPtr::<TimeVal>::from_u64(frame.arg1());
-    let tz_ptr = UserPtr::<TimeZone>::from_u64(frame.arg2());
-
+#[wrap_syscall]
+pub fn sys_gettimeofday(tv_ptr: UserPtr<TimeVal>, tz_ptr: UserPtr<TimeZone>) -> SyscallResult {
     if !tv_ptr.is_null() {
         let (sec, usec) = crate::drivers::time::cmos_rtc::get_wall_time();
         let tv = TimeVal {

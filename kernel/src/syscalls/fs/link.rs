@@ -1,14 +1,14 @@
 //! System calls for hard links and symbolic links (`link`, `linkat`, `symlink`, `symlinkat`, `readlink`, `readlinkat`).
 
 use super::*;
-use crate::arch::syscall::syscall::SyscallFrame;
-use crate::syscalls::{SyscallError, SyscallResult, UserCStr, UserPtr};
+use crate::syscalls::{wrap_syscall, SyscallError, SyscallResult, UserCStr, UserPtr};
 
 /// `sys_link` (SYS_LINK = 86)
 /// Create a hard link to an existing file.
-pub fn sys_link(frame: &mut SyscallFrame) -> SyscallResult {
-    let old_path = UserCStr::from_u64(frame.arg1()).to_string(256)?;
-    let new_path = UserCStr::from_u64(frame.arg2()).to_string(256)?;
+#[wrap_syscall]
+pub fn sys_link(old_path_ptr: UserCStr, new_path_ptr: UserCStr) -> SyscallResult {
+    let old_path = old_path_ptr.to_string(256)?;
+    let new_path = new_path_ptr.to_string(256)?;
     let old_full = resolve_at_path(AT_FDCWD, &old_path)?;
     let new_full = resolve_at_path(AT_FDCWD, &new_path)?;
     crate::fs::link(&old_full, &new_full)?;
@@ -17,13 +17,16 @@ pub fn sys_link(frame: &mut SyscallFrame) -> SyscallResult {
 
 /// `sys_linkat` (SYS_LINKAT = 265)
 /// Create a hard link relative to directory file descriptors.
-pub fn sys_linkat(frame: &mut SyscallFrame) -> SyscallResult {
-    let olddfd = frame.arg1() as i32;
-    let newdfd = frame.arg3() as i32;
-    let _flags = frame.arg5() as i32;
-
-    let old_path = UserCStr::from_u64(frame.arg2()).to_string(256)?;
-    let new_path = UserCStr::from_u64(frame.arg4()).to_string(256)?;
+#[wrap_syscall]
+pub fn sys_linkat(
+    olddfd: i32,
+    old_path_ptr: UserCStr,
+    newdfd: i32,
+    new_path_ptr: UserCStr,
+    _flags: i32,
+) -> SyscallResult {
+    let old_path = old_path_ptr.to_string(256)?;
+    let new_path = new_path_ptr.to_string(256)?;
     let old_full = resolve_at_path(olddfd, &old_path)?;
     let new_full = resolve_at_path(newdfd, &new_path)?;
     crate::fs::link(&old_full, &new_full)?;
@@ -32,9 +35,10 @@ pub fn sys_linkat(frame: &mut SyscallFrame) -> SyscallResult {
 
 /// `sys_symlink` (SYS_SYMLINK = 88)
 /// Create a symbolic link.
-pub fn sys_symlink(frame: &mut SyscallFrame) -> SyscallResult {
-    let target = UserCStr::from_u64(frame.arg1()).to_string(256)?;
-    let link_path = UserCStr::from_u64(frame.arg2()).to_string(256)?;
+#[wrap_syscall]
+pub fn sys_symlink(target_ptr: UserCStr, link_path_ptr: UserCStr) -> SyscallResult {
+    let target = target_ptr.to_string(256)?;
+    let link_path = link_path_ptr.to_string(256)?;
     let full_path = resolve_at_path(AT_FDCWD, &link_path)?;
     crate::fs::symlink(&full_path, &target)?;
     Ok(0)
@@ -42,11 +46,10 @@ pub fn sys_symlink(frame: &mut SyscallFrame) -> SyscallResult {
 
 /// `sys_symlinkat` (SYS_SYMLINKAT = 266)
 /// Create a symbolic link relative to a directory file descriptor.
-pub fn sys_symlinkat(frame: &mut SyscallFrame) -> SyscallResult {
-    let newdfd = frame.arg2() as i32;
-
-    let target = UserCStr::from_u64(frame.arg1()).to_string(256)?;
-    let link_path = UserCStr::from_u64(frame.arg3()).to_string(256)?;
+#[wrap_syscall]
+pub fn sys_symlinkat(target_ptr: UserCStr, newdfd: i32, link_path_ptr: UserCStr) -> SyscallResult {
+    let target = target_ptr.to_string(256)?;
+    let link_path = link_path_ptr.to_string(256)?;
     let full_path = resolve_at_path(newdfd, &link_path)?;
     crate::fs::symlink(&full_path, &target)?;
     Ok(0)
@@ -54,11 +57,8 @@ pub fn sys_symlinkat(frame: &mut SyscallFrame) -> SyscallResult {
 
 /// `sys_readlink` (SYS_READLINK = 89)
 /// Read value of a symbolic link.
-pub fn sys_readlink(frame: &mut SyscallFrame) -> SyscallResult {
-    let path_ptr = UserCStr::from_u64(frame.arg1());
-    let buf = UserPtr::<u8>::from_u64(frame.arg2());
-    let bufsiz = frame.arg3() as usize;
-
+#[wrap_syscall]
+pub fn sys_readlink(path_ptr: UserCStr, buf: UserPtr<u8>, bufsiz: usize) -> SyscallResult {
     if bufsiz == 0 || !buf.is_valid_for(bufsiz) {
         return Err(SyscallError::EINVAL);
     }
@@ -77,12 +77,13 @@ pub fn sys_readlink(frame: &mut SyscallFrame) -> SyscallResult {
 
 /// `sys_readlinkat` (SYS_READLINKAT = 267)
 /// Read value of a symbolic link relative to a directory file descriptor.
-pub fn sys_readlinkat(frame: &mut SyscallFrame) -> SyscallResult {
-    let dfd = frame.arg1() as i32;
-    let path_ptr = UserCStr::from_u64(frame.arg2());
-    let buf = UserPtr::<u8>::from_u64(frame.arg3());
-    let bufsiz = frame.arg4() as usize;
-
+#[wrap_syscall]
+pub fn sys_readlinkat(
+    dfd: i32,
+    path_ptr: UserCStr,
+    buf: UserPtr<u8>,
+    bufsiz: usize,
+) -> SyscallResult {
     if bufsiz == 0 || !buf.is_valid_for(bufsiz) {
         return Err(SyscallError::EINVAL);
     }

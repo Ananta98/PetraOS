@@ -1,10 +1,10 @@
 //! Process creation system calls (`fork`, `vfork`).
 
-use crate::arch::syscall::syscall::SyscallFrame;
-use crate::syscalls::{SyscallError, SyscallResult};
+use crate::syscalls::{wrap_syscall, SyscallError, SyscallResult};
 
 /// `sys_fork` (SYS_FORK = 57)
 /// Fork the current running process and thread context.
+#[wrap_syscall]
 pub fn sys_fork(frame: &mut SyscallFrame) -> SyscallResult {
     let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
     let child_arc =
@@ -15,6 +15,8 @@ pub fn sys_fork(frame: &mut SyscallFrame) -> SyscallResult {
 
 /// `sys_vfork` (SYS_VFORK = 58)
 /// Create a child process and block parent until exec/exit.
+#[wrap_syscall]
 pub fn sys_vfork(frame: &mut SyscallFrame) -> SyscallResult {
     sys_fork(frame)
 }
+

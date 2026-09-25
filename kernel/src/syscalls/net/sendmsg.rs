@@ -2,17 +2,12 @@
 
 use super::*;
 use core::mem::size_of;
-use crate::arch::syscall::SyscallFrame;
-use crate::syscalls::{SyscallError, SyscallResult, UserPtr};
-
+use crate::syscalls::{wrap_syscall, SyscallError, SyscallResult, UserPtr};
 
 /// `sys_sendmsg` (SYS_SENDMSG = 46)
 /// Send a message on a socket using a message header.
-pub fn sys_sendmsg(frame: &mut SyscallFrame) -> SyscallResult {
-    let fd = frame.arg1() as i32;
-    let msg_ptr = UserPtr::<MsgHdr>::from_u64(frame.arg2());
-    let flags = frame.arg3() as i32;
-
+#[wrap_syscall]
+pub fn sys_sendmsg(fd: i32, msg_ptr: UserPtr<MsgHdr>, flags: i32) -> SyscallResult {
     let msg = msg_ptr.read().ok_or(SyscallError::EFAULT)?;
     let iov_slice = UserPtr::<IoVec>::from_u64(msg.msg_iov)
         .as_slice(msg.msg_iovlen)

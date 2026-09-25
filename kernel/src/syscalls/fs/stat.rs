@@ -1,9 +1,8 @@
 //! System calls for querying file and filesystem status (`stat`, `fstat`, `lstat`, `newfstatat`).
 
 use super::*;
-use crate::arch::syscall::syscall::SyscallFrame;
 use crate::fs::vfs::types::{LinuxStat, Stat};
-use crate::syscalls::{SyscallError, SyscallResult, UserCStr, UserPtr};
+use crate::syscalls::{wrap_syscall, SyscallError, SyscallResult, UserCStr, UserPtr};
 
 pub(crate) fn copy_to_linux_stat(stat: &Stat) -> LinuxStat {
     LinuxStat {
@@ -34,10 +33,8 @@ pub(crate) fn copy_to_linux_stat(stat: &Stat) -> LinuxStat {
 
 /// `sys_stat` (SYS_STAT = 4)
 /// Get file status by path.
-pub fn sys_stat(frame: &mut SyscallFrame) -> SyscallResult {
-    let path_ptr = UserCStr::from_u64(frame.arg1());
-    let statbuf = UserPtr::<LinuxStat>::from_u64(frame.arg2());
-
+#[wrap_syscall]
+pub fn sys_stat(path_ptr: UserCStr, statbuf: UserPtr<LinuxStat>) -> SyscallResult {
     let path = path_ptr.to_string(4096)?;
     let full_path = resolve_at_path(AT_FDCWD, &path)?;
     let vfs_stat = crate::fs::stat(&full_path)?;
@@ -50,10 +47,8 @@ pub fn sys_stat(frame: &mut SyscallFrame) -> SyscallResult {
 
 /// `sys_fstat` (SYS_FSTAT = 5)
 /// Get file status by descriptor.
-pub fn sys_fstat(frame: &mut SyscallFrame) -> SyscallResult {
-    let fd = frame.arg1() as i32;
-    let statbuf = UserPtr::<LinuxStat>::from_u64(frame.arg2());
-
+#[wrap_syscall]
+pub fn sys_fstat(fd: i32, statbuf: UserPtr<LinuxStat>) -> SyscallResult {
     if fd < 0 {
         return Err(SyscallError::EBADF);
     }
@@ -77,10 +72,8 @@ pub fn sys_fstat(frame: &mut SyscallFrame) -> SyscallResult {
 
 /// `sys_lstat` (SYS_LSTAT = 6)
 /// Get file status without following symlinks.
-pub fn sys_lstat(frame: &mut SyscallFrame) -> SyscallResult {
-    let path_ptr = UserCStr::from_u64(frame.arg1());
-    let statbuf = UserPtr::<LinuxStat>::from_u64(frame.arg2());
-
+#[wrap_syscall]
+pub fn sys_lstat(path_ptr: UserCStr, statbuf: UserPtr<LinuxStat>) -> SyscallResult {
     let path = path_ptr.to_string(4096)?;
     let full_path = resolve_at_path(AT_FDCWD, &path)?;
     let vfs_stat = crate::fs::lstat(&full_path)?;
@@ -93,11 +86,12 @@ pub fn sys_lstat(frame: &mut SyscallFrame) -> SyscallResult {
 
 /// `sys_newfstatat` (SYS_NEWFSTATAT = 262)
 /// Get file status relative to directory descriptor.
-pub fn sys_newfstatat(frame: &mut SyscallFrame) -> SyscallResult {
-    let dfd = frame.arg1() as i32;
-    let path_ptr = UserCStr::from_u64(frame.arg2());
-    let statbuf = UserPtr::<LinuxStat>::from_u64(frame.arg3());
-
+#[wrap_syscall]
+pub fn sys_newfstatat(
+    dfd: i32,
+    path_ptr: UserCStr,
+    statbuf: UserPtr<LinuxStat>,
+) -> SyscallResult {
     let path = path_ptr.to_string(4096)?;
     let full_path = resolve_at_path(dfd, &path)?;
     let vfs_stat = crate::fs::stat(&full_path)?;

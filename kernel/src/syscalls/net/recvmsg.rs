@@ -1,17 +1,12 @@
 //! sys_recvmsg system call handler.
 
 use super::*;
-use crate::arch::syscall::SyscallFrame;
-use crate::syscalls::{SyscallError, SyscallResult, UserPtr};
-
+use crate::syscalls::{wrap_syscall, SyscallError, SyscallResult, UserPtr};
 
 /// `sys_recvmsg` (SYS_RECVMSG = 47)
 /// Receive a message from a socket into multiple scatter-gather buffers.
-pub fn sys_recvmsg(frame: &mut SyscallFrame) -> SyscallResult {
-    let fd = frame.arg1() as i32;
-    let msg_ptr = UserPtr::<MsgHdr>::from_u64(frame.arg2());
-    let flags = frame.arg3() as i32;
-
+#[wrap_syscall]
+pub fn sys_recvmsg(fd: i32, msg_ptr: UserPtr<MsgHdr>, flags: i32) -> SyscallResult {
     let mut msg = msg_ptr.read().ok_or(SyscallError::EFAULT)?;
     let iov_slice = UserPtr::<IoVec>::from_u64(msg.msg_iov)
         .as_slice(msg.msg_iovlen)

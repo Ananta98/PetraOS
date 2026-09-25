@@ -1,19 +1,19 @@
 //! sys_mmap system call handler.
 
-use crate::arch::syscall::syscall::SyscallFrame;
 use crate::mm::{PageTableFlags, VirtAddr, VmAreaKind};
-use crate::syscalls::{SyscallError, SyscallResult};
+use crate::syscalls::{wrap_syscall, SyscallError, SyscallResult};
 
 /// `sys_mmap` (SYS_MMAP = 9)
 /// Map files or devices into memory.
-pub fn sys_mmap(frame: &mut SyscallFrame) -> SyscallResult {
-    let addr = frame.arg1() as u64;
-    let len = frame.arg2() as usize;
-    let prot = frame.arg3() as i32;
-    let flags = frame.arg4() as i32;
-    let fd = frame.arg5() as i32;
-    let offset = frame.arg6() as u64;
-
+#[wrap_syscall]
+pub fn sys_mmap(
+    addr: u64,
+    len: usize,
+    prot: i32,
+    flags: i32,
+    fd: i32,
+    offset: u64,
+) -> SyscallResult {
     if len == 0 {
         return Err(SyscallError::EINVAL);
     }

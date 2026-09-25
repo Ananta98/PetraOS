@@ -3,8 +3,7 @@
 //! Handles:
 //! - `sys_sysinfo` (SYS_SYSINFO = 99)
 
-use crate::arch::syscall::syscall::SyscallFrame;
-use crate::syscalls::{SyscallError, SyscallResult, UserPtr};
+use crate::syscalls::{wrap_syscall, SyscallError, SyscallResult, UserPtr};
 
 /// Linux x86_64 ABI compatible `sysinfo` structure layout (112 bytes).
 #[repr(C)]
@@ -28,8 +27,8 @@ pub struct LinuxSysinfo {
 
 /// `sys_sysinfo` (SYS_SYSINFO = 99)
 /// Return system information (uptime, RAM stats, process counts).
-pub fn sys_sysinfo(frame: &mut SyscallFrame) -> SyscallResult {
-    let ptr = UserPtr::<LinuxSysinfo>::from_u64(frame.arg1());
+#[wrap_syscall]
+pub fn sys_sysinfo(ptr: UserPtr<LinuxSysinfo>) -> SyscallResult {
     if ptr.is_null() {
         return Err(SyscallError::EFAULT);
     }

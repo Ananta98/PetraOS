@@ -1,7 +1,6 @@
 //! System calls for file control and locking (`fcntl`, `flock`).
 
-use crate::arch::syscall::syscall::SyscallFrame;
-use crate::syscalls::{SyscallError, SyscallResult};
+use crate::syscalls::{wrap_syscall, SyscallError, SyscallResult};
 
 pub const F_DUPFD: i32 = 0;
 pub const F_GETFD: i32 = 1;
@@ -17,11 +16,8 @@ pub const F_DUPFD_CLOEXEC: i32 = 1030;
 
 /// `sys_fcntl` (SYS_FCNTL = 72)
 /// Manipulate file descriptor properties.
-pub fn sys_fcntl(frame: &mut SyscallFrame) -> SyscallResult {
-    let fd = frame.arg1() as i32;
-    let cmd = frame.arg2() as i32;
-    let arg = frame.arg3();
-
+#[wrap_syscall]
+pub fn sys_fcntl(fd: i32, cmd: i32, arg: u64) -> SyscallResult {
     if fd < 0 {
         return Err(SyscallError::EBADF);
     }
@@ -76,10 +72,8 @@ pub fn sys_fcntl(frame: &mut SyscallFrame) -> SyscallResult {
 
 /// `sys_flock` (SYS_FLOCK = 73)
 /// Apply or remove an advisory lock on an open file.
-pub fn sys_flock(frame: &mut SyscallFrame) -> SyscallResult {
-    let fd = frame.arg1() as i32;
-    let _operation = frame.arg2() as i32;
-
+#[wrap_syscall]
+pub fn sys_flock(fd: i32, _operation: i32) -> SyscallResult {
     if fd < 0 {
         return Err(SyscallError::EBADF);
     }

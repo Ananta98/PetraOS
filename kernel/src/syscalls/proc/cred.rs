@@ -6,10 +6,9 @@
 //!   `setreuid`, `setregid`, `setresuid`, `getresuid`, `setresgid`, `getresgid`,
 //!   `setgroups`, `getgroups`, `setfsuid`, `setfsgid`
 
-use crate::arch::syscall::syscall::SyscallFrame;
 use crate::proc::ProcessId;
 use crate::proc::process::credentials::{Credentials, MAX_SUPPLEMENTARY_GROUPS};
-use crate::syscalls::{SyscallError, SyscallResult, UserPtr};
+use crate::syscalls::{wrap_syscall, SyscallError, SyscallResult, UserPtr};
 use alloc::sync::Arc;
 
 fn map_cred_err(err: &'static str) -> SyscallError {
@@ -24,7 +23,8 @@ fn map_cred_err(err: &'static str) -> SyscallError {
 
 /// `sys_getpid` (SYS_GETPID = 39)
 /// Get process ID.
-pub fn sys_getpid(_frame: &mut SyscallFrame) -> SyscallResult {
+#[wrap_syscall]
+pub fn sys_getpid() -> SyscallResult {
     let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
     let proc = proc_arc.lock();
     Ok(proc.pid.as_u64() as usize)
@@ -32,7 +32,8 @@ pub fn sys_getpid(_frame: &mut SyscallFrame) -> SyscallResult {
 
 /// `sys_getppid` (SYS_GETPPID = 110)
 /// Get parent process ID.
-pub fn sys_getppid(_frame: &mut SyscallFrame) -> SyscallResult {
+#[wrap_syscall]
+pub fn sys_getppid() -> SyscallResult {
     let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
     let proc = proc_arc.lock();
     Ok(proc.ppid.as_u64() as usize)
@@ -40,7 +41,8 @@ pub fn sys_getppid(_frame: &mut SyscallFrame) -> SyscallResult {
 
 /// `sys_getpgrp` (SYS_GETPGRP = 111)
 /// Get process group ID.
-pub fn sys_getpgrp(_frame: &mut SyscallFrame) -> SyscallResult {
+#[wrap_syscall]
+pub fn sys_getpgrp() -> SyscallResult {
     let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
     let proc = proc_arc.lock();
     Ok(proc.pgid.as_u64() as usize)
@@ -48,10 +50,8 @@ pub fn sys_getpgrp(_frame: &mut SyscallFrame) -> SyscallResult {
 
 /// `sys_setpgid` (SYS_SETPGID = 109)
 /// Set process group ID.
-pub fn sys_setpgid(frame: &mut SyscallFrame) -> SyscallResult {
-    let pid_raw = frame.arg1() as i32;
-    let pgid_raw = frame.arg2() as i32;
-
+#[wrap_syscall]
+pub fn sys_setpgid(pid_raw: i32, pgid_raw: i32) -> SyscallResult {
     let target_pid = if pid_raw <= 0 {
         let current_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
         current_arc.lock().pid
@@ -74,7 +74,8 @@ pub fn sys_setpgid(frame: &mut SyscallFrame) -> SyscallResult {
 
 /// `sys_setsid` (SYS_SETSID = 112)
 /// Creates a new session if the calling process is not a process group leader.
-pub fn sys_setsid(_frame: &mut SyscallFrame) -> SyscallResult {
+#[wrap_syscall]
+pub fn sys_setsid() -> SyscallResult {
     let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
     let mut proc = proc_arc.lock();
     proc.pgid = proc.pid;
@@ -86,7 +87,8 @@ pub fn sys_setsid(_frame: &mut SyscallFrame) -> SyscallResult {
 
 /// `sys_getuid` (SYS_GETUID = 102)
 /// Get real user ID.
-pub fn sys_getuid(_frame: &mut SyscallFrame) -> SyscallResult {
+#[wrap_syscall]
+pub fn sys_getuid() -> SyscallResult {
     let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
     let proc = proc_arc.lock();
     Ok(proc.creds.uid as usize)
@@ -94,7 +96,8 @@ pub fn sys_getuid(_frame: &mut SyscallFrame) -> SyscallResult {
 
 /// `sys_getgid` (SYS_GETGID = 104)
 /// Get real group ID.
-pub fn sys_getgid(_frame: &mut SyscallFrame) -> SyscallResult {
+#[wrap_syscall]
+pub fn sys_getgid() -> SyscallResult {
     let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
     let proc = proc_arc.lock();
     Ok(proc.creds.gid as usize)
@@ -103,8 +106,8 @@ pub fn sys_getgid(_frame: &mut SyscallFrame) -> SyscallResult {
 /// `sys_setuid` (SYS_SETUID = 105)
 /// POSIX `setuid`: privileged sets ruid/euid/suid/fsuid, unprivileged may
 /// only switch `euid` between `uid` and `suid`, else `EPERM`.
-pub fn sys_setuid(frame: &mut SyscallFrame) -> SyscallResult {
-    let uid = frame.arg1() as u32;
+#[wrap_syscall]
+pub fn sys_setuid(uid: u32) -> SyscallResult {
     let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
     let mut proc = proc_arc.lock();
     let creds = Arc::make_mut(&mut proc.creds);
@@ -114,8 +117,8 @@ pub fn sys_setuid(frame: &mut SyscallFrame) -> SyscallResult {
 
 /// `sys_setgid` (SYS_SETGID = 106)
 /// POSIX `setgid` mirror of `setuid`.
-pub fn sys_setgid(frame: &mut SyscallFrame) -> SyscallResult {
-    let gid = frame.arg1() as u32;
+#[wrap_syscall]
+pub fn sys_setgid(gid: u32) -> SyscallResult {
     let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
     let mut proc = proc_arc.lock();
     let creds = Arc::make_mut(&mut proc.creds);
@@ -125,7 +128,8 @@ pub fn sys_setgid(frame: &mut SyscallFrame) -> SyscallResult {
 
 /// `sys_geteuid` (SYS_GETEUID = 107)
 /// Get effective user ID.
-pub fn sys_geteuid(_frame: &mut SyscallFrame) -> SyscallResult {
+#[wrap_syscall]
+pub fn sys_geteuid() -> SyscallResult {
     let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
     let proc = proc_arc.lock();
     Ok(proc.creds.euid as usize)
@@ -133,7 +137,8 @@ pub fn sys_geteuid(_frame: &mut SyscallFrame) -> SyscallResult {
 
 /// `sys_getegid` (SYS_GETEGID = 108)
 /// Get effective group ID.
-pub fn sys_getegid(_frame: &mut SyscallFrame) -> SyscallResult {
+#[wrap_syscall]
+pub fn sys_getegid() -> SyscallResult {
     let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
     let proc = proc_arc.lock();
     Ok(proc.creds.egid as usize)
@@ -141,10 +146,8 @@ pub fn sys_getegid(_frame: &mut SyscallFrame) -> SyscallResult {
 
 /// `sys_getgroups` (SYS_GETGROUPS = 115)
 /// Get list of supplementary group IDs (Linux semantics).
-pub fn sys_getgroups(frame: &mut SyscallFrame) -> SyscallResult {
-    let size = frame.arg1() as usize;
-    let list_ptr = UserPtr::<u32>::from_u64(frame.arg2());
-
+#[wrap_syscall]
+pub fn sys_getgroups(size: usize, list_ptr: UserPtr<u32>) -> SyscallResult {
     let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
     let proc = proc_arc.lock();
     let count = proc.creds.supplementary_gids.len();
@@ -174,9 +177,10 @@ pub fn sys_getgroups(frame: &mut SyscallFrame) -> SyscallResult {
 
 /// `sys_setreuid` (SYS_SETREUID = 113)
 /// Set real and/or effective user ID (`-1` means no change).
-pub fn sys_setreuid(frame: &mut SyscallFrame) -> SyscallResult {
-    let ruid = Credentials::opt_id(frame.arg1());
-    let euid = Credentials::opt_id(frame.arg2());
+#[wrap_syscall]
+pub fn sys_setreuid(ruid_raw: u64, euid_raw: u64) -> SyscallResult {
+    let ruid = Credentials::opt_id(ruid_raw);
+    let euid = Credentials::opt_id(euid_raw);
     let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
     let mut proc = proc_arc.lock();
     let creds = Arc::make_mut(&mut proc.creds);
@@ -186,9 +190,10 @@ pub fn sys_setreuid(frame: &mut SyscallFrame) -> SyscallResult {
 
 /// `sys_setregid` (SYS_SETREGID = 114)
 /// Set real and/or effective group ID (`-1` means no change).
-pub fn sys_setregid(frame: &mut SyscallFrame) -> SyscallResult {
-    let rgid = Credentials::opt_id(frame.arg1());
-    let egid = Credentials::opt_id(frame.arg2());
+#[wrap_syscall]
+pub fn sys_setregid(rgid_raw: u64, egid_raw: u64) -> SyscallResult {
+    let rgid = Credentials::opt_id(rgid_raw);
+    let egid = Credentials::opt_id(egid_raw);
     let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
     let mut proc = proc_arc.lock();
     let creds = Arc::make_mut(&mut proc.creds);
@@ -198,10 +203,8 @@ pub fn sys_setregid(frame: &mut SyscallFrame) -> SyscallResult {
 
 /// `sys_setgroups` (SYS_SETGROUPS = 116)
 /// Set supplementary group list (root only).
-pub fn sys_setgroups(frame: &mut SyscallFrame) -> SyscallResult {
-    let size = frame.arg1() as usize;
-    let list_ptr = UserPtr::<u32>::from_u64(frame.arg2());
-
+#[wrap_syscall]
+pub fn sys_setgroups(size: usize, list_ptr: UserPtr<u32>) -> SyscallResult {
     if size > MAX_SUPPLEMENTARY_GROUPS {
         return Err(SyscallError::EINVAL);
     }
@@ -231,10 +234,11 @@ pub fn sys_setgroups(frame: &mut SyscallFrame) -> SyscallResult {
 
 /// `sys_setresuid` (SYS_SETRESUID = 117)
 /// Set real, effective and saved user IDs (`-1` means no change).
-pub fn sys_setresuid(frame: &mut SyscallFrame) -> SyscallResult {
-    let ruid = Credentials::opt_id(frame.arg1());
-    let euid = Credentials::opt_id(frame.arg2());
-    let suid = Credentials::opt_id(frame.arg3());
+#[wrap_syscall]
+pub fn sys_setresuid(ruid_raw: u64, euid_raw: u64, suid_raw: u64) -> SyscallResult {
+    let ruid = Credentials::opt_id(ruid_raw);
+    let euid = Credentials::opt_id(euid_raw);
+    let suid = Credentials::opt_id(suid_raw);
     let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
     let mut proc = proc_arc.lock();
     let creds = Arc::make_mut(&mut proc.creds);
@@ -246,11 +250,12 @@ pub fn sys_setresuid(frame: &mut SyscallFrame) -> SyscallResult {
 
 /// `sys_getresuid` (SYS_GETRESUID = 118)
 /// Get real, effective and saved user IDs.
-pub fn sys_getresuid(frame: &mut SyscallFrame) -> SyscallResult {
-    let ruid_ptr = UserPtr::<u32>::from_u64(frame.arg1());
-    let euid_ptr = UserPtr::<u32>::from_u64(frame.arg2());
-    let suid_ptr = UserPtr::<u32>::from_u64(frame.arg3());
-
+#[wrap_syscall]
+pub fn sys_getresuid(
+    ruid_ptr: UserPtr<u32>,
+    euid_ptr: UserPtr<u32>,
+    suid_ptr: UserPtr<u32>,
+) -> SyscallResult {
     let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
     let proc = proc_arc.lock();
     let (ruid, euid, suid) = (proc.creds.uid, proc.creds.euid, proc.creds.suid);
@@ -270,10 +275,11 @@ pub fn sys_getresuid(frame: &mut SyscallFrame) -> SyscallResult {
 
 /// `sys_setresgid` (SYS_SETRESGID = 119)
 /// Set real, effective and saved group IDs (`-1` means no change).
-pub fn sys_setresgid(frame: &mut SyscallFrame) -> SyscallResult {
-    let rgid = Credentials::opt_id(frame.arg1());
-    let egid = Credentials::opt_id(frame.arg2());
-    let sgid = Credentials::opt_id(frame.arg3());
+#[wrap_syscall]
+pub fn sys_setresgid(rgid_raw: u64, egid_raw: u64, sgid_raw: u64) -> SyscallResult {
+    let rgid = Credentials::opt_id(rgid_raw);
+    let egid = Credentials::opt_id(egid_raw);
+    let sgid = Credentials::opt_id(sgid_raw);
     let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
     let mut proc = proc_arc.lock();
     let creds = Arc::make_mut(&mut proc.creds);
@@ -285,11 +291,12 @@ pub fn sys_setresgid(frame: &mut SyscallFrame) -> SyscallResult {
 
 /// `sys_getresgid` (SYS_GETRESGID = 120)
 /// Get real, effective and saved group IDs.
-pub fn sys_getresgid(frame: &mut SyscallFrame) -> SyscallResult {
-    let rgid_ptr = UserPtr::<u32>::from_u64(frame.arg1());
-    let egid_ptr = UserPtr::<u32>::from_u64(frame.arg2());
-    let sgid_ptr = UserPtr::<u32>::from_u64(frame.arg3());
-
+#[wrap_syscall]
+pub fn sys_getresgid(
+    rgid_ptr: UserPtr<u32>,
+    egid_ptr: UserPtr<u32>,
+    sgid_ptr: UserPtr<u32>,
+) -> SyscallResult {
     let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
     let proc = proc_arc.lock();
     let (rgid, egid, sgid) = (proc.creds.gid, proc.creds.egid, proc.creds.sgid);
@@ -309,8 +316,8 @@ pub fn sys_getresgid(frame: &mut SyscallFrame) -> SyscallResult {
 
 /// `sys_setfsuid` (SYS_SETFSUID = 122)
 /// Set filesystem user ID, returns previous value.
-pub fn sys_setfsuid(frame: &mut SyscallFrame) -> SyscallResult {
-    let uid = frame.arg1() as u32;
+#[wrap_syscall]
+pub fn sys_setfsuid(uid: u32) -> SyscallResult {
     let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
     let mut proc = proc_arc.lock();
     let creds = Arc::make_mut(&mut proc.creds);
@@ -320,8 +327,8 @@ pub fn sys_setfsuid(frame: &mut SyscallFrame) -> SyscallResult {
 
 /// `sys_setfsgid` (SYS_SETFSGID = 123)
 /// Set filesystem group ID, returns previous value.
-pub fn sys_setfsgid(frame: &mut SyscallFrame) -> SyscallResult {
-    let gid = frame.arg1() as u32;
+#[wrap_syscall]
+pub fn sys_setfsgid(gid: u32) -> SyscallResult {
     let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
     let mut proc = proc_arc.lock();
     let creds = Arc::make_mut(&mut proc.creds);
@@ -331,8 +338,8 @@ pub fn sys_setfsgid(frame: &mut SyscallFrame) -> SyscallResult {
 
 /// `sys_getpgid` (SYS_GETPGID = 121)
 /// Get process group ID of specified process (0 means calling process).
-pub fn sys_getpgid(frame: &mut SyscallFrame) -> SyscallResult {
-    let pid_raw = frame.arg1() as i32;
+#[wrap_syscall]
+pub fn sys_getpgid(pid_raw: i32) -> SyscallResult {
     if pid_raw < 0 {
         return Err(SyscallError::EINVAL);
     }
@@ -349,8 +356,8 @@ pub fn sys_getpgid(frame: &mut SyscallFrame) -> SyscallResult {
 
 /// `sys_getsid` (SYS_GETSID = 124)
 /// Get session ID of specified process (0 means calling process).
-pub fn sys_getsid(frame: &mut SyscallFrame) -> SyscallResult {
-    let pid_raw = frame.arg1() as i32;
+#[wrap_syscall]
+pub fn sys_getsid(pid_raw: i32) -> SyscallResult {
     if pid_raw < 0 {
         return Err(SyscallError::EINVAL);
     }
@@ -364,3 +371,4 @@ pub fn sys_getsid(frame: &mut SyscallFrame) -> SyscallResult {
     let proc = target_proc.lock();
     Ok(proc.sid.as_u64() as usize)
 }
+

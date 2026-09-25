@@ -1,11 +1,10 @@
 //! System calls for opening and creating files (`open`, `openat`).
 
 use super::*;
-use crate::arch::syscall::syscall::SyscallFrame;
 use crate::fs::File;
-use crate::fs::vfs::perm::{R_OK, W_OK, X_OK, check_access_stat};
+use crate::fs::vfs::perm::{check_access_stat, R_OK, W_OK, X_OK};
 use crate::fs::vfs::types::InodeType;
-use crate::syscalls::{SyscallError, SyscallResult, UserCStr};
+use crate::syscalls::{wrap_syscall, SyscallError, SyscallResult, UserCStr};
 use alloc::sync::Arc;
 
 /// Parent directory of an absolute path (`/a/b` -> `/a`, `/x` -> `/`).
@@ -77,21 +76,16 @@ pub(crate) fn do_openat(dfd: i32, path: &str, flags: u32) -> SyscallResult {
 
 /// `sys_open` (SYS_OPEN = 2)
 /// Open a file.
-pub fn sys_open(frame: &mut SyscallFrame) -> SyscallResult {
-    let path_ptr = UserCStr::from_u64(frame.arg1());
-    let flags = frame.arg2() as u32;
-
+#[wrap_syscall]
+pub fn sys_open(path_ptr: UserCStr, flags: u32) -> SyscallResult {
     let path = path_ptr.to_string(4096)?;
     do_openat(AT_FDCWD, &path, flags)
 }
 
 /// `sys_openat` (SYS_OPENAT = 257)
 /// Open a file relative to directory descriptor.
-pub fn sys_openat(frame: &mut SyscallFrame) -> SyscallResult {
-    let dfd = frame.arg1() as i32;
-    let path_ptr = UserCStr::from_u64(frame.arg2());
-    let flags = frame.arg3() as u32;
-
+#[wrap_syscall]
+pub fn sys_openat(dfd: i32, path_ptr: UserCStr, flags: u32) -> SyscallResult {
     let path = path_ptr.to_string(4096)?;
     do_openat(dfd, &path, flags)
 }

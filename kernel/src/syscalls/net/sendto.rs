@@ -2,20 +2,19 @@
 
 use super::*;
 use core::mem::size_of;
-use crate::arch::syscall::SyscallFrame;
-use crate::syscalls::{SyscallError, SyscallResult, UserPtr};
-
+use crate::syscalls::{wrap_syscall, SyscallError, SyscallResult, UserPtr};
 
 /// `sys_sendto` (SYS_SENDTO = 44)
 /// Send a message on a socket to a specific destination.
-pub fn sys_sendto(frame: &mut SyscallFrame) -> SyscallResult {
-    let fd = frame.arg1() as i32;
-    let buf_ptr = UserPtr::<u8>::from_u64(frame.arg2());
-    let len = frame.arg3() as usize;
-    let flags = frame.arg4() as i32;
-    let dest_addr_ptr = UserPtr::<SockAddrStorage>::from_u64(frame.arg5());
-    let addrlen = frame.arg6() as usize;
-
+#[wrap_syscall]
+pub fn sys_sendto(
+    fd: i32,
+    buf_ptr: UserPtr<u8>,
+    len: usize,
+    flags: i32,
+    dest_addr_ptr: UserPtr<SockAddrStorage>,
+    addrlen: usize,
+) -> SyscallResult {
     let buf_slice = buf_ptr.as_slice(len).ok_or(SyscallError::EFAULT)?;
     let socket_arc = get_socket(fd)?;
 

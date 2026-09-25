@@ -1,16 +1,12 @@
 //! sys_clock_gettime system call handler.
 
 use super::*;
-use crate::syscalls::{SyscallError, SyscallResult, UserPtr};
-use crate::arch::syscall::syscall::SyscallFrame;
-
+use crate::syscalls::{wrap_syscall, SyscallError, SyscallResult, UserPtr};
 
 /// `sys_clock_gettime` (SYS_CLOCK_GETTIME = 228)
 /// Retrieve time of the specified clock.
-pub fn sys_clock_gettime(frame: &mut SyscallFrame) -> SyscallResult {
-    let clock_id = frame.arg1() as i32;
-    let tp_ptr = UserPtr::<TimeSpec>::from_u64(frame.arg2());
-
+#[wrap_syscall]
+pub fn sys_clock_gettime(clock_id: i32, tp_ptr: UserPtr<TimeSpec>) -> SyscallResult {
     let ts = match clock_id {
         CLOCK_REALTIME | CLOCK_REALTIME_COARSE => {
             let (sec, usec) = crate::drivers::time::cmos_rtc::get_wall_time();

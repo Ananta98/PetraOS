@@ -3,8 +3,7 @@
 //! Handles:
 //! - `sys_sigaltstack` (SYS_SIGALTSTACK = 131)
 
-use crate::arch::syscall::syscall::SyscallFrame;
-use crate::syscalls::{SyscallError, SyscallResult, UserPtr};
+use crate::syscalls::{wrap_syscall, SyscallError, SyscallResult, UserPtr};
 
 pub const SS_ONSTACK: i32 = 1;
 pub const SS_DISABLE: i32 = 2;
@@ -22,10 +21,8 @@ pub struct StackT {
 
 /// `sys_sigaltstack` (SYS_SIGALTSTACK = 131)
 /// Set and/or get signal alternate stack context.
-pub fn sys_sigaltstack(frame: &mut SyscallFrame) -> SyscallResult {
-    let ss_ptr = UserPtr::<StackT>::from_u64(frame.arg1());
-    let oss_ptr = UserPtr::<StackT>::from_u64(frame.arg2());
-
+#[wrap_syscall]
+pub fn sys_sigaltstack(ss_ptr: UserPtr<StackT>, oss_ptr: UserPtr<StackT>) -> SyscallResult {
     // 1. If oss is requested, return current altstack state (default: disabled)
     if !oss_ptr.is_null() {
         let old = StackT {

@@ -4,20 +4,20 @@ use super::types::{
     resolve_target_thread, resolve_target_threads, SchedAttr, SCHED_BATCH, SCHED_DEADLINE,
     SCHED_FIFO, SCHED_IDLE, SCHED_OTHER, SCHED_RR,
 };
-use crate::arch::syscall::SyscallFrame;
 use crate::sched::nice::Nice;
 use crate::sched::policy::{RtPriority, SchedPolicy};
-use crate::syscalls::{SyscallError, SyscallResult, UserPtr};
+use crate::syscalls::{wrap_syscall, SyscallError, SyscallResult, UserPtr};
 
 /// `sys_sched_getattr` (SYS_SCHED_GETATTR = 315)
 ///
 /// Fetches scheduler attributes including policy, nice, and priority.
-pub fn sys_sched_getattr(frame: &mut SyscallFrame) -> SyscallResult {
-    let pid = frame.arg1() as i32;
-    let attr_ptr = UserPtr::<SchedAttr>::from_u64(frame.arg2());
-    let size = frame.arg3() as u32;
-    let flags = frame.arg4() as u32;
-
+#[wrap_syscall]
+pub fn sys_sched_getattr(
+    pid: i32,
+    attr_ptr: UserPtr<SchedAttr>,
+    size: u32,
+    flags: u32,
+) -> SyscallResult {
     if pid < 0 || flags != 0 {
         return Err(SyscallError::EINVAL);
     }
@@ -55,11 +55,12 @@ pub fn sys_sched_getattr(frame: &mut SyscallFrame) -> SyscallResult {
 /// `sys_sched_setattr` (SYS_SCHED_SETATTR = 314)
 ///
 /// Sets scheduler attributes including policy, nice, and priority.
-pub fn sys_sched_setattr(frame: &mut SyscallFrame) -> SyscallResult {
-    let pid = frame.arg1() as i32;
-    let attr_ptr = UserPtr::<SchedAttr>::from_u64(frame.arg2());
-    let flags = frame.arg3() as u32;
-
+#[wrap_syscall]
+pub fn sys_sched_setattr(
+    pid: i32,
+    attr_ptr: UserPtr<SchedAttr>,
+    flags: u32,
+) -> SyscallResult {
     if pid < 0 || flags != 0 {
         return Err(SyscallError::EINVAL);
     }

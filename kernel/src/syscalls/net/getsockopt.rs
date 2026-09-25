@@ -2,20 +2,19 @@
 
 use super::*;
 use core::mem::size_of;
-use crate::arch::syscall::SyscallFrame;
 use crate::net::socket::Socket;
-use crate::syscalls::{SyscallError, SyscallResult, UserPtr};
-
+use crate::syscalls::{wrap_syscall, SyscallError, SyscallResult, UserPtr};
 
 /// `sys_getsockopt` (SYS_GETSOCKOPT = 55)
 /// Get options on sockets.
-pub fn sys_getsockopt(frame: &mut SyscallFrame) -> SyscallResult {
-    let fd = frame.arg1() as i32;
-    let _level = frame.arg2() as i32;
-    let optname = frame.arg3() as i32;
-    let optval_ptr = UserPtr::<i32>::from_u64(frame.arg4());
-    let optlen_ptr = UserPtr::<SockLen>::from_u64(frame.arg5());
-
+#[wrap_syscall]
+pub fn sys_getsockopt(
+    fd: i32,
+    _level: i32,
+    optname: i32,
+    optval_ptr: UserPtr<i32>,
+    optlen_ptr: UserPtr<SockLen>,
+) -> SyscallResult {
     if optval_ptr.is_null() || optlen_ptr.is_null() {
         return Err(SyscallError::EFAULT);
     }

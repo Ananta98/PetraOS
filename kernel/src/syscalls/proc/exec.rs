@@ -1,12 +1,12 @@
 //! Program execution system call (`execve`).
 
-use crate::arch::syscall::syscall::SyscallFrame;
 use crate::mm::vmm::paging::PageTable;
 use crate::proc::process::cmdline::CommandLine;
-use crate::syscalls::{SyscallError, SyscallResult, UserCStr};
+use crate::syscalls::{wrap_syscall, SyscallError, SyscallResult, UserCStr};
 
 /// `sys_execve` (SYS_EXECVE = 59)
 /// Execute program file.
+#[wrap_syscall]
 pub fn sys_execve(frame: &mut SyscallFrame) -> SyscallResult {
     let path_ptr = UserCStr::from_u64(frame.arg1());
     let argv_ptr = frame.arg2() as *const *const u8;

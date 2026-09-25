@@ -1,16 +1,11 @@
 //! sys_shmat system call handler.
 
 use super::*;
-use crate::syscalls::{SyscallError, SyscallResult};
-use crate::arch::syscall::syscall::SyscallFrame;
 use crate::ipc::shm::SHM_MANAGER;
+use crate::syscalls::{wrap_syscall, SyscallError, SyscallResult};
 
-
-pub fn sys_shmat(frame: &mut SyscallFrame) -> SyscallResult {
-    let shmid = frame.arg1() as i32;
-    let shmaddr = frame.arg2();
-    let shmflg = frame.arg3() as i32;
-
+#[wrap_syscall]
+pub fn sys_shmat(shmid: i32, shmaddr: u64, shmflg: i32) -> SyscallResult {
     let (uid, gid) = current_uid_gid();
     let pid = current_pid_u32();
 

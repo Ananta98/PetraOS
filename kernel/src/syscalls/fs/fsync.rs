@@ -1,12 +1,11 @@
 //! System calls for synchronizing file data with storage (`fsync`, `fdatasync`).
 
-use crate::arch::syscall::syscall::SyscallFrame;
-use crate::syscalls::{SyscallError, SyscallResult};
+use crate::syscalls::{wrap_syscall, SyscallError, SyscallResult};
 
 /// `sys_fsync` (SYS_FSYNC = 74)
 /// Synchronize a file's in-core state with storage device.
-pub fn sys_fsync(frame: &mut SyscallFrame) -> SyscallResult {
-    let fd = frame.arg1() as i32;
+#[wrap_syscall]
+pub fn sys_fsync(fd: i32) -> SyscallResult {
     if fd < 0 {
         return Err(SyscallError::EBADF);
     }
@@ -20,8 +19,8 @@ pub fn sys_fsync(frame: &mut SyscallFrame) -> SyscallResult {
 
 /// `sys_fdatasync` (SYS_FDATASYNC = 75)
 /// Synchronize a file's in-core data with storage device.
-pub fn sys_fdatasync(frame: &mut SyscallFrame) -> SyscallResult {
-    let fd = frame.arg1() as i32;
+#[wrap_syscall]
+pub fn sys_fdatasync(fd: i32) -> SyscallResult {
     if fd < 0 {
         return Err(SyscallError::EBADF);
     }

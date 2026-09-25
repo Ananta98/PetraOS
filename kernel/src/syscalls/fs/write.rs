@@ -1,16 +1,12 @@
 //! System calls for writing to file descriptors (`write`, `pwrite64`, `writev`).
 
 use super::*;
-use crate::arch::syscall::syscall::SyscallFrame;
-use crate::syscalls::{SyscallError, SyscallResult, UserPtr};
+use crate::syscalls::{SyscallError, SyscallResult, UserPtr, VirtAddr, wrap_syscall};
 
 /// `sys_write` (SYS_WRITE = 1)
 /// Write to a file descriptor.
-pub fn sys_write(frame: &mut SyscallFrame) -> SyscallResult {
-    let fd = frame.arg1() as i32;
-    let buf = UserPtr::<u8>::from_u64(frame.arg2());
-    let count = frame.arg3() as usize;
-
+#[wrap_syscall]
+pub fn sys_write(fd: i32, buf: UserPtr<u8>, count: usize) -> SyscallResult {
     if fd < 0 {
         return Err(SyscallError::EBADF);
     }
@@ -31,12 +27,8 @@ pub fn sys_write(frame: &mut SyscallFrame) -> SyscallResult {
 
 /// `sys_pwrite64` (SYS_PWRITE64 = 18)
 /// Write to a file descriptor at a specified offset without changing the file position.
-pub fn sys_pwrite64(frame: &mut SyscallFrame) -> SyscallResult {
-    let fd = frame.arg1() as i32;
-    let buf = UserPtr::<u8>::from_u64(frame.arg2());
-    let count = frame.arg3() as usize;
-    let offset = frame.arg4() as usize;
-
+#[wrap_syscall]
+pub fn sys_pwrite64(fd: i32, buf: UserPtr<u8>, count: usize, offset: usize) -> SyscallResult {
     if fd < 0 {
         return Err(SyscallError::EBADF);
     }
@@ -57,11 +49,8 @@ pub fn sys_pwrite64(frame: &mut SyscallFrame) -> SyscallResult {
 
 /// `sys_writev` (SYS_WRITEV = 20)
 /// Write data from multiple buffers (scatter/gather I/O).
-pub fn sys_writev(frame: &mut SyscallFrame) -> SyscallResult {
-    let fd = frame.arg1() as i32;
-    let iov_ptr = UserPtr::<IoVec>::from_u64(frame.arg2());
-    let iovcnt = frame.arg3() as usize;
-
+#[wrap_syscall]
+pub fn sys_writev(fd: i32, iov: VirtAddr, iovcnt: usize) -> SyscallResult {
     if fd < 0 {
         return Err(SyscallError::EBADF);
     }
@@ -71,6 +60,7 @@ pub fn sys_writev(frame: &mut SyscallFrame) -> SyscallResult {
     if iovcnt > 1024 {
         return Err(SyscallError::EFAULT);
     }
+    let iov_ptr = UserPtr::<IoVec>::new(iov);
     let iov_slice = iov_ptr.as_slice(iovcnt).ok_or(SyscallError::EFAULT)?;
 
     let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;

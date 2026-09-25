@@ -1,21 +1,18 @@
 //! sys_semtimedop system call handler.
 
 use super::*;
-use crate::syscalls::{SyscallError, SyscallResult, UserPtr};
-use crate::arch::syscall::syscall::SyscallFrame;
 use crate::clock;
-use crate::ipc::semaphore::{
-    SEMAPHORE_MANAGER, SemError,
-};
+use crate::ipc::semaphore::{SEMAPHORE_MANAGER, SemError};
 use crate::proc::thread::ThreadState;
+use crate::syscalls::{wrap_syscall, SyscallError, SyscallResult, UserPtr};
 
-
-pub fn sys_semtimedop(frame: &mut SyscallFrame) -> SyscallResult {
-    let semid = frame.arg1() as i32;
-    let sops_ptr = frame.arg2();
-    let nsops = frame.arg3() as usize;
-    let timeout_ptr = frame.arg4();
-
+#[wrap_syscall]
+pub fn sys_semtimedop(
+    semid: i32,
+    sops_ptr: u64,
+    nsops: usize,
+    timeout_ptr: u64,
+) -> SyscallResult {
     let ops = read_sembuf_slice(sops_ptr, nsops)?;
     let pid = current_pid_u32();
 

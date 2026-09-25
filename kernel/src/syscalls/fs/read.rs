@@ -1,16 +1,12 @@
 //! System calls for reading from file descriptors (`read`, `pread64`, `readv`).
 
 use super::*;
-use crate::arch::syscall::syscall::SyscallFrame;
-use crate::syscalls::{SyscallError, SyscallResult, UserPtr};
+use crate::syscalls::{wrap_syscall, SyscallError, SyscallResult, UserPtr, VirtAddr};
 
 /// `sys_read` (SYS_READ = 0)
 /// Read from a file descriptor.
-pub fn sys_read(frame: &mut SyscallFrame) -> SyscallResult {
-    let fd = frame.arg1() as i32;
-    let buf = UserPtr::<u8>::from_u64(frame.arg2());
-    let count = frame.arg3() as usize;
-
+#[wrap_syscall]
+pub fn sys_read(fd: i32, buf: UserPtr<u8>, count: usize) -> SyscallResult {
     if fd < 0 {
         return Err(SyscallError::EBADF);
     }
@@ -30,12 +26,8 @@ pub fn sys_read(frame: &mut SyscallFrame) -> SyscallResult {
 
 /// `sys_pread64` (SYS_PREAD64 = 17)
 /// Read from a file descriptor at a specified offset without changing the file position.
-pub fn sys_pread64(frame: &mut SyscallFrame) -> SyscallResult {
-    let fd = frame.arg1() as i32;
-    let buf = UserPtr::<u8>::from_u64(frame.arg2());
-    let count = frame.arg3() as usize;
-    let offset = frame.arg4() as usize;
-
+#[wrap_syscall]
+pub fn sys_pread64(fd: i32, buf: UserPtr<u8>, count: usize, offset: usize) -> SyscallResult {
     if fd < 0 {
         return Err(SyscallError::EBADF);
     }
@@ -55,11 +47,8 @@ pub fn sys_pread64(frame: &mut SyscallFrame) -> SyscallResult {
 
 /// `sys_readv` (SYS_READV = 19)
 /// Read data into multiple buffers (scatter/gather I/O).
-pub fn sys_readv(frame: &mut SyscallFrame) -> SyscallResult {
-    let fd = frame.arg1() as i32;
-    let iov_ptr = UserPtr::<IoVec>::from_u64(frame.arg2());
-    let iovcnt = frame.arg3() as usize;
-
+#[wrap_syscall]
+pub fn sys_readv(fd: i32, iov: VirtAddr, iovcnt: usize) -> SyscallResult {
     if fd < 0 {
         return Err(SyscallError::EBADF);
     }
@@ -69,6 +58,7 @@ pub fn sys_readv(frame: &mut SyscallFrame) -> SyscallResult {
     if iovcnt > 1024 {
         return Err(SyscallError::EFAULT);
     }
+    let iov_ptr = UserPtr::<IoVec>::new(iov);
     let iov_slice = iov_ptr.as_slice(iovcnt).ok_or(SyscallError::EFAULT)?;
 
     let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
@@ -93,3 +83,5 @@ pub fn sys_readv(frame: &mut SyscallFrame) -> SyscallResult {
     }
     Ok(total_read)
 }
+
+

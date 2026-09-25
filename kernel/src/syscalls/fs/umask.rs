@@ -1,14 +1,11 @@
 //! sys_umask system call handler.
 
-use crate::syscalls::{SyscallError, SyscallResult};
-use crate::arch::syscall::syscall::SyscallFrame;
-
+use crate::syscalls::{wrap_syscall, SyscallError, SyscallResult};
 
 /// `sys_umask` (SYS_UMASK = 95)
 /// Set file mode creation mask.
-pub fn sys_umask(frame: &mut SyscallFrame) -> SyscallResult {
-    let mask = frame.arg1() as u32;
-
+#[wrap_syscall]
+pub fn sys_umask(mask: u32) -> SyscallResult {
     let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
     let mut proc = proc_arc.lock();
     let old_mask = proc.umask;

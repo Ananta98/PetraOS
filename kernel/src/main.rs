@@ -1,8 +1,11 @@
 #![no_std]
 #![no_main]
 #![allow(dead_code)]
+#![feature(macro_attr)]
+#![feature(macro_metavar_expr)]
 
 extern crate alloc;
+pub use paste;
 
 #[cfg_attr(target_arch = "x86_64", path = "arch/x86_64/mod.rs")]
 mod arch;

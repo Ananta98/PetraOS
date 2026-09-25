@@ -1,15 +1,12 @@
 //! sys_times system call handler.
 
 use super::*;
-use crate::syscalls::{SyscallError, SyscallResult, UserPtr};
-use crate::arch::syscall::syscall::SyscallFrame;
-
+use crate::syscalls::{wrap_syscall, SyscallError, SyscallResult, UserPtr};
 
 /// `sys_times` (SYS_TIMES = 100)
 /// Returns elapsed system clock ticks since system boot, and fills process CPU timing.
-pub fn sys_times(frame: &mut SyscallFrame) -> SyscallResult {
-    let buf_ptr = UserPtr::<Tms>::from_u64(frame.arg1());
-
+#[wrap_syscall]
+pub fn sys_times(buf_ptr: UserPtr<Tms>) -> SyscallResult {
     // Standard POSIX clock ticks per second (CLK_TCK = 100)
     let elapsed_ns = crate::clock::elapsed_ns();
     let total_ticks = (elapsed_ns / 10_000_000) as i64; // 10ms per tick (100Hz)

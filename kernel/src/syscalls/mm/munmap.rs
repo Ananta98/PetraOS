@@ -1,16 +1,12 @@
 //! sys_munmap system call handler.
 
-use crate::syscalls::{SyscallError, SyscallResult};
-use crate::arch::syscall::syscall::SyscallFrame;
 use crate::mm::VirtAddr;
-
+use crate::syscalls::{wrap_syscall, SyscallError, SyscallResult};
 
 /// `sys_munmap` (SYS_MUNMAP = 11)
 /// Unmap files or devices from memory.
-pub fn sys_munmap(frame: &mut SyscallFrame) -> SyscallResult {
-    let addr = frame.arg1() as u64;
-    let len = frame.arg2() as usize;
-
+#[wrap_syscall]
+pub fn sys_munmap(addr: u64, len: usize) -> SyscallResult {
     if addr == 0 || !VirtAddr::new(addr).is_aligned(4096u64) || len == 0 {
         return Err(SyscallError::EINVAL);
     }

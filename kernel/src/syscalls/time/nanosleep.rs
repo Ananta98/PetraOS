@@ -1,16 +1,12 @@
 //! sys_nanosleep system call handler.
 
 use super::*;
-use crate::syscalls::{SyscallError, SyscallResult, UserPtr};
-use crate::arch::syscall::syscall::SyscallFrame;
-
+use crate::syscalls::{wrap_syscall, SyscallError, SyscallResult, UserPtr};
 
 /// `sys_nanosleep` (SYS_NANOSLEEP = 35)
 /// High-resolution sleep.
-pub fn sys_nanosleep(frame: &mut SyscallFrame) -> SyscallResult {
-    let req_ptr = UserPtr::<TimeSpec>::from_u64(frame.arg1());
-    let rem_ptr = UserPtr::<TimeSpec>::from_u64(frame.arg2());
-
+#[wrap_syscall]
+pub fn sys_nanosleep(req_ptr: UserPtr<TimeSpec>, rem_ptr: UserPtr<TimeSpec>) -> SyscallResult {
     let req = req_ptr.read_unaligned().ok_or(SyscallError::EFAULT)?;
     if req.tv_sec < 0 || req.tv_nsec < 0 || req.tv_nsec >= 1_000_000_000 {
         return Err(SyscallError::EINVAL);

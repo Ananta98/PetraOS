@@ -1,14 +1,12 @@
 //! sys_brk system call handler.
 
-use crate::arch::syscall::syscall::SyscallFrame;
 use crate::mm::{PageTableFlags, VirtAddr, VmAreaKind};
-use crate::syscalls::{SyscallError, SyscallResult};
+use crate::syscalls::{wrap_syscall, SyscallError, SyscallResult};
 
 /// `sys_brk` (SYS_BRK = 12)
 /// Change data segment size (heap break pointer).
-pub fn sys_brk(frame: &mut SyscallFrame) -> SyscallResult {
-    let new_brk = frame.arg1() as u64;
-
+#[wrap_syscall]
+pub fn sys_brk(new_brk: u64) -> SyscallResult {
     let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
     let mut proc = proc_arc.lock();
 

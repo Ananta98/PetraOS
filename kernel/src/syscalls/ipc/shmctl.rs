@@ -1,16 +1,11 @@
 //! sys_shmctl system call handler.
 
 use super::*;
-use crate::syscalls::{SyscallError, SyscallResult, UserPtr};
-use crate::arch::syscall::syscall::SyscallFrame;
-use crate::ipc::shm::{SHM_MANAGER, ShmidDs, ShmInfo};
+use crate::ipc::shm::{SHM_MANAGER, ShmInfo, ShmidDs};
+use crate::syscalls::{wrap_syscall, SyscallError, SyscallResult, UserPtr};
 
-
-pub fn sys_shmctl(frame: &mut SyscallFrame) -> SyscallResult {
-    let shmid = frame.arg1() as i32;
-    let cmd = frame.arg2() as i32;
-    let buf_ptr = frame.arg3();
-
+#[wrap_syscall]
+pub fn sys_shmctl(shmid: i32, cmd: i32, buf_ptr: u64) -> SyscallResult {
     let (uid, gid) = current_uid_gid();
     let cmd_stripped = cmd & !0x100; // Strip IPC_64 flag if present
 

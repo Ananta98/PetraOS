@@ -1,17 +1,16 @@
 //! sys_getpeername system call handler.
 
 use super::*;
-use crate::arch::syscall::SyscallFrame;
-use crate::syscalls::{SyscallError, SyscallResult, UserPtr};
-
+use crate::syscalls::{wrap_syscall, SyscallError, SyscallResult, UserPtr};
 
 /// `sys_getpeername` (SYS_GETPEERNAME = 52)
 /// Get remote peer name / address.
-pub fn sys_getpeername(frame: &mut SyscallFrame) -> SyscallResult {
-    let fd = frame.arg1() as i32;
-    let addr_ptr = UserPtr::<SockAddrStorage>::from_u64(frame.arg2());
-    let addrlen_ptr = UserPtr::<SockLen>::from_u64(frame.arg3());
-
+#[wrap_syscall]
+pub fn sys_getpeername(
+    fd: i32,
+    addr_ptr: UserPtr<SockAddrStorage>,
+    addrlen_ptr: UserPtr<SockLen>,
+) -> SyscallResult {
     if addr_ptr.is_null() || addrlen_ptr.is_null() {
         return Err(SyscallError::EFAULT);
     }

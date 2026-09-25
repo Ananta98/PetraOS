@@ -1,17 +1,12 @@
 //! sys_lseek system call handler.
 
-use crate::syscalls::{SyscallError, SyscallResult};
-use crate::arch::syscall::syscall::SyscallFrame;
 use crate::fs::vfs::types::SeekWhence;
-
+use crate::syscalls::{wrap_syscall, SyscallError, SyscallResult};
 
 /// `sys_lseek` (SYS_LSEEK = 8)
 /// Reposition read/write file offset.
-pub fn sys_lseek(frame: &mut SyscallFrame) -> SyscallResult {
-    let fd = frame.arg1() as i32;
-    let offset = frame.arg2() as i64;
-    let whence_raw = frame.arg3() as i32;
-
+#[wrap_syscall]
+pub fn sys_lseek(fd: i32, offset: i64, whence_raw: i32) -> SyscallResult {
     if fd < 0 {
         return Err(SyscallError::EBADF);
     }

@@ -1,13 +1,11 @@
 //! sys_close system call handler.
 
-use crate::syscalls::{SyscallError, SyscallResult};
-use crate::arch::syscall::syscall::SyscallFrame;
-
+use crate::syscalls::{SyscallError, SyscallResult, wrap_syscall};
 
 /// `sys_close` (SYS_CLOSE = 3)
 /// Close a file descriptor.
-pub fn sys_close(frame: &mut SyscallFrame) -> SyscallResult {
-    let fd = frame.arg1() as i32;
+#[wrap_syscall]
+pub fn sys_close(fd: i32) -> SyscallResult {
     if fd < 0 {
         return Err(SyscallError::EBADF);
     }

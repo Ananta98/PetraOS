@@ -3,8 +3,7 @@
 //! Handles:
 //! - `sys_prctl` (SYS_PRCTL = 157)
 
-use crate::arch::syscall::syscall::SyscallFrame;
-use crate::syscalls::{SyscallError, SyscallResult, UserPtr};
+use crate::syscalls::{wrap_syscall, SyscallError, SyscallResult, UserPtr};
 
 pub const PR_SET_PDEATHSIG: i32 = 1;
 pub const PR_GET_PDEATHSIG: i32 = 2;
@@ -15,10 +14,8 @@ pub const PR_GET_NAME: i32 = 16;
 
 /// `sys_prctl` (SYS_PRCTL = 157)
 /// Operations on a process or thread.
-pub fn sys_prctl(frame: &mut SyscallFrame) -> SyscallResult {
-    let option = frame.arg1() as i32;
-    let arg2 = frame.arg2();
-
+#[wrap_syscall]
+pub fn sys_prctl(option: i32, arg2: u64) -> SyscallResult {
     match option {
         PR_SET_NAME => {
             let name_ptr = UserPtr::<u8>::from_u64(arg2);

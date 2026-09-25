@@ -2,21 +2,16 @@
 
 use super::*;
 use alloc::sync::Arc;
-use crate::arch::syscall::SyscallFrame;
 use crate::fs::create_socket_file;
 use crate::fs::fd::FD_CLOEXEC;
 use crate::net::socket::Socket;
 use crate::sync::Mutex;
-use crate::syscalls::{SyscallError, SyscallResult};
-
+use crate::syscalls::{wrap_syscall, SyscallError, SyscallResult};
 
 /// `sys_socket` (SYS_SOCKET = 41)
 /// Create an endpoint for communication.
-pub fn sys_socket(frame: &mut SyscallFrame) -> SyscallResult {
-    let domain = frame.arg1() as i32;
-    let socket_type = frame.arg2() as i32;
-    let protocol = frame.arg3() as i32;
-
+#[wrap_syscall]
+pub fn sys_socket(domain: i32, socket_type: i32, protocol: i32) -> SyscallResult {
     let socket = Socket::new(domain, socket_type, protocol)?;
     let socket_arc = Arc::new(Mutex::new(socket));
 

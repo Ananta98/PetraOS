@@ -2,17 +2,16 @@
 
 use super::*;
 use core::mem::size_of;
-use crate::arch::syscall::SyscallFrame;
-use crate::syscalls::{SyscallError, SyscallResult, UserPtr};
-
+use crate::syscalls::{wrap_syscall, SyscallError, SyscallResult, UserPtr};
 
 /// `sys_connect` (SYS_CONNECT = 42)
 /// Initiate a connection on a socket.
-pub fn sys_connect(frame: &mut SyscallFrame) -> SyscallResult {
-    let fd = frame.arg1() as i32;
-    let addr_ptr = UserPtr::<SockAddrStorage>::from_u64(frame.arg2());
-    let addrlen = frame.arg3() as usize;
-
+#[wrap_syscall]
+pub fn sys_connect(
+    fd: i32,
+    addr_ptr: UserPtr<SockAddrStorage>,
+    addrlen: usize,
+) -> SyscallResult {
     if addr_ptr.is_null() || addrlen < size_of::<u16>() {
         return Err(SyscallError::EINVAL);
     }

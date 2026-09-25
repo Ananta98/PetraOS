@@ -1,8 +1,7 @@
 //! System calls for reading directory entries (`getdents64`).
 
-use crate::arch::syscall::syscall::SyscallFrame;
 use crate::fs::vfs::types::InodeType;
-use crate::syscalls::{SyscallError, SyscallResult, UserPtr};
+use crate::syscalls::{wrap_syscall, SyscallError, SyscallResult, UserPtr};
 use alloc::string::String;
 use alloc::vec::Vec;
 
@@ -17,11 +16,8 @@ pub const DT_SOCK: u8 = 12;
 
 /// `sys_getdents64` (SYS_GETDENTS64 = 217)
 /// Get directory entries in 64-bit Linux dirent format.
-pub fn sys_getdents64(frame: &mut SyscallFrame) -> SyscallResult {
-    let fd = frame.arg1() as i32;
-    let dirp = UserPtr::<u8>::from_u64(frame.arg2());
-    let count = frame.arg3() as usize;
-
+#[wrap_syscall]
+pub fn sys_getdents64(fd: i32, dirp: UserPtr<u8>, count: usize) -> SyscallResult {
     if fd < 0 {
         return Err(SyscallError::EBADF);
     }

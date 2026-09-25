@@ -1,17 +1,17 @@
 //! Process wait system call (`wait4`).
 
 use super::*;
-use crate::arch::syscall::syscall::SyscallFrame;
-use crate::syscalls::{SyscallError, SyscallResult, UserPtr};
+use crate::syscalls::{wrap_syscall, SyscallError, SyscallResult, UserPtr};
 
 /// `sys_wait4` (SYS_WAIT4 = 61)
 /// Wait for process state change.
-pub fn sys_wait4(frame: &mut SyscallFrame) -> SyscallResult {
-    let pid_raw = frame.arg1() as i32;
-    let wstatus = UserPtr::<i32>::from_u64(frame.arg2());
-    let options = frame.arg3() as i32;
-    let rusage_ptr = UserPtr::<RUsage>::from_u64(frame.arg4());
-
+#[wrap_syscall]
+pub fn sys_wait4(
+    pid_raw: i32,
+    wstatus: UserPtr<i32>,
+    options: i32,
+    rusage_ptr: UserPtr<RUsage>,
+) -> SyscallResult {
     let wnohang = (options & 1) != 0;
     let wuntraced = (options & 2) != 0;
 

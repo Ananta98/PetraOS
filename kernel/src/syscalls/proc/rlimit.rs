@@ -1,8 +1,7 @@
 //! Resource limit and resource usage system calls (`getrlimit`, `setrlimit`, `prlimit64`, `getrusage`).
 
-use crate::arch::syscall::syscall::SyscallFrame;
 use crate::syscalls::time::TimeVal;
-use crate::syscalls::{SyscallError, SyscallResult, UserPtr};
+use crate::syscalls::{wrap_syscall, SyscallError, SyscallResult, UserPtr};
 
 /// Linux 64-bit resource limit structure.
 #[repr(C)]
@@ -62,10 +61,8 @@ pub type LinuxRusage = RUsage;
 
 /// `sys_getrlimit` (SYS_GETRLIMIT = 97)
 /// Get resource limits.
-pub fn sys_getrlimit(frame: &mut SyscallFrame) -> SyscallResult {
-    let resource = frame.arg1() as i32;
-    let rlim_ptr = UserPtr::<RLimit64>::from_u64(frame.arg2());
-
+#[wrap_syscall]
+pub fn sys_getrlimit(resource: i32, rlim_ptr: UserPtr<RLimit64>) -> SyscallResult {
     let limit = get_default_rlimit(resource);
     rlim_ptr.write(limit).ok_or(SyscallError::EFAULT)?;
     Ok(0)
@@ -73,10 +70,8 @@ pub fn sys_getrlimit(frame: &mut SyscallFrame) -> SyscallResult {
 
 /// `sys_setrlimit` (SYS_SETRLIMIT = 160)
 /// Set resource limits.
-pub fn sys_setrlimit(frame: &mut SyscallFrame) -> SyscallResult {
-    let _resource = frame.arg1() as i32;
-    let rlim_ptr = UserPtr::<RLimit64>::from_u64(frame.arg2());
-
+#[wrap_syscall]
+pub fn sys_setrlimit(_resource: i32, rlim_ptr: UserPtr<RLimit64>) -> SyscallResult {
     if !rlim_ptr.is_valid() {
         return Err(SyscallError::EFAULT);
     }
@@ -85,12 +80,13 @@ pub fn sys_setrlimit(frame: &mut SyscallFrame) -> SyscallResult {
 
 /// `sys_prlimit64` (SYS_PRLIMIT64 = 302)
 /// Get/set resource limits of an arbitrary process.
-pub fn sys_prlimit64(frame: &mut SyscallFrame) -> SyscallResult {
-    let _pid = frame.arg1() as i32;
-    let resource = frame.arg2() as i32;
-    let new_limit_ptr = UserPtr::<RLimit64>::from_u64(frame.arg3());
-    let old_limit_ptr = UserPtr::<RLimit64>::from_u64(frame.arg4());
-
+#[wrap_syscall]
+pub fn sys_prlimit64(
+    _pid: i32,
+    resource: i32,
+    new_limit_ptr: UserPtr<RLimit64>,
+    old_limit_ptr: UserPtr<RLimit64>,
+) -> SyscallResult {
     if !new_limit_ptr.is_null() && !new_limit_ptr.is_valid() {
         return Err(SyscallError::EFAULT);
     }
@@ -105,10 +101,8 @@ pub fn sys_prlimit64(frame: &mut SyscallFrame) -> SyscallResult {
 
 /// `sys_getrusage` (SYS_GETRUSAGE = 98)
 /// Return resource usage measures for self, children, or thread.
-pub fn sys_getrusage(frame: &mut SyscallFrame) -> SyscallResult {
-    let who = frame.arg1() as i32;
-    let rusage_ptr = UserPtr::<RUsage>::from_u64(frame.arg2());
-
+#[wrap_syscall]
+pub fn sys_getrusage(who: i32, rusage_ptr: UserPtr<RUsage>) -> SyscallResult {
     if who != 0 && who != -1 && who != 1 {
         // RUSAGE_SELF = 0, RUSAGE_CHILDREN = -1, RUSAGE_THREAD = 1
         return Err(SyscallError::EINVAL);
@@ -118,3 +112,4 @@ pub fn sys_getrusage(frame: &mut SyscallFrame) -> SyscallResult {
     rusage_ptr.write(rusage).ok_or(SyscallError::EFAULT)?;
     Ok(0)
 }
+

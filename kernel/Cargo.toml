@@ -15,6 +15,7 @@ bitflags = "2.4"
 flanterm = "0.0.2"
 smoltcp = { version = "0.14.0", default-features = false, features = ["alloc", "log", "medium-ethernet", "proto-ipv4", "proto-ipv6", "socket-tcp", "socket-udp", "socket-icmp", "socket-raw", "socket-dhcpv4", "proto-dhcpv4", "socket-dns", "proto-dns"] }
 acpi = "6.1.1"
+paste = "1.0"
 
 [profile.dev]
 panic = "abort"

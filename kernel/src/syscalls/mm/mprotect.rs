@@ -1,15 +1,12 @@
 //! sys_mprotect system call handler.
-use crate::arch::syscall::syscall::SyscallFrame;
+
 use crate::mm::{PageTableFlags, VirtAddr};
-use crate::syscalls::{SyscallError, SyscallResult};
+use crate::syscalls::{wrap_syscall, SyscallError, SyscallResult};
 
 /// `sys_mprotect` (SYS_MPROTECT = 10)
 /// Set protection on a region of memory.
-pub fn sys_mprotect(frame: &mut SyscallFrame) -> SyscallResult {
-    let addr = frame.arg1() as u64;
-    let len = frame.arg2() as usize;
-    let prot = frame.arg3() as i32;
-
+#[wrap_syscall]
+pub fn sys_mprotect(addr: u64, len: usize, prot: i32) -> SyscallResult {
     if addr == 0 || !VirtAddr::new(addr).is_aligned(4096u64) {
         return Err(SyscallError::EINVAL);
     }

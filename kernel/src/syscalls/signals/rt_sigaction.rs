@@ -1,17 +1,16 @@
 //! sys_rt_sigaction system call handler.
 
-use crate::syscalls::{SyscallError, SyscallResult, UserPtr};
-use crate::arch::syscall::syscall::SyscallFrame;
 use crate::ipc::signal::{is_uncatchable, SigAction};
-
+use crate::syscalls::{wrap_syscall, SyscallError, SyscallResult, UserPtr};
 
 /// `sys_rt_sigaction` (SYS_RT_SIGACTION = 13)
 /// Examine and change a signal action.
-pub fn sys_rt_sigaction(frame: &mut SyscallFrame) -> SyscallResult {
-    let sig = frame.arg1() as u8;
-    let act = UserPtr::<SigAction>::from_u64(frame.arg2());
-    let oact = UserPtr::<SigAction>::from_u64(frame.arg3());
-
+#[wrap_syscall]
+pub fn sys_rt_sigaction(
+    sig: u8,
+    act: UserPtr<SigAction>,
+    oact: UserPtr<SigAction>,
+) -> SyscallResult {
     if sig == 0 || sig > 64 {
         return Err(SyscallError::EINVAL);
     }

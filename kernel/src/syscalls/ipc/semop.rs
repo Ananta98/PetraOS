@@ -1,19 +1,12 @@
 //! sys_semop system call handler.
 
 use super::*;
-use crate::syscalls::{SyscallError, SyscallResult};
-use crate::arch::syscall::syscall::SyscallFrame;
-use crate::ipc::semaphore::{
-    SEMAPHORE_MANAGER, SemError, SemopResult,
-};
+use crate::ipc::semaphore::{SEMAPHORE_MANAGER, SemError, SemopResult};
 use crate::proc::thread::ThreadState;
+use crate::syscalls::{wrap_syscall, SyscallError, SyscallResult};
 
-
-pub fn sys_semop(frame: &mut SyscallFrame) -> SyscallResult {
-    let semid = frame.arg1() as i32;
-    let sops_ptr = frame.arg2();
-    let nsops = frame.arg3() as usize;
-
+#[wrap_syscall]
+pub fn sys_semop(semid: i32, sops_ptr: u64, nsops: usize) -> SyscallResult {
     let ops = read_sembuf_slice(sops_ptr, nsops)?;
     let pid = current_pid_u32();
 

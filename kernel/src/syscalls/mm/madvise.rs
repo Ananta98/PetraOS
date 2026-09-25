@@ -3,17 +3,13 @@
 //! Handles:
 //! - `sys_madvise` (SYS_MADVISE = 28)
 
-use crate::arch::syscall::syscall::SyscallFrame;
 use crate::mm::{AddrSpaceError, VirtAddr};
-use crate::syscalls::{SyscallError, SyscallResult, USER_SPACE_MAX_ADDR};
+use crate::syscalls::{wrap_syscall, SyscallError, SyscallResult, USER_SPACE_MAX_ADDR};
 
 /// `sys_madvise` (SYS_MADVISE = 28)
 /// Give advice about use of memory.
-pub fn sys_madvise(frame: &mut SyscallFrame) -> SyscallResult {
-    let addr = frame.arg1() as u64;
-    let len = frame.arg2() as usize;
-    let advice = frame.arg3() as i32;
-
+#[wrap_syscall]
+pub fn sys_madvise(addr: u64, len: usize, advice: i32) -> SyscallResult {
     // Address must be page-aligned in Linux madvise
     if (addr & 0xFFF) != 0 {
         return Err(SyscallError::EINVAL);

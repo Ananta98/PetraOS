@@ -1,17 +1,16 @@
 //! sys_rt_sigprocmask system call handler.
 
-use crate::syscalls::{SyscallError, SyscallResult, UserPtr};
-use crate::arch::syscall::syscall::SyscallFrame;
 use crate::ipc::signal::SigSet;
-
+use crate::syscalls::{wrap_syscall, SyscallError, SyscallResult, UserPtr};
 
 /// `sys_rt_sigprocmask` (SYS_RT_SIGPROCMASK = 14)
 /// Examine and change blocked signals.
-pub fn sys_rt_sigprocmask(frame: &mut SyscallFrame) -> SyscallResult {
-    let how = frame.arg1() as i32;
-    let set_ptr = UserPtr::<SigSet>::from_u64(frame.arg2());
-    let oset_ptr = UserPtr::<SigSet>::from_u64(frame.arg3());
-
+#[wrap_syscall]
+pub fn sys_rt_sigprocmask(
+    how: i32,
+    set_ptr: UserPtr<SigSet>,
+    oset_ptr: UserPtr<SigSet>,
+) -> SyscallResult {
     let thread_arc = crate::proc::current_thread().ok_or(SyscallError::ESRCH)?;
     let mut thread = thread_arc.lock();
 

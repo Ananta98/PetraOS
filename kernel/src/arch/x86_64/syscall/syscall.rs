@@ -57,6 +57,19 @@ impl SyscallFrame {
         self.r9
     }
 
+    #[inline(always)]
+    pub fn nth_arg(&self, idx: usize) -> u64 {
+        match idx {
+            0 => self.rdi,
+            1 => self.rsi,
+            2 => self.rdx,
+            3 => self.r10,
+            4 => self.r8,
+            5 => self.r9,
+            _ => 0,
+        }
+    }
+
     pub fn set_return_value(&mut self, val: u64) {
         self.rax = val;
     }

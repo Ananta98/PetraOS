@@ -1,17 +1,17 @@
 //! System calls for CPU affinity inspection and assignment.
 
 use super::types::{resolve_target_thread, resolve_target_threads};
-use crate::arch::syscall::SyscallFrame;
-use crate::syscalls::{SyscallError, SyscallResult, UserPtr};
+use crate::syscalls::{wrap_syscall, SyscallError, SyscallResult, UserPtr};
 
 /// `sys_sched_getaffinity` (SYS_SCHED_GETAFFINITY = 204)
 ///
 /// Retrieves the CPU affinity mask of a process / thread.
-pub fn sys_sched_getaffinity(frame: &mut SyscallFrame) -> SyscallResult {
-    let pid = frame.arg1() as i32;
-    let cpusetsize = frame.arg2() as usize;
-    let mask_ptr = UserPtr::<u8>::from_u64(frame.arg3());
-
+#[wrap_syscall]
+pub fn sys_sched_getaffinity(
+    pid: i32,
+    cpusetsize: usize,
+    mask_ptr: UserPtr<u8>,
+) -> SyscallResult {
     if pid < 0 {
         return Err(SyscallError::EINVAL);
     }
@@ -43,11 +43,12 @@ pub fn sys_sched_getaffinity(frame: &mut SyscallFrame) -> SyscallResult {
 /// `sys_sched_setaffinity` (SYS_SCHED_SETAFFINITY = 203)
 ///
 /// Sets the CPU affinity mask of a process / thread.
-pub fn sys_sched_setaffinity(frame: &mut SyscallFrame) -> SyscallResult {
-    let pid = frame.arg1() as i32;
-    let cpusetsize = frame.arg2() as usize;
-    let mask_ptr = UserPtr::<u8>::from_u64(frame.arg3());
-
+#[wrap_syscall]
+pub fn sys_sched_setaffinity(
+    pid: i32,
+    cpusetsize: usize,
+    mask_ptr: UserPtr<u8>,
+) -> SyscallResult {
     if pid < 0 || cpusetsize == 0 {
         return Err(SyscallError::EINVAL);
     }

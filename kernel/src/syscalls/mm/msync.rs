@@ -3,17 +3,13 @@
 //! Handles:
 //! - `sys_msync` (SYS_MSYNC = 26)
 
-use crate::arch::syscall::syscall::SyscallFrame;
 use crate::mm::{AddrSpaceError, VirtAddr};
-use crate::syscalls::{SyscallError, SyscallResult, USER_SPACE_MAX_ADDR};
+use crate::syscalls::{wrap_syscall, SyscallError, SyscallResult, USER_SPACE_MAX_ADDR};
 
 /// `sys_msync` (SYS_MSYNC = 26)
 /// Synchronize a file with a memory map.
-pub fn sys_msync(frame: &mut SyscallFrame) -> SyscallResult {
-    let addr = frame.arg1() as u64;
-    let len = frame.arg2() as usize;
-    let flags = frame.arg3() as i32;
-
+#[wrap_syscall]
+pub fn sys_msync(addr: u64, len: usize, flags: i32) -> SyscallResult {
     if (addr & 0xFFF) != 0 {
         return Err(SyscallError::EINVAL);
     }

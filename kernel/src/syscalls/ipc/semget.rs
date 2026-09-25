@@ -1,16 +1,11 @@
 //! sys_semget system call handler.
 
 use super::*;
-use crate::syscalls::SyscallResult;
-use crate::arch::syscall::syscall::SyscallFrame;
 use crate::ipc::semaphore::SEMAPHORE_MANAGER;
+use crate::syscalls::{wrap_syscall, SyscallResult};
 
-
-pub fn sys_semget(frame: &mut SyscallFrame) -> SyscallResult {
-    let key = frame.arg1() as i32;
-    let nsems = frame.arg2() as i32;
-    let semflg = frame.arg3() as i32;
-
+#[wrap_syscall]
+pub fn sys_semget(key: i32, nsems: i32, semflg: i32) -> SyscallResult {
     let (uid, gid) = current_uid_gid();
 
     let mut mgr = SEMAPHORE_MANAGER.lock();

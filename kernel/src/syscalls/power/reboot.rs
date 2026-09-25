@@ -3,8 +3,7 @@
 //! Provides Linux-compatible `reboot(2)` handling including poweroff,
 //! restart, halt, and CAD (Ctrl-Alt-Del) keystroke behavior configuration.
 
-use crate::arch::syscall::SyscallFrame;
-use crate::syscalls::{SyscallError, SyscallResult};
+use crate::syscalls::{wrap_syscall, SyscallError, SyscallResult};
 use core::sync::atomic::{AtomicBool, Ordering};
 
 // ── Linux Reboot Magic Numbers ──────────────────────────────────────────────
@@ -56,11 +55,8 @@ pub fn is_cad_enabled() -> bool {
 ///
 /// Linux signature:
 /// `int reboot(int magic, int magic2, int cmd, void *arg);`
-pub fn sys_reboot(frame: &mut SyscallFrame) -> SyscallResult {
-    let magic1 = frame.arg1() as u32;
-    let magic2 = frame.arg2() as u32;
-    let cmd = frame.arg3() as u32;
-
+#[wrap_syscall]
+pub fn sys_reboot(magic1: u32, magic2: u32, cmd: u32, _arg: u64) -> SyscallResult {
     // 1. Permission Check: Must be root / superuser (euid == 0).
     let proc_arc = crate::proc::current_process().ok_or(SyscallError::ESRCH)?;
     let is_privileged = {
