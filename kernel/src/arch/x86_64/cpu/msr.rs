@@ -65,14 +65,36 @@ pub fn write_fs_base(base: u64) {
     unsafe { wrmsr(IA32_FS_BASE, base) }
 }
 
-/// Read the current GS base address.
+/// Read the current active GS base address (`IA32_GS_BASE`).
+///
+/// Note: In kernel mode (after `swapgs`), this points to the per-CPU `CpuLocal` structure.
 #[inline(always)]
 pub fn read_gs_base() -> u64 {
     unsafe { rdmsr(IA32_GS_BASE) }
 }
 
-/// Write the current GS base address.
+/// Write the current active GS base address (`IA32_GS_BASE`).
+///
+/// Note: In kernel mode (after `swapgs`), this overwrites the per-CPU `CpuLocal` structure.
 #[inline(always)]
 pub fn write_gs_base(base: u64) {
     unsafe { wrmsr(IA32_GS_BASE, base) }
 }
+
+/// Read the kernel GS base address (`IA32_KERNEL_GS_BASE`).
+///
+/// In kernel mode (after `swapgs`), this contains the user-space GS base.
+#[inline(always)]
+pub fn read_kernel_gs_base() -> u64 {
+    unsafe { rdmsr(IA32_KERNEL_GS_BASE) }
+}
+
+/// Write the kernel GS base address (`IA32_KERNEL_GS_BASE`).
+///
+/// In kernel mode (after `swapgs`), this sets the user-space GS base that will be restored
+/// to `IA32_GS_BASE` when returning to user space via `swapgs`.
+#[inline(always)]
+pub fn write_kernel_gs_base(base: u64) {
+    unsafe { wrmsr(IA32_KERNEL_GS_BASE, base) }
+}
+
