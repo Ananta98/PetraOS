@@ -2,7 +2,7 @@
 //!
 //! Configures architecture-specific thread state (FS/GS base registers for TLS/TCB).
 
-use crate::syscalls::{wrap_syscall, SyscallError, SyscallResult, UserPtr, USER_SPACE_MAX_ADDR};
+use crate::syscalls::{SyscallError, SyscallResult, USER_SPACE_MAX_ADDR, UserPtr, wrap_syscall};
 
 pub const ARCH_SET_GS: u64 = 0x1001;
 pub const ARCH_SET_FS: u64 = 0x1002;
@@ -35,6 +35,10 @@ pub fn sys_arch_prctl(code: u64, addr: u64) -> SyscallResult {
         }
         ARCH_GET_FS => {
             log::trace!("sys_arch_prctl: ARCH_GET_FS to {:#x}", addr);
+            // Validate address: must be non-zero and within user space limits.
+            if addr == 0 || addr > USER_SPACE_MAX_ADDR {
+                return Err(SyscallError::EFAULT);
+            }
             if addr % (core::mem::align_of::<u64>() as u64) != 0 {
                 return Err(SyscallError::EFAULT);
             }
@@ -60,6 +64,10 @@ pub fn sys_arch_prctl(code: u64, addr: u64) -> SyscallResult {
         }
         ARCH_GET_GS => {
             log::trace!("sys_arch_prctl: ARCH_GET_GS to {:#x}", addr);
+            // Validate address: must be non-zero and within user space limits.
+            if addr == 0 || addr > USER_SPACE_MAX_ADDR {
+                return Err(SyscallError::EFAULT);
+            }
             if addr % (core::mem::align_of::<u64>() as u64) != 0 {
                 return Err(SyscallError::EFAULT);
             }

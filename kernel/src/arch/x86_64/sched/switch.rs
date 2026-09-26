@@ -70,6 +70,7 @@ pub unsafe fn arch_switch_context(
     next_cr3: u64,
     next_kstack_top: u64,
     next_fs_base: u64,
+    next_gs_base: u64,
 ) {
     // 1. Switch virtual memory address space if needed
     if next_cr3 != 0 {
@@ -84,6 +85,8 @@ pub unsafe fn arch_switch_context(
 
     // 2. Restore TLS base register for the incoming thread
     msr::write_fs_base(next_fs_base);
+    // In kernel mode, IA32_KERNEL_GS_BASE holds the user-space GS base register.
+    msr::write_kernel_gs_base(next_gs_base);
 
     // 3. Update TSS RSP0 for Ring 3 transitions
     if next_kstack_top != 0 {

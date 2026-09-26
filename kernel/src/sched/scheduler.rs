@@ -123,13 +123,14 @@ impl Scheduler {
 
             (prev_thread, Some(next_thread)) => {
                 // Extract target register state for next thread.
-                let (next_rsp, next_cr3, next_kstack_top, next_fs_base) = {
+                let (next_rsp, next_cr3, next_kstack_top, next_fs_base, next_gs_base) = {
                     let n = next_thread.lock();
                     (
                         n.context.rsp as u64,
                         n.context.cr3 as u64,
                         n.kernel_stack_top(),
                         n.context.fs_base,
+                        n.context.gs_base,
                     )
                 };
 
@@ -138,6 +139,7 @@ impl Scheduler {
                     Some(p_arc) => {
                         let mut p = p_arc.lock();
                         p.context.fs_base = msr::read_fs_base();
+                        p.context.gs_base = msr::read_kernel_gs_base();
                         &mut p.context.rsp as *mut usize as *mut u64
                     }
                     None => core::ptr::null_mut(),
@@ -151,6 +153,7 @@ impl Scheduler {
                         next_cr3,
                         next_kstack_top,
                         next_fs_base,
+                        next_gs_base,
                     );
                 }
 
