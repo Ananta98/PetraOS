@@ -40,7 +40,7 @@ pub fn sys_rt_sigpending(frame: &mut SyscallFrame) -> SyscallResult {
     let set_ptr = UserPtr::<SigSet>::from_u64(frame.arg1());
     let sigsetsize = frame.arg2() as usize;
 
-    if sigsetsize != core::mem::size_of::<SigSet>() {
+    if sigsetsize < core::mem::size_of::<SigSet>() || sigsetsize > 1024 {
         return Err(SyscallError::EINVAL);
     }
     if set_ptr.is_null() {
@@ -56,6 +56,14 @@ pub fn sys_rt_sigpending(frame: &mut SyscallFrame) -> SyscallResult {
     drop(proc);
 
     set_ptr.write(pending).ok_or(SyscallError::EFAULT)?;
+
+    if sigsetsize > core::mem::size_of::<SigSet>() {
+        let extra_len = sigsetsize - core::mem::size_of::<SigSet>();
+        let extra_ptr = UserPtr::<u8>::from_u64(frame.arg1() + core::mem::size_of::<SigSet>() as u64);
+        let slice = extra_ptr.as_slice_mut(extra_len).ok_or(SyscallError::EFAULT)?;
+        slice.fill(0);
+    }
+
     Ok(0)
 }
 
@@ -65,7 +73,7 @@ pub fn sys_rt_sigsuspend(frame: &mut SyscallFrame) -> SyscallResult {
     let mask_ptr = UserPtr::<SigSet>::from_u64(frame.arg1());
     let sigsetsize = frame.arg2() as usize;
 
-    if sigsetsize != core::mem::size_of::<SigSet>() {
+    if sigsetsize < core::mem::size_of::<SigSet>() || sigsetsize > 1024 {
         return Err(SyscallError::EINVAL);
     }
     let new_mask = if !mask_ptr.is_null() {
