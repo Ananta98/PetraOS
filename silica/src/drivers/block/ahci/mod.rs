@@ -19,7 +19,6 @@ use self::{
 use crate::{
     api::errno::{Errno, Result},
     drivers::{
-        BlockDevice,
         block::register_block_device,
         bus::pci::{self, PciDevice, PciDeviceId, PciDriver, pci_register_driver},
     },
@@ -100,31 +99,6 @@ pub fn probe_controller(dev: &PciDevice) -> Result<Arc<AhciController>> {
 
                 match AhciPort::new(port_no, mmio.clone(), name.clone()) {
                     Ok(port) => {
-                        // Test write and read to verify AHCI detection and I/O correctness
-                        let mut test_write = alloc::vec![0xAAu8; 512];
-                        test_write[0..8].copy_from_slice(b"SILICA_S");
-                        match port.write_blocks(0, &test_write) {
-                            Ok(written) => {
-                                ostd::info!("AHCI: Self-test write 512 bytes to LBA 0 ok ({} bytes written)", written);
-                                let mut test_read = alloc::vec![0u8; 512];
-                                match port.read_blocks(0, &mut test_read) {
-                                    Ok(read) => {
-                                        if test_read[0..8] == b"SILICA_S"[..] {
-                                            ostd::info!("AHCI: Self-test read 512 bytes verified successfully! (magic {:?})", &test_read[0..8]);
-                                        } else {
-                                            ostd::error!("AHCI: Self-test read data mismatch: {:?}", &test_read[0..16]);
-                                        }
-                                    }
-                                    Err(e) => {
-                                        ostd::error!("AHCI: Self-test read failed: {:?}", e);
-                                    }
-                                }
-                            }
-                            Err(e) => {
-                                ostd::error!("AHCI: Self-test write failed: {:?}", e);
-                            }
-                        }
-
                         let port_arc = Arc::new(port);
                         register_block_device(&name, Arc::clone(&port_arc) as _);
                         ports.push(port_arc);
@@ -135,10 +109,16 @@ pub fn probe_controller(dev: &PciDevice) -> Result<Arc<AhciController>> {
                 }
             }
             AhciDeviceType::Satapi => {
-                ostd::info!("AHCI: Port {}: SATAPI optical drive detected (skipping)", port_no);
+                ostd::info!(
+                    "AHCI: Port {}: SATAPI optical drive detected (skipping)",
+                    port_no
+                );
             }
             AhciDeviceType::Semb => {
-                ostd::info!("AHCI: Port {}: SEMB enclosure management bridge detected", port_no);
+                ostd::info!(
+                    "AHCI: Port {}: SEMB enclosure management bridge detected",
+                    port_no
+                );
             }
             AhciDeviceType::PortMultiplier => {
                 ostd::info!("AHCI: Port {}: Port multiplier detected", port_no);

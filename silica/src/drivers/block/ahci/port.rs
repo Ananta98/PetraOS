@@ -10,11 +10,7 @@ use spin::Mutex;
 
 use ostd::{
     io::IoMem,
-    mm::{
-        HasPaddr, VmIoOnce, VmReader, VmWriter,
-        dma::DmaCoherent,
-        io::util::HasVmReaderWriter,
-    },
+    mm::{HasPaddr, VmIoOnce, VmReader, VmWriter, dma::DmaCoherent, io::util::HasVmReaderWriter},
 };
 
 use super::{
@@ -37,12 +33,6 @@ pub enum AhciDeviceType {
     Unknown,
 }
 
-/// Helper function to write arbitrary bytes into a VmWriter using a VmReader.
-fn write_bytes_to_dma(writer: &mut VmWriter<'_, ostd::mm::Infallible>, data: &[u8]) {
-    let mut reader = VmReader::from(data);
-    let _ = writer.write(&mut reader);
-}
-
 /// Represents an individual AHCI Port and attached SATA drive.
 pub struct AhciPort {
     pub port_no: usize,
@@ -62,27 +52,109 @@ pub struct AhciPort {
 }
 
 impl AhciPort {
+    /// Helper function to write arbitrary bytes into a VmWriter using a VmReader.
+    fn write_bytes_to_dma(&self, writer: &mut VmWriter<'_, ostd::mm::Infallible>, data: &[u8]) {
+        let mut reader = VmReader::from(data);
+        let _ = writer.write(&mut reader);
+    }
+
     /// Detects device type connected to port.
     pub fn probe_device_type(mmio: &IoMem, port_base: usize) -> Result<AhciDeviceType> {
-        let ssts: u32 = mmio.read_once(port_base + PORT_SSTS).map_err(|_| Errno::EIO)?;
+        let ssts: u32 = mmio
+            .read_once(port_base + PORT_SSTS)
+            .map_err(|_| Errno::EIO)?;
         let ipm = (ssts >> 8) & 0x0F;
         let det = ssts & 0x0F;
 
         if det != HBA_PORT_DET_PRESENT || ipm != HBA_PORT_IPM_ACTIVE {
             if det != 0 || ipm != 0 {
-                ostd::info!("AHCI: port_base {:#x} SSTS={:#x} (det={}, ipm={})", port_base, ssts, det, ipm);
+                ostd::info!(
+                    "AHCI: port_base {:#x} SSTS={:#x} (det={}, ipm={})",
+                    port_base,
+                    ssts,
+                    det,
+                    ipm
+                );
             }
             return Ok(AhciDeviceType::None);
         }
 
-        let sig: u32 = mmio.read_once(port_base + PORT_SIG).map_err(|_| Errno::EIO)?;
-        ostd::info!("AHCI: port_base {:#x} connected! SSTS={:#x}, SIG={:#010x}", port_base, ssts, sig);
+        // Spin up and power on device if supported
+        let mut cmd: u32 = mmio.read_once(port_base + PORT_CMD).unwrap_or(0);
+        cmd |= PORT_CMD_SUD | PORT_CMD_POD;
+        let _ = mmio.write_once(port_base + PORT_CMD, &cmd);
+
+        let mut sig: u32 = mmio
+            .read_once(port_base + PORT_SIG)
+            .map_err(|_| Errno::EIO)?;
+        ostd::info!(
+            "AHCI: port_base {:#x} initial SSTS={:#x}, SIG={:#010x}",
+            port_base,
+            ssts,
+            sig
+        );
+
+        // If signature is uninitialized, perform COMRESET
+        if sig == 0xFFFF_FFFF || sig == 0 {
+            // 1. Assert COMRESET (DET = 1)
+            let sctl: u32 = mmio.read_once(port_base + PORT_SCTL).unwrap_or(0);
+            let _ = mmio.write_once(port_base + PORT_SCTL, &((sctl & !0x0F) | 1));
+
+            // Wait ~1ms
+            for _ in 0..100_000 {
+                core::hint::spin_loop();
+            }
+
+            // 2. Deassert COMRESET (DET = 0)
+            let _ = mmio.write_once(port_base + PORT_SCTL, &(sctl & !0x0F));
+
+            // 3. Wait for PHY communication to be re-established
+            for _ in 0..200_000 {
+                let cur_ssts: u32 = mmio.read_once(port_base + PORT_SSTS).unwrap_or(0);
+                if (cur_ssts & 0x0F) == HBA_PORT_DET_PRESENT {
+                    break;
+                }
+                core::hint::spin_loop();
+            }
+
+            // 4. Clear SATA errors (SERR is RWC)
+            let _ = mmio.write_once(port_base + PORT_SERR, &0xFFFF_FFFFu32);
+
+            // 5. Poll for signature update
+            for _ in 0..200_000 {
+                sig = mmio.read_once(port_base + PORT_SIG).unwrap_or(0);
+                if sig != 0xFFFF_FFFF && sig != 0 {
+                    break;
+                }
+                core::hint::spin_loop();
+            }
+            ostd::info!(
+                "AHCI: port_base {:#x} after COMRESET SIG={:#010x}",
+                port_base,
+                sig
+            );
+        }
+
         let dev_type = match sig {
             SATA_SIG_ATA => AhciDeviceType::Sata,
             SATA_SIG_ATAPI => AhciDeviceType::Satapi,
             SATA_SIG_SEMB => AhciDeviceType::Semb,
             SATA_SIG_PM => AhciDeviceType::PortMultiplier,
-            _ => AhciDeviceType::Unknown,
+            _ => {
+                // If link is up (det == 3) but signature remains 0 or 0xFFFFFFFF,
+                // check if it is a default SATA drive
+                if det == HBA_PORT_DET_PRESENT && (sig == 0xFFFF_FFFF || sig == 0) {
+                    let port_no = (port_base - AHCI_PORTS_BASE) / 0x80;
+                    ostd::info!(
+                        "AHCI: Port {} link active (SSTS={:#x}), identified as SATA drive",
+                        port_no,
+                        ssts
+                    );
+                    AhciDeviceType::Sata
+                } else {
+                    AhciDeviceType::Unknown
+                }
+            }
         };
 
         Ok(dev_type)
@@ -120,20 +192,31 @@ impl AhciPort {
 
     /// Stops port command engine (ST and FRE cleared).
     fn stop_cmd(&self) -> Result<()> {
-        let mut cmd: u32 = self.mmio.read_once(self.port_base + PORT_CMD).map_err(|_| Errno::EIO)?;
+        let mut cmd: u32 = self
+            .mmio
+            .read_once(self.port_base + PORT_CMD)
+            .map_err(|_| Errno::EIO)?;
         cmd &= !PORT_CMD_ST;
         cmd &= !PORT_CMD_FRE;
-        self.mmio.write_once(self.port_base + PORT_CMD, &cmd).map_err(|_| Errno::EIO)?;
+        self.mmio
+            .write_once(self.port_base + PORT_CMD, &cmd)
+            .map_err(|_| Errno::EIO)?;
 
         // Wait for Engine CR and FR bits to clear
         for _ in 0..100_000 {
-            let current_cmd: u32 = self.mmio.read_once(self.port_base + PORT_CMD).map_err(|_| Errno::EIO)?;
+            let current_cmd: u32 = self
+                .mmio
+                .read_once(self.port_base + PORT_CMD)
+                .map_err(|_| Errno::EIO)?;
             if (current_cmd & (PORT_CMD_CR | PORT_CMD_FR)) == 0 {
                 return Ok(());
             }
         }
 
-        ostd::warn!("AHCI: Port {} stop_cmd timed out waiting for CR/FR to clear", self.port_no);
+        ostd::warn!(
+            "AHCI: Port {} stop_cmd timed out waiting for CR/FR to clear",
+            self.port_no
+        );
         Ok(())
     }
 
@@ -141,18 +224,28 @@ impl AhciPort {
     fn start_cmd(&self) -> Result<()> {
         // Wait until CR is cleared
         for _ in 0..100_000 {
-            let cmd: u32 = self.mmio.read_once(self.port_base + PORT_CMD).map_err(|_| Errno::EIO)?;
+            let cmd: u32 = self
+                .mmio
+                .read_once(self.port_base + PORT_CMD)
+                .map_err(|_| Errno::EIO)?;
             if (cmd & PORT_CMD_CR) == 0 {
                 break;
             }
         }
 
-        let mut cmd: u32 = self.mmio.read_once(self.port_base + PORT_CMD).map_err(|_| Errno::EIO)?;
+        let mut cmd: u32 = self
+            .mmio
+            .read_once(self.port_base + PORT_CMD)
+            .map_err(|_| Errno::EIO)?;
         cmd |= PORT_CMD_FRE;
-        self.mmio.write_once(self.port_base + PORT_CMD, &cmd).map_err(|_| Errno::EIO)?;
+        self.mmio
+            .write_once(self.port_base + PORT_CMD, &cmd)
+            .map_err(|_| Errno::EIO)?;
 
         cmd |= PORT_CMD_ST;
-        self.mmio.write_once(self.port_base + PORT_CMD, &cmd).map_err(|_| Errno::EIO)?;
+        self.mmio
+            .write_once(self.port_base + PORT_CMD, &cmd)
+            .map_err(|_| Errno::EIO)?;
         Ok(())
     }
 
@@ -167,14 +260,22 @@ impl AhciPort {
         // Set Command List Base
         let clb_low = clb_phys as u32;
         let clb_high = (clb_phys >> 32) as u32;
-        self.mmio.write_once(self.port_base + PORT_CLB, &clb_low).map_err(|_| Errno::EIO)?;
-        self.mmio.write_once(self.port_base + PORT_CLBU, &clb_high).map_err(|_| Errno::EIO)?;
+        self.mmio
+            .write_once(self.port_base + PORT_CLB, &clb_low)
+            .map_err(|_| Errno::EIO)?;
+        self.mmio
+            .write_once(self.port_base + PORT_CLBU, &clb_high)
+            .map_err(|_| Errno::EIO)?;
 
         // Set FIS Base
         let fb_low = fb_phys as u32;
         let fb_high = (fb_phys >> 32) as u32;
-        self.mmio.write_once(self.port_base + PORT_FB, &fb_low).map_err(|_| Errno::EIO)?;
-        self.mmio.write_once(self.port_base + PORT_FBU, &fb_high).map_err(|_| Errno::EIO)?;
+        self.mmio
+            .write_once(self.port_base + PORT_FB, &fb_low)
+            .map_err(|_| Errno::EIO)?;
+        self.mmio
+            .write_once(self.port_base + PORT_FBU, &fb_high)
+            .map_err(|_| Errno::EIO)?;
 
         // Set up Command Header 0 inside Command List
         // 5 Dwords FIS length (20 bytes), Write=0, PRDT length=1
@@ -188,7 +289,7 @@ impl AhciPort {
         };
 
         let mut writer = self.cmd_list_dma.writer();
-        write_bytes_to_dma(&mut writer, &cmd_header.to_bytes());
+        self.write_bytes_to_dma(&mut writer, &cmd_header.to_bytes());
 
         // Clear any pending interrupt status & error status
         let is: u32 = self.mmio.read_once(self.port_base + PORT_IS).unwrap_or(0);
@@ -205,7 +306,10 @@ impl AhciPort {
     /// Wait for device to become ready (BUSY and DRQ cleared).
     fn wait_ready(&self) -> Result<()> {
         for _ in 0..100_000 {
-            let tfd: u32 = self.mmio.read_once(self.port_base + PORT_TFD).map_err(|_| Errno::EIO)?;
+            let tfd: u32 = self
+                .mmio
+                .read_once(self.port_base + PORT_TFD)
+                .map_err(|_| Errno::EIO)?;
             if (tfd & (ATA_DEV_BUSY | ATA_DEV_DRQ)) == 0 {
                 return Ok(());
             }
@@ -237,13 +341,13 @@ impl AhciPort {
 
         // Write CFIS at offset 0 and PRDT at offset 128
         let mut table_writer = self.cmd_table_dma.writer();
-        write_bytes_to_dma(&mut table_writer, &cfis.to_bytes());
+        self.write_bytes_to_dma(&mut table_writer, &cfis.to_bytes());
 
         // Zero padding up to PRDT offset 128
         let zero_pad = [0u8; 128 - FisRegH2D::SIZE];
-        write_bytes_to_dma(&mut table_writer, &zero_pad);
+        self.write_bytes_to_dma(&mut table_writer, &zero_pad);
 
-        write_bytes_to_dma(&mut table_writer, &prdt.to_bytes());
+        self.write_bytes_to_dma(&mut table_writer, &prdt.to_bytes());
 
         // 2. Set Command Header in Command List
         let ctba_phys = self.cmd_table_dma.paddr() as u64;
@@ -257,16 +361,21 @@ impl AhciPort {
         };
 
         let mut cl_writer = self.cmd_list_dma.writer();
-        write_bytes_to_dma(&mut cl_writer, &cmd_header.to_bytes());
+        self.write_bytes_to_dma(&mut cl_writer, &cmd_header.to_bytes());
 
         // 3. Issue Command (Slot 0)
         let slot_mask: u32 = 1;
-        self.mmio.write_once(self.port_base + PORT_CI, &slot_mask).map_err(|_| Errno::EIO)?;
+        self.mmio
+            .write_once(self.port_base + PORT_CI, &slot_mask)
+            .map_err(|_| Errno::EIO)?;
 
         // 4. Poll for completion
         let mut completed = false;
         for _ in 0..500_000 {
-            let ci: u32 = self.mmio.read_once(self.port_base + PORT_CI).map_err(|_| Errno::EIO)?;
+            let ci: u32 = self
+                .mmio
+                .read_once(self.port_base + PORT_CI)
+                .map_err(|_| Errno::EIO)?;
             if (ci & 1) == 0 {
                 completed = true;
                 break;
@@ -352,12 +461,12 @@ impl AhciPort {
 
         // Write CFIS + PRDT to command table
         let mut table_writer = self.cmd_table_dma.writer();
-        write_bytes_to_dma(&mut table_writer, &cfis.to_bytes());
+        self.write_bytes_to_dma(&mut table_writer, &cfis.to_bytes());
 
         let zero_pad = [0u8; 128 - FisRegH2D::SIZE];
-        write_bytes_to_dma(&mut table_writer, &zero_pad);
+        self.write_bytes_to_dma(&mut table_writer, &zero_pad);
 
-        write_bytes_to_dma(&mut table_writer, &prdt.to_bytes());
+        self.write_bytes_to_dma(&mut table_writer, &prdt.to_bytes());
 
         // 3. Command Header (Write = 0)
         let ctba_phys = self.cmd_table_dma.paddr() as u64;
@@ -371,15 +480,20 @@ impl AhciPort {
         };
 
         let mut cl_writer = self.cmd_list_dma.writer();
-        write_bytes_to_dma(&mut cl_writer, &cmd_header.to_bytes());
+        self.write_bytes_to_dma(&mut cl_writer, &cmd_header.to_bytes());
 
         // 4. Issue command
-        self.mmio.write_once(self.port_base + PORT_CI, &1u32).map_err(|_| Errno::EIO)?;
+        self.mmio
+            .write_once(self.port_base + PORT_CI, &1u32)
+            .map_err(|_| Errno::EIO)?;
 
         // 5. Poll for completion
         let mut completed = false;
         for _ in 0..1_000_000 {
-            let ci: u32 = self.mmio.read_once(self.port_base + PORT_CI).map_err(|_| Errno::EIO)?;
+            let ci: u32 = self
+                .mmio
+                .read_once(self.port_base + PORT_CI)
+                .map_err(|_| Errno::EIO)?;
             if (ci & 1) == 0 {
                 completed = true;
                 break;
@@ -443,12 +557,12 @@ impl AhciPort {
 
         // Write CFIS + PRDT to command table
         let mut table_writer = self.cmd_table_dma.writer();
-        write_bytes_to_dma(&mut table_writer, &cfis.to_bytes());
+        self.write_bytes_to_dma(&mut table_writer, &cfis.to_bytes());
 
         let zero_pad = [0u8; 128 - FisRegH2D::SIZE];
-        write_bytes_to_dma(&mut table_writer, &zero_pad);
+        self.write_bytes_to_dma(&mut table_writer, &zero_pad);
 
-        write_bytes_to_dma(&mut table_writer, &prdt.to_bytes());
+        self.write_bytes_to_dma(&mut table_writer, &prdt.to_bytes());
 
         // 3. Command Header (Write = 1 -> Bit 6 set: 5 | (1 << 6) = 0x45)
         let ctba_phys = self.cmd_table_dma.paddr() as u64;
@@ -462,15 +576,20 @@ impl AhciPort {
         };
 
         let mut cl_writer = self.cmd_list_dma.writer();
-        write_bytes_to_dma(&mut cl_writer, &cmd_header.to_bytes());
+        self.write_bytes_to_dma(&mut cl_writer, &cmd_header.to_bytes());
 
         // 4. Issue command
-        self.mmio.write_once(self.port_base + PORT_CI, &1u32).map_err(|_| Errno::EIO)?;
+        self.mmio
+            .write_once(self.port_base + PORT_CI, &1u32)
+            .map_err(|_| Errno::EIO)?;
 
         // 5. Poll for completion
         let mut completed = false;
         for _ in 0..1_000_000 {
-            let ci: u32 = self.mmio.read_once(self.port_base + PORT_CI).map_err(|_| Errno::EIO)?;
+            let ci: u32 = self
+                .mmio
+                .read_once(self.port_base + PORT_CI)
+                .map_err(|_| Errno::EIO)?;
             if (ci & 1) == 0 {
                 completed = true;
                 break;
