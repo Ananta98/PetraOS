@@ -1,0 +1,263 @@
+// SPDX-License-Identifier: GPL-2.0
+
+//! File abstractions for the VFS.
+
+use alloc::boxed::Box;
+use alloc::sync::Arc;
+use alloc::vec::Vec;
+use bitflags::bitflags;
+use spin::Mutex;
+
+use crate::api::errno::{Errno, Result};
+use crate::fs::poll::PollEvents;
+use super::inode::INode;
+use super::mount::PathNode;
+
+bitflags! {
+    /// File open flags.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+    pub struct OpenFlags: u32 {
+        const READ      = 1 << 0;
+        const WRITE     = 1 << 1;
+        const APPEND    = 1 << 2;
+        const DIRECTORY = 1 << 3;
+        const CLOEXEC   = 1 << 4;
+        const CREATE    = 1 << 5;
+        const TRUNC     = 1 << 6;
+        const EXCL      = 1 << 7;
+        const NONBLOCK  = 1 << 8;
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SeekAnchor {
+    /// Seek relative to the start of the file.
+    Start(u64),
+    /// Seek relative to the current cursor position.
+    Current(i64),
+    /// Seek relative to the end of the file.
+    End(i64),
+}
+
+/// A generic file operations trait that represents the capabilities of an open file or device.
+pub trait FileOps: Send + Sync {
+    /// Read data from the file at `offset` into the provided buffer.
+    fn read(&self, offset: u64, buf: &mut [u8]) -> Result<usize>;
+
+    /// Write data from the buffer into the file at `offset`.
+    fn write(&self, offset: u64, buf: &[u8]) -> Result<usize>;
+
+    /// Seek to a different position in the file.
+    fn seek(&self, curr_offset: u64, anchor: SeekAnchor) -> Result<u64> {
+        let _ = (curr_offset, anchor);
+        crate::return_errno!(ENOSYS, "seek not implemented");
+    }
+
+    /// Read directory entries.
+    fn readdir(&self) -> Result<Vec<u8>> {
+        crate::return_errno!(ENOTDIR, "not a directory");
+    }
+
+    /// Perform a device-specific control command.
+    fn ioctl(&self, cmd: u32, arg: usize) -> Result<usize> {
+        let _ = (cmd, arg);
+        crate::return_errno!(ENOTTY, "inappropriate ioctl for device");
+    }
+
+    /// Close the file.
+    fn close(&self) -> Result<()> {
+        Ok(())
+    }
+
+    /// Report current readiness for `poll(2)`.
+    ///
+    /// The default suits regular files and always-ready devices. Anything that
+    /// can block must override this and call `fs::poll::notify` when readiness
+    /// changes.
+    fn poll(&self) -> PollEvents {
+        PollEvents::IN | PollEvents::OUT | PollEvents::RDNORM | PollEvents::WRNORM
+    }
+
+    /// Flush buffered data (and, if `datasync` is false, metadata) to storage.
+    fn fsync(&self, _datasync: bool) -> Result<()> {
+        Ok(())
+    }
+
+    /// Whether `[offset, offset + len)` may be memory-mapped.
+    ///
+    /// Files that can serve page faults through [`FileOps::fault_in`] return
+    /// `Ok`; streams, pipes and most devices keep the default `ENODEV`.
+    fn mmap(&self, _offset: u64, _len: usize) -> Result<()> {
+        crate::return_errno!(ENODEV, "file does not support mmap");
+    }
+
+    /// Fills `buf` with the file contents at `offset` to satisfy a page fault
+    /// in a file-backed mapping.
+    fn fault_in(&self, offset: u64, buf: &mut [u8]) -> Result<usize> {
+        self.read(offset, buf)
+    }
+
+    /// Return the underlying network socket if this file represents a socket.
+    fn as_socket(&self) -> Option<Arc<crate::net::socket::KernelSocket>> {
+        None
+    }
+}
+
+/// The kernel representation of an open file description.
+pub struct File {
+    /// Absolute path resolved at open time, if available.
+    pub abs_path: Option<Vec<u8>>,
+    /// Operations that can be performed on this file.
+    pub ops: Box<dyn FileOps>,
+    /// The opened inode.
+    pub inode: Arc<INode>,
+    /// File open flags.
+    pub flags: Mutex<OpenFlags>,
+    /// Current cursor position within the file.
+    pub offset: Mutex<u64>,
+    /// Whether this file supports cursor offsets and seeking (regular files vs streams/pipes).
+    pub seekable: bool,
+    /// PathNode this file was opened from, if backed by the filesystem tree.
+    pub path_node: Option<PathNode>,
+}
+
+impl File {
+    /// Constructs a new open file description.
+    pub fn new(ops: Box<dyn FileOps>, inode: Arc<INode>, flags: OpenFlags, seekable: bool) -> Self {
+        Self {
+            abs_path: None,
+            ops,
+            inode,
+            flags: Mutex::new(flags),
+            offset: Mutex::new(0),
+            seekable,
+            path_node: None,
+        }
+    }
+
+    /// Reads data from the file, advancing the cursor if seekable.
+    pub fn read(&self, buf: &mut [u8]) -> Result<usize> {
+        if !self.flags.lock().contains(OpenFlags::READ) {
+            return Err(Errno::EBADF);
+        }
+
+        let mut offset_guard = self.offset.lock();
+        let curr_offset = *offset_guard;
+        let nread = self.ops.read(curr_offset, buf)?;
+
+        if self.seekable {
+            *offset_guard = curr_offset.saturating_add(nread as u64);
+        }
+        self.inode.touch_atime();
+
+        Ok(nread)
+    }
+
+    /// Writes data to the file, advancing the cursor if seekable and updating inode size.
+    pub fn write(&self, buf: &[u8]) -> Result<usize> {
+        let flags = *self.flags.lock();
+        if !flags.contains(OpenFlags::WRITE) {
+            return Err(Errno::EBADF);
+        }
+
+        let mut offset_guard = self.offset.lock();
+        if flags.contains(OpenFlags::APPEND) && self.seekable {
+            *offset_guard = self.inode.size() as u64;
+        }
+
+        let curr_offset = *offset_guard;
+        let nwritten = self.ops.write(curr_offset, buf)?;
+
+        if self.seekable {
+            let new_offset = curr_offset.saturating_add(nwritten as u64);
+            *offset_guard = new_offset;
+            if new_offset as usize > self.inode.size() {
+                self.inode.set_size(new_offset as usize);
+            }
+        }
+        self.inode.touch_mtime();
+
+        Ok(nwritten)
+    }
+
+    /// Reads data from the file at `offset` without altering the cursor position (`pread(2)`).
+    pub fn pread(&self, offset: u64, buf: &mut [u8]) -> Result<usize> {
+        if !self.flags.lock().contains(OpenFlags::READ) {
+            return Err(Errno::EBADF);
+        }
+        if !self.seekable {
+            return Err(Errno::ESPIPE);
+        }
+        let nread = self.ops.read(offset, buf)?;
+        self.inode.touch_atime();
+        Ok(nread)
+    }
+
+    /// Writes data to the file at `offset` without altering the cursor position (`pwrite(2)`).
+    pub fn pwrite(&self, offset: u64, buf: &[u8]) -> Result<usize> {
+        let flags = *self.flags.lock();
+        if !flags.contains(OpenFlags::WRITE) {
+            return Err(Errno::EBADF);
+        }
+        if !self.seekable {
+            return Err(Errno::ESPIPE);
+        }
+        let nwritten = self.ops.write(offset, buf)?;
+        let end_offset = offset.saturating_add(nwritten as u64);
+        if end_offset as usize > self.inode.size() {
+            self.inode.set_size(end_offset as usize);
+        }
+        self.inode.touch_mtime();
+        Ok(nwritten)
+    }
+
+    /// Repositions the read/write cursor.
+    pub fn seek(&self, anchor: SeekAnchor) -> Result<u64> {
+        if !self.seekable {
+            return Err(Errno::ESPIPE);
+        }
+
+        let mut offset_guard = self.offset.lock();
+        let new_offset = self.ops.seek(*offset_guard, anchor)?;
+        *offset_guard = new_offset;
+        Ok(new_offset)
+    }
+
+    /// Performs an ioctl on the underlying file operations.
+    pub fn ioctl(&self, cmd: u32, arg: usize) -> Result<usize> {
+        self.ops.ioctl(cmd, arg)
+    }
+
+    /// Closes the underlying file operations.
+    pub fn close(&self) -> Result<()> {
+        self.ops.close()
+    }
+
+    /// Reads directory entries from the directory file.
+    pub fn readdir(&self) -> Result<Vec<u8>> {
+        self.ops.readdir()
+    }
+
+    /// Current readiness for `poll(2)`.
+    pub fn poll(&self) -> PollEvents {
+        self.ops.poll()
+    }
+
+    /// Flushes the file to storage.
+    pub fn fsync(&self, datasync: bool) -> Result<()> {
+        self.ops.fsync(datasync)
+    }
+
+    /// Validates a memory-mapping request against this file.
+    pub fn mmap(&self, offset: u64, len: usize) -> Result<()> {
+        if !self.flags.lock().contains(OpenFlags::READ) {
+            return Err(Errno::EACCES);
+        }
+        self.ops.mmap(offset, len)
+    }
+
+    /// Return the underlying network socket if this file represents a socket.
+    pub fn as_socket(&self) -> Option<Arc<crate::net::socket::KernelSocket>> {
+        self.ops.as_socket()
+    }
+}

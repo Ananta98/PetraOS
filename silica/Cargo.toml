@@ -1,0 +1,30 @@
+[package]
+name = "silica"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+xmas-elf = { version = "0.10.0", default-features = false }
+
+[dependencies.ostd]
+version = "0.18.1"
+
+[dependencies.bitflags]
+version = "2"
+
+[dependencies.spin]
+version = "0.9.8"
+
+[dependencies.smoltcp]
+version = "0.12"
+default-features = false
+features = [
+    "alloc",
+    "medium-ethernet",
+    "proto-ipv4",
+    "proto-ipv6",
+    "socket-raw",
+    "socket-icmp",
+    "socket-udp",
+    "socket-tcp",
+]
