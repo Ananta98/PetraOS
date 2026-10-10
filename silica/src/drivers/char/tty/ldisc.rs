@@ -30,6 +30,7 @@ pub struct LineDiscipline {
     pub read_buf: Mutex<VecDeque<u8>>,
     pub canon_buf: Mutex<VecDeque<u8>>,
     pub state: Mutex<LdiscState>,
+    pub pgrp: Mutex<Option<crate::proc::tree::Pid>>,
 }
 
 impl LineDiscipline {
@@ -45,6 +46,7 @@ impl LineDiscipline {
             read_buf: Mutex::new(VecDeque::with_capacity(4096)),
             canon_buf: Mutex::new(VecDeque::with_capacity(4096)),
             state: Mutex::new(LdiscState::default()),
+            pgrp: Mutex::new(None),
         }
     }
 
@@ -127,8 +129,18 @@ impl LineDiscipline {
 
         // Signal generation
         if isig {
+            let target_pgrp = *self.pgrp.lock();
+            let signal_group = |sig: crate::api::signal::Signal| {
+                let pgrp_opt = target_pgrp.or_else(|| Thread::current_proc().map(|p| p.pgid()));
+                if let Some(pgrp) = pgrp_opt {
+                    for proc in crate::proc::tree::allproc_iter().filter(|p| p.pgid() == pgrp) {
+                        proc.post_signal(sig);
+                    }
+                }
+            };
+
             if ch == cc[VINTR] {
-                // TODO: Send SIGINT to foreground process group
+                signal_group(crate::api::signal::Signal::SIGINT);
                 if echo {
                     echo_out(b'^');
                     echo_out(b'C');
@@ -136,7 +148,7 @@ impl LineDiscipline {
                 return;
             }
             if ch == cc[VQUIT] {
-                // TODO: Send SIGQUIT
+                signal_group(crate::api::signal::Signal::SIGQUIT);
                 if echo {
                     echo_out(b'^');
                     echo_out(b'\\');
@@ -144,7 +156,7 @@ impl LineDiscipline {
                 return;
             }
             if ch == cc[VSUSP] {
-                // TODO: Send SIGTSTP
+                signal_group(crate::api::signal::Signal::SIGTSTP);
                 if echo {
                     echo_out(b'^');
                     echo_out(b'Z');
@@ -278,6 +290,25 @@ impl LineDiscipline {
                     self.read_buf.lock().len()
                 } as i32;
                 Self::write_user(arg, &count.to_ne_bytes())?;
+                Ok(0)
+            }
+            ioctl::TIOCSPGRP => {
+                let mut pid_bytes = [0u8; 4];
+                Self::read_user(arg, &mut pid_bytes)?;
+                let raw_pid = i32::from_ne_bytes(pid_bytes);
+                if raw_pid < 0 {
+                    crate::return_errno!(EINVAL, "invalid process group ID");
+                }
+                let pid = crate::proc::tree::Pid::from_u32(raw_pid as u32)
+                    .ok_or(Errno::EINVAL)?;
+                *self.pgrp.lock() = Some(pid);
+                Ok(0)
+            }
+            ioctl::TIOCGPGRP => {
+                let pgrp = self.pgrp.lock().map(|p| p.as_u32() as i32).unwrap_or_else(|| {
+                    Thread::current_proc().map(|p| p.pgid().as_u32() as i32).unwrap_or(0)
+                });
+                Self::write_user(arg, &pgrp.to_ne_bytes())?;
                 Ok(0)
             }
             _ => crate::return_errno!(ENOTTY, "inappropriate ioctl for device"),

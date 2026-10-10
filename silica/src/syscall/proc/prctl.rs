@@ -16,8 +16,15 @@ const PR_GET_DUMPABLE: i32 = 3;
 const PR_SET_DUMPABLE: i32 = 4;
 const PR_SET_NAME: i32 = 15;
 const PR_GET_NAME: i32 = 16;
+const PR_SET_CHILD_SUBREAPER: i32 = 36;
+const PR_GET_CHILD_SUBREAPER: i32 = 37;
 
 const COMM_LEN: usize = 16;
+
+pub const ARCH_SET_GS: i32 = 0x1001;
+pub const ARCH_SET_FS: i32 = 0x1002;
+pub const ARCH_GET_FS: i32 = 0x1003;
+pub const ARCH_GET_GS: i32 = 0x1004;
 
 /// `prctl(2)` - operations on a process or thread.
 pub fn sys_prctl(
@@ -64,14 +71,23 @@ pub fn sys_prctl(
             }
             Ok(0)
         }
+        PR_SET_CHILD_SUBREAPER => {
+            let mut inner = proc.inner.lock();
+            inner.is_reaper = arg2 != 0;
+            inner.reaper = if arg2 != 0 { Some(proc.pid) } else { None };
+            Ok(0)
+        }
+        PR_GET_CHILD_SUBREAPER => {
+            if arg2 == 0 {
+                return Err(Errno::EFAULT);
+            }
+            let is_reaper = proc.inner.lock().is_reaper as i32;
+            UserPtr::new(arg2).write_bytes(&vmar, &is_reaper.to_ne_bytes())?;
+            Ok(0)
+        }
         _ => Err(Errno::EINVAL),
     }
 }
-
-pub const ARCH_SET_GS: i32 = 0x1001;
-pub const ARCH_SET_FS: i32 = 0x1002;
-pub const ARCH_GET_FS: i32 = 0x1003;
-pub const ARCH_GET_GS: i32 = 0x1004;
 
 /// `arch_prctl(2)` - set architecture-specific thread state (Syscall #158 on x86_64).
 pub fn sys_arch_prctl(code: i32, addr: usize, _ctx: &mut UserContext) -> Result<usize> {

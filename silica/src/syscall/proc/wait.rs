@@ -15,7 +15,7 @@ pub fn sys_wait4(pid_val: i32, status_ptr: usize, options_val: u32, _rusage_ptr:
     } else if pid_val == -1 {
         IdType::All
     } else if pid_val == 0 {
-        IdType::Pgid(proc.pid.as_u32()) // wait for any child in same pgid
+        IdType::Pgid(proc.pgid().as_u32()) // wait for any child in same pgid
     } else {
         let pid = crate::proc::tree::Pid::from_u32(pid_val as u32).ok_or(Errno::EINVAL)?;
         IdType::Pid(pid)

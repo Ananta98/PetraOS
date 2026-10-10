@@ -21,7 +21,7 @@ pub mod tree;
 pub mod wait;
 
 use alloc::{collections::BTreeMap, string::String, sync::Arc, vec::Vec};
-use ostd::sync::SpinLock;
+use ostd::sync::{SpinLock, WaitQueue};
 
 use self::{
     signal::SigQueue,
@@ -122,9 +122,8 @@ pub struct ProcInner {
     pub ppid: Option<Pid>,
     /// An explicit reaper for orphaned children.
     ///
-    /// TODO: subreaper support. Nothing assigns this yet, so it is always `None`
-    /// and [`exit::exit1`] always resolves the reaper by walking the ancestor
-    /// chain in [`tree::tree_find_reaper`].
+    /// Managed via `prctl(PR_SET_CHILD_SUBREAPER)` and consulted during reparenting
+    /// in [`tree::tree_find_reaper`].
     pub reaper: Option<Pid>,
     pub children: Vec<Pid>,
     pub threads: Vec<Arc<Thread>>,
@@ -170,6 +169,12 @@ pub struct Proc {
 
     /// Current working directory.
     pub cwd: SpinLock<Option<PathNode>>,
+
+    /// WaitQueue for threads of this process stopped by job control signals.
+    pub stop_queue: WaitQueue,
+
+    /// WaitQueue for tasks waiting on child state changes.
+    pub child_waitq: WaitQueue,
 }
 
 impl Proc {
@@ -209,6 +214,8 @@ impl Proc {
             sigacts,
             sigqueue: SigQueue::new(),
             cwd: SpinLock::new(None),
+            stop_queue: WaitQueue::new(),
+            child_waitq: WaitQueue::new(),
         })
     }
 

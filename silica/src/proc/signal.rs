@@ -155,17 +155,18 @@ impl Proc {
         }
 
         let _ = sender_pid;
+        if let Some(sig) = Signal::from_u32(info.si_signo as u32) {
+            if sig == Signal::SIGCONT {
+                job_control::continue_thread(self);
+            }
+        }
         self.sigqueue.post(QueuedSignal { info });
         self.wake_one_thread();
         Ok(())
     }
 
     /// Arms the AST flag on one thread, preferring one that does not block a
-    /// deliverable signal.
-    ///
-    /// TODO: this sets a flag and nothing observes it outside this module, so a
-    /// thread that is stopped rather than running never takes delivery. See the
-    /// module documentation.
+    /// deliverable signal, and wakes any threads parked on `stop_queue`.
     fn wake_one_thread(&self) {
         let inner = self.inner.lock();
         for thread in inner.threads.iter() {
@@ -177,9 +178,14 @@ impl Proc {
                 td_inner
                     .flags
                     .insert(crate::proc::thread::ThreadFlags::TDF_ASTPENDING);
+                drop(td_inner);
+                drop(inner);
+                self.stop_queue.wake_all();
                 return;
             }
         }
+        drop(inner);
+        self.stop_queue.wake_all();
     }
 }
 

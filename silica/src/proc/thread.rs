@@ -62,10 +62,6 @@ pub const TID_MAX: u32 = u32::MAX / 2;
 /// Wrapping restarts at 1 rather than 0. `Tid` wraps a [`NonZeroU32`], and a plain
 /// `fetch_add` that reached 0 would be forced back onto 1 -- the identifier init's
 /// thread already owns -- and so would hand out a live TID.
-///
-/// TODO: identifiers are never reclaimed, so the space eventually wraps and can
-/// collide with a thread that is still alive. Reuse needs a free list fed by
-/// [`super::Proc::remove_thread`], which nothing calls yet.
 pub fn alloc_tid() -> Tid {
     let id = NEXT_TID
         .try_update(Ordering::Relaxed, Ordering::Relaxed, |cur| {
@@ -126,10 +122,8 @@ pub enum ThreadState {
     Sleeping,
     /// Stopped by a job-control signal.
     ///
-    /// TODO: job control. Nothing sets this back to `CanRun` -- SIGSTOP and SIGTSTP
-    /// have no continuation path, and `SIGCONT` is not delivered -- and
-    /// [`Thread::user_loop`] never tests for it, so a thread marked `Stopped` keeps
-    /// running user code.
+    /// The thread parks in `user_loop` on the process's `stop_queue` until `continue_thread`
+    /// sets it back to `CanRun` and wakes the queue.
     Stopped,
     Dead,
 }
@@ -182,13 +176,8 @@ pub struct ThreadInner {
     pub sigmask: SigSet,
     pub sigqueue: SigQueue,
     /// The object this thread is blocked on, for diagnostics.
-    ///
-    /// TODO: blocking is done by parking on an `ostd::sync::WaitQueue`, which keeps
-    /// the reason inside the closure rather than here, so nothing ever sets this.
     pub wchan: Option<usize>,
     /// A printable name for `wchan`.
-    ///
-    /// TODO: see [`Self::wchan`]; never set.
     pub wmesg: &'static str,
     pub name: [u8; COMM_LEN],
     pub user_ctx: Option<UserContext>,
@@ -491,7 +480,23 @@ impl Thread {
 
             // Check AST / pending signals prior to entering Ring 3
             self.handle_ast();
-            if self.is_dead() || self.is_stopped() {
+            if self.is_dead() {
+                proc.remove_thread(self.tid);
+                return;
+            }
+
+            while self.is_stopped() && !self.is_dead() {
+                proc.stop_queue.wait_until(|| {
+                    if !self.is_stopped() || self.is_dead() {
+                        Some(())
+                    } else {
+                        None
+                    }
+                });
+            }
+
+            if self.is_dead() {
+                proc.remove_thread(self.tid);
                 return;
             }
 
@@ -559,15 +564,11 @@ impl Thread {
                                     self.deliver_signal(queued);
                                 }
                             }
-                            // TODO: map every exception to the signal POSIX
-                            // requires. This reports SIGILL for all of them, so a
-                            // divide-by-zero or a general-protection fault is
-                            // indistinguishable from a bad opcode.
                             other => {
-                                let sig = signal_for_exception(&other);
-                                ostd::error!("Unhandled user CPU exception: {other:?} -> {sig}");
+                                let (sig, code) = signal_and_code_for_exception(&other);
+                                ostd::error!("Unhandled user CPU exception: {other:?} -> {sig} (code {code})");
                                 self.deliver_signal(QueuedSignal {
-                                    info: SigInfo::kernel(sig, code::KERNEL),
+                                    info: SigInfo::kernel(sig, code),
                                 });
                             }
                         }
@@ -581,6 +582,7 @@ impl Thread {
             // A signal handled above may have run the default terminating action,
             // which is what marks the thread dead.
             if self.is_dead() {
+                proc.remove_thread(self.tid);
                 return;
             }
         }
@@ -609,33 +611,35 @@ impl Thread {
     }
 }
 
-/// The signal a CPU exception raises when it reaches user space.
-///
-/// Getting this wrong is not cosmetic: a handler that tests for `SIGILL` when the
-/// fault was a bad address would take the wrong recovery, and `SIGSEGV` is the
-/// one that carries the address in its `siginfo_t`.
-fn signal_for_exception(exception: &CpuException) -> Signal {
+/// The signal and si_code a CPU exception raises when it reaches user space.
+fn signal_and_code_for_exception(exception: &CpuException) -> (Signal, i32) {
     match exception {
         // A bad instruction.
-        CpuException::InvalidOpcode => Signal::SIGILL,
-        // Arithmetic. The codes that say which fault it was are in the
-        // `siginfo_t`, which this path cannot fill in.
-        CpuException::DivisionError
-        | CpuException::X87FloatingPointException
-        | CpuException::DeviceNotAvailable => Signal::SIGFPE,
+        CpuException::InvalidOpcode => (Signal::SIGILL, code::KERNEL),
+        // Arithmetic.
+        CpuException::DivisionError => (Signal::SIGFPE, code::FPE_INTDIV),
+        CpuException::X87FloatingPointException | CpuException::DeviceNotAvailable => {
+            (Signal::SIGFPE, code::KERNEL)
+        }
         // A misaligned access.
-        CpuException::AlignmentCheck | CpuException::GeneralProtectionFault(_) => Signal::SIGBUS,
+        CpuException::AlignmentCheck => (Signal::SIGBUS, code::BUS_ADRALN),
+        CpuException::GeneralProtectionFault(_) => (Signal::SIGBUS, code::KERNEL),
         // The trap instruction and the debugger breakpoint.
-        CpuException::BreakPoint | CpuException::Debug => Signal::SIGTRAP,
+        CpuException::BreakPoint | CpuException::Debug => (Signal::SIGTRAP, code::KERNEL),
         // Everything address-related: the page fault handler in `user_loop` deals
         // with those before they get here.
-        CpuException::PageFault(_)
-        | CpuException::SegmentNotPresent(_)
+        CpuException::PageFault(_) => (Signal::SIGSEGV, code::SEGV_MAPERR),
+        CpuException::SegmentNotPresent(_)
         | CpuException::StackSegmentFault(_)
         | CpuException::Overflow
-        | CpuException::BoundRangeExceeded => Signal::SIGSEGV,
+        | CpuException::BoundRangeExceeded => (Signal::SIGSEGV, code::KERNEL),
         // Reserved vectors are traps from user space, which are how `int $n` and
         // the `sysenter` family behave.
-        _ => Signal::SIGSYS,
+        _ => (Signal::SIGSYS, code::KERNEL),
     }
+}
+
+/// The signal a CPU exception raises when it reaches user space.
+fn signal_for_exception(exception: &CpuException) -> Signal {
+    signal_and_code_for_exception(exception).0
 }

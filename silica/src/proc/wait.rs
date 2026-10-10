@@ -54,11 +54,6 @@ pub struct WaitResult {
 }
 
 /// Global wait queue for process waiting.
-///
-/// TODO: one queue for the whole kernel means every child event wakes every
-/// waiter and each has to re-check its own predicate. `ostd::sync::Waiter::new_pair`
-/// lets a blocked thread publish a `Waker` that `post_signal` can target, which
-/// is what a per-parent queue needs.
 static WAIT_QUEUE: WaitQueue = WaitQueue::new();
 
 /// Wakes up any tasks waiting for a child of any process to change state.
@@ -78,8 +73,9 @@ fn child_candidates(parent: &Arc<Proc>, idtype: IdType) -> Result<Vec<Pid>> {
         .filter(|&child_pid| match idtype {
             IdType::All => true,
             IdType::Pid(target) => child_pid == target,
-            // `kern_wait6` rejects `Pgid` before getting here.
-            IdType::Pgid(_) => false,
+            IdType::Pgid(target_pgid) => {
+                allproc_find(child_pid).is_some_and(|c| c.pgid().as_u32() == target_pgid)
+            }
         })
         .collect();
 
@@ -96,40 +92,59 @@ pub fn kern_wait6(
     idtype: IdType,
     options: WaitOptions,
 ) -> Result<Option<WaitResult>> {
-    // TODO: process groups. `ProcInner` has no `pgid`, so there is nothing to
-    // match `Pgid` against. This used to accept every child, which silently made
-    // `wait4(0, ...)` and `wait4(-pgid, ...)` reap whichever child happened to
-    // exit first rather than one in the requested group.
-    if matches!(idtype, IdType::Pgid(_)) {
-        crate::return_errno!(ENOTSUP, "process groups are not implemented");
-    }
-
-    // TODO: job control. Nothing ever produces `ExitStatus::Stopped` or
-    // `Continued`, so honouring these would block forever on a state the kernel
-    // never reaches.
-    if options.intersects(WaitOptions::WSTOPPED | WaitOptions::WCONTINUED) {
-        crate::return_errno!(
-            ENOTSUP,
-            "waiting for stopped or continued children is not implemented"
-        );
-    }
-
     // `WNOHANG` and `WNOWAIT` are modifiers, not state-change selectors. POSIX
     // leaves the set empty when a caller passes only modifiers, and every real
     // caller means "exited", so default to that instead of treating the request as
     // unsatisfiable -- which is what made `WNOHANG` alone never observe an exit.
-    let options = options | WaitOptions::WEXITED;
+    let options = if options.intersects(WaitOptions::WEXITED | WaitOptions::WSTOPPED | WaitOptions::WCONTINUED) {
+        options
+    } else {
+        options | WaitOptions::WEXITED
+    };
 
     let mut candidates = child_candidates(parent, idtype)?;
     loop {
         // Check for eligible children
         for &child_pid in &candidates {
             if let Some(child) = allproc_find(child_pid) {
-                let (state, status) = {
+                let (state, status, stop_status) = {
                     let inner = child.inner.lock();
-                    (inner.state, inner.xstat)
+                    (inner.state, inner.xstat, inner.stop_status)
                 };
 
+                // Check stopped status
+                if let Some(ExitStatus::Stopped(sig)) = stop_status {
+                    if options.contains(WaitOptions::WSTOPPED) {
+                        if !options.contains(WaitOptions::WNOWAIT) {
+                            child.inner.lock().stop_status = None;
+                        }
+                        let uid = child.cred().cr_uid.as_u32();
+                        return Ok(Some(WaitResult {
+                            pid: child_pid,
+                            status: ExitStatus::Stopped(sig),
+                            exit_code: (sig.as_u32() as i32 & 0xff) << 8 | 0x7f,
+                            uid,
+                        }));
+                    }
+                }
+
+                // Check continued status
+                if let Some(ExitStatus::Continued) = stop_status {
+                    if options.contains(WaitOptions::WCONTINUED) {
+                        if !options.contains(WaitOptions::WNOWAIT) {
+                            child.inner.lock().stop_status = None;
+                        }
+                        let uid = child.cred().cr_uid.as_u32();
+                        return Ok(Some(WaitResult {
+                            pid: child_pid,
+                            status: ExitStatus::Continued,
+                            exit_code: 0xffff,
+                            uid,
+                        }));
+                    }
+                }
+
+                // Check exited / zombie status
                 if state == ProcState::Zombie && options.contains(WaitOptions::WEXITED) {
                     let uid = child.cred().cr_uid.as_u32();
                     let final_status = if options.contains(WaitOptions::WNOWAIT) {
@@ -161,14 +176,32 @@ pub fn kern_wait6(
             return Ok(None);
         }
 
-        // Wait on wait queue until notified of child state change, then rebuild
-        // the candidate list: the woken child may have been reaped by another
-        // waiter in the meantime.
-        WAIT_QUEUE.wait_until(|| {
-            let has_zombie = candidates.iter().any(|&child_pid| {
-                allproc_find(child_pid).is_some_and(|c| c.state() == ProcState::Zombie)
-            });
-            if has_zombie { Some(()) } else { None }
+        // Wait on parent's child wait queue until notified of child state change,
+        // then rebuild candidate list.
+        let check_event = || {
+            candidates.iter().any(|&child_pid| {
+                if let Some(c) = allproc_find(child_pid) {
+                    let inner = c.inner.lock();
+                    if inner.state == ProcState::Zombie && options.contains(WaitOptions::WEXITED) {
+                        return true;
+                    }
+                    if matches!(inner.stop_status, Some(ExitStatus::Stopped(_)))
+                        && options.contains(WaitOptions::WSTOPPED)
+                    {
+                        return true;
+                    }
+                    if matches!(inner.stop_status, Some(ExitStatus::Continued))
+                        && options.contains(WaitOptions::WCONTINUED)
+                    {
+                        return true;
+                    }
+                }
+                false
+            })
+        };
+
+        parent.child_waitq.wait_until(|| {
+            if check_event() { Some(()) } else { None }
         });
         candidates = child_candidates(parent, idtype)?;
     }

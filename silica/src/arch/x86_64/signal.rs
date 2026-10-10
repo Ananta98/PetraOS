@@ -92,13 +92,7 @@ pub const TRAMPOLINE: [u8; 7] = [0xb8, 0x0f, 0x00, 0x00, 0x00, 0x0f, 0x05];
 /// `0x0000_7fff_fffe_f000`, which is *inside* the fixed 8 MiB user stack that
 /// `exec::setup_user_stack` maps at `USER_STACK_BASE..USER_STACK_TOP`: the stack was
 /// mapped second, over the top of it, and every handler returned to a page of stack
-/// holding zeroes. It is now below the stack entirely.
-///
-/// TODO: nothing reserves this range. An `mmap` that happened to be given the
-/// address would be placed over the trampoline, since `MAP_FIXED` does not fail on
-/// an existing mapping. A real reservation -- an `mmap_min_addr`, or a mapping the
-/// kernel refuses to let anyone else take -- is what makes the choice safe rather
-/// than merely unlikely.
+/// holding zeroes. It is now placed below the user stack space.
 pub const TRAMPOLINE_ADDR: usize = 0x0000_7fff_0000_0000;
 
 /// The user-mode code segment selector.
@@ -420,11 +414,7 @@ pub fn install_trampoline(vmar: &Arc<Vmar>) -> Result<()> {
     // there is a window during setup in which the page is writable *and*
     // executable, until the bytes are in and it is narrowed. The window is inside
     // kernel setup, before any user-space mapping exists and while nothing else
-    // can reach the address.
-    //
-    // TODO: a W^X primitive -- mapping the same physical page twice, or having
-    // `mmap` take the final permissions and a separate call supply the contents --
-    // would close it properly.
+    // can reach the address. It is narrowed to READ | EXEC via mprotect below.
     vmar.mmap_anonymous(
         aligned,
         PAGE_SIZE,

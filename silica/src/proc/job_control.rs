@@ -15,13 +15,12 @@
 //! continued and has to resume with the state it had, whereas a zombie is
 //! waiting to be collected and never runs again.
 //!
-//! # What does not work yet
+//! # Stopping and Resuming
 //!
-//! Nothing resumes a stopped thread on its own, and nothing makes one runnable
-//! again. [`stop_thread`] marks it and records the state change for the parent;
-//! the other half of the transition is a wake, and `sched` offers no way to make
-//! an existing task runnable again. A `SIGCONT` therefore resumes nothing, and
-//! the TODO on [`continue_thread`] says so.
+//! A stopped thread parks on its process's `stop_queue` inside `Thread::user_loop`,
+//! retaining its register context and execution state. When `SIGCONT` arrives,
+//! [`continue_thread`] marks the threads as runnable, updates the process's stop
+//! status to `ExitStatus::Continued`, and wakes `stop_queue`, notifying the parent.
 
 use alloc::{sync::Arc, vec::Vec};
 
@@ -111,6 +110,8 @@ pub fn stop_thread(td: &Thread, sig: Signal) {
         }
     }
 
+    proc.inner.lock().stop_status = Some(ExitStatus::Stopped(sig));
+
     // Record the transition for whoever is waiting. The parent has to be told even
     // if it has asked not to be, because `wait4` with `WUNTRACED` is how a shell
     // learns a child stopped; the disposition is only consulted for the `SIGCHLD`
@@ -126,16 +127,13 @@ pub fn stop_thread(td: &Thread, sig: Signal) {
             },
             proc.pid.as_u32(),
         );
+        parent.child_waitq.wake_all();
+        super::wait::notify_child_events();
     }
 }
 
-/// Resumes a stopped process.
-///
-/// TODO: this clears the state, but nothing makes the threads runnable again.
-/// `sched` has no way to re-enqueue an existing `Task`, so a resumed process
-/// stays where it was until something else happens to wake it -- which, for a
-/// process stopped in `wait(2)`, means it never resumes at all.
-pub fn continue_thread(proc: &Arc<Proc>) {
+/// Resumes a stopped process and wakes its threads parked on `stop_queue`.
+pub fn continue_thread(proc: &Proc) {
     let threads: Vec<Arc<Thread>> = proc.inner.lock().threads.clone();
     for thread in threads.iter() {
         let mut inner = thread.inner.lock();
@@ -143,6 +141,24 @@ pub fn continue_thread(proc: &Arc<Proc>) {
             inner.state = ThreadState::CanRun;
             inner.stopped_by = None;
         }
+    }
+
+    proc.inner.lock().stop_status = Some(ExitStatus::Continued);
+    proc.stop_queue.wake_all();
+
+    if let Some(parent) = proc.inner.lock().ppid.and_then(crate::proc::tree::allproc_find) {
+        let _ = parent.send_signal(
+            SigInfo {
+                si_signo: Signal::SIGCHLD.as_u32() as i32,
+                si_code: code::USER,
+                si_pid: proc.pid.as_u32() as i32,
+                si_status: StoppedStatus::Continued.into_raw(),
+                ..SigInfo::default()
+            },
+            proc.pid.as_u32(),
+        );
+        parent.child_waitq.wake_all();
+        super::wait::notify_child_events();
     }
 }
 

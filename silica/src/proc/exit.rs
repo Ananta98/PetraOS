@@ -63,19 +63,15 @@ pub fn exit1(td: &Thread, status: ExitStatus) {
     // 4. Notify parent process via SIGCHLD and wake wait queues
     if let Some(parent) = ppid.and_then(allproc_find) {
         parent.post_signal(Signal::SIGCHLD);
+        parent.child_waitq.wake_all();
         super::wait::notify_child_events();
     }
 
-    // 5. Mark every thread of the process dead, not just the caller.
+    // 5. Mark every thread of the process dead, not just the caller, and clean up.
     //
     // `proc_reap` drops the last strong `Arc<Proc>` once the zombie is collected,
-    // and a surviving sibling's `Thread::td_proc` is a `Weak`. Leaving it alive
-    // would let it run user code with no process behind it, and its next
-    // `proc()` would fail.
-    //
-    // TODO: this only marks the state. OSTD has no way to cancel a `Task`, so a
-    // sibling that is mid-`UserMode::execute` keeps running user code until that
-    // call returns. Properly terminating it needs task cancellation in `sched/`.
+    // and a surviving sibling's `Thread::td_proc` is a `Weak`. Sibling threads are
+    // flagged with AST and KILL_PENDING so they exit on return to kernel mode.
     let threads: Vec<_> = proc.inner.lock().threads.clone();
     for thread in &threads {
         let clear_tid = thread.inner.lock().clear_child_tid;
@@ -83,8 +79,15 @@ pub fn exit1(td: &Thread, status: ExitStatus) {
             let zero = 0i32.to_ne_bytes();
             let _ = UserPtr::new(clear_tid).write_bytes(&proc.vmspace(), &zero);
         }
-        thread.inner.lock().state = ThreadState::Dead;
+        let mut td_inner = thread.inner.lock();
+        td_inner.state = ThreadState::Dead;
+        td_inner.flags.insert(
+            crate::proc::thread::ThreadFlags::TDF_ASTPENDING
+                | crate::proc::thread::ThreadFlags::KILL_PENDING,
+        );
     }
+    // Wake any threads parked on stop_queue so they terminate immediately
+    proc.stop_queue.wake_all();
 
     // Report the status so a process's end is visible in the log. Nothing else
     // does: the zombie keeps `xstat` until a parent reaps it, and a process with
@@ -107,6 +110,9 @@ pub fn proc_reap(parent: &Arc<Proc>, child_pid: Pid) -> Result<(Pid, ExitStatus)
         }
         child_inner.xstat.unwrap_or(ExitStatus::Exited(0))
     };
+
+    // Clean up remaining threads from the child process
+    child.inner.lock().threads.clear();
 
     // Remove from parent's children list
     {
