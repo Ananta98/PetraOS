@@ -72,5 +72,7 @@ pub fn init() {
     ));
     root_node.dentry.add_child(mnt_dentry);
 
+    auto_probe_and_mount();
+
     ostd::info!("VFS initialized: mounted Initramfs at /, /dev and /mnt ready");
 }

@@ -2,7 +2,7 @@
 
 //! System call dispatch for x86_64 architecture matching Linux syscall ABI numbers.
 
-use crate::syscall::{fs, metadata, mm, net, proc, sched, signals, sync, time};
+use crate::syscall::{fs, ipc, metadata, mm, net, platform, proc, sched, signals, sync, time};
 
 crate::impl_syscall_nums_and_dispatch_fn! {
     SYS_READ = 0 => fs::sys_read(i32, usize, usize);
@@ -32,6 +32,9 @@ crate::impl_syscall_nums_and_dispatch_fn! {
     SYS_SCHED_YIELD = 24 => sched::sys_sched_yield();
     SYS_MSYNC = 26 => mm::sys_msync(usize, usize, u32);
     SYS_MADVISE = 28 => mm::sys_madvise(usize, usize, u32);
+    SYS_SHMGET = 29 => ipc::sys_shmget(i32, usize, i32);
+    SYS_SHMAT = 30 => ipc::sys_shmat(i32, usize, i32);
+    SYS_SHMCTL = 31 => ipc::sys_shmctl(i32, i32, usize);
     SYS_DUP = 32 => fs::sys_dup(i32);
     SYS_DUP2 = 33 => fs::sys_dup2(i32, i32);
     SYS_PAUSE = 34 => signals::sys_pause();
@@ -62,6 +65,14 @@ crate::impl_syscall_nums_and_dispatch_fn! {
     SYS_WAIT4 = 61 => proc::sys_wait4(i32, usize, u32, usize);
     SYS_KILL = 62 => signals::sys_kill(i32, i32);
     SYS_UNAME = 63 => metadata::sys_uname(usize);
+    SYS_SEMGET = 64 => ipc::sys_semget(i32, i32, i32);
+    SYS_SEMOP = 65 => ipc::sys_semop(i32, usize, usize);
+    SYS_SEMCTL = 66 => ipc::sys_semctl(i32, i32, i32, usize);
+    SYS_SHMDT = 67 => ipc::sys_shmdt(usize);
+    SYS_MSGGET = 68 => ipc::sys_msgget(i32, i32);
+    SYS_MSGSND = 69 => ipc::sys_msgsnd(i32, usize, usize, i32);
+    SYS_MSGRCV = 70 => ipc::sys_msgrcv(i32, usize, usize, i64, i32);
+    SYS_MSGCTL = 71 => ipc::sys_msgctl(i32, i32, usize);
     SYS_FCNTL = 72 => fs::sys_fcntl(i32, i32, usize);
     SYS_FLOCK = 73 => fs::sys_flock(i32, i32);
     SYS_FSYNC = 74 => fs::sys_fsync(i32);
@@ -117,13 +128,26 @@ crate::impl_syscall_nums_and_dispatch_fn! {
     SYS_SIGALTSTACK = 131 => signals::sys_sigaltstack(usize, usize);
     SYS_STATFS = 137 => fs::sys_statfs(usize, usize);
     SYS_FSTATFS = 138 => fs::sys_fstatfs(i32, usize);
+    SYS_GETPRIORITY = 140 => sched::sys_getpriority(i32, i32);
+    SYS_SETPRIORITY = 141 => sched::sys_setpriority(i32, i32, i32);
+    SYS_SCHED_SETPARAM = 142 => sched::sys_sched_setparam(i32, usize);
+    SYS_SCHED_GETPARAM = 143 => sched::sys_sched_getparam(i32, usize);
+    SYS_SCHED_SETSCHEDULER = 144 => sched::sys_sched_setscheduler(i32, i32, usize);
+    SYS_SCHED_GETSCHEDULER = 145 => sched::sys_sched_getscheduler(i32);
+    SYS_SCHED_GET_PRIORITY_MAX = 146 => sched::sys_sched_get_priority_max(i32);
+    SYS_SCHED_GET_PRIORITY_MIN = 147 => sched::sys_sched_get_priority_min(i32);
+    SYS_SCHED_RR_GET_INTERVAL = 148 => sched::sys_sched_rr_get_interval(i32, usize);
     SYS_PRCTL = 157 => proc::sys_prctl(i32, usize, usize, usize, usize);
     SYS_ARCH_PRCTL = 158 => proc::sys_arch_prctl(i32, usize);
     SYS_SETRLIMIT = 160 => proc::sys_setrlimit(u32, usize);
+    SYS_REBOOT = 169 => platform::sys_reboot(i32, i32, u32, usize);
     SYS_GETTID = 186 => proc::sys_gettid();
     SYS_FUTEX = 202 => sync::sys_futex(usize, i32, u32, usize, usize, u32);
+    SYS_SCHED_SETAFFINITY = 203 => sched::sys_sched_setaffinity(i32, usize, usize);
+    SYS_SCHED_GETAFFINITY = 204 => sched::sys_sched_getaffinity(i32, usize, usize);
     SYS_GETDENTS64 = 217 => fs::sys_getdents64(i32, usize, usize);
     SYS_SET_TID_ADDRESS = 218 => proc::sys_set_tid_address(usize);
+    SYS_SEMTIMEDOP = 220 => ipc::sys_semtimedop(i32, usize, usize, usize);
     SYS_FADVISE64 = 221 => fs::sys_fadvise64(i32, i64, i64, i32);
     SYS_CLOCK_GETTIME = 228 => time::sys_clock_gettime(i32, usize);
     SYS_EXIT_GROUP = 231 => proc::sys_exit_group(i32);
@@ -153,7 +177,11 @@ crate::impl_syscall_nums_and_dispatch_fn! {
     SYS_PRLIMIT64 = 302 => proc::sys_prlimit64(i32, u32, usize, usize);
     SYS_SYNCFS = 306 => fs::sys_syncfs(i32);
     SYS_SENDMMSG = 307 => net::sys_sendmmsg(i32, usize, u32, i32);
+    SYS_GETCPU = 309 => sched::sys_getcpu(usize, usize, usize);
+    SYS_SCHED_SETATTR = 314 => sched::sys_sched_setattr(i32, usize, u32);
+    SYS_SCHED_GETATTR = 315 => sched::sys_sched_getattr(i32, usize, u32, u32);
     SYS_RENAMEAT2 = 316 => fs::sys_renameat2(i32, usize, i32, usize, u32);
+    SYS_GETRANDOM = 318 => platform::sys_getrandom(usize, usize, u32);
     SYS_COPY_FILE_RANGE = 326 => fs::sys_copy_file_range(i32, usize, i32, usize, usize, u32);
     SYS_PREADV2 = 327 => fs::sys_preadv2(i32, usize, usize, usize, usize, i32);
     SYS_PWRITEV2 = 328 => fs::sys_pwritev2(i32, usize, usize, usize, usize, i32);

@@ -41,8 +41,12 @@ pub fn exit1(td: &Thread, status: ExitStatus) {
     };
     let reaper_pid = reaper.unwrap_or_else(|| tree_find_reaper(ppid));
 
-    // 2. Tear down open files
+    // 2. Tear down open files and detach SysV IPC resources (shm, sem, msg)
     proc.fd_table.lock().close_all();
+    crate::ipc::shm::on_proc_exit(&proc);
+    crate::ipc::sem::on_proc_exit(&proc);
+    crate::ipc::msg::on_proc_exit(&proc);
+    crate::sched::on_proc_exit(proc.pid);
 
     // 3. Reparent orphan children to reaper
     if !children_to_reparent.is_empty() {

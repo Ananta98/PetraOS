@@ -13,9 +13,11 @@
 
 pub mod arch;
 pub mod fs;
+pub mod ipc;
 pub mod metadata;
 pub mod mm;
 pub mod net;
+pub mod platform;
 pub mod proc;
 pub mod sched;
 pub mod signals;

@@ -39,8 +39,10 @@ pub mod arch;
 
 pub mod api;
 pub mod cmdline;
+pub mod crypto;
 pub mod drivers;
 pub mod fs;
+pub mod ipc;
 pub mod modules;
 pub mod net;
 pub mod proc;
@@ -63,7 +65,6 @@ fn kernel_main() {
         ostd::error!("Module initcalls failed: {:?}", err);
     }
     vm::reclaim::init_kswapd();
-    fs::auto_probe_and_mount();
     if let Err(err) = proc::init::spawn_init_process() {
         ostd::warn!("Init process could not be launched: {:?}", err);
     }

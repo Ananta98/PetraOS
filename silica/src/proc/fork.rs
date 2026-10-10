@@ -57,6 +57,9 @@ pub fn fork1(caller_td: &Thread, caller_user_ctx: Option<&UserContext>) -> Resul
         &comm,
     );
 
+    // Duplicate SysV shared memory attachments
+    crate::ipc::shm::on_proc_fork(&caller_proc, &child_proc);
+
     // 6. Set up child's user context
     let mut child_ctx = caller_user_ctx.cloned().unwrap_or_default();
     // `fork(2)` returns 0 in the child and the child's PID in the parent. Only

@@ -27,6 +27,8 @@ pub enum Errno {
     EINTR = 4,
     /// Input/output error.
     EIO = 5,
+    /// Argument list too long.
+    E2BIG = 7,
     /// Exec format error.
     ENOEXEC = 8,
     /// Bad file descriptor.
@@ -61,6 +63,8 @@ pub enum Errno {
     EMFILE = 24,
     /// Inappropriate ioctl for device.
     ENOTTY = 25,
+    /// File too large.
+    EFBIG = 27,
     /// No space left on device.
     ENOSPC = 28,
     /// Illegal seek.
@@ -79,6 +83,10 @@ pub enum Errno {
     ENOTEMPTY = 39,
     /// Too many levels of symbolic links.
     ELOOP = 40,
+    /// No message of desired type.
+    ENOMSG = 42,
+    /// Identifier removed.
+    EIDRM = 43,
     /// Value too large for defined data type.
     EOVERFLOW = 75,
     /// Socket operation on non-socket.
@@ -153,6 +161,7 @@ impl Errno {
             Self::ESRCH => "ESRCH",
             Self::EINTR => "EINTR",
             Self::EIO => "EIO",
+            Self::E2BIG => "E2BIG",
             Self::ENOEXEC => "ENOEXEC",
             Self::EBADF => "EBADF",
             Self::ECHILD => "ECHILD",
@@ -172,6 +181,7 @@ impl Errno {
             Self::ENFILE => "ENFILE",
             Self::EMFILE => "EMFILE",
             Self::ENOTTY => "ENOTTY",
+            Self::EFBIG => "EFBIG",
             Self::ENOSPC => "ENOSPC",
             Self::ESPIPE => "ESPIPE",
             Self::EROFS => "EROFS",
@@ -179,6 +189,8 @@ impl Errno {
             Self::ENAMETOOLONG => "ENAMETOOLONG",
             Self::ENOSYS => "ENOSYS",
             Self::ELOOP => "ELOOP",
+            Self::ENOMSG => "ENOMSG",
+            Self::EIDRM => "EIDRM",
             Self::EOVERFLOW => "EOVERFLOW",
             Self::ENOTSUP => "ENOTSUP",
             Self::ENOTSOCK => "ENOTSOCK",
@@ -210,6 +222,7 @@ impl Errno {
             Self::ESRCH => "no such process",
             Self::EINTR => "interrupted system call",
             Self::EIO => "input/output error",
+            Self::E2BIG => "argument list too long",
             Self::ENOEXEC => "exec format error",
             Self::EBADF => "bad file descriptor",
             Self::ECHILD => "no child processes",
@@ -229,6 +242,7 @@ impl Errno {
             Self::ENFILE => "too many open files in system",
             Self::EMFILE => "too many open files",
             Self::ENOTTY => "inappropriate ioctl for device",
+            Self::EFBIG => "file too large",
             Self::ENOSPC => "no space left on device",
             Self::ESPIPE => "illegal seek",
             Self::EROFS => "read-only file system",
@@ -236,6 +250,8 @@ impl Errno {
             Self::ENAMETOOLONG => "file name too long",
             Self::ENOSYS => "function not implemented",
             Self::ELOOP => "too many levels of symbolic links",
+            Self::ENOMSG => "no message of desired type",
+            Self::EIDRM => "identifier removed",
             Self::EOVERFLOW => "value too large for defined data type",
             Self::ENOTSUP => "operation not supported",
             Self::ENOTSOCK => "socket operation on non-socket",

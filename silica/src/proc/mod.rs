@@ -20,7 +20,7 @@ pub mod thread;
 pub mod tree;
 pub mod wait;
 
-use alloc::{string::String, sync::Arc, vec::Vec};
+use alloc::{collections::BTreeMap, string::String, sync::Arc, vec::Vec};
 use ostd::sync::SpinLock;
 
 use self::{
@@ -138,6 +138,8 @@ pub struct ProcInner {
     /// Distinct from [`Self::state`]: a stopped process is not a zombie and will
     /// run again, which is exactly what a zombie will not do.
     pub stop_status: Option<ExitStatus>,
+    /// System V shared memory attachments keyed by virtual start address.
+    pub shm_attachments: BTreeMap<usize, crate::ipc::shm::ShmAttachment>,
 }
 
 /// Process Control Block.
@@ -198,6 +200,7 @@ impl Proc {
                 is_reaper,
                 pgid: None,
                 stop_status: None,
+                shm_attachments: BTreeMap::new(),
             }),
             vmspace: SpinLock::new(vmspace),
             fd_table,

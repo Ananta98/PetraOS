@@ -82,10 +82,13 @@
 //! would have to change.
 //! 
 pub mod adapter;
+pub mod attrs;
 pub mod entity;
 pub mod loadavg;
 pub mod rq;
 pub mod stats;
+
+pub use attrs::*;
 
 use ostd::timer::{Jiffies, TIMER_FREQ};
 

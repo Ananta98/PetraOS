@@ -12,6 +12,12 @@
 //! |---|---|
 //! | [`errno`] | `errno` numbers, and the negated value a failed syscall returns |
 //! | [`cred`] | `uid_t`, `gid_t` and `struct ucred` |
+//! | [`ipc`] | System V IPC common constants and `struct ipc_perm` |
+//! | [`shm`] | System V Shared Memory `struct shmid_ds`, `struct shminfo`, and `SHM_*` constants |
+//! | [`sem`] | System V Semaphore `struct sembuf`, `struct semid_ds`, and `SEM_*` commands |
+//! | [`sched`] | Scheduler policies, `struct sched_param`, `struct sched_attr`, `cpu_set_t` |
+//! | [`reboot`] | `reboot(2)` magic numbers and command codes |
+//! | [`random`] | `getrandom(2)` flag definitions |
 //! | [`limit`] | `struct rlimit` and the `RLIMIT_*` resource identifiers |
 //! | [`signal`] | `sigset_t`, `struct sigaction` and the signal numbers |
 //! | [`termios`] | `struct termios`, `struct winsize`, `tcflag_t` |
@@ -24,6 +30,13 @@
 pub mod cred;
 pub mod errno;
 pub mod ioctl;
+pub mod ipc;
 pub mod limit;
+pub mod msg;
+pub mod random;
+pub mod reboot;
+pub mod sched;
+pub mod sem;
+pub mod shm;
 pub mod signal;
 pub mod termios;
