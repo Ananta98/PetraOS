@@ -215,15 +215,22 @@ pub fn setup_user_stack(
     // Align stack to 8 bytes before pointer arrays
     sp &= !7;
 
-    // 4. Construct auxiliary vector (AT_NULL, AT_PAGESZ, AT_ENTRY)
-    let auxv: [(u64, u64); 3] = [
+    // Push 16 cryptographically random bytes for AT_RANDOM (used for stack canary & SSP)
+    let mut random_bytes = [0u8; 16];
+    crate::crypto::get_random_bytes(&mut random_bytes);
+    let at_random_ptr = push_bytes(vmar, &mut sp, &random_bytes)?;
+    sp &= !7;
+
+    // 4. Construct auxiliary vector (AT_NULL, AT_PAGESZ, AT_ENTRY, AT_RANDOM)
+    let auxv: [(u64, u64); 4] = [
         (6, ostd::mm::PAGE_SIZE as u64), // AT_PAGESZ
         (9, entry_point as u64),         // AT_ENTRY
+        (25, at_random_ptr as u64),      // AT_RANDOM
         (0, 0),                          // AT_NULL
     ];
 
     // Calculate total 8-byte entries on stack:
-    // argc (1) + argv ptrs + NULL (1) + envp ptrs + NULL (1) + auxv (2 * 3 = 6)
+    // argc (1) + argv ptrs + NULL (1) + envp ptrs + NULL (1) + auxv (2 * 4 = 8)
     let total_words = 1 + argv_ptrs.len() + 1 + envp_ptrs.len() + 1 + (auxv.len() * 2);
 
     // Enforce System V AMD64 ABI 16-byte alignment at entry: %rsp % 16 == 0
