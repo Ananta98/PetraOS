@@ -11,7 +11,6 @@ pub mod queue;
 use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-use core::sync::atomic::{AtomicI32, Ordering};
 use ostd::sync::{SpinLock, Waiter};
 
 use self::message::Message;
@@ -32,8 +31,6 @@ static MSG_REGISTRY: SpinLock<BTreeMap<i32, Arc<SpinLock<MsgQueue>>>> =
 /// Mapping from IPC key to `msqid`.
 static KEY_MAP: SpinLock<BTreeMap<Key, i32>> = SpinLock::new(BTreeMap::new());
 
-/// Monotonic allocator for message queue IDs (starts at 1).
-static NEXT_MSQID: AtomicI32 = AtomicI32::new(1);
 
 /// Returns current system timestamp in seconds.
 fn current_time_secs() -> i64 {
@@ -82,7 +79,7 @@ fn create_msg_queue(key: Key, msgflg: i32, cred: &Ucred) -> Result<i32> {
         return Err(Errno::ENOSPC);
     }
 
-    let msqid = NEXT_MSQID.fetch_add(1, Ordering::Relaxed);
+    let msqid = crate::ipc::id::alloc_ipc_id(&reg);
     let now = current_time_secs();
 
     let ds = MsqIdDs {

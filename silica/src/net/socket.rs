@@ -3,7 +3,6 @@
 //! UNIX Socket Abstraction wrapping smoltcp Sockets and Unix domain socket pairs.
 
 use alloc::{collections::VecDeque, sync::Arc};
-use core::sync::atomic::{AtomicU16, Ordering};
 use ostd::{sync::WaitQueue, task::Task};
 use smoltcp::{
     iface::SocketHandle,
@@ -34,7 +33,13 @@ pub const IPPROTO_UDP: i32 = 17;
 
 pub const UNIX_SOCKET_CAPACITY: usize = 65536;
 
-static NEXT_EPHEMERAL_PORT: AtomicU16 = AtomicU16::new(49152);
+/// Allocates a randomized ephemeral port in the dynamic range [49152, 65535] per RFC 6056.
+pub fn alloc_ephemeral_port() -> u16 {
+    let mut bytes = [0u8; 2];
+    crate::crypto::get_random_bytes(&mut bytes);
+    let offset = u16::from_ne_bytes(bytes) % 16384;
+    49152 + offset
+}
 
 /// Unidirectional byte channel used for Unix socket pairs.
 pub struct UnixChannel {
@@ -210,7 +215,7 @@ impl KernelSocket {
                     .local_endpoint
                     .lock()
                     .map(|ep| ep.port)
-                    .unwrap_or_else(|| NEXT_EPHEMERAL_PORT.fetch_add(1, Ordering::Relaxed));
+                    .unwrap_or_else(alloc_ephemeral_port);
 
                 let mut net = NET_MANAGER.lock();
                 net.connect_tcp(handle, endpoint, local_port)?;

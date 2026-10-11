@@ -55,6 +55,7 @@ pub mod vm;
 fn kernel_main() {
     cmdline::init(&ostd::boot::boot_info().kernel_cmdline);
     arch::init();
+    crypto::init();
     vm::init();
     fs::init();
     sched::init();

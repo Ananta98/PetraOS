@@ -6,15 +6,9 @@
 
 pub mod segment;
 
-use alloc::{
-    collections::BTreeMap,
-    sync::Arc,
-};
-use core::sync::atomic::{AtomicI32, Ordering};
-use ostd::{
-    mm::PAGE_SIZE,
-    sync::SpinLock,
-};
+use alloc::{collections::BTreeMap, sync::Arc};
+use core::sync::atomic::Ordering;
+use ostd::{mm::PAGE_SIZE, sync::SpinLock};
 
 use crate::{
     api::{
@@ -22,23 +16,26 @@ use crate::{
         errno::{Errno, Result},
         ipc::{IPC_CREAT, IPC_EXCL, IPC_INFO, IPC_PRIVATE, IPC_RMID, IPC_SET, IPC_STAT, IpcPerm},
         shm::{
-            SHMMAX, SHMMIN, SHMMNI, SHM_EXEC, SHM_INFO, SHM_LOCK, SHM_RDONLY, SHM_REMAP,
-            SHM_RND, SHM_STAT, SHM_STAT_ANY, SHM_UNLOCK, SHMLBA, ShmIdDs, ShmInfo,
+            SHM_EXEC, SHM_INFO, SHM_LOCK, SHM_RDONLY, SHM_REMAP, SHM_RND, SHM_STAT, SHM_STAT_ANY,
+            SHM_UNLOCK, SHMLBA, SHMMAX, SHMMIN, SHMMNI, ShmIdDs, ShmInfo,
         },
     },
     ipc::perm::{check_admin_permission, check_read_permission, check_write_permission},
-    proc::{tree::Pid, Proc},
+    proc::{Proc, tree::Pid},
     utils::userspace::user_ptr::UserPtr,
     vm::{
+        backing::Backing,
         flags::MmapFlags,
         perms::VmPerms,
         shm::SharedPages,
         vmar::{VMAR_CAP_ADDR, VMAR_LOWEST_ADDR},
-        backing::Backing,
     },
 };
 
 pub use self::segment::ShmSegment;
+
+static SHM_REGISTRY: SpinLock<BTreeMap<i32, Arc<ShmSegment>>> = SpinLock::new(BTreeMap::new());
+static KEY_MAP: SpinLock<BTreeMap<i32, i32>> = SpinLock::new(BTreeMap::new());
 
 /// A per-process shared memory attachment record.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -49,16 +46,12 @@ pub struct ShmAttachment {
     pub readonly: bool,
 }
 
-static SHM_REGISTRY: SpinLock<BTreeMap<i32, Arc<ShmSegment>>> = SpinLock::new(BTreeMap::new());
-static KEY_MAP: SpinLock<BTreeMap<i32, i32>> = SpinLock::new(BTreeMap::new());
-static NEXT_SHMID: AtomicI32 = AtomicI32::new(1);
-
 fn now_sec() -> u64 {
     crate::sched::now() / crate::sched::TIMER_HZ
 }
 
-fn alloc_shmid() -> i32 {
-    NEXT_SHMID.fetch_add(1, Ordering::Relaxed)
+fn alloc_shmid(reg: &BTreeMap<i32, Arc<ShmSegment>>) -> i32 {
+    crate::ipc::id::alloc_ipc_id(reg)
 }
 
 /// System call implementation for `shmget(2)`.
@@ -67,16 +60,17 @@ pub fn shm_get(key: i32, size: usize, shmflg: i32, cred: &Ucred, pid: Pid) -> Re
         if size < SHMMIN || size > SHMMAX {
             crate::return_errno!(EINVAL, "shared memory size out of bounds");
         }
-        let aligned_size = size.checked_next_multiple_of(PAGE_SIZE).ok_or(Errno::EINVAL)?;
-        let shmid = alloc_shmid();
-        let perm = IpcPerm::new(key, cred, (shmflg as u32) & 0o777);
-        let pages = SharedPages::new(aligned_size)?;
-        let segment = ShmSegment::new(shmid, key, perm, aligned_size, pages, pid, now_sec());
-
+        let aligned_size = size
+            .checked_next_multiple_of(PAGE_SIZE)
+            .ok_or(Errno::EINVAL)?;
         let mut reg = SHM_REGISTRY.lock();
         if reg.len() >= SHMMNI {
             crate::return_errno!(ENOSPC, "maximum number of shared memory segments reached");
         }
+        let shmid = alloc_shmid(&reg);
+        let perm = IpcPerm::new(key, cred, (shmflg as u32) & 0o777);
+        let pages = SharedPages::new(aligned_size)?;
+        let segment = ShmSegment::new(shmid, key, perm, aligned_size, pages, pid, now_sec());
         reg.insert(shmid, segment);
         return Ok(shmid);
     }
@@ -112,16 +106,17 @@ pub fn shm_get(key: i32, size: usize, shmflg: i32, cred: &Ucred, pid: Pid) -> Re
         crate::return_errno!(EINVAL, "shared memory size out of bounds");
     }
 
-    let aligned_size = size.checked_next_multiple_of(PAGE_SIZE).ok_or(Errno::EINVAL)?;
-    let shmid = alloc_shmid();
-    let perm = IpcPerm::new(key, cred, (shmflg as u32) & 0o777);
-    let pages = SharedPages::new(aligned_size)?;
-    let segment = ShmSegment::new(shmid, key, perm, aligned_size, pages, pid, now_sec());
-
+    let aligned_size = size
+        .checked_next_multiple_of(PAGE_SIZE)
+        .ok_or(Errno::EINVAL)?;
     let mut reg = SHM_REGISTRY.lock();
     if reg.len() >= SHMMNI {
         crate::return_errno!(ENOSPC, "maximum number of shared memory segments reached");
     }
+    let shmid = alloc_shmid(&reg);
+    let perm = IpcPerm::new(key, cred, (shmflg as u32) & 0o777);
+    let pages = SharedPages::new(aligned_size)?;
+    let segment = ShmSegment::new(shmid, key, perm, aligned_size, pages, pid, now_sec());
 
     key_map.insert(key, shmid);
     reg.insert(shmid, segment);
@@ -130,7 +125,13 @@ pub fn shm_get(key: i32, size: usize, shmflg: i32, cred: &Ucred, pid: Pid) -> Re
 }
 
 /// System call implementation for `shmat(2)`.
-pub fn shm_at(shmid: i32, shmaddr: usize, shmflg: i32, cred: &Ucred, proc: &Arc<Proc>) -> Result<usize> {
+pub fn shm_at(
+    shmid: i32,
+    shmaddr: usize,
+    shmflg: i32,
+    cred: &Ucred,
+    proc: &Arc<Proc>,
+) -> Result<usize> {
     let segment = {
         let reg = SHM_REGISTRY.lock();
         reg.get(&shmid).cloned().ok_or(Errno::EINVAL)?
@@ -181,7 +182,8 @@ pub fn shm_at(shmid: i32, shmaddr: usize, shmflg: i32, cred: &Ucred, proc: &Arc<
 
     let backing = Arc::clone(&segment.pages) as Arc<dyn Backing>;
     let vmar = proc.vmspace();
-    let mapped_addr = vmar.mmap_backed(&backing, target_addr, segment.size, perms, mmap_flags, 0)?;
+    let mapped_addr =
+        vmar.mmap_backed(&backing, target_addr, segment.size, perms, mmap_flags, 0)?;
 
     // Record attachment in process descriptor
     {
@@ -213,7 +215,10 @@ pub fn shm_dt(shmaddr: usize, proc: &Arc<Proc>) -> Result<()> {
 
     let attachment = {
         let mut inner = proc.inner.lock();
-        inner.shm_attachments.remove(&shmaddr).ok_or(Errno::EINVAL)?
+        inner
+            .shm_attachments
+            .remove(&shmaddr)
+            .ok_or(Errno::EINVAL)?
     };
 
     let vmar = proc.vmspace();
@@ -245,7 +250,13 @@ pub fn shm_dt(shmaddr: usize, proc: &Arc<Proc>) -> Result<()> {
 }
 
 /// System call implementation for `shmctl(2)`.
-pub fn shm_ctl(shmid: i32, cmd: i32, buf_ptr: usize, cred: &Ucred, proc: &Arc<Proc>) -> Result<usize> {
+pub fn shm_ctl(
+    shmid: i32,
+    cmd: i32,
+    buf_ptr: usize,
+    cred: &Ucred,
+    proc: &Arc<Proc>,
+) -> Result<usize> {
     let vmar = proc.vmspace();
 
     if cmd == IPC_INFO || cmd == SHM_INFO {

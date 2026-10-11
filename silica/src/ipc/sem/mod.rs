@@ -9,10 +9,7 @@ pub mod set;
 pub mod undo;
 
 use alloc::{collections::BTreeMap, sync::Arc, vec::Vec};
-use core::{
-    sync::atomic::{AtomicI32, Ordering},
-    time::Duration,
-};
+use core::time::Duration;
 use ostd::sync::{SpinLock, Waiter};
 
 use crate::{
@@ -48,8 +45,6 @@ static SEM_REGISTRY: SpinLock<BTreeMap<i32, Arc<SpinLock<SemSet>>>> =
 /// Global map from IPC key to `semid`.
 static KEY_MAP: SpinLock<BTreeMap<i32, i32>> = SpinLock::new(BTreeMap::new());
 
-/// Monotonically increasing semaphore identifier counter.
-static NEXT_SEMID: AtomicI32 = AtomicI32::new(1);
 
 /// Returns current monotonic uptime in seconds.
 fn current_time_secs() -> i64 {
@@ -114,7 +109,7 @@ fn create_sem_set(key: i32, nsems: usize, semflg: i32, cred: &Ucred) -> Result<i
         return Err(Errno::ENOSPC);
     }
 
-    let semid = NEXT_SEMID.fetch_add(1, Ordering::Relaxed);
+    let semid = crate::ipc::id::alloc_ipc_id(&reg);
     let now = current_time_secs();
 
     let ds = SemIdDs {

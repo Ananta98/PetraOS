@@ -36,6 +36,16 @@ pub fn sys_getrandom(
         return Err(Errno::EINVAL);
     }
 
+    let insecure = (flags & GRND_INSECURE) != 0;
+    let nonblock = (flags & GRND_NONBLOCK) != 0;
+
+    if !crate::crypto::is_initialized() && !insecure {
+        if nonblock {
+            return Err(Errno::EAGAIN);
+        }
+        crate::crypto::ensure_initialized();
+    }
+
     let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
     let vmar = proc.vmspace();
 

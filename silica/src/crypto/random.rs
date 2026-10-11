@@ -99,3 +99,52 @@ pub fn get_random_bytes(buf: &mut [u8]) {
     rng.reseed(jitter);
     rng.fill_bytes(buf);
 }
+
+/// Returns whether the CSPRNG entropy pool is initialized.
+pub fn is_initialized() -> bool {
+    crate::crypto::entropy::is_initialized()
+}
+
+/// Ensures that the entropy pool is initialized, actively harvesting if needed.
+pub fn ensure_initialized() {
+    if !is_initialized() {
+        let mut rng = CSPRNG.lock();
+        for _ in 0..32 {
+            let entropy = harvest_entropy_u64();
+            rng.reseed(entropy);
+            if crate::crypto::entropy::is_initialized() {
+                break;
+            }
+        }
+        crate::crypto::entropy::mark_initialized();
+    }
+}
+
+/// Mixes external entropy into the CSPRNG state and updates initialization status.
+pub fn add_entropy(data: &[u8]) {
+    if data.is_empty() {
+        return;
+    }
+    let digest = crate::crypto::hash::Sha256::digest(data);
+    let mut rng = CSPRNG.lock();
+    for i in 0..4 {
+        let word = u32::from_le_bytes([
+            digest[i * 4],
+            digest[i * 4 + 1],
+            digest[i * 4 + 2],
+            digest[i * 4 + 3],
+        ]);
+        rng.state[8 + i] ^= word;
+    }
+    rng.buf_idx = 64;
+    crate::crypto::entropy::mark_initialized();
+}
+
+/// Initializes the global CSPRNG with initial hardware and jitter entropy.
+pub fn init() {
+    let mut rng = CSPRNG.lock();
+    let initial_entropy = harvest_entropy_u64();
+    rng.reseed(initial_entropy);
+    ensure_initialized();
+}
+

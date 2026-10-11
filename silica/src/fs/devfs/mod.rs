@@ -10,10 +10,12 @@ pub mod chr;
 pub mod console;
 pub mod net;
 pub mod null;
+pub mod random;
 pub mod zero;
 
 pub use console::ConsoleFile;
 pub use null::NullFile;
+pub use random::{RandomFile, UrandomFile};
 pub use zero::ZeroFile;
 
 use crate::fs::vfs::{
@@ -31,6 +33,7 @@ use alloc::{boxed::Box, sync::Arc, vec::Vec};
 use blk::GenericBlkNodeOps;
 use chr::GenericChrNodeOps;
 use null::NullNodeOps;
+use random::{RandomNodeOps, UrandomNodeOps};
 use zero::ZeroNodeOps;
 
 /// Operations on the `/dev` root directory inode.
@@ -64,6 +67,32 @@ impl NodeOps for DevFsDirOps {
                         | Mode::ROTH
                         | Mode::WOTH,
                     2,
+                )));
+            }
+            "random" => {
+                return Ok(Arc::new(INode::new(
+                    Box::new(RandomNodeOps),
+                    Mode::CHAR
+                        | Mode::RUSR
+                        | Mode::WUSR
+                        | Mode::RGRP
+                        | Mode::WGRP
+                        | Mode::ROTH
+                        | Mode::WOTH,
+                    3,
+                )));
+            }
+            "urandom" => {
+                return Ok(Arc::new(INode::new(
+                    Box::new(UrandomNodeOps),
+                    Mode::CHAR
+                        | Mode::RUSR
+                        | Mode::WUSR
+                        | Mode::RGRP
+                        | Mode::WGRP
+                        | Mode::ROTH
+                        | Mode::WOTH,
+                    4,
                 )));
             }
             _ => {}
@@ -158,6 +187,8 @@ impl FileOps for DevFsDirFileOps {
         out.extend_from_slice(b".\n..\n");
         out.extend_from_slice(b"null\n");
         out.extend_from_slice(b"zero\n");
+        out.extend_from_slice(b"random\n");
+        out.extend_from_slice(b"urandom\n");
 
         for dev in crate::drivers::get_chrdevs() {
             out.extend_from_slice(dev.name().as_bytes());
