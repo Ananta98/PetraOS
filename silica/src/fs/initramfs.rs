@@ -47,6 +47,10 @@ impl FileOps for InitramfsFileOps {
         }
         Ok(new_offset as u64)
     }
+
+    fn mmap(&self, _offset: u64, _len: usize) -> Result<()> {
+        Ok(())
+    }
 }
 
 pub struct InitramfsFileNodeOps {
@@ -172,6 +176,10 @@ impl FileOps for InitramfsRamFileOps {
             return Err(Errno::EINVAL);
         }
         Ok(new_offset as u64)
+    }
+
+    fn mmap(&self, _offset: u64, _len: usize) -> Result<()> {
+        Ok(())
     }
 }
 
@@ -454,8 +462,9 @@ impl InitramfsFs {
                         }
                     }
                     _ => {
+                        let ram_data = Arc::new(RwLock::new(Vec::from(entry.data)));
                         let file_node = Arc::new(INode::new_with_attr(
-                            Box::new(InitramfsFileNodeOps { data: entry.data }),
+                            Box::new(InitramfsRamFileNodeOps { data: ram_data }),
                             ino,
                             INodeAttr {
                                 size: entry.data.len(),

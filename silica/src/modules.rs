@@ -19,6 +19,7 @@ use xmas_elf::{
     header::{Class, Data, Machine},
     program::Type as ProgramType,
     sections::SectionData,
+    symbol_table::Entry,
 };
 
 use crate::api::errno::{Errno, Result};
@@ -329,8 +330,30 @@ pub fn init_calls() -> Result<()> {
 
 /// Loads an ELF module file from initramfs by path.
 pub fn load_module_from_initramfs(path: &str, cmdline: &str) -> Result<String> {
-    let elf_data = crate::fs::read_file_from_initramfs(path).ok_or(Errno::ENOENT)?;
-    load_module(elf_data, cmdline)
+    load_module_from_file(path, cmdline)
+}
+
+/// Loads a kernel module from a filesystem path (supporting both rootfs VFS and initramfs).
+pub fn load_module_from_file(path: &str, cmdline: &str) -> Result<String> {
+    let elf_data = crate::proc::exec::read_binary_data(path)?;
+    let mut mod_name = load_module(&elf_data, cmdline)?;
+    // If the module didn't specify an explicit name, infer from file stem
+    if mod_name.starts_with("module_") {
+        let file_name = path.rsplit('/').next().unwrap_or(path);
+        let stem = file_name
+            .trim_end_matches(".kso")
+            .trim_end_matches(".so")
+            .trim_end_matches(".ko");
+        if !stem.is_empty() {
+            let mut table = MODULE_TABLE.lock();
+            if let Some(mut info) = table.remove(&mod_name) {
+                info.name = stem.to_owned();
+                table.insert(stem.to_owned(), info);
+                mod_name = stem.to_owned();
+            }
+        }
+    }
+    Ok(mod_name)
 }
 
 fn align_up(val: usize, align: usize) -> usize {
@@ -343,8 +366,8 @@ fn align_down(val: usize, align: usize) -> usize {
 
 /// Loads and validates a kernel module from an ELF binary image using `xmas_elf`.
 ///
-/// This eliminates hand-rolled C header structs and provides robust, type-safe,
-/// zero-unsafe verification and memory layout calculation.
+/// Supports both Position-Independent Shared Object modules (`.so` / `.kso` / `ET_DYN`)
+/// and relocatable object files (`.ko` / `ET_REL`).
 pub fn load_module(elf_data: &[u8], cmdline: &str) -> Result<String> {
     let elf = ElfFile::new(elf_data).map_err(|_| Errno::ENOEXEC)?;
 
@@ -360,7 +383,18 @@ pub fn load_module(elf_data: &[u8], cmdline: &str) -> Result<String> {
         crate::return_errno!(ENOEXEC, "module ELF target machine must be x86_64");
     }
 
-    let entry_point = elf.header.pt2.entry_point() as usize;
+    // Verify ELF type: ET_DYN (.so/.kso) or ET_REL (.ko)
+    let elf_type = elf.header.pt2.type_().as_type();
+    if elf_type != xmas_elf::header::Type::SharedObject
+        && elf_type != xmas_elf::header::Type::Relocatable
+    {
+        crate::return_errno!(
+            ENOEXEC,
+            "module ELF type must be ET_DYN (.so/.kso) or ET_REL (.ko)"
+        );
+    }
+
+    let mut entry_point = elf.header.pt2.entry_point() as usize;
     let page_size = ostd::mm::PAGE_SIZE;
     let mut load_min = usize::MAX;
     let mut load_end = 0usize;
@@ -398,11 +432,49 @@ pub fn load_module(elf_data: &[u8], cmdline: &str) -> Result<String> {
     let mut mod_version = String::new();
     let mut mod_description = String::new();
     let mut mod_author = String::new();
-    let dependencies = Vec::new();
+    let mut dependencies = Vec::new();
 
     for sec in elf.section_iter() {
         let sec_name = sec.get_name(&elf).unwrap_or("");
         match sec_name {
+            ".modinfo" => {
+                // Parse standard Linux null-terminated key=value pairs
+                if let Ok(SectionData::Undefined(bytes)) = sec.get_data(&elf) {
+                    for entry in bytes.split(|&b| b == 0) {
+                        if let Ok(s) = core::str::from_utf8(entry) {
+                            if let Some((k, v)) = s.split_once('=') {
+                                match k.trim() {
+                                    "name" if mod_name.is_empty() => {
+                                        mod_name = v.trim().to_owned();
+                                    }
+                                    "version" if mod_version.is_empty() => {
+                                        mod_version = v.trim().to_owned();
+                                    }
+                                    "description" if mod_description.is_empty() => {
+                                        mod_description = v.trim().to_owned();
+                                    }
+                                    "author" if mod_author.is_empty() => {
+                                        mod_author = v.trim().to_owned();
+                                    }
+                                    "depends" => {
+                                        for d in v.split(',') {
+                                            let d_clean = d.trim();
+                                            if !d_clean.is_empty()
+                                                && !dependencies
+                                                    .iter()
+                                                    .any(|existing| existing == d_clean)
+                                            {
+                                                dependencies.push(d_clean.to_owned());
+                                            }
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             ".mod.name" | ".modinfo.name" => {
                 if let Ok(SectionData::Undefined(bytes)) = sec.get_data(&elf) {
                     if let Ok(s) = core::str::from_utf8(bytes) {
@@ -435,20 +507,54 @@ pub fn load_module(elf_data: &[u8], cmdline: &str) -> Result<String> {
         }
     }
 
+    // 4. Resolve entry point from symbols if not set in header
+    if entry_point == 0 {
+        for sec in elf.section_iter() {
+            if let Ok(data) = sec.get_data(&elf) {
+                match data {
+                    SectionData::DynSymbolTable64(symbols) => {
+                        for sym in symbols {
+                            if let Ok(name) = sym.get_name(&elf) {
+                                if name == "init_module" || name == "_init" || name == "init" {
+                                    entry_point = sym.value() as usize;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    SectionData::SymbolTable64(symbols) => {
+                        for sym in symbols {
+                            if let Ok(name) = sym.get_name(&elf) {
+                                if name == "init_module" || name == "_init" || name == "init" {
+                                    entry_point = sym.value() as usize;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            if entry_point != 0 {
+                break;
+            }
+        }
+    }
+
     if mod_name.is_empty() {
         mod_name = format!("module_{:x}", entry_point);
     }
 
-    // 4. Verify module dependencies
+    // 5. Verify module dependencies
     let active_modules = MODULE_TABLE.lock();
     for dep in &dependencies {
-        if dep != "silica.kso" && !active_modules.contains_key(dep) {
+        if !active_modules.contains_key(dep) {
             ostd::error!("Missing module dependency: \"{}\"", dep);
             crate::return_errno!(ENOENT, "missing module dependency");
         }
     }
 
-    // 5. Inspect dynamic relocations and symbols if present
+    // 6. Inspect dynamic relocations and symbols if present
     for sec in elf.section_iter() {
         if let Ok(SectionData::Rela64(relas)) = sec.get_data(&elf) {
             for rela in relas {
@@ -524,4 +630,45 @@ pub fn unload_module(name: &str) -> Result<()> {
 pub fn list_modules() -> Vec<ModuleInfo> {
     let table = MODULE_TABLE.lock();
     table.values().cloned().collect()
+}
+
+#[cfg(ktest)]
+mod tests {
+    use super::*;
+    use ostd::prelude::ktest;
+
+    #[ktest]
+    fn invalid_elf_module_rejected() {
+        let bad = [0u8; 32];
+        assert!(load_module(&bad, "").is_err());
+    }
+
+    #[ktest]
+    fn so_shared_object_module_loading_and_unload() {
+        // Minimal valid 64-bit Little-Endian x86_64 ET_DYN (.so) ELF header
+        let mut hdr = [0u8; 64];
+        hdr[0..4].copy_from_slice(b"\x7fELF");
+        hdr[4] = 2; // ELFCLASS64
+        hdr[5] = 1; // ELFDATA2LSB
+        hdr[6] = 1; // EV_CURRENT
+        hdr[16..18].copy_from_slice(&3u16.to_le_bytes()); // ET_DYN (Shared Object)
+        hdr[18..20].copy_from_slice(&62u16.to_le_bytes()); // EM_X86_64
+        hdr[20..24].copy_from_slice(&1u32.to_le_bytes()); // EV_CURRENT
+        hdr[24..32].copy_from_slice(&0x2000u64.to_le_bytes()); // entry point = 0x2000
+        hdr[52..54].copy_from_slice(&64u16.to_le_bytes()); // e_ehsize = 64
+
+        let mod_name = load_module(&hdr, "debug=1").expect("load .so module");
+        assert_eq!(mod_name, "module_2000");
+
+        let modules = list_modules();
+        let found = modules.iter().find(|m| m.name == "module_2000");
+        assert!(found.is_some());
+        let info = found.unwrap();
+        assert_eq!(info.entry_point, 0x2000);
+        assert_eq!(info.state, ModuleState::Live);
+
+        // Unload the module
+        unload_module("module_2000").expect("unload module");
+        assert!(list_modules().iter().all(|m| m.name != "module_2000"));
+    }
 }

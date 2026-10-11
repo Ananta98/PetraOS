@@ -30,6 +30,7 @@ crate::impl_syscall_nums_and_dispatch_fn! {
     SYS_PIPE = 22 => fs::sys_pipe(usize);
     SYS_SELECT = 23 => fs::sys_select(i32, usize, usize, usize, usize);
     SYS_SCHED_YIELD = 24 => sched::sys_sched_yield();
+    SYS_MREMAP = 25 => mm::sys_mremap(usize, usize, usize, u32, usize);
     SYS_MSYNC = 26 => mm::sys_msync(usize, usize, u32);
     SYS_MADVISE = 28 => mm::sys_madvise(usize, usize, u32);
     SYS_SHMGET = 29 => ipc::sys_shmget(i32, usize, i32);
@@ -141,6 +142,8 @@ crate::impl_syscall_nums_and_dispatch_fn! {
     SYS_ARCH_PRCTL = 158 => proc::sys_arch_prctl(i32, usize);
     SYS_SETRLIMIT = 160 => proc::sys_setrlimit(u32, usize);
     SYS_REBOOT = 169 => platform::sys_reboot(i32, i32, u32, usize);
+    SYS_INIT_MODULE = 175 => platform::sys_init_module(usize, usize, usize);
+    SYS_DELETE_MODULE = 176 => platform::sys_delete_module(usize, i32);
     SYS_GETTID = 186 => proc::sys_gettid();
     SYS_FUTEX = 202 => sync::sys_futex(usize, i32, u32, usize, usize, u32);
     SYS_SCHED_SETAFFINITY = 203 => sched::sys_sched_setaffinity(i32, usize, usize);
@@ -178,6 +181,7 @@ crate::impl_syscall_nums_and_dispatch_fn! {
     SYS_SYNCFS = 306 => fs::sys_syncfs(i32);
     SYS_SENDMMSG = 307 => net::sys_sendmmsg(i32, usize, u32, i32);
     SYS_GETCPU = 309 => sched::sys_getcpu(usize, usize, usize);
+    SYS_FINIT_MODULE = 313 => platform::sys_finit_module(i32, usize, i32);
     SYS_SCHED_SETATTR = 314 => sched::sys_sched_setattr(i32, usize, u32);
     SYS_SCHED_GETATTR = 315 => sched::sys_sched_getattr(i32, usize, u32, u32);
     SYS_RENAMEAT2 = 316 => fs::sys_renameat2(i32, usize, i32, usize, u32);

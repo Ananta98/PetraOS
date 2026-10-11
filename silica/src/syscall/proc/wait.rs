@@ -1,15 +1,24 @@
 // SPDX-License-Identifier: GPL-2.0
 
-use ostd::arch::cpu::context::UserContext;
 use crate::{
     api::errno::{Errno, Result},
-    proc::{thread::Thread, wait::{IdType, WaitOptions, kern_wait6}},
+    proc::{
+        thread::Thread,
+        wait::{IdType, WaitOptions, kernel_wait},
+    },
 };
+use ostd::arch::cpu::context::UserContext;
 
 /// sys_wait4(pid, status, options, rusage)
-pub fn sys_wait4(pid_val: i32, status_ptr: usize, options_val: u32, _rusage_ptr: usize, _ctx: &mut UserContext) -> Result<usize> {
+pub fn sys_wait4(
+    pid_val: i32,
+    status_ptr: usize,
+    options_val: u32,
+    _rusage_ptr: usize,
+    _ctx: &mut UserContext,
+) -> Result<usize> {
     let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
-    
+
     let idtype = if pid_val < -1 {
         IdType::Pgid((-pid_val) as u32)
     } else if pid_val == -1 {
@@ -22,14 +31,17 @@ pub fn sys_wait4(pid_val: i32, status_ptr: usize, options_val: u32, _rusage_ptr:
     };
 
     let options = WaitOptions::from_bits_truncate(options_val);
-    let res = kern_wait6(&proc, idtype, options)?;
+    let res = kernel_wait(&proc, idtype, options)?;
 
     match res {
         Some(wait_res) => {
             if status_ptr != 0 {
                 let vmar = proc.vmspace();
                 let raw_status = wait_res.status.as_raw();
-                let mut writer = vmar.vm_space().writer(status_ptr, core::mem::size_of::<i32>()).map_err(|_| Errno::EFAULT)?;
+                let mut writer = vmar
+                    .vm_space()
+                    .writer(status_ptr, core::mem::size_of::<i32>())
+                    .map_err(|_| Errno::EFAULT)?;
                 writer.write_val(&raw_status).map_err(|_| Errno::EFAULT)?;
             }
             Ok(wait_res.pid.as_u32() as usize)

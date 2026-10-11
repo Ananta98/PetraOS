@@ -15,6 +15,10 @@ impl FileOps for ZeroFile {
     fn write(&self, _offset: u64, buf: &[u8]) -> Result<usize> {
         Ok(buf.len())
     }
+
+    fn mmap(&self, _offset: u64, _len: usize) -> Result<()> {
+        Ok(())
+    }
 }
 
 pub struct ZeroNodeOps;

@@ -87,7 +87,7 @@ fn child_candidates(parent: &Arc<Proc>, idtype: IdType) -> Result<Vec<Pid>> {
 }
 
 /// waits for child status changes and optionally reaps zombies.
-pub fn kern_wait6(
+pub fn kernel_wait(
     parent: &Arc<Proc>,
     idtype: IdType,
     options: WaitOptions,
@@ -96,7 +96,9 @@ pub fn kern_wait6(
     // leaves the set empty when a caller passes only modifiers, and every real
     // caller means "exited", so default to that instead of treating the request as
     // unsatisfiable -- which is what made `WNOHANG` alone never observe an exit.
-    let options = if options.intersects(WaitOptions::WEXITED | WaitOptions::WSTOPPED | WaitOptions::WCONTINUED) {
+    let options = if options
+        .intersects(WaitOptions::WEXITED | WaitOptions::WSTOPPED | WaitOptions::WCONTINUED)
+    {
         options
     } else {
         options | WaitOptions::WEXITED
@@ -200,9 +202,9 @@ pub fn kern_wait6(
             })
         };
 
-        parent.child_waitq.wait_until(|| {
-            if check_event() { Some(()) } else { None }
-        });
+        parent
+            .child_waitq
+            .wait_until(|| if check_event() { Some(()) } else { None });
         candidates = child_candidates(parent, idtype)?;
     }
 }

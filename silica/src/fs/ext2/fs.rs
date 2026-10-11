@@ -364,6 +364,10 @@ impl FileOps for Ext2FileOps {
         }
         Ok(new_offset as u64)
     }
+
+    fn mmap(&self, _offset: u64, _len: usize) -> Result<()> {
+        Ok(())
+    }
 }
 
 pub struct Ext2SymlinkNodeOps {

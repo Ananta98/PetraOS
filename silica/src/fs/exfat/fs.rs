@@ -304,4 +304,8 @@ impl FileOps for ExFatFileOps {
         }
         Ok(new_offset as u64)
     }
+
+    fn mmap(&self, _offset: u64, _len: usize) -> Result<()> {
+        Ok(())
+    }
 }
