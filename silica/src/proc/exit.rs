@@ -16,7 +16,6 @@ use crate::api::{
     errno::{Errno, Result},
     signal::Signal,
 };
-use crate::utils::userspace::user_ptr::UserPtr;
 use alloc::{sync::Arc, vec::Vec};
 
 /// Terminates the current process.
@@ -74,11 +73,7 @@ pub fn exit1(td: &Thread, status: ExitStatus) {
     // flagged with AST and KILL_PENDING so they exit on return to kernel mode.
     let threads: Vec<_> = proc.inner.lock().threads.clone();
     for thread in &threads {
-        let clear_tid = thread.inner.lock().clear_child_tid;
-        if clear_tid != 0 {
-            let zero = 0i32.to_ne_bytes();
-            let _ = UserPtr::new(clear_tid).write_bytes(&proc.vmspace(), &zero);
-        }
+        thread.handle_clear_child_tid(&proc);
         let mut td_inner = thread.inner.lock();
         td_inner.state = ThreadState::Dead;
         td_inner.flags.insert(
@@ -93,6 +88,55 @@ pub fn exit1(td: &Thread, status: ExitStatus) {
     // does: the zombie keeps `xstat` until a parent reaps it, and a process with
     // no parent is never reaped at all.
     ostd::info!("proc: pid {} exited ({})", proc.pid, status);
+}
+
+/// Terminates a single thread within a process.
+///
+/// Follows Linux `exit(2)` semantics:
+/// If other threads remain alive in the process, only the calling thread is terminated,
+/// its `clear_child_tid` pointer cleared in userspace, and waiters on the futex are woken.
+/// If this is the last thread in the process, the entire process terminates via `exit1`.
+pub fn exit_thread(td: &Thread, code: i32) {
+    let proc = td.proc().expect("thread must belong to process");
+
+    let is_last_thread = {
+        let mut inner = proc.inner.lock();
+        if inner.state == ProcState::Zombie {
+            drop(inner);
+            td.handle_clear_child_tid(&proc);
+            let mut td_inner = td.inner.lock();
+            td_inner.state = ThreadState::Dead;
+            return;
+        }
+
+        let other_threads_alive = inner
+            .threads
+            .iter()
+            .any(|t| t.tid != td.tid && t.inner.lock().state != ThreadState::Dead);
+
+        if other_threads_alive {
+            // Sibling threads are still running: remove this thread from the process's thread list
+            inner.threads.retain(|t| t.tid != td.tid);
+            false
+        } else {
+            // No living siblings; this is the last surviving thread of the process
+            true
+        }
+    };
+
+    if is_last_thread {
+        exit1(td, ExitStatus::Exited(code));
+    } else {
+        // Individual thread cleanup
+        td.handle_clear_child_tid(&proc);
+        let mut td_inner = td.inner.lock();
+        td_inner.state = ThreadState::Dead;
+        td_inner.flags.insert(
+            crate::proc::thread::ThreadFlags::TDF_ASTPENDING
+                | crate::proc::thread::ThreadFlags::KILL_PENDING,
+        );
+        ostd::info!("thread: tid {} exited ({})", td.tid, code);
+    }
 }
 
 /// Frees zombie metadata and removes process from `allproc`.
@@ -125,4 +169,176 @@ pub fn proc_reap(parent: &Arc<Proc>, child_pid: Pid) -> Result<(Pid, ExitStatus)
     PID_ALLOCATOR.lock().free(child_pid);
 
     Ok((child_pid, status))
+}
+
+#[cfg(ktest)]
+mod tests {
+    use super::*;
+    use alloc::sync::Weak;
+    use ostd::{prelude::ktest, sync::SpinLock, task::TaskOptions};
+    use crate::{
+        api::{
+            cred::Ucred,
+            limit::Plimit,
+            signal::{SigActs, SigSet, SigStack},
+        },
+        fs::fd::Filedesc,
+        proc::{
+            thread::{ThreadFlags, ThreadInner, alloc_tid},
+            tree::allproc_insert,
+        },
+        vm::{flags::MmapFlags, perms::VmPerms, vmar::Vmar},
+    };
+
+    fn create_test_proc() -> Arc<Proc> {
+        let pid = PID_ALLOCATOR.lock().allocate().expect("allocate pid");
+        let vmar = Vmar::new();
+        let fd_table = Arc::new(SpinLock::new(Filedesc::new()));
+        let cred = Arc::new(Ucred::root());
+        let limit = Arc::new(Plimit::default_limits());
+        let sigacts = Arc::new(SpinLock::new(SigActs::new()));
+        let proc = Proc::new(
+            pid,
+            None,
+            vmar,
+            fd_table,
+            cred,
+            limit,
+            sigacts,
+            "test_proc",
+        );
+        allproc_insert(Arc::clone(&proc));
+        proc
+    }
+
+    fn create_test_thread(proc: &Arc<Proc>, clear_tid: usize) -> Arc<Thread> {
+        let tid = alloc_tid();
+        let vmar = proc.vmspace();
+        let proc_weak = Arc::downgrade(proc);
+        let name_buf = crate::proc::comm_from_name("test_thread");
+
+        let thread = Arc::new_cyclic(|weak_thread: &Weak<Thread>| {
+            let weak_td_clone = weak_thread.clone();
+            let options = TaskOptions::new(move || {})
+                .data(weak_td_clone)
+                .local_data(vmar);
+            let task = crate::proc::thread::build_task(options, 0);
+
+            Thread {
+                tid,
+                td_proc: proc_weak,
+                td_kstack: task,
+                inner: SpinLock::new(ThreadInner {
+                    state: ThreadState::CanRun,
+                    flags: ThreadFlags::TDF_KTHREAD,
+                    sigmask: SigSet::initial(),
+                    sigqueue: crate::proc::signal::SigQueue::new(),
+                    wchan: None,
+                    wmesg: "",
+                    name: name_buf,
+                    user_ctx: None,
+                    altstack: SigStack::default(),
+                    handler_mask: SigSet::empty(),
+                    fs_base: 0,
+                    stopped_by: None,
+                    handler_frame: None,
+                    clear_child_tid: clear_tid,
+                }),
+            }
+        });
+
+        proc.add_thread(Arc::clone(&thread));
+        thread
+    }
+
+    #[ktest]
+    fn handle_clear_child_tid_and_futex_wake() {
+        let proc = create_test_proc();
+        let vmar = proc.vmspace();
+        let test_addr = 0x0000_1000_0000usize;
+
+        // Allocate anonymous memory for clear_child_tid
+        let mapped = vmar
+            .mmap_anonymous(
+                test_addr,
+                4096,
+                VmPerms::READ | VmPerms::WRITE,
+                MmapFlags::ANONYMOUS | MmapFlags::PRIVATE,
+            )
+            .expect("mmap anonymous");
+
+        // Populate page so UserPtr write/read succeeds
+        vmar.populate_range(&(mapped..mapped + ostd::mm::PAGE_SIZE))
+            .expect("populate range");
+
+        // Write a non-zero TID to user memory
+        let tid_val = 12345i32;
+        crate::utils::userspace::user_ptr::UserPtr::new(mapped)
+            .write_bytes(&vmar, &tid_val.to_ne_bytes())
+            .expect("write tid");
+
+        let thread = create_test_thread(&proc, mapped);
+        assert_eq!(thread.inner.lock().clear_child_tid, mapped);
+
+        // Execute handle_clear_child_tid
+        thread.handle_clear_child_tid(&proc);
+
+        // Verify clear_child_tid in thread is now 0 (idempotent)
+        assert_eq!(thread.inner.lock().clear_child_tid, 0);
+
+        // Verify userspace memory at mapped is now 0
+        let mut read_bytes = [0u8; 4];
+        crate::utils::userspace::user_ptr::UserPtr::new(mapped)
+            .read_bytes(&vmar, &mut read_bytes)
+            .expect("read bytes");
+        assert_eq!(i32::from_ne_bytes(read_bytes), 0);
+
+        // Verify calling again does not fail or panic
+        thread.handle_clear_child_tid(&proc);
+        assert_eq!(thread.inner.lock().clear_child_tid, 0);
+    }
+
+    #[ktest]
+    fn multithread_exit_thread_vs_last_thread() {
+        let proc = create_test_proc();
+        let thread1 = create_test_thread(&proc, 0);
+        let thread2 = create_test_thread(&proc, 0);
+
+        assert_eq!(proc.inner.lock().threads.len(), 2);
+        assert_eq!(proc.state(), ProcState::Alive);
+
+        // Terminate thread 1 via exit_thread: thread 1 should die, but process and thread 2 survive
+        exit_thread(&thread1, 0);
+
+        assert_eq!(thread1.inner.lock().state, ThreadState::Dead);
+        assert_eq!(proc.inner.lock().threads.len(), 1);
+        assert_eq!(proc.inner.lock().threads[0].tid, thread2.tid);
+        assert_eq!(proc.state(), ProcState::Alive);
+
+        // Now terminate the last thread (thread 2) via exit_thread: process should terminate
+        exit_thread(&thread2, 42);
+
+        assert_eq!(thread2.inner.lock().state, ThreadState::Dead);
+        assert_eq!(proc.state(), ProcState::Zombie);
+        assert_eq!(proc.inner.lock().xstat, Some(ExitStatus::Exited(42)));
+    }
+
+    #[ktest]
+    fn exit_group_terminates_all_threads() {
+        let proc = create_test_proc();
+        let thread1 = create_test_thread(&proc, 0);
+        let thread2 = create_test_thread(&proc, 0);
+
+        assert_eq!(proc.inner.lock().threads.len(), 2);
+        assert_eq!(proc.state(), ProcState::Alive);
+
+        // Call exit1 (exit_group) from thread 1
+        exit1(&thread1, ExitStatus::Exited(99));
+
+        // Both threads must be Dead and process must be Zombie
+        assert_eq!(thread1.inner.lock().state, ThreadState::Dead);
+        assert_eq!(thread2.inner.lock().state, ThreadState::Dead);
+        assert_eq!(proc.state(), ProcState::Zombie);
+        assert_eq!(proc.inner.lock().xstat, Some(ExitStatus::Exited(99)));
+    }
 }

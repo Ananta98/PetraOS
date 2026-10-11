@@ -3,16 +3,22 @@
 use ostd::arch::cpu::context::UserContext;
 use crate::{
     api::errno::Result,
-    proc::{ExitStatus, exit::exit1, thread::Thread},
+    proc::{
+        ExitStatus,
+        exit::{exit1, exit_thread},
+        thread::Thread,
+    },
 };
 
 pub fn sys_exit(code: i32, _ctx: &mut UserContext) -> Result<usize> {
     let td = Thread::current().expect("must be in thread context");
-    exit1(&td, ExitStatus::Exited(code));
+    exit_thread(&td, code);
     Ok(0)
 }
 
-pub fn sys_exit_group(code: i32, ctx: &mut UserContext) -> Result<usize> {
-    sys_exit(code, ctx)
+pub fn sys_exit_group(code: i32, _ctx: &mut UserContext) -> Result<usize> {
+    let td = Thread::current().expect("must be in thread context");
+    exit1(&td, ExitStatus::Exited(code));
+    Ok(0)
 }
 

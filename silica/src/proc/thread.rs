@@ -455,6 +455,25 @@ impl Thread {
         self.inner.lock().fs_base = base;
     }
 
+    /// Clears the `clear_child_tid` userspace address and wakes futex waiters.
+    ///
+    /// This is called when the thread terminates, matching Linux `CLONE_CHILD_CLEARTID`
+    /// and `set_tid_address(2)` semantics. Idempotent.
+    pub fn handle_clear_child_tid(&self, proc: &Arc<Proc>) {
+        let clear_tid = {
+            let mut inner = self.inner.lock();
+            let tid = inner.clear_child_tid;
+            inner.clear_child_tid = 0;
+            tid
+        };
+        if clear_tid != 0 {
+            let zero = 0i32.to_ne_bytes();
+            let _ = crate::utils::userspace::user_ptr::UserPtr::new(clear_tid)
+                .write_bytes(&proc.vmspace(), &zero);
+            crate::syscall::sync::futex::futex_wake(&proc.vmspace(), clear_tid, 1);
+        }
+    }
+
     /// Primary userspace execution loop for user threads.
     ///
     /// Returns when the thread dies, or when its process has been collected and
@@ -481,6 +500,7 @@ impl Thread {
             // Check AST / pending signals prior to entering Ring 3
             self.handle_ast();
             if self.is_dead() {
+                self.handle_clear_child_tid(&proc);
                 proc.remove_thread(self.tid);
                 return;
             }
@@ -496,6 +516,7 @@ impl Thread {
             }
 
             if self.is_dead() {
+                self.handle_clear_child_tid(&proc);
                 proc.remove_thread(self.tid);
                 return;
             }
@@ -584,6 +605,7 @@ impl Thread {
             // A signal handled above may have run the default terminating action,
             // which is what marks the thread dead.
             if self.is_dead() {
+                self.handle_clear_child_tid(&proc);
                 proc.remove_thread(self.tid);
                 return;
             }
