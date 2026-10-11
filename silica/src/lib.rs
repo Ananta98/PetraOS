@@ -48,6 +48,7 @@ pub mod net;
 pub mod proc;
 pub mod sched;
 pub mod syscall;
+pub mod time;
 pub mod utils;
 pub mod vm;
 
@@ -55,6 +56,9 @@ pub mod vm;
 fn kernel_main() {
     cmdline::init(&ostd::boot::boot_info().kernel_cmdline);
     arch::init();
+    if let Err(err) = time::init() {
+        ostd::error!("Time subsystem init failed: {:?}", err);
+    }
     crypto::init();
     vm::init();
     fs::init();

@@ -7,7 +7,6 @@ use ostd::arch::cpu::context::UserContext;
 use crate::{
     api::errno::{Errno, Result},
     proc::thread::Thread,
-    syscall::time::{get_boot_epoch_secs, Timeval},
     utils::userspace::user_ptr::UserPtr,
 };
 
@@ -17,15 +16,7 @@ pub fn sys_gettimeofday(tv_ptr: usize, tz_ptr: usize, _ctx: &mut UserContext) ->
     let vmar = proc.vmspace();
 
     if tv_ptr != 0 {
-        let elapsed = ostd::timer::Jiffies::elapsed().as_duration();
-        let boot_epoch = get_boot_epoch_secs();
-        let sec = (boot_epoch + elapsed.as_secs()) as i64;
-        let usec = elapsed.subsec_micros() as i64;
-
-        let tv = Timeval {
-            tv_sec: sec,
-            tv_usec: usec,
-        };
+        let tv = crate::time::get_timeval();
         UserPtr::new(tv_ptr).write_bytes(&vmar, &tv.to_bytes())?;
     }
 

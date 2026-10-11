@@ -145,6 +145,7 @@ crate::impl_syscall_nums_and_dispatch_fn! {
     SYS_INIT_MODULE = 175 => platform::sys_init_module(usize, usize, usize);
     SYS_DELETE_MODULE = 176 => platform::sys_delete_module(usize, i32);
     SYS_GETTID = 186 => proc::sys_gettid();
+    SYS_TIME = 201 => time::sys_time(usize);
     SYS_FUTEX = 202 => sync::sys_futex(usize, i32, u32, usize, usize, u32);
     SYS_SCHED_SETAFFINITY = 203 => sched::sys_sched_setaffinity(i32, usize, usize);
     SYS_SCHED_GETAFFINITY = 204 => sched::sys_sched_getaffinity(i32, usize, usize);
@@ -152,7 +153,10 @@ crate::impl_syscall_nums_and_dispatch_fn! {
     SYS_SET_TID_ADDRESS = 218 => proc::sys_set_tid_address(usize);
     SYS_SEMTIMEDOP = 220 => ipc::sys_semtimedop(i32, usize, usize, usize);
     SYS_FADVISE64 = 221 => fs::sys_fadvise64(i32, i64, i64, i32);
+    SYS_CLOCK_SETTIME = 227 => time::sys_clock_settime(i32, usize);
     SYS_CLOCK_GETTIME = 228 => time::sys_clock_gettime(i32, usize);
+    SYS_CLOCK_GETRES = 229 => time::sys_clock_getres(i32, usize);
+    SYS_CLOCK_NANOSLEEP = 230 => time::sys_clock_nanosleep(i32, i32, usize, usize);
     SYS_EXIT_GROUP = 231 => proc::sys_exit_group(i32);
     SYS_TGKILL = 234 => signals::sys_tgkill(i32, i32, i32);
     SYS_OPENAT = 257 => fs::sys_openat(i32, usize, i32, u32);

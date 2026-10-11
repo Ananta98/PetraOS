@@ -2,13 +2,12 @@
 
 //! `nanosleep(2)` system call (Syscall #35 on x86_64).
 
-use core::time::Duration;
 use ostd::arch::cpu::context::UserContext;
 
 use crate::{
     api::errno::{Errno, Result},
     proc::thread::{Thread, ThreadFlags},
-    syscall::time::Timespec,
+    time::Timespec,
     utils::userspace::user_ptr::UserPtr,
 };
 
@@ -25,7 +24,7 @@ pub fn sys_nanosleep(req_ptr: usize, rem_ptr: usize, _ctx: &mut UserContext) -> 
     UserPtr::new(req_ptr).read_bytes(&vmar, &mut raw)?;
     let req = Timespec::from_bytes(&raw).ok_or(Errno::EINVAL)?;
 
-    if req.tv_sec < 0 || req.tv_nsec < 0 || req.tv_nsec >= 1_000_000_000 {
+    if !req.is_valid() {
         return Err(Errno::EINVAL);
     }
 
@@ -34,28 +33,25 @@ pub fn sys_nanosleep(req_ptr: usize, rem_ptr: usize, _ctx: &mut UserContext) -> 
         return Ok(0);
     }
 
-    let start = ostd::timer::Jiffies::elapsed().as_duration();
-    let sleep_dur = Duration::new(req.tv_sec as u64, req.tv_nsec as u32);
-    let end = start.saturating_add(sleep_dur);
+    let sleep_ns = req.total_nanos().ok_or(Errno::EINVAL)?;
+    let start_ns = crate::time::get_monotonic_ns();
+    let end_ns = start_ns.saturating_add(sleep_ns);
 
     loop {
-        let now = ostd::timer::Jiffies::elapsed().as_duration();
-        if now >= end {
+        let now_ns = crate::time::get_monotonic_ns();
+        if now_ns >= end_ns {
             break;
         }
 
+        // Check for pending signals interrupting sleep
         if let Some(td) = Thread::current()
             && td.inner.lock().flags.contains(ThreadFlags::TDF_ASTPENDING)
         {
             if rem_ptr != 0 {
-                let remaining = if end > now {
-                    end - now
-                } else {
-                    Duration::ZERO
-                };
+                let remaining_ns = end_ns.saturating_sub(now_ns);
                 let rem_ts = Timespec {
-                    tv_sec: remaining.as_secs() as i64,
-                    tv_nsec: remaining.subsec_nanos() as i64,
+                    tv_sec: (remaining_ns / 1_000_000_000) as i64,
+                    tv_nsec: (remaining_ns % 1_000_000_000) as i64,
                 };
                 UserPtr::new(rem_ptr).write_bytes(&vmar, &rem_ts.to_bytes())?;
             }
