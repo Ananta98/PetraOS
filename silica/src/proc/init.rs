@@ -3,36 +3,86 @@
 //! Initial user process (`init`, PID 1) bootstrap and execution.
 //!
 //! Inspired by FreeBSD `sys/kern/init_main.c` and Asterinas `init_proc.rs`.
-//! Locates the initial userspace binary, creates the root address space,
-//! binds standard descriptors, and launches PID 1.
+//! Locates the initial userspace binary or script, resolves shebang interpreters
+//! and symlinks, creates the root address space, binds standard descriptors, and launches PID 1.
 
-use alloc::{string::String, sync::Arc};
+use alloc::{string::String, sync::Arc, vec::Vec};
 use ostd::arch::cpu::context::UserContext;
 use ostd::user::UserContextApi;
 
 use crate::{
-    api::errno::{Errno, Result},
-    cmdline, fs,
-    proc::{Proc, create_init_process_with_vmar, create_main_thread, exec::load_and_setup},
+    api::{
+        cred::Ucred,
+        errno::{Errno, Result},
+    },
+    cmdline,
+    proc::{
+        Proc, comm_from_name, create_init_process_with_vmar, create_main_thread,
+        exec::{self, load_and_setup_full},
+        shebang::{MAX_SHEBANG_RECURSION, Shebang},
+    },
 };
 
 /// Candidate binary paths inspected when looking for the initial userspace process.
 const INIT_CANDIDATE_PATHS: &[&str] = &["/init", "init", "/sbin/init", "/bin/init", "/bin/sh"];
 
-/// Attempts to locate the init ELF binary across candidate locations.
-fn find_init_binary() -> Option<(String, &'static [u8])> {
-    // 1. Try explicit command line parameter (e.g., "init=/bin/sh")
+/// Locates the initial userspace binary or script, following shebang wrappers and symlinks.
+/// Returns `(final_path, final_argv, elf_data)`.
+fn find_init_target() -> Option<(String, Vec<String>, Vec<u8>)> {
+    let mut candidates = Vec::new();
+
+    // 1. Explicit command line parameter (e.g., "init=/bin/sh")
     let cmd_init = cmdline::get_init_path();
     if !cmd_init.is_empty() {
-        if let Some(elf_data) = fs::read_file_from_initramfs(&cmd_init) {
-            return Some((cmd_init, elf_data));
-        }
+        candidates.push(cmd_init);
     }
 
-    // 2. Try standard candidate paths
+    // 2. Standard candidate paths
     for &candidate in INIT_CANDIDATE_PATHS {
-        if let Some(elf_data) = fs::read_file_from_initramfs(candidate) {
-            return Some((String::from(candidate), elf_data));
+        candidates.push(String::from(candidate));
+    }
+
+    for path in candidates {
+        if let Ok(mut data) = exec::read_binary_data(&path) {
+            let mut current_path = path;
+            let mut current_argv = alloc::vec![current_path.clone()];
+            let mut depth = 0;
+
+            // Follow shebang script wrappers up to recursion limit
+            while Shebang::is_shebang(&data) {
+                if depth >= MAX_SHEBANG_RECURSION {
+                    ostd::warn!("init: Shebang recursion depth exceeded for init binary");
+                    break;
+                }
+                depth += 1;
+
+                let shebang = match Shebang::parse(&data) {
+                    Ok(Some(s)) => s,
+                    _ => break,
+                };
+
+                let argv_refs: Vec<&str> = current_argv.iter().map(|s| s.as_str()).collect();
+                let next_argv_refs = shebang.build_argv(&current_path, &argv_refs);
+                let next_argv: Vec<String> = next_argv_refs.iter().map(|s| String::from(*s)).collect();
+                let interp = String::from(shebang.interpreter());
+
+                match exec::read_binary_data(&interp) {
+                    Ok(interp_data) => {
+                        current_path = interp;
+                        current_argv = next_argv;
+                        data = interp_data;
+                    }
+                    Err(err) => {
+                        ostd::warn!("init: Failed to read shebang interpreter \"{}\": {:?}", interp, err);
+                        break;
+                    }
+                }
+            }
+
+            // Verify that we have a valid ELF binary
+            if data.starts_with(b"\x7fELF") {
+                return Some((current_path, current_argv, data));
+            }
         }
     }
 
@@ -43,8 +93,8 @@ fn find_init_binary() -> Option<(String, &'static [u8])> {
 ///
 /// Returns the newly created process descriptor on success.
 pub fn spawn_init_process() -> Result<Arc<Proc>> {
-    let (init_path, elf_data) = match find_init_binary() {
-        Some((path, data)) => (path, data),
+    let (init_path, init_argv, elf_data) = match find_init_target() {
+        Some(target) => target,
         None => {
             ostd::warn!("init: No userspace init binary found in initramfs or root filesystem");
             return Err(Errno::ENOENT);
@@ -52,19 +102,29 @@ pub fn spawn_init_process() -> Result<Arc<Proc>> {
     };
 
     ostd::info!(
-        "init: Booting userspace init from \"{}\" ({} bytes)",
+        "init: Booting userspace init from \"{}\" ({} bytes, argv: {:?})",
         init_path,
-        elf_data.len()
+        elf_data.len(),
+        init_argv
     );
 
-    // 1. Build address space, map ELF segments, setup AMD64 ABI user stack
-    let (vmar, entry_point, sp) = load_and_setup(elf_data, &[&init_path], &[])?;
+    let argv_refs: Vec<&str> = init_argv.iter().map(|s| s.as_str()).collect();
+    let root_cred = Ucred::root();
+
+    // 1. Build address space, map ELF segments (supporting PIE and dynamic linking), setup AMD64 ABI user stack
+    let (vmar, entry_point, sp) = load_and_setup_full(
+        &elf_data,
+        &argv_refs,
+        &[],
+        &init_path,
+        &root_cred,
+    )?;
 
     // 2. Create Process Control Block for PID 1 with root credentials and stdio
-    //
-    // `Proc::new` already marks PID 1 as the reaper, so there is nothing to set
-    // here.
     let proc = create_init_process_with_vmar(vmar)?;
+
+    // Set process comm name
+    proc.inner.lock().comm = comm_from_name(&init_path);
 
     // 3. Set up user context
     let mut user_ctx = UserContext::default();

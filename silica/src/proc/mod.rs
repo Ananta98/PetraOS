@@ -15,6 +15,7 @@ pub mod fork;
 pub mod init;
 pub mod job_control;
 pub mod kthread;
+pub mod shebang;
 pub mod signal;
 pub mod thread;
 pub mod tree;

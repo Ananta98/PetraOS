@@ -213,7 +213,7 @@ pub struct ThreadInner {
     pub clear_child_tid: usize,
 }
 
-/// Thread Control Block (FreeBSD `struct thread`).
+/// Thread Control Block.
 pub struct Thread {
     /// Unique thread identifier.
     pub tid: Tid,
@@ -566,7 +566,9 @@ impl Thread {
                             }
                             other => {
                                 let (sig, code) = signal_and_code_for_exception(&other);
-                                ostd::error!("Unhandled user CPU exception: {other:?} -> {sig} (code {code})");
+                                ostd::error!(
+                                    "Unhandled user CPU exception: {other:?} -> {sig} (code {code})"
+                                );
                                 self.deliver_signal(QueuedSignal {
                                     info: SigInfo::kernel(sig, code),
                                 });
