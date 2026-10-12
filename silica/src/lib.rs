@@ -54,41 +54,26 @@ pub mod vm;
 #[ostd::main]
 fn kernel_main() {
     // Initialize the global states for all CPUs.
-    init();
-
+    kernel_init();
     // Initialize the per-CPU states for BSP.
-    init_on_each_cpu();
-
+    sched::init_on_cpu();
     // Enable APs.
     ostd::boot::smp::register_ap_entry(ap_init);
 }
 
-fn init() {
+fn kernel_init() {
     arch::init();
-    if let Err(err) = time::init() {
-        ostd::error!("Time subsystem init failed: {:?}", err);
-    }
+    time::init().unwrap();
     crypto::init();
     vm::init();
     fs::init();
     sched::init();
-    if let Err(err) = drivers::init() {
-        ostd::error!("Drivers init failed: {:?}", err);
-    }
-    if let Err(err) = modules::init_calls() {
-        ostd::error!("Module initcalls failed: {:?}", err);
-    }
-    if let Err(err) = proc::init::spawn_init_process() {
-        ostd::warn!("Init process could not be launched: {:?}", err);
-    }
+    drivers::init().unwrap();
+    modules::init_calls().unwrap();
+    proc::init::spawn_init_process();
     vm::reclaim::init_kswapd();
 }
 
-fn init_on_each_cpu() {
-    sched::init_on_cpu();
-}
-
 fn ap_init() {
-    // Initialize the per-CPU states for AP.
-    init_on_each_cpu();
+    sched::init_on_cpu();
 }
