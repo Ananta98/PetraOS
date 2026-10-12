@@ -546,11 +546,13 @@ pub fn load_module(elf_data: &[u8], cmdline: &str) -> Result<String> {
     }
 
     // 5. Verify module dependencies
-    let active_modules = MODULE_TABLE.lock();
-    for dep in &dependencies {
-        if !active_modules.contains_key(dep) {
-            ostd::error!("Missing module dependency: \"{}\"", dep);
-            crate::return_errno!(ENOENT, "missing module dependency");
+    if !dependencies.is_empty() {
+        let active_modules = MODULE_TABLE.lock();
+        for dep in &dependencies {
+            if !active_modules.contains_key(dep) {
+                ostd::error!("Missing module dependency: \"{}\"", dep);
+                crate::return_errno!(ENOENT, "missing module dependency");
+            }
         }
     }
 
@@ -607,8 +609,10 @@ pub fn load_module(elf_data: &[u8], cmdline: &str) -> Result<String> {
 
 /// Unloads a kernel module by name.
 pub fn unload_module(name: &str) -> Result<()> {
-    let mut table = MODULE_TABLE.lock();
-    let mut info = table.remove(name).ok_or(Errno::ENOENT)?;
+    let mut info = {
+        let mut table = MODULE_TABLE.lock();
+        table.remove(name).ok_or(Errno::ENOENT)?
+    };
 
     info.state = ModuleState::Unloading;
 
