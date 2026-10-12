@@ -20,8 +20,8 @@ use crate::api::errno::{Errno, Result};
 use crate::api::ipc::*;
 use crate::api::msg::*;
 use crate::ipc::perm::{check_admin_permission, check_read_permission, check_write_permission};
-use crate::proc::Proc;
-use crate::proc::thread::{Thread, ThreadFlags};
+use crate::proc::{Proc, ProcState};
+use crate::proc::thread::{Thread, ThreadFlags, ThreadState};
 use crate::utils::userspace::user_ptr::UserPtr;
 
 /// Global registry of message queues by `msqid`.
@@ -32,9 +32,9 @@ static MSG_REGISTRY: SpinLock<BTreeMap<i32, Arc<SpinLock<MsgQueue>>>> =
 static KEY_MAP: SpinLock<BTreeMap<Key, i32>> = SpinLock::new(BTreeMap::new());
 
 
-/// Returns current system timestamp in seconds.
+/// Returns current system timestamp in seconds using the active clocksource.
 fn current_time_secs() -> i64 {
-    ostd::timer::Jiffies::elapsed().as_duration().as_secs() as i64
+    (crate::time::get_realtime_ns() / 1_000_000_000) as i64
 }
 
 /// Looks up a message queue by `msqid`.
@@ -177,7 +177,16 @@ pub fn msg_snd(msqid: i32, mtype: i64, mtext: &[u8], msgflg: i32, proc: &Arc<Pro
 
     let cancel_cond = || {
         if let Some(td) = Thread::current() {
-            if td.inner.lock().flags.contains(ThreadFlags::TDF_ASTPENDING) {
+            let inner = td.inner.lock();
+            if inner.flags.contains(ThreadFlags::TDF_ASTPENDING)
+                || inner.flags.contains(ThreadFlags::KILL_PENDING)
+                || inner.state == ThreadState::Dead
+            {
+                return Err(Errno::EINTR);
+            }
+        }
+        if let Some(proc) = Thread::current_proc() {
+            if proc.state() == ProcState::Zombie {
                 return Err(Errno::EINTR);
             }
         }
@@ -338,7 +347,16 @@ pub fn msg_rcv(
 
     let cancel_cond = || {
         if let Some(td) = Thread::current() {
-            if td.inner.lock().flags.contains(ThreadFlags::TDF_ASTPENDING) {
+            let inner = td.inner.lock();
+            if inner.flags.contains(ThreadFlags::TDF_ASTPENDING)
+                || inner.flags.contains(ThreadFlags::KILL_PENDING)
+                || inner.state == ThreadState::Dead
+            {
+                return Err(Errno::EINTR);
+            }
+        }
+        if let Some(proc) = Thread::current_proc() {
+            if proc.state() == ProcState::Zombie {
                 return Err(Errno::EINTR);
             }
         }
@@ -460,6 +478,22 @@ pub fn msg_ctl(
 }
 
 /// Cleanup on process exit.
+///
+/// Wakes any tasks waiting on message queues (send or receive wait queues),
+/// allowing threads associated with the exiting process to observe cancellation
+/// or termination state (`TDF_ASTPENDING`, `KILL_PENDING`, `ThreadState::Dead`,
+/// or `ProcState::Zombie`) and return cleanly without deadlocking.
 pub fn on_proc_exit(_proc: &Proc) {
-    // Process exit hook for msg queues if tracking ownership
+    let queues: Vec<Arc<SpinLock<MsgQueue>>> = {
+        let reg = MSG_REGISTRY.lock();
+        reg.values().cloned().collect()
+    };
+
+    for q_lock in queues {
+        let q = q_lock.lock();
+        if !q.is_deleted {
+            q.send_wq.wake_all();
+            q.recv_wq.wake_all();
+        }
+    }
 }
