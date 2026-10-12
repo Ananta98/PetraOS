@@ -8,8 +8,8 @@
 //! 3. CPU Idle Task
 
 use alloc::sync::Arc;
+use ostd::task::Task;
 use ostd::task::scheduler::UpdateFlags;
-use ostd::task::{Task, disable_preempt};
 
 use super::SchedEntity;
 use super::eevdf::EevdfRunQueue;
@@ -68,8 +68,6 @@ pub struct RunQueue {
     eevdf: EevdfRunQueue,
     /// Idle task entry for this CPU.
     idle: Option<SchedEntry>,
-    /// Whether any task has ever been enqueued on this CPU.
-    has_run_tasks: bool,
     /// Tick when the running task was last charged.
     last_update: u64,
     /// Last update event flag.
@@ -86,7 +84,6 @@ impl RunQueue {
             rt: RtRunQueue::new(),
             eevdf: EevdfRunQueue::new(),
             idle: None,
-            has_run_tasks: false,
             last_update: 0,
             last_flags: UpdateFlags::Tick,
             stats: CpuStats::new(),
@@ -163,13 +160,14 @@ impl RunQueue {
         } else {
             self.eevdf.place(entry, is_new);
         }
-        self.has_run_tasks = true;
     }
 
     /// Checks if a newly arrived entity should preempt the currently running task.
     pub fn should_preempt_entity(&self, entity: &SchedEntity) -> bool {
         let Some(current) = &self.current else {
-            return true;
+            // Nothing is running in task context (we are in bootstrap context,
+            // which cannot be switched back to and must not be interrupted).
+            return false;
         };
         if current.is_idle {
             return true;
@@ -332,9 +330,6 @@ impl RunQueue {
     pub fn start_idling(&mut self) -> bool {
         if self.is_idling() {
             return true;
-        }
-        if !self.has_run_tasks {
-            return false;
         }
         if self.idle.is_none() {
             let Some(idle) = crate::sched::adapter::idle_entry() else {

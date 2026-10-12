@@ -70,8 +70,10 @@ fn kernel_init() {
     sched::init();
     drivers::init().unwrap();
     modules::init_calls().unwrap();
-    proc::init::spawn_init_process();
     vm::reclaim::init_kswapd();
+    if let Err(err) = proc::init::spawn_init_process() {
+        ostd::warn!("Init process could not be launched: {:?}", err);
+    }
 }
 
 fn ap_init() {
