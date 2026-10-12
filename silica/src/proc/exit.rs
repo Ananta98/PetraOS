@@ -174,7 +174,6 @@ pub fn proc_reap(parent: &Arc<Proc>, child_pid: Pid) -> Result<(Pid, ExitStatus)
 #[cfg(ktest)]
 mod tests {
     use super::*;
-    use alloc::sync::Weak;
     use ostd::{prelude::ktest, sync::SpinLock, task::TaskOptions};
     use crate::{
         api::{
@@ -213,38 +212,30 @@ mod tests {
 
     fn create_test_thread(proc: &Arc<Proc>, clear_tid: usize) -> Arc<Thread> {
         let tid = alloc_tid();
-        let vmar = proc.vmspace();
         let proc_weak = Arc::downgrade(proc);
         let name_buf = crate::proc::comm_from_name("test_thread");
+        let task = Arc::new(TaskOptions::new(|| {}).build().expect("build task"));
 
-        let thread = Arc::new_cyclic(|weak_thread: &Weak<Thread>| {
-            let weak_td_clone = weak_thread.clone();
-            let options = TaskOptions::new(move || {})
-                .data(weak_td_clone)
-                .local_data(vmar);
-            let task = crate::proc::thread::build_task(options, 0);
-
-            Thread {
-                tid,
-                td_proc: proc_weak,
-                td_kstack: task,
-                inner: SpinLock::new(ThreadInner {
-                    state: ThreadState::CanRun,
-                    flags: ThreadFlags::TDF_KTHREAD,
-                    sigmask: SigSet::initial(),
-                    sigqueue: crate::proc::signal::SigQueue::new(),
-                    wchan: None,
-                    wmesg: "",
-                    name: name_buf,
-                    user_ctx: None,
-                    altstack: SigStack::default(),
-                    handler_mask: SigSet::empty(),
-                    fs_base: 0,
-                    stopped_by: None,
-                    handler_frame: None,
-                    clear_child_tid: clear_tid,
-                }),
-            }
+        let thread = Arc::new(Thread {
+            tid,
+            td_proc: proc_weak,
+            td_kstack: task,
+            inner: SpinLock::new(ThreadInner {
+                state: ThreadState::CanRun,
+                flags: ThreadFlags::TDF_KTHREAD,
+                sigmask: SigSet::initial(),
+                sigqueue: crate::proc::signal::SigQueue::new(),
+                wchan: None,
+                wmesg: "",
+                name: name_buf,
+                user_ctx: None,
+                altstack: SigStack::default(),
+                handler_mask: SigSet::empty(),
+                fs_base: 0,
+                stopped_by: None,
+                handler_frame: None,
+                clear_child_tid: clear_tid,
+            }),
         });
 
         proc.add_thread(Arc::clone(&thread));
@@ -252,7 +243,7 @@ mod tests {
     }
 
     #[ktest]
-    fn handle_clear_child_tid_and_futex_wake() {
+    fn thread_exit_clear_child_tid_and_futex_wake() {
         let proc = create_test_proc();
         let vmar = proc.vmspace();
         let test_addr = 0x0000_1000_0000usize;
@@ -270,6 +261,7 @@ mod tests {
         // Populate page so UserPtr write/read succeeds
         vmar.populate_range(&(mapped..mapped + ostd::mm::PAGE_SIZE))
             .expect("populate range");
+        vmar.activate();
 
         // Write a non-zero TID to user memory
         let tid_val = 12345i32;
@@ -299,7 +291,7 @@ mod tests {
     }
 
     #[ktest]
-    fn multithread_exit_thread_vs_last_thread() {
+    fn thread_exit_multithread_vs_last_thread() {
         let proc = create_test_proc();
         let thread1 = create_test_thread(&proc, 0);
         let thread2 = create_test_thread(&proc, 0);
@@ -324,7 +316,7 @@ mod tests {
     }
 
     #[ktest]
-    fn exit_group_terminates_all_threads() {
+    fn thread_exit_group_terminates_all_threads() {
         let proc = create_test_proc();
         let thread1 = create_test_thread(&proc, 0);
         let thread2 = create_test_thread(&proc, 0);

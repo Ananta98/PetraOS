@@ -15,7 +15,6 @@ use crate::{
         cred::Ucred,
         errno::{Errno, Result},
     },
-    cmdline,
     proc::{
         Proc, comm_from_name, create_init_process_with_vmar, create_main_thread,
         exec::{self, load_and_setup_full},
@@ -31,10 +30,13 @@ const INIT_CANDIDATE_PATHS: &[&str] = &["/init", "init", "/sbin/init", "/bin/ini
 fn find_init_target() -> Option<(String, Vec<String>, Vec<u8>)> {
     let mut candidates = Vec::new();
 
-    // 1. Explicit command line parameter (e.g., "init=/bin/sh")
-    let cmd_init = cmdline::get_init_path();
-    if !cmd_init.is_empty() {
-        candidates.push(cmd_init);
+    // 1. Explicit command line parameter (e.g., "init=/bin/sh" or "rdinit=/init")
+    let kernel_cmdline = &ostd::boot::boot_info().kernel_cmdline;
+    for arg in kernel_cmdline.split_whitespace() {
+        if let Some(path) = arg.strip_prefix("init=").or_else(|| arg.strip_prefix("rdinit=")) {
+            candidates.push(String::from(path));
+            break;
+        }
     }
 
     // 2. Standard candidate paths
@@ -100,6 +102,13 @@ pub fn spawn_init_process() -> Result<Arc<Proc>> {
             return Err(Errno::ENOENT);
         }
     };
+
+    let mut init_argv = init_argv;
+    for arg in ostd::boot::boot_info().kernel_cmdline.split_whitespace() {
+        if !arg.contains('=') {
+            init_argv.push(String::from(arg));
+        }
+    }
 
     ostd::info!(
         "init: Booting userspace init from \"{}\" ({} bytes, argv: {:?})",

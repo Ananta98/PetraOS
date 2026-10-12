@@ -47,7 +47,7 @@ pub fn init() -> Result<()> {
     // Render boot splash banner
     if let Some(cons_lock) = CONSOLE.get() {
         let mut cons = cons_lock.lock();
-        cons.write_str("\x1b[1;36mSilicaOS Kernel v0.1.0 (x86_64)\x1b[0m\n");
+        cons.write_str("\x1b[1;36mPetraOS Kernel v0.1.0 (x86_64)\x1b[0m\n");
         cons.write_str(
             "\x1b[32m[drm]\x1b[0m Initialized EFI linear framebuffer (1280x800 @ 32 bpp)\n",
         );

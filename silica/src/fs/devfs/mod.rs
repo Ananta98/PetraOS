@@ -3,7 +3,7 @@
 //! Device Filesystem (`/dev`).
 //!
 //! Provides a dynamic, extensible character and block device node registry
-//! for SilicaOS drivers to register and unregister device nodes at runtime.
+//! for PetraOS drivers to register and unregister device nodes at runtime.
 
 pub mod blk;
 pub mod chr;
@@ -131,11 +131,7 @@ impl NodeOps for DevFsDirOps {
             if dev.name() == name {
                 return Ok(Arc::new(INode::new(
                     Box::new(net::GenericNetNodeOps::new(Arc::clone(&dev))),
-                    Mode::CHAR
-                        | Mode::RUSR
-                        | Mode::WUSR
-                        | Mode::RGRP
-                        | Mode::ROTH,
+                    Mode::CHAR | Mode::RUSR | Mode::WUSR | Mode::RGRP | Mode::ROTH,
                     100,
                 )));
             }
@@ -308,7 +304,7 @@ pub fn init() -> Result<()> {
 
 crate::module!(
     "Device Filesystem",
-    "SilicaOS Team",
+    "PetraOS Team",
     crate::modules::InitcallLevel::Fs,
     init
 );

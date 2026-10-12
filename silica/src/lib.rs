@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
 
-//! SilicaOS: a POSIX-oriented operating system kernel.
+//! PetraOS: a POSIX-oriented operating system kernel.
 //!
 //! The kernel is split into subsystems, each of which lives in its own top-level
 //! module:
@@ -38,7 +38,6 @@ macro_rules! __log_prefix {
 pub mod arch;
 
 pub mod api;
-pub mod cmdline;
 pub mod crypto;
 pub mod drivers;
 pub mod fs;
@@ -54,7 +53,17 @@ pub mod vm;
 
 #[ostd::main]
 fn kernel_main() {
-    cmdline::init(&ostd::boot::boot_info().kernel_cmdline);
+    // Initialize the global states for all CPUs.
+    init();
+
+    // Initialize the per-CPU states for BSP.
+    init_on_each_cpu();
+
+    // Enable APs.
+    ostd::boot::smp::register_ap_entry(ap_init);
+}
+
+fn init() {
     arch::init();
     if let Err(err) = time::init() {
         ostd::error!("Time subsystem init failed: {:?}", err);
@@ -69,8 +78,17 @@ fn kernel_main() {
     if let Err(err) = modules::init_calls() {
         ostd::error!("Module initcalls failed: {:?}", err);
     }
-    vm::reclaim::init_kswapd();
     if let Err(err) = proc::init::spawn_init_process() {
         ostd::warn!("Init process could not be launched: {:?}", err);
     }
+    vm::reclaim::init_kswapd();
+}
+
+fn init_on_each_cpu() {
+    sched::init_on_cpu();
+}
+
+fn ap_init() {
+    // Initialize the per-CPU states for AP.
+    init_on_each_cpu();
 }

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
 
-//! Network Subsystem for SilicaOS using smoltcp.
+//! Network Subsystem for PetraOS using smoltcp.
 
 pub mod device;
 pub mod interface;
@@ -29,7 +29,7 @@ pub fn init() -> Result<()> {
 }
 
 crate::module!(
-    "SilicaOS Network Subsystem",
+    "PetraOS Network Subsystem",
     "Ananta98",
     crate::modules::InitcallLevel::Core,
     init

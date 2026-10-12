@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
 
-//! Filesystem subsystem for SilicaOS.
+//! Filesystem subsystem for PetraOS.
 
 use alloc::boxed::Box;
 use alloc::string::String;

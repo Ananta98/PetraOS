@@ -125,7 +125,7 @@ pub fn do_initcalls() -> Result<()> {
 ///
 /// # Examples
 /// ```
-/// module!("Ext2 Filesystem", "SilicaOS Team", InitcallLevel::Fs, init);
+/// module!("Ext2 Filesystem", "PetraOS Team", InitcallLevel::Fs, init);
 /// ```
 #[macro_export]
 macro_rules! module {

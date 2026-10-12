@@ -139,6 +139,7 @@ pub fn sys_setpriority(
         crate::sched::update_sched_state(p.pid, |s| {
             s.nice = target_nice;
         });
+        crate::sched::apply_sched_state_to_proc(p);
     }
 
     Ok(0)
@@ -158,8 +159,8 @@ pub fn sys_sched_rr_get_interval(
     let target = resolve_target_proc(&caller, pid)?;
     crate::sched::check_sched_permission(&caller, &target)?;
 
-    // Round-robin slice in nanoseconds (3ms base quantum)
-    let slice_ns = crate::sched::BASE_SLICE_NS;
+    // Return the configured real-time round-robin slice (100 ms).
+    let slice_ns = crate::sched::DEF_RT_TIMESLICE_NS;
     let ts = Timespec {
         tv_sec: (slice_ns / 1_000_000_000) as i64,
         tv_nsec: (slice_ns % 1_000_000_000) as i64,

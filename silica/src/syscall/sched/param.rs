@@ -62,6 +62,7 @@ pub fn sys_sched_setparam(
     crate::sched::update_sched_state(target.pid, |s| {
         s.priority = param.sched_priority;
     });
+    crate::sched::apply_sched_state_to_proc(&target);
 
     Ok(0)
 }
@@ -142,6 +143,7 @@ pub fn sys_sched_setscheduler(
             s.flags |= SCHED_FLAG_RESET_ON_FORK;
         }
     });
+    crate::sched::apply_sched_state_to_proc(&target);
 
     Ok(0)
 }

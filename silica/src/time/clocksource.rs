@@ -258,7 +258,7 @@ mod tests {
     use ostd::prelude::ktest;
 
     #[ktest]
-    fn test_calc_mult_shift_precision() {
+    fn calc_mult_shift_precision() {
         // 1 GHz: exactly 1 cycle = 1 ns
         let (mult_1g, shift_1g) = calc_mult_shift(1_000_000_000);
         let ns_1g = ((1_000_000_000u128 * mult_1g as u128) >> shift_1g) as u64;

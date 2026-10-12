@@ -306,7 +306,7 @@ mod tests {
     use ostd::prelude::ktest;
 
     #[ktest]
-    fn test_datetime_to_unix_epoch_baseline() {
+    fn datetime_to_unix_epoch_baseline() {
         // 1970-01-01 00:00:00 UTC = 0
         assert_eq!(datetime_to_unix_epoch(1970, 1, 1, 0, 0, 0), 0);
 

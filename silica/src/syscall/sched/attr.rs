@@ -102,6 +102,7 @@ pub fn sys_sched_setattr(
         s.deadline = attr.sched_deadline;
         s.period = attr.sched_period;
     });
+    crate::sched::apply_sched_state_to_proc(&target);
 
     Ok(0)
 }

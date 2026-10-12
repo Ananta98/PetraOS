@@ -59,6 +59,7 @@ pub fn sys_sched_setaffinity(
     crate::sched::update_sched_state(target.pid, |s| {
         s.affinity = mask;
     });
+    crate::sched::apply_sched_state_to_proc(&target);
 
     Ok(0)
 }

@@ -37,22 +37,20 @@ pub mod vmar;
 
 use alloc::sync::Arc;
 
+use self::vmar::page_fault::PageFaultInfo;
+pub use self::vmar::{VMAR_CAP_ADDR, VMAR_LOWEST_ADDR, Vmar, VmarQuery};
+use crate::api::errno::{Errno, Result};
+use ostd::arch::cpu::context::CpuException;
 use ostd::{
     irq::InterruptLevel,
     mm::fault::inject_user_page_fault_handler,
     task::{Task, TaskOptions},
 };
-use ostd::arch::cpu::context::CpuException;
-pub use self::vmar::{Vmar, VmarQuery, VMAR_CAP_ADDR, VMAR_LOWEST_ADDR};
-use crate::api::errno::{Errno, Result};
-use self::vmar::page_fault::PageFaultInfo;
 
 /// Installs the hooks that the rest of the kernel relies on.
 ///
 /// Called once during boot, before any task runs.
 pub fn init() {
-    // Covers the kernel reaching a user address through a fallible read or
-    // write, which is how a process reads or writes another one's memory.
     inject_user_page_fault_handler(resolve_kernel_page_fault);
 }
 
@@ -61,7 +59,10 @@ pub fn current_vmar() -> Result<Arc<Vmar>> {
     // `local_data` may only be read in task context, and a page fault can be
     // taken in an interrupt, so check before asking.
     if !matches!(InterruptLevel::current(), InterruptLevel::L0) {
-        crate::return_errno!(EFAULT, "the address space was asked for outside task context");
+        crate::return_errno!(
+            EFAULT,
+            "the address space was asked for outside task context"
+        );
     }
     if let Some(proc) = crate::proc::thread::Thread::current_proc() {
         return Ok(proc.vmspace());
@@ -107,9 +108,7 @@ fn resolve_kernel_page_fault(exception: &CpuException) -> Result<(), ()> {
     };
     match current_vmar().and_then(|vmar| vmar.handle_page_fault(&info.provoked())) {
         Ok(()) => Ok(()),
-        Err(_) => {
-            Err(())
-        }
+        Err(_) => Err(()),
     }
 }
 
@@ -215,7 +214,9 @@ pub(crate) mod tests {
             .cursor(&guard, &range)
             .expect("the address is in user space");
         match cursor.query().expect("the range is page-aligned") {
-            (_, Some(VmQueriedItem::MappedRam { frame, prop })) => Some((frame.paddr(), prop.flags)),
+            (_, Some(VmQueriedItem::MappedRam { frame, prop })) => {
+                Some((frame.paddr(), prop.flags))
+            }
             (_, Some(VmQueriedItem::MappedIoMem { paddr, prop })) => Some((paddr, prop.flags)),
             (_, None) => None,
         }

@@ -2,9 +2,9 @@
 
 //! Core FileSystem trait for the VFS.
 
-use alloc::sync::Arc;
-use crate::api::errno::Result;
 use super::inode::INode;
+use crate::api::errno::Result;
+use alloc::sync::Arc;
 
 /// Filesystem-wide statistics, as reported by `statfs(2)`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -25,7 +25,7 @@ pub struct StatFs {
     pub namelen: u64,
 }
 
-/// The common trait implemented by every mounted filesystem driver in SilicaOS.
+/// The common trait implemented by every mounted filesystem driver in PetraOS.
 pub trait FileSystem: Send + Sync {
     /// Returns the human-readable name or driver type (e.g. "initramfs", "devfs", "ext2").
     fn name(&self) -> &'static str;

@@ -76,7 +76,7 @@ impl PciDeviceId {
     }
 }
 
-/// Trait implemented by all PCI drivers in SilicaOS.
+/// Trait implemented by all PCI drivers in PetraOS.
 pub trait PciDriver: Send + Sync {
     /// Human-readable name of the driver (e.g., "nvme", "e1000").
     fn name(&self) -> &'static str;

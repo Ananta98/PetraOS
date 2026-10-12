@@ -44,7 +44,7 @@ impl UtsName {
         copy_cstr(&mut uts.sysname, b"Linux");
         copy_cstr(&mut uts.nodename, b"silica");
         copy_cstr(&mut uts.release, b"6.6.0-silica");
-        copy_cstr(&mut uts.version, b"#1 SMP SilicaOS 0.1.0");
+        copy_cstr(&mut uts.version, b"#1 SMP PetraOS 0.1.0");
         copy_cstr(&mut uts.machine, b"x86_64");
         copy_cstr(&mut uts.domainname, b"(none)");
 

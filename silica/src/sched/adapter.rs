@@ -1,45 +1,11 @@
 // SPDX-License-Identifier: GPL-2.0
 
-//! The scheduler itself: the [`Scheduler`] that OSTD drives, one runqueue per
-//! CPU, and the registry that ties a task to its scheduling state.
+//! Scheduler adapter implementing OSTD `Scheduler` and `LocalRunQueue` traits.
 //!
-//! OSTD does not have a scheduler of its own. It defines the
-//! [`Scheduler`]/[`LocalRunQueue`] traits and leaves every decision to whoever
-//! injects an implementation, which is what [`init`] does. OSTD then calls into
-//! the injected scheduler at four kinds of event — a task becoming runnable, a
-//! timer tick, a task yielding, and a task sleeping or exiting — and the whole
-//! policy lives in [`RunQueue`](super::rq::RunQueue).
-//!
-//! # Events
-//!
-//! | Event | What the scheduler does |
-//! |---|---|
-//! | [`Scheduler::enqueue`] | Places the task, and asks for a preemption if the task is eligible and has an earlier deadline than the running one |
-//! | [`UpdateFlags::Tick`] | Charges the running task and asks for a preemption if any waiting task should displace it |
-//! | [`UpdateFlags::Yield`] | Charges the running task and gives up the CPU, which costs it one request of deadline |
-//! | [`UpdateFlags::Wait`] | Charges the running task and lets it go |
-//! | [`UpdateFlags::Exit`] | Charges the running task and drops its scheduling state |
-//! | [`LocalRunQueue::try_pick_next`] | Picks the eligible task with the earliest deadline, or starts the idle task |
-//!
-//! # The bootstrap context
-//!
-//! The context OSTD starts the kernel in is not a task: it cannot be switched
-//! away from and come back to, because there is no runqueue to put it on. It
-//! therefore runs a task only when it asks to, which is what
-//! [`UpdateFlags::Yield`] from OSTD's own entry point does once
-//! `kernel_main` returns, and it is never preempted by a tick.
-//!
-//! # Locking
-//!
-//! One [`SpinLock`] per runqueue, taken with local interrupts disabled so that
-//! a task cannot be migrated out from under a decision. The entity registry
-//! below is a second lock, and the only nesting is a runqueue inside the
-//! registry: the registry is looked up and released before a runqueue is
-//! locked, and taken again only while a runqueue is held.
-//!
-//! [`SpinLock`]: ostd::sync::SpinLock
+//! Provides runqueue binding, task registry, and idle loop coordination across CPUs.
 
 use alloc::{boxed::Box, collections::BTreeMap, sync::Arc};
+use core::sync::atomic::{AtomicUsize, Ordering};
 
 use ostd::{
     cpu::{CpuId, PinCurrentCpu, num_cpus},
@@ -56,29 +22,24 @@ use ostd::{
 use spin::Once;
 
 use super::{
-    Entity,
-    entity::BASE_SLICE_NS,
-    loadavg, now,
-    rq::{Entry, RunQueue},
+    now,
+    sched_class::{RunQueue, SchedEntity, SchedEntry, eevdf::BASE_SLICE_NS},
     stats,
 };
 
-/// The scheduler that OSTD drives.
+/// Global sequencer for unique tie-breaking order.
+static NEXT_SEQ: AtomicUsize = AtomicUsize::new(0);
+
+/// Primary scheduler implementation driven by OSTD.
 pub struct EevdfScheduler {
-    /// The runqueue of each CPU.
+    /// Per-CPU runqueues.
     rqs: Box<[SpinLock<RunQueue>]>,
-    /// The scheduling state of every task the scheduler knows, keyed by the
-    /// address of the task.
-    ///
-    /// A task's `Arc` is what keeps it alive and where it lives, so its address
-    /// is a key that is unique for as long as the task is. The state is not
-    /// stored in the task because that would mean every task had to be built
-    /// through this module, and OSTD creates tasks of its own.
-    entities: SpinLock<BTreeMap<usize, Arc<Entity>>>,
+    /// Global registry mapping task addresses to unified scheduling entities.
+    entities: SpinLock<BTreeMap<usize, Arc<SchedEntity>>>,
 }
 
 impl EevdfScheduler {
-    /// Creates a scheduler with an empty runqueue for every CPU.
+    /// Creates a scheduler instance with per-CPU runqueues.
     fn new() -> Self {
         let rqs = (0..num_cpus())
             .map(|_| SpinLock::new(RunQueue::new()))
@@ -89,32 +50,80 @@ impl EevdfScheduler {
         }
     }
 
-    /// Returns the runqueue of `cpu`.
+    /// Returns a reference to the spinlock guarding `cpu`'s runqueue.
     fn rq(&self, cpu: CpuId) -> &SpinLock<RunQueue> {
         &self.rqs[u32::from(cpu) as usize]
     }
 
-    /// Makes a task runnable on the CPU that woke it, and returns that CPU if
-    /// the task is worth interrupting it for.
+    /// Returns the most suitable target CPU for an entity among allowed CPUs.
+    fn select_target_cpu(&self, entity: &SchedEntity, current_cpu: CpuId) -> CpuId {
+        let ncpus = num_cpus();
+        if ncpus <= 1 {
+            return current_cpu;
+        }
+
+        let affinity = entity.affinity();
+        let current_id = u32::from(current_cpu) as usize;
+        if affinity.is_set(current_id)
+            && self.rq(current_cpu).disable_irq().lock().nr_running() == 0
+        {
+            return current_cpu;
+        }
+
+        let mut best_cpu = current_cpu;
+        let mut min_load = usize::MAX;
+
+        for cpu_idx in 0..ncpus {
+            if !affinity.is_set(cpu_idx) {
+                continue;
+            }
+            if let Ok(cpu) = cpu_idx.try_into() {
+                let load = self.rq(cpu).disable_irq().lock().nr_running();
+                if load == 0 {
+                    return cpu;
+                }
+                if load < min_load {
+                    min_load = load;
+                    best_cpu = cpu;
+                }
+            }
+        }
+
+        best_cpu
+    }
+
+    /// Enqueues a task onto a target CPU, returning the CPU ID if preemption is requested.
     fn enqueue_task(
         &self,
         runnable: Arc<Task>,
-        entity: Arc<Entity>,
+        entity: Arc<SchedEntity>,
         flags: EnqueueFlags,
     ) -> Option<CpuId> {
-        // A task that OSTD woke while it was still queued belongs back on the
-        // CPU it is already on. `TaskScheduleInfo::cpu` is the record of that,
-        // and it is cleared when a task is dequeued, so a task that is not
-        // queued has none.
         let current_cpu = disable_preempt().current_cpu();
-        let (still_queued, target_cpu) =
-            match runnable.schedule_info().cpu.set_if_is_none(current_cpu) {
-                Ok(()) => (false, current_cpu),
-                Err(on_cpu) => (true, on_cpu),
-            };
+        let (still_queued, target_cpu) = match runnable.schedule_info().cpu.get() {
+            Some(cpu) => {
+                if !entity.affinity().is_set(u32::from(cpu) as usize) {
+                    let migrated = self.select_target_cpu(&entity, current_cpu);
+                    runnable.schedule_info().cpu.set_anyway(migrated);
+                    entity.nr_migrations.fetch_add(1, Ordering::Relaxed);
+                    (false, migrated)
+                } else {
+                    (true, cpu)
+                }
+            }
+            None => {
+                let target = self.select_target_cpu(&entity, current_cpu);
+                let _ = runnable.schedule_info().cpu.set_if_is_none(target);
+                (
+                    false,
+                    runnable.schedule_info().cpu.get().unwrap_or(current_cpu),
+                )
+            }
+        };
+
         debug_assert!(
             flags != EnqueueFlags::Spawn || !still_queued,
-            "a task that has just been created is not on a runqueue"
+            "newly created tasks must not already be marked as queued"
         );
 
         let mut rq = self.rq(target_cpu).disable_irq().lock();
@@ -125,18 +134,13 @@ impl EevdfScheduler {
                 .set_if_is_none(target_cpu)
                 .is_err()
         {
-            // The task is on a runqueue already. This is the race between a
-            // task being woken and it going to sleep: the waker got here
-            // first, so the task is runnable and this wake is redundant.
+            // Redundant wakeup race; task already queued.
             return None;
         }
 
-        let is_new = !entity.is_placed();
-        rq.place(Entry::new(runnable, entity.clone(), now()), is_new);
+        let is_new = !entity.fair.is_placed();
+        rq.place(SchedEntry::new(runnable, entity.clone(), now()), is_new);
 
-        // A preemption can only be asked for while a task is running: the
-        // bootstrap context is the one thing a task cannot switch back to, so it
-        // is never interrupted.
         rq.should_preempt_entity(&entity).then_some(target_cpu)
     }
 }
@@ -169,36 +173,30 @@ impl LocalRunQueue for RunQueue {
         self.set_last_flags(flags);
         self.charge();
         match flags {
-            // A tick preempts only if something waiting deserves the CPU more
-            // than the running task does.
             UpdateFlags::Tick => self.should_switch(),
-            // A yield hands the CPU to a different task or to nobody. The
-            // running task is not dequeued, so there has to be a different task
-            // to switch to, and a runnable task is never replaced by the idle
-            // one.
-            UpdateFlags::Yield => RunQueue::pick_next(self, true).is_some(),
-            // Waiting and exiting both take the current task off the runqueue,
-            // so anything left on it will run, and a CPU with nothing to run is
-            // an outcome worth switching to as well.
+            UpdateFlags::Yield => {
+                if self.current_task().is_none() {
+                    true
+                } else {
+                    self.pick_next(true).is_some()
+                }
+            }
             UpdateFlags::Wait | UpdateFlags::Exit => self.nr_queued() > 0 || self.can_idle(),
         }
     }
 
     fn try_pick_next(&mut self) -> Option<&Arc<Task>> {
         let yielding = self.last_flags() == UpdateFlags::Yield;
-        if let Some(next) = RunQueue::pick_next(self, yielding) {
+        if let Some(next) = self.pick_next(yielding) {
             self.install(next, true);
             return self.current_task();
         }
-        // Nothing waiting deserves the CPU more than the task that has it, and
-        // returning the running task would have OSTD try to switch to itself,
-        // which it can only spin on. So this is `None` — except on a CPU that is
-        // running no task at all, which is left to the idle task rather than to
-        // nothing.
+
         let running = self.current_task().map(Arc::as_ptr);
         if running.is_none() {
             self.start_idling();
         }
+
         match self.current_task() {
             Some(current) if Some(Arc::as_ptr(current)) != running => Some(current),
             _ => None,
@@ -210,86 +208,40 @@ impl LocalRunQueue for RunQueue {
     }
 }
 
-/// The scheduler, once [`init`] has created it.
 static SCHEDULER: Once<EevdfScheduler> = Once::new();
 
-/// Makes this module the scheduler of the kernel.
-///
-/// Must be called before anything else uses a [`Task`], because OSTD asks the
-/// scheduler what to do the moment a task is created, and because the first
-/// task to be created becomes the one that gets run.
+/// Initializes the global kernel scheduler.
 pub fn init() {
     SCHEDULER.call_once(EevdfScheduler::new);
-    inject_scheduler(SCHEDULER.get().expect("just initialised"));
-    init_on_cpu();
+    inject_scheduler(SCHEDULER.get().expect("scheduler must be initialized"));
 }
 
-/// Makes the current CPU ready to be scheduled on, which is everything this
-/// module needs on a CPU.
-///
-/// Called by [`init`] on the CPU that boots the kernel, and to be called on
-/// every other CPU before it is left to its own devices. Registering a timer
-/// callback twice on one CPU would account every tick twice, so this is
-/// deliberately not idempotent.
+/// Enables timer callbacks and preemption on the calling CPU.
 pub fn init_on_cpu() {
-    // Without this the running task is never charged, so its virtual runtime
-    // never moves, so it never falls behind, so it never gives the CPU up.
     enable_preemption_on_cpu();
     timer::register_callback_on_cpu(|| {
-        loadavg::on_tick(nr_running_on(disable_preempt().current_cpu()));
+        stats::on_loadavg_tick(nr_running_on(disable_preempt().current_cpu()));
         stats::global().ticked();
     });
 }
 
-/// Creates a task of nice value `nice` and makes it runnable.
-///
-/// The scheduling state of the task is attached before it is run, so that it is
-/// placed by the algorithm from its very first moment.
-pub fn spawn(options: TaskOptions, nice: i8) -> Result<Arc<Task>, ostd::Error> {
-    let task = build(options, nice)?;
-    task.run();
-    Ok(task)
-}
-
-/// Creates a task of nice value `nice` that wants a time slice of `slice_ns`
-/// nanoseconds, and makes it runnable.
-///
-/// The slice is what buys latency: a task that asks for a short one gets a
-/// deadline that much earlier than everyone else's, and is run next, without
-/// giving up any of its share of the CPU. A task that asks for a long one is
-/// run less often, but for longer.
-pub fn spawn_with_slice(
-    options: TaskOptions,
-    nice: i8,
-    slice_ns: u64,
-) -> Result<Arc<Task>, ostd::Error> {
-    let task = build_with_slice(options, nice, slice_ns)?;
-    task.run();
-    Ok(task)
-}
-
-/// Creates a task of nice value `nice` without making it runnable.
-///
-/// [`Task::run`] is what makes it runnable, and the task keeps its scheduling
-/// state until then.
+/// Builds a task with nice value `nice` without making it runnable immediately.
 pub fn build(options: TaskOptions, nice: i8) -> Result<Arc<Task>, ostd::Error> {
-    build_with_slice(options, nice, BASE_SLICE_NS)
-}
-
-/// Creates a task of nice value `nice` that wants a time slice of `slice_ns`
-/// nanoseconds, without making it runnable.
-pub fn build_with_slice(
-    options: TaskOptions,
-    nice: i8,
-    slice_ns: u64,
-) -> Result<Arc<Task>, ostd::Error> {
     let task = Arc::new(options.build()?);
-    remember_entity(&task, Entity::with_options(nice, slice_ns));
+    let seq = NEXT_SEQ.fetch_add(1, Ordering::Relaxed);
+    remember_entity(&task, SchedEntity::new_fair(nice, BASE_SLICE_NS, seq));
     Ok(task)
 }
 
-/// Returns the scheduling state of `task`, if the scheduler has one.
-pub fn entity_of(task: &Task) -> Option<Arc<Entity>> {
+/// Updates scheduling parameters (policy, priority, nice) for a live task.
+pub fn set_task_sched_params(task: &Task, policy: i32, priority: i32, nice: i8) {
+    if let Some(entity) = entity_of(task) {
+        entity.set_params(policy, priority, nice);
+    }
+}
+
+/// Returns the scheduling entity associated with `task`, if registered.
+pub fn entity_of(task: &Task) -> Option<Arc<SchedEntity>> {
     let key = key_of(task);
     SCHEDULER
         .get()?
@@ -300,46 +252,20 @@ pub fn entity_of(task: &Task) -> Option<Arc<Entity>> {
         .cloned()
 }
 
-/// Returns the number of runnable tasks on `cpu`, the idle task excluded.
+/// Returns the number of runnable tasks on `cpu`, excluding idle.
 pub fn nr_running_on(cpu: CpuId) -> usize {
     scheduler().rq(cpu).disable_irq().lock().nr_running()
 }
 
-/// Writes the contents of `cpu`'s runqueue to the kernel log.
-pub(super) fn log_runqueue(cpu: CpuId) {
-    scheduler().rq(cpu).disable_irq().lock().log(cpu);
-}
-
-/// Returns a snapshot of `cpu`'s statistics.
-pub fn stats_of_cpu(cpu: CpuId) -> stats::CpuStatsSnapshot {
-    SCHEDULER
-        .get()
-        .map(|scheduler| scheduler.rq(cpu).disable_irq().lock().stats().snapshot())
-        .unwrap_or_default()
-}
-
-/// Returns whether every CPU in the system has nothing to run.
-pub fn is_system_idle() -> bool {
-    if SCHEDULER.get().is_none() {
-        return true;
-    }
-    ostd::cpu::all_cpus().all(|cpu| nr_running_on(cpu) == 0)
-}
-
-/// Returns the scheduler, once [`init`] has created it.
 fn scheduler() -> &'static EevdfScheduler {
-    SCHEDULER
-        .get()
-        .expect("the scheduler has not been initialised")
+    SCHEDULER.get().expect("scheduler has not been initialized")
 }
 
-/// Returns the key a task's scheduling state is stored under.
 fn key_of(task: &Task) -> usize {
     task as *const Task as usize
 }
 
-/// Attaches `entity` to `task`, replacing whatever state it had.
-fn remember_entity(task: &Task, entity: Arc<Entity>) {
+fn remember_entity(task: &Task, entity: Arc<SchedEntity>) {
     scheduler()
         .entities
         .disable_irq()
@@ -348,28 +274,20 @@ fn remember_entity(task: &Task, entity: Arc<Entity>) {
     stats::global().entity_created();
 }
 
-/// Returns the scheduling state of `task`, giving it a default one the first
-/// time it is seen.
-///
-/// A task that was not built through [`build`] or [`spawn`] is one that OSTD
-/// made, such as the one that runs the tests, and it gets the neutral weight.
-fn entity_for(task: &Task) -> Arc<Entity> {
+fn entity_for(task: &Task) -> Arc<SchedEntity> {
     let key = key_of(task);
     let mut entities = scheduler().entities.disable_irq().lock();
     if let Some(entity) = entities.get(&key) {
         return Arc::clone(entity);
     }
-    let entity = Entity::new(0);
+    let seq = NEXT_SEQ.fetch_add(1, Ordering::Relaxed);
+    let entity = SchedEntity::new_fair(0, BASE_SLICE_NS, seq);
     entities.insert(key, Arc::clone(&entity));
     stats::global().entity_created();
     entity
 }
 
-/// Drops the scheduling state of a task that is exiting.
-///
-/// Doing nothing when this module was never initialised is right rather than
-/// merely defensive: there is no registry to drop anything from, which is what
-/// the test kernel of a crate without a `kernel_main` looks like.
+/// Unregisters the scheduling entity of an exiting task.
 pub(super) fn forget_entity(task: &Task) {
     let Some(scheduler) = SCHEDULER.get() else {
         return;
@@ -381,39 +299,20 @@ pub(super) fn forget_entity(task: &Task) {
         .remove(&key_of(task));
 }
 
-/// Runs while a CPU has nothing to do.
-///
-/// An idle task is what turns a runqueue that has run out of tasks into a CPU
-/// that waits for an interrupt instead of one that spins: OSTD can only switch
-/// between tasks, so something has to be running for a CPU to be able to stop
-/// running.
-///
-/// A system that has run out of work also has nothing left to do, so an idle
-/// system powers off. That is a policy for a kernel that is not running
-/// processes yet, and it is what makes `cargo osdk run` finish; once there are
-/// processes to run, this is where waiting for a power state change rather than
-/// stopping belongs.
 fn idle_task() {
     loop {
         halt_cpu();
     }
 }
 
-/// Builds the idle task of the current CPU, or returns `None` if its kernel
-/// stack cannot be allocated.
-///
-/// Built on demand rather than at [`init`] so that a kernel which never runs out
-/// of tasks does not pay for an idle task it never uses. What keeps a CPU that
-/// has *never* had a task from idling is the other half of this, in
-/// [`RunQueue::start_idling`](super::rq::RunQueue), which is what lets the
-/// bootstrap context finish and the machine power off.
-pub(super) fn idle_entry() -> Option<Entry> {
+/// Allocates an idle entry for the current CPU.
+pub(super) fn idle_entry() -> Option<SchedEntry> {
     let task = match TaskOptions::new(idle_task).build() {
         Ok(task) => Arc::new(task),
-        Err(error) => {
-            ostd::warn!("cannot create the idle task: {error:?}");
+        Err(err) => {
+            ostd::warn!("cannot create idle task: {err:?}");
             return None;
         }
     };
-    Some(Entry::idle(task, Entity::idle()))
+    Some(SchedEntry::idle(task, SchedEntity::idle()))
 }

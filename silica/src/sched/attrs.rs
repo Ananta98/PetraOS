@@ -63,6 +63,18 @@ pub fn on_proc_exit(pid: Pid) {
     registry.remove(&pid);
 }
 
+/// Applies updated scheduling parameters across all threads belonging to `proc`.
+pub fn apply_sched_state_to_proc(proc: &Proc) {
+    let state = get_sched_state(proc.pid);
+    let threads = proc.inner.lock().threads.clone();
+    for td in threads {
+        if let Some(entity) = crate::sched::entity_of(&td.td_kstack) {
+            entity.set_params(state.policy, state.priority, state.nice as i8);
+            entity.set_affinity(state.affinity);
+        }
+    }
+}
+
 /// Validates permission of `caller` to inspect or modify `target`'s scheduler parameters.
 pub fn check_sched_permission(caller: &Proc, target: &Proc) -> Result<()> {
     if caller.pid == target.pid {

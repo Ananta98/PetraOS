@@ -6,7 +6,7 @@ use alloc::{sync::Arc, vec::Vec};
 
 pub use crate::utils::userspace::{
     user_cstr::read_user_string,
-    user_ptr::{read_user_bytes, write_user_bytes, UserPtr},
+    user_ptr::{UserPtr, read_user_bytes, write_user_bytes},
 };
 
 use crate::{
@@ -44,7 +44,7 @@ pub fn resolve_at_start(proc: &Arc<Proc>, dirfd: i32, path: &str) -> Result<Path
     file.path_node.clone().ok_or(Errno::EBADF)
 }
 
-/// Converts Linux open flags into SilicaOS (OpenFlags, FdFlags).
+/// Converts Linux open flags into PetraOS (OpenFlags, FdFlags).
 pub fn parse_open_flags(flags: i32) -> (OpenFlags, FdFlags) {
     let mut open_flags = OpenFlags::empty();
     let mut fd_flags = FdFlags::empty();
