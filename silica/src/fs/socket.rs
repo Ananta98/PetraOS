@@ -95,6 +95,26 @@ impl FileOps for SocketFileOps {
                     events |= PollEvents::OUT | PollEvents::WRNORM;
                 }
             }
+            SocketKind::UnixListener(ref listener) => {
+                if !listener.accept_queue.lock().is_empty() {
+                    events |= PollEvents::IN | PollEvents::RDNORM;
+                }
+            }
+            SocketKind::UnixDgram(ref dgram) => {
+                if !dgram.rx_queue.lock().is_empty() {
+                    events |= PollEvents::IN | PollEvents::RDNORM;
+                }
+                events |= PollEvents::OUT | PollEvents::WRNORM;
+            }
+            SocketKind::Netlink(ref netlink) => {
+                if !netlink.rx_buf.lock().is_empty() {
+                    events |= PollEvents::IN | PollEvents::RDNORM;
+                }
+                events |= PollEvents::OUT | PollEvents::WRNORM;
+            }
+            SocketKind::UnixUnconnected { .. } => {
+                events |= PollEvents::OUT | PollEvents::WRNORM;
+            }
         }
 
         events

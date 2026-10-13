@@ -4,7 +4,9 @@
 
 pub mod device;
 pub mod interface;
+pub mod netlink;
 pub mod socket;
+pub mod unix;
 
 use crate::api::errno::Result;
 use crate::drivers::net::NetDevice;

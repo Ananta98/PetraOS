@@ -7,6 +7,7 @@ use alloc::string::String;
 use alloc::sync::Arc;
 
 pub mod devfs;
+pub mod epoll;
 pub mod exfat;
 pub mod ext2;
 pub mod fd;

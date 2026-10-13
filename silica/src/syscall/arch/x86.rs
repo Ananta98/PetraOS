@@ -151,6 +151,7 @@ crate::impl_syscall_nums_and_dispatch_fn! {
     SYS_FUTEX = 202 => sync::sys_futex(usize, i32, u32, usize, usize, u32);
     SYS_SCHED_SETAFFINITY = 203 => sched::sys_sched_setaffinity(i32, usize, usize);
     SYS_SCHED_GETAFFINITY = 204 => sched::sys_sched_getaffinity(i32, usize, usize);
+    SYS_EPOLL_CREATE = 213 => fs::sys_epoll_create(i32);
     SYS_GETDENTS64 = 217 => fs::sys_getdents64(i32, usize, usize);
     SYS_SET_TID_ADDRESS = 218 => proc::sys_set_tid_address(usize);
     SYS_SEMTIMEDOP = 220 => ipc::sys_semtimedop(i32, usize, usize, usize);
@@ -160,6 +161,8 @@ crate::impl_syscall_nums_and_dispatch_fn! {
     SYS_CLOCK_GETRES = 229 => time::sys_clock_getres(i32, usize);
     SYS_CLOCK_NANOSLEEP = 230 => time::sys_clock_nanosleep(i32, i32, usize, usize);
     SYS_EXIT_GROUP = 231 => proc::sys_exit_group(i32);
+    SYS_EPOLL_WAIT = 232 => fs::sys_epoll_wait(i32, usize, i32, i32);
+    SYS_EPOLL_CTL = 233 => fs::sys_epoll_ctl(i32, i32, i32, usize);
     SYS_TGKILL = 234 => signals::sys_tgkill(i32, i32, i32);
     SYS_OPENAT = 257 => fs::sys_openat(i32, usize, i32, u32);
     SYS_MKDIRAT = 258 => fs::sys_mkdirat(i32, usize, u32);
@@ -177,7 +180,9 @@ crate::impl_syscall_nums_and_dispatch_fn! {
     SYS_PSELECT6 = 270 => fs::sys_pselect6(i32, usize, usize, usize, usize, usize);
     SYS_PPOLL = 271 => fs::sys_ppoll(usize, usize, usize, usize, usize);
     SYS_UTIMENSAT = 280 => fs::sys_utimensat(i32, usize, usize, i32);
+    SYS_EPOLL_PWAIT = 281 => fs::sys_epoll_pwait(i32, usize, i32, i32, usize, usize);
     SYS_ACCEPT4 = 288 => net::sys_accept4(i32, usize, usize, i32);
+    SYS_EPOLL_CREATE1 = 291 => fs::sys_epoll_create1(i32);
     SYS_DUP3 = 292 => fs::sys_dup3(i32, i32, i32);
     SYS_PIPE2 = 293 => fs::sys_pipe2(usize, i32);
     SYS_PREADV = 295 => fs::sys_preadv(i32, usize, usize, usize, usize);

@@ -101,6 +101,11 @@ pub trait FileOps: Send + Sync {
     fn as_socket(&self) -> Option<Arc<crate::net::socket::KernelSocket>> {
         None
     }
+
+    /// Return the underlying epoll instance if this file represents an epoll descriptor.
+    fn as_epoll(&self) -> Option<Arc<crate::fs::epoll::EpollInstance>> {
+        None
+    }
 }
 
 /// The kernel representation of an open file description.
@@ -259,5 +264,10 @@ impl File {
     /// Return the underlying network socket if this file represents a socket.
     pub fn as_socket(&self) -> Option<Arc<crate::net::socket::KernelSocket>> {
         self.ops.as_socket()
+    }
+
+    /// Return the underlying epoll instance if this file represents an epoll descriptor.
+    pub fn as_epoll(&self) -> Option<Arc<crate::fs::epoll::EpollInstance>> {
+        self.ops.as_epoll()
     }
 }

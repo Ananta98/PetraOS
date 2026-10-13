@@ -8,8 +8,8 @@ use crate::{
     api::errno::{Errno, Result},
     fs::{fd::FdFlags, socket::create_socket_file},
     net::socket::{
-        KernelSocket, AF_INET, AF_INET6, AF_UNIX, IPPROTO_IP, IPPROTO_TCP, IPPROTO_UDP,
-        SOCK_DGRAM, SOCK_STREAM,
+        KernelSocket, AF_INET, AF_INET6, AF_NETLINK, AF_UNIX, IPPROTO_IP, IPPROTO_TCP,
+        IPPROTO_UDP, SOCK_DGRAM, SOCK_RAW, SOCK_STREAM,
     },
     proc::thread::Thread,
     syscall::fs::utils::write_user_bytes,
@@ -31,24 +31,38 @@ pub fn sys_socket(
     let cloexec = (sock_type & SOCK_CLOEXEC) != 0;
     let base_type = sock_type & !(SOCK_NONBLOCK | SOCK_CLOEXEC);
 
-    if domain != AF_INET && domain != AF_INET6 {
-        crate::return_errno!(EAFNOSUPPORT, "unsupported socket domain");
-    }
-
-    let socket = match base_type {
-        SOCK_STREAM => {
-            if protocol != IPPROTO_IP && protocol != IPPROTO_TCP {
-                crate::return_errno!(EPROTONOSUPPORT, "unsupported protocol for stream socket");
+    let socket = match domain {
+        AF_INET | AF_INET6 => match base_type {
+            SOCK_STREAM => {
+                if protocol != IPPROTO_IP && protocol != IPPROTO_TCP {
+                    crate::return_errno!(EPROTONOSUPPORT, "unsupported protocol for stream socket");
+                }
+                KernelSocket::new_tcp(domain)?
             }
-            KernelSocket::new_tcp(domain)?
-        }
-        SOCK_DGRAM => {
-            if protocol != IPPROTO_IP && protocol != IPPROTO_UDP {
-                crate::return_errno!(EPROTONOSUPPORT, "unsupported protocol for dgram socket");
+            SOCK_DGRAM => {
+                if protocol != IPPROTO_IP && protocol != IPPROTO_UDP {
+                    crate::return_errno!(EPROTONOSUPPORT, "unsupported protocol for dgram socket");
+                }
+                KernelSocket::new_udp(domain)?
             }
-            KernelSocket::new_udp(domain)?
+            _ => crate::return_errno!(ESOCKTNOSUPPORT, "unsupported socket type"),
+        },
+        AF_UNIX => {
+            if protocol != 0 && protocol != IPPROTO_IP {
+                crate::return_errno!(EPROTONOSUPPORT, "unsupported protocol for unix socket");
+            }
+            if base_type != SOCK_STREAM && base_type != SOCK_DGRAM {
+                crate::return_errno!(ESOCKTNOSUPPORT, "unsupported socket type for unix domain");
+            }
+            KernelSocket::new_unix(base_type)?
         }
-        _ => crate::return_errno!(ESOCKTNOSUPPORT, "unsupported socket type"),
+        AF_NETLINK => {
+            if base_type != SOCK_RAW && base_type != SOCK_DGRAM {
+                crate::return_errno!(ESOCKTNOSUPPORT, "unsupported socket type for netlink");
+            }
+            KernelSocket::new_netlink(protocol)?
+        }
+        _ => crate::return_errno!(EAFNOSUPPORT, "unsupported socket domain"),
     };
 
     if nonblocking {
