@@ -25,7 +25,7 @@ use crate::fs::vfs::{
     mount::{Mount, PathNode, root},
 };
 use crate::{
-    api::errno::Result,
+    api::errno::{Errno, Result},
     fs::vfs::{FileOps, FileSystem, INode, INodeAttr, Mode, NodeOps, OpenFlags, StatFs},
 };
 use alloc::string::String;
@@ -35,6 +35,7 @@ use chr::GenericChrNodeOps;
 use null::NullNodeOps;
 use random::{RandomNodeOps, UrandomNodeOps};
 use zero::ZeroNodeOps;
+use crate::drivers::CharacterDevice;
 
 /// Operations on the `/dev` root directory inode.
 pub struct DevFsDirOps;
@@ -93,6 +94,83 @@ impl NodeOps for DevFsDirOps {
                         | Mode::ROTH
                         | Mode::WOTH,
                     4,
+                )));
+            }
+            "tty" => {
+                return Ok(Arc::new(INode::new(
+                    Box::new(TtyNodeOps),
+                    Mode::CHAR
+                        | Mode::RUSR
+                        | Mode::WUSR
+                        | Mode::RGRP
+                        | Mode::WGRP
+                        | Mode::ROTH
+                        | Mode::WOTH,
+                    5,
+                )));
+            }
+            "fd" => {
+                return Ok(Arc::new(INode::new_with_attr(
+                    Box::new(DevSymlinkNodeOps {
+                        target: "/proc/self/fd",
+                    }),
+                    6,
+                    INodeAttr {
+                        size: "/proc/self/fd".len(),
+                        mode: Mode::LINK | Mode::from_bits_truncate(0o777),
+                        nlink: 1,
+                        uid: 0,
+                        gid: 0,
+                        rdev: 0,
+                    },
+                )));
+            }
+            "stdin" => {
+                return Ok(Arc::new(INode::new_with_attr(
+                    Box::new(DevSymlinkNodeOps {
+                        target: "/proc/self/fd/0",
+                    }),
+                    7,
+                    INodeAttr {
+                        size: "/proc/self/fd/0".len(),
+                        mode: Mode::LINK | Mode::from_bits_truncate(0o777),
+                        nlink: 1,
+                        uid: 0,
+                        gid: 0,
+                        rdev: 0,
+                    },
+                )));
+            }
+            "stdout" => {
+                return Ok(Arc::new(INode::new_with_attr(
+                    Box::new(DevSymlinkNodeOps {
+                        target: "/proc/self/fd/1",
+                    }),
+                    8,
+                    INodeAttr {
+                        size: "/proc/self/fd/1".len(),
+                        mode: Mode::LINK | Mode::from_bits_truncate(0o777),
+                        nlink: 1,
+                        uid: 0,
+                        gid: 0,
+                        rdev: 0,
+                    },
+                )));
+            }
+            "stderr" => {
+                return Ok(Arc::new(INode::new_with_attr(
+                    Box::new(DevSymlinkNodeOps {
+                        target: "/proc/self/fd/2",
+                    }),
+                    9,
+                    INodeAttr {
+                        size: "/proc/self/fd/2".len(),
+                        mode: Mode::LINK | Mode::from_bits_truncate(0o777),
+                        nlink: 1,
+                        uid: 0,
+                        gid: 0,
+                        rdev: 0,
+                    },
                 )));
             }
             _ => {}
@@ -185,6 +263,11 @@ impl FileOps for DevFsDirFileOps {
         out.extend_from_slice(b"zero\n");
         out.extend_from_slice(b"random\n");
         out.extend_from_slice(b"urandom\n");
+        out.extend_from_slice(b"tty\n");
+        out.extend_from_slice(b"fd\n");
+        out.extend_from_slice(b"stdin\n");
+        out.extend_from_slice(b"stdout\n");
+        out.extend_from_slice(b"stderr\n");
 
         for dev in crate::drivers::get_chrdevs() {
             out.extend_from_slice(dev.name().as_bytes());
@@ -204,6 +287,75 @@ impl FileOps for DevFsDirFileOps {
         Ok(out)
     }
 }
+
+/// Symbolic link node operations in `/dev`.
+pub struct DevSymlinkNodeOps {
+    pub target: &'static str,
+}
+
+impl NodeOps for DevSymlinkNodeOps {
+    fn readlink(&self) -> Result<String> {
+        Ok(String::from(self.target))
+    }
+
+    fn getattr(&self) -> Result<INodeAttr> {
+        Ok(INodeAttr {
+            size: self.target.len(),
+            mode: Mode::LINK | Mode::from_bits_truncate(0o777),
+            nlink: 1,
+            uid: 0,
+            gid: 0,
+            rdev: 0,
+        })
+    }
+}
+
+/// Controlling terminal (`/dev/tty`) node operations.
+pub struct TtyNodeOps;
+
+impl NodeOps for TtyNodeOps {
+    fn open(&self, _flags: OpenFlags) -> Result<Box<dyn FileOps>> {
+        let console = crate::drivers::char::tty::get_console().ok_or(Errno::ENODEV)?;
+        Ok(Box::new(TtyFileOps { console }))
+    }
+
+    fn getattr(&self) -> Result<INodeAttr> {
+        Ok(INodeAttr {
+            size: 0,
+            mode: Mode::CHAR
+                | Mode::RUSR
+                | Mode::WUSR
+                | Mode::RGRP
+                | Mode::WGRP
+                | Mode::ROTH
+                | Mode::WOTH,
+            nlink: 1,
+            uid: 0,
+            gid: 0,
+            rdev: 0x0500, // makedev(5, 0)
+        })
+    }
+}
+
+/// File operations for `/dev/tty`.
+pub struct TtyFileOps {
+    console: Arc<crate::drivers::char::tty::console::Console>,
+}
+
+impl FileOps for TtyFileOps {
+    fn read(&self, _offset: u64, buf: &mut [u8]) -> Result<usize> {
+        self.console.read(buf)
+    }
+
+    fn write(&self, _offset: u64, buf: &[u8]) -> Result<usize> {
+        self.console.write(buf)
+    }
+
+    fn ioctl(&self, cmd: u32, arg: usize) -> Result<usize> {
+        self.console.ioctl(cmd, arg)
+    }
+}
+
 
 /// The DevFS filesystem representation.
 pub struct DevFs;

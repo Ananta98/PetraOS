@@ -614,8 +614,12 @@ fn execve_depth(
     // Reset thread TLS base
     td.set_fs_base(0);
 
-    // Update command name
-    proc.inner.lock().comm = super::comm_from_name(path);
+    // Update command name and exe_path
+    {
+        let mut inner = proc.inner.lock();
+        inner.comm = super::comm_from_name(path);
+        inner.exe_path = Some(alloc::string::String::from(path));
+    }
 
     // Reset user context and prepare execution from the entry point
     *ctx = ostd::arch::cpu::context::UserContext::default();

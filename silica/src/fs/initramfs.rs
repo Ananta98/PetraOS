@@ -187,6 +187,14 @@ pub struct InitramfsRamFileNodeOps {
     data: Arc<RwLock<Vec<u8>>>,
 }
 
+impl InitramfsRamFileNodeOps {
+    pub fn new(data: Vec<u8>) -> Self {
+        Self {
+            data: Arc::new(RwLock::new(data)),
+        }
+    }
+}
+
 impl NodeOps for InitramfsRamFileNodeOps {
     fn open(&self, _flags: OpenFlags) -> Result<Box<dyn FileOps>> {
         Ok(Box::new(InitramfsRamFileOps {

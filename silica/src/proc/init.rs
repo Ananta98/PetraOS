@@ -132,8 +132,12 @@ pub fn spawn_init_process() -> Result<Arc<Proc>> {
     // 2. Create Process Control Block for PID 1 with root credentials and stdio
     let proc = create_init_process_with_vmar(vmar)?;
 
-    // Set process comm name
-    proc.inner.lock().comm = comm_from_name(&init_path);
+    // Set process comm name and exe_path
+    {
+        let mut inner = proc.inner.lock();
+        inner.comm = comm_from_name(&init_path);
+        inner.exe_path = Some(init_path.clone());
+    }
 
     // 3. Set up user context
     let mut user_ctx = UserContext::default();

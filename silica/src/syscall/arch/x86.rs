@@ -141,6 +141,8 @@ crate::impl_syscall_nums_and_dispatch_fn! {
     SYS_PRCTL = 157 => proc::sys_prctl(i32, usize, usize, usize, usize);
     SYS_ARCH_PRCTL = 158 => proc::sys_arch_prctl(i32, usize);
     SYS_SETRLIMIT = 160 => proc::sys_setrlimit(u32, usize);
+    SYS_MOUNT = 165 => fs::sys_mount(usize, usize, usize, usize, usize);
+    SYS_UMOUNT2 = 166 => fs::sys_umount2(usize, i32);
     SYS_REBOOT = 169 => platform::sys_reboot(i32, i32, u32, usize);
     SYS_INIT_MODULE = 175 => platform::sys_init_module(usize, usize, usize);
     SYS_DELETE_MODULE = 176 => platform::sys_delete_module(usize, i32);

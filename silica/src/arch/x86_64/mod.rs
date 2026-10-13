@@ -1,3 +1,4 @@
+pub mod cpuinfo;
 pub mod power;
 pub mod signal;
 

@@ -96,3 +96,46 @@ pub fn root() -> Result<PathNode> {
 pub fn set_root(node: PathNode) {
     *VFS_ROOT.write() = Some(node);
 }
+
+/// Metadata record of an active filesystem mount.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MountRecord {
+    pub source: alloc::string::String,
+    pub target: alloc::string::String,
+    pub fstype: alloc::string::String,
+    pub options: alloc::string::String,
+}
+
+/// Global registry of active mounts.
+pub static ACTIVE_MOUNTS: RwLock<alloc::vec::Vec<MountRecord>> = RwLock::new(alloc::vec::Vec::new());
+
+/// Registers an active mount.
+pub fn register_mount(source: &str, target: &str, fstype: &str, options: &str) {
+    let mut mounts = ACTIVE_MOUNTS.write();
+    if let Some(existing) = mounts.iter_mut().find(|m| m.target == target) {
+        existing.source = alloc::string::String::from(source);
+        existing.fstype = alloc::string::String::from(fstype);
+        existing.options = alloc::string::String::from(options);
+    } else {
+        mounts.push(MountRecord {
+            source: alloc::string::String::from(source),
+            target: alloc::string::String::from(target),
+            fstype: alloc::string::String::from(fstype),
+            options: alloc::string::String::from(options),
+        });
+    }
+}
+
+/// Unregisters an active mount at `target`.
+pub fn unregister_mount(target: &str) {
+    let mut mounts = ACTIVE_MOUNTS.write();
+    if let Some(pos) = mounts.iter().rposition(|m| m.target == target) {
+        mounts.remove(pos);
+    }
+}
+
+/// Returns a clone of all registered active mounts.
+pub fn get_mounts() -> alloc::vec::Vec<MountRecord> {
+    ACTIVE_MOUNTS.read().clone()
+}
+

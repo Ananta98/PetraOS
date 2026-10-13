@@ -268,6 +268,26 @@ impl INode {
         self.file_type() == Mode::LINK.bits()
     }
 
+    /// Checks if the inode represents a character device.
+    pub fn is_chr(&self) -> bool {
+        self.file_type() == Mode::CHAR.bits()
+    }
+
+    /// Checks if the inode represents a FIFO.
+    pub fn is_fifo(&self) -> bool {
+        self.file_type() == Mode::FIFO.bits()
+    }
+
+    /// Checks if the inode represents a socket.
+    pub fn is_socket(&self) -> bool {
+        self.file_type() == Mode::SOCKET.bits()
+    }
+
+    /// Returns the inode number.
+    pub fn ino(&self) -> usize {
+        self.id
+    }
+
     /// Returns the current size of the inode.
     pub fn size(&self) -> usize {
         self.attr.read().size

@@ -56,6 +56,7 @@ pub fn fork1(caller_td: &Thread, caller_user_ctx: Option<&UserContext>) -> Resul
         child_sigacts,
         &comm,
     );
+    child_proc.inner.lock().exe_path = caller_proc.inner.lock().exe_path.clone();
 
     // Duplicate SysV shared memory attachments
     crate::ipc::shm::on_proc_fork(&caller_proc, &child_proc);

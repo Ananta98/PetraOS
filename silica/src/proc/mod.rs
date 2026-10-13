@@ -140,6 +140,8 @@ pub struct ProcInner {
     pub stop_status: Option<ExitStatus>,
     /// System V shared memory attachments keyed by virtual start address.
     pub shm_attachments: BTreeMap<usize, crate::ipc::shm::ShmAttachment>,
+    /// Full binary executable path.
+    pub exe_path: Option<String>,
 }
 
 /// Process Control Block.
@@ -207,6 +209,7 @@ impl Proc {
                 pgid: None,
                 stop_status: None,
                 shm_attachments: BTreeMap::new(),
+                exe_path: Some(String::from(comm_name)),
             }),
             vmspace: SpinLock::new(vmspace),
             fd_table,
@@ -299,6 +302,15 @@ impl Proc {
             .position(|&b| b == 0)
             .unwrap_or(inner.comm.len());
         String::from_utf8_lossy(&inner.comm[..len]).into_owned()
+    }
+
+    /// Returns the full binary executable path.
+    pub fn exe_path(&self) -> String {
+        self.inner
+            .lock()
+            .exe_path
+            .clone()
+            .unwrap_or_else(|| self.comm_name())
     }
 
     /// Returns the current working directory, defaulting to VFS root if not yet set.
