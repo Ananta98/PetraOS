@@ -21,11 +21,11 @@ args = """\
     -machine q35,kernel-irqchip=split \
     -cpu Icelake-Server,+x2apic \
     --no-reboot \
+    -enable-kvm -cpu host
     -m 8G \
-    -smp 1 \
+    -smp 4 \
     -vga std \
-    -display gtk,zoom-to-fit=on \
-    -serial mon:stdio \
+    -serial stdio \
     -device isa-debug-exit,iobase=0xf4,iosize=0x04 \
     -drive if=pflash,format=raw,unit=0,readonly=on,file=/usr/share/OVMF/OVMF_CODE_4M.fd \
     -drive if=pflash,format=raw,unit=1,file=/usr/share/OVMF/OVMF_VARS_4M.fd \
