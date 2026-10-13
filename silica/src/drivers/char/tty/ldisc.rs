@@ -6,7 +6,6 @@
 
 use alloc::collections::VecDeque;
 use spin::Mutex;
-use ostd::mm::{io::FallibleVmRead, FallibleVmWrite};
 
 use crate::api::ioctl;
 use crate::api::termios::{
@@ -15,6 +14,7 @@ use crate::api::termios::{
 };
 use crate::api::errno::{Errno, Result};
 use crate::proc::thread::Thread;
+use crate::utils::userspace::user_ptr::UserPtr;
 
 /// Internal state of the line discipline
 #[derive(Debug, Default)]
@@ -219,42 +219,21 @@ impl LineDiscipline {
         }
     }
 
-    fn read_user(addr: usize, buf: &mut [u8]) -> Result<()> {
-        let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
-        let vmar = proc.vmspace();
-        let mut reader = vmar
-            .vm_space()
-            .reader(addr, buf.len())
-            .map_err(|_| Errno::EFAULT)?;
-        let mut writer = ostd::mm::VmWriter::from(&mut buf[..]);
-        reader.read_fallible(&mut writer).map_err(|_| Errno::EFAULT)?;
-        Ok(())
-    }
-
-    fn write_user(addr: usize, buf: &[u8]) -> Result<()> {
-        let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
-        let vmar = proc.vmspace();
-        let mut writer = vmar
-            .vm_space()
-            .writer(addr, buf.len())
-            .map_err(|_| Errno::EFAULT)?;
-        let mut reader = ostd::mm::VmReader::from(&buf[..]);
-        writer.write_fallible(&mut reader).map_err(|_| Errno::EFAULT)?;
-        Ok(())
-    }
-
     /// Ioctl handler
     pub fn ioctl(&self, cmd: u32, arg: usize) -> Result<usize> {
+        let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+        let vmar = proc.vmspace();
+
         match cmd {
             ioctl::TCGETS => {
                 let termios = *self.termios.lock();
                 let bytes = termios.to_bytes();
-                Self::write_user(arg, &bytes)?;
+                UserPtr::new(arg).write_bytes(&vmar, &bytes)?;
                 Ok(0)
             }
             ioctl::TCSETS | ioctl::TCSETSW | ioctl::TCSETSF => {
                 let mut bytes = [0u8; Termios::SIZE];
-                Self::read_user(arg, &mut bytes)?;
+                UserPtr::new(arg).read_bytes(&vmar, &mut bytes)?;
                 let new_termios = Termios::from_bytes(&bytes);
                 *self.termios.lock() = new_termios;
                 if cmd == ioctl::TCSETSF {
@@ -273,12 +252,12 @@ impl LineDiscipline {
             ioctl::TIOCGWINSZ => {
                 let winsize = *self.winsize.lock();
                 let bytes = winsize.to_bytes();
-                Self::write_user(arg, &bytes)?;
+                UserPtr::new(arg).write_bytes(&vmar, &bytes)?;
                 Ok(0)
             }
             ioctl::TIOCSWINSZ => {
                 let mut bytes = [0u8; winsize::SIZE];
-                Self::read_user(arg, &mut bytes)?;
+                UserPtr::new(arg).read_bytes(&vmar, &mut bytes)?;
                 let new_winsize = winsize::from_bytes(&bytes);
                 *self.winsize.lock() = new_winsize;
                 Ok(0)
@@ -289,12 +268,12 @@ impl LineDiscipline {
                 } else {
                     self.read_buf.lock().len()
                 } as i32;
-                Self::write_user(arg, &count.to_ne_bytes())?;
+                UserPtr::new(arg).write_bytes(&vmar, &count.to_ne_bytes())?;
                 Ok(0)
             }
             ioctl::TIOCSPGRP => {
                 let mut pid_bytes = [0u8; 4];
-                Self::read_user(arg, &mut pid_bytes)?;
+                UserPtr::new(arg).read_bytes(&vmar, &mut pid_bytes)?;
                 let raw_pid = i32::from_ne_bytes(pid_bytes);
                 if raw_pid < 0 {
                     crate::return_errno!(EINVAL, "invalid process group ID");
@@ -306,9 +285,17 @@ impl LineDiscipline {
             }
             ioctl::TIOCGPGRP => {
                 let pgrp = self.pgrp.lock().map(|p| p.as_u32() as i32).unwrap_or_else(|| {
-                    Thread::current_proc().map(|p| p.pgid().as_u32() as i32).unwrap_or(0)
+                    proc.pgid().as_u32() as i32
                 });
-                Self::write_user(arg, &pgrp.to_ne_bytes())?;
+                UserPtr::new(arg).write_bytes(&vmar, &pgrp.to_ne_bytes())?;
+                Ok(0)
+            }
+            ioctl::TIOCSCTTY => {
+                *self.pgrp.lock() = Some(proc.pgid());
+                Ok(0)
+            }
+            ioctl::TIOCNOTTY => {
+                *self.pgrp.lock() = None;
                 Ok(0)
             }
             _ => crate::return_errno!(ENOTTY, "inappropriate ioctl for device"),

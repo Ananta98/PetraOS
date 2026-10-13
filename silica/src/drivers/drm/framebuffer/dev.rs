@@ -10,13 +10,12 @@ use alloc::{string::String, sync::Arc};
 use core::mem::size_of;
 use spin::Mutex;
 
-use ostd::mm::{io::FallibleVmRead, FallibleVmWrite};
-
 use super::{fb::Framebuffer, pixel::PixelFormat};
 use crate::{
     drivers::CharacterDevice,
     api::errno::{Errno, Result},
     proc::thread::Thread,
+    utils::userspace::user_ptr::UserPtr,
 };
 
 // ----------------------------------------------------------------------------
@@ -328,30 +327,6 @@ impl FbDev {
         }
     }
 
-    fn read_user(addr: usize, buf: &mut [u8]) -> Result<()> {
-        let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
-        let vmar = proc.vmspace();
-        let mut reader = vmar
-            .vm_space()
-            .reader(addr, buf.len())
-            .map_err(|_| Errno::EFAULT)?;
-        let mut writer = ostd::mm::VmWriter::from(&mut buf[..]);
-        reader.read_fallible(&mut writer).map_err(|_| Errno::EFAULT)?;
-        Ok(())
-    }
-
-    fn write_user(addr: usize, buf: &[u8]) -> Result<()> {
-        let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
-        let vmar = proc.vmspace();
-        let mut writer = vmar
-            .vm_space()
-            .writer(addr, buf.len())
-            .map_err(|_| Errno::EFAULT)?;
-        let mut reader = ostd::mm::VmReader::from(&buf[..]);
-        writer.write_fallible(&mut reader).map_err(|_| Errno::EFAULT)?;
-        Ok(())
-    }
-
     /// Construct `FbVarScreeninfo` from current framebuffer parameters.
     pub fn var_screeninfo(&self) -> FbVarScreeninfo {
         let (red, green, blue) = match self.fb.pixel_format {
@@ -466,23 +441,26 @@ impl CharacterDevice for FbDev {
     }
 
     fn ioctl(&self, cmd: u32, arg: usize) -> Result<usize> {
+        let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+        let vmar = proc.vmspace();
+
         match cmd {
             FBIOGET_VSCREENINFO => {
                 let info = self.var_screeninfo();
                 let bytes = info.to_bytes();
-                Self::write_user(arg, &bytes)?;
+                UserPtr::new(arg).write_bytes(&vmar, &bytes)?;
                 Ok(0)
             }
             FBIOPUT_VSCREENINFO => {
                 let mut bytes = [0u8; FbVarScreeninfo::SIZE];
-                Self::read_user(arg, &mut bytes)?;
+                UserPtr::new(arg).read_bytes(&vmar, &mut bytes)?;
                 // Currently modesetting is fixed by UEFI GOP; acknowledge request
                 Ok(0)
             }
             FBIOGET_FSCREENINFO => {
                 let fix = self.fix_screeninfo();
                 let bytes = fix.to_bytes();
-                Self::write_user(arg, &bytes)?;
+                UserPtr::new(arg).write_bytes(&vmar, &bytes)?;
                 Ok(0)
             }
             FBIOBLANK => {
