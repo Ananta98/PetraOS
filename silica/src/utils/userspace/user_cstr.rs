@@ -32,7 +32,10 @@ impl UserCStr {
         let mut cur_addr = self.addr;
 
         while bytes.len() < max_len {
-            let chunk_size = 64.min(max_len - bytes.len());
+            // Never cross a page boundary: the next page may be unmapped even
+            // though the string terminates before it.
+            let to_page_end = 4096 - (cur_addr & 4095);
+            let chunk_size = 64.min(max_len - bytes.len()).min(to_page_end);
             UserPtr::new(cur_addr).read_bytes(vmar, &mut buf[..chunk_size])?;
 
             for &byte in buf.iter().take(chunk_size) {

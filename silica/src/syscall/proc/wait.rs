@@ -38,11 +38,7 @@ pub fn sys_wait4(
             if status_ptr != 0 {
                 let vmar = proc.vmspace();
                 let raw_status = wait_res.status.as_raw();
-                let mut writer = vmar
-                    .vm_space()
-                    .writer(status_ptr, core::mem::size_of::<i32>())
-                    .map_err(|_| Errno::EFAULT)?;
-                writer.write_val(&raw_status).map_err(|_| Errno::EFAULT)?;
+                crate::utils::userspace::write_user_bytes(&vmar, status_ptr, &raw_status.to_ne_bytes())?;
             }
             Ok(wait_res.pid.as_u32() as usize)
         }

@@ -2,11 +2,12 @@
 
 //! System calls for reading from file descriptors: `read`, `pread64`, `readv`.
 
-use ostd::{arch::cpu::context::UserContext, mm::FallibleVmWrite};
+use ostd::arch::cpu::context::UserContext;
 use crate::{
     api::errno::{Errno, Result},
     proc::thread::Thread,
     syscall::fs::utils::read_user_iovecs,
+    utils::userspace::UserPtr,
 };
 
 /// System call `read(int fd, void *buf, size_t count)` (Syscall #0).
@@ -22,9 +23,7 @@ pub fn sys_read(fd: i32, buf_ptr: usize, count: usize, _ctx: &mut UserContext) -
 
     if nread > 0 {
         let vmar = proc.vmspace();
-        let mut writer = vmar.vm_space().writer(buf_ptr, nread).map_err(|_| Errno::EFAULT)?;
-        let mut reader = ostd::mm::VmReader::from(&kbuf[..nread]);
-        writer.write_fallible(&mut reader).map_err(|_| Errno::EFAULT)?;
+        UserPtr::new(buf_ptr).write_bytes(&vmar, &kbuf[..nread])?;
     }
 
     Ok(nread)
@@ -49,9 +48,7 @@ pub fn sys_pread64(
 
     if nread > 0 {
         let vmar = proc.vmspace();
-        let mut writer = vmar.vm_space().writer(buf_ptr, nread).map_err(|_| Errno::EFAULT)?;
-        let mut reader = ostd::mm::VmReader::from(&kbuf[..nread]);
-        writer.write_fallible(&mut reader).map_err(|_| Errno::EFAULT)?;
+        UserPtr::new(buf_ptr).write_bytes(&vmar, &kbuf[..nread])?;
     }
 
     Ok(nread)
@@ -76,12 +73,7 @@ pub fn sys_readv(fd: i32, iov_ptr: usize, iovcnt: usize, _ctx: &mut UserContext)
         let mut kbuf = alloc::vec![0u8; chunk_len];
         let nread = file.read(&mut kbuf)?;
         if nread > 0 {
-            let mut writer = vmar
-                .vm_space()
-                .writer(iov.iov_base, nread)
-                .map_err(|_| Errno::EFAULT)?;
-            let mut reader = ostd::mm::VmReader::from(&kbuf[..nread]);
-            writer.write_fallible(&mut reader).map_err(|_| Errno::EFAULT)?;
+            UserPtr::new(iov.iov_base).write_bytes(&vmar, &kbuf[..nread])?;
             total_read += nread;
         }
         if nread < chunk_len {
@@ -125,12 +117,7 @@ pub fn sys_preadv(
         let mut kbuf = alloc::vec![0u8; chunk_len];
         let nread = file.pread(cur_offset, &mut kbuf)?;
         if nread > 0 {
-            let mut writer = vmar
-                .vm_space()
-                .writer(iov.iov_base, nread)
-                .map_err(|_| Errno::EFAULT)?;
-            let mut reader = ostd::mm::VmReader::from(&kbuf[..nread]);
-            writer.write_fallible(&mut reader).map_err(|_| Errno::EFAULT)?;
+            UserPtr::new(iov.iov_base).write_bytes(&vmar, &kbuf[..nread])?;
             total_read += nread;
             cur_offset += nread as u64;
         }

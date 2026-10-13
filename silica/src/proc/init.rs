@@ -104,9 +104,16 @@ pub fn spawn_init_process() -> Result<Arc<Proc>> {
     };
 
     let mut init_argv = init_argv;
-    for arg in ostd::boot::boot_info().kernel_cmdline.split_whitespace() {
-        if !arg.contains('=') {
+    let kernel_cmdline = &ostd::boot::boot_info().kernel_cmdline;
+    if let Some((_, after_dash)) = kernel_cmdline.split_once("--") {
+        for arg in after_dash.split_whitespace() {
             init_argv.push(String::from(arg));
+        }
+    } else {
+        for arg in kernel_cmdline.split_whitespace() {
+            if !arg.contains('=') && arg != "--" {
+                init_argv.push(String::from(arg));
+            }
         }
     }
 
@@ -120,11 +127,43 @@ pub fn spawn_init_process() -> Result<Arc<Proc>> {
     let argv_refs: Vec<&str> = init_argv.iter().map(|s| s.as_str()).collect();
     let root_cred = Ucred::root();
 
+    let mut init_envp: Vec<String> = Vec::new();
+    let mut has_path = false;
+    let mut has_term = false;
+    let mut has_home = false;
+    let mut has_user = false;
+
+    let before_dash = kernel_cmdline.split_once("--").map(|(b, _)| b).unwrap_or(kernel_cmdline);
+    for arg in before_dash.split_whitespace() {
+        if arg.contains('=') && !arg.starts_with("init=") && !arg.starts_with("rdinit=") {
+            if arg.starts_with("PATH=") { has_path = true; }
+            if arg.starts_with("TERM=") { has_term = true; }
+            if arg.starts_with("HOME=") { has_home = true; }
+            if arg.starts_with("USER=") { has_user = true; }
+            init_envp.push(String::from(arg));
+        }
+    }
+
+    if !has_path {
+        init_envp.push(String::from("PATH=/bin:/sbin:/usr/bin:/usr/sbin"));
+    }
+    if !has_term {
+        init_envp.push(String::from("TERM=linux"));
+    }
+    if !has_home {
+        init_envp.push(String::from("HOME=/root"));
+    }
+    if !has_user {
+        init_envp.push(String::from("USER=root"));
+    }
+
+    let envp_refs: Vec<&str> = init_envp.iter().map(|s| s.as_str()).collect();
+
     // 1. Build address space, map ELF segments (supporting PIE and dynamic linking), setup AMD64 ABI user stack
     let (vmar, entry_point, sp) = load_and_setup_full(
         &elf_data,
         &argv_refs,
-        &[],
+        &envp_refs,
         &init_path,
         &root_cred,
     )?;

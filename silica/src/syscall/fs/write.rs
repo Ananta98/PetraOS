@@ -2,11 +2,12 @@
 
 //! System calls for writing to file descriptors: `write`, `pwrite64`, `writev`.
 
-use ostd::{arch::cpu::context::UserContext, mm::io::FallibleVmRead};
+use ostd::arch::cpu::context::UserContext;
 use crate::{
     api::errno::{Errno, Result},
     proc::thread::Thread,
     syscall::fs::utils::read_user_iovecs,
+    utils::userspace::UserPtr,
 };
 
 /// System call `write(int fd, const void *buf, size_t count)` (Syscall #1).
@@ -20,9 +21,7 @@ pub fn sys_write(fd: i32, buf_ptr: usize, count: usize, _ctx: &mut UserContext) 
     let mut kbuf = alloc::vec![0u8; count.min(65536)];
     let copy_len = kbuf.len();
 
-    let mut reader = vmar.vm_space().reader(buf_ptr, copy_len).map_err(|_| Errno::EFAULT)?;
-    let mut writer = ostd::mm::VmWriter::from(&mut kbuf[..]);
-    reader.read_fallible(&mut writer).map_err(|_| Errno::EFAULT)?;
+    UserPtr::new(buf_ptr).read_bytes(&vmar, &mut kbuf[..copy_len])?;
 
     let file = proc.fd_table.lock().get(fd)?;
     file.write(&kbuf[..copy_len])
@@ -45,9 +44,7 @@ pub fn sys_pwrite64(
     let mut kbuf = alloc::vec![0u8; count.min(65536)];
     let copy_len = kbuf.len();
 
-    let mut reader = vmar.vm_space().reader(buf_ptr, copy_len).map_err(|_| Errno::EFAULT)?;
-    let mut writer = ostd::mm::VmWriter::from(&mut kbuf[..]);
-    reader.read_fallible(&mut writer).map_err(|_| Errno::EFAULT)?;
+    UserPtr::new(buf_ptr).read_bytes(&vmar, &mut kbuf[..copy_len])?;
 
     let file = proc.fd_table.lock().get(fd)?;
     file.pwrite(offset as u64, &kbuf[..copy_len])
@@ -71,9 +68,7 @@ pub fn sys_writev(fd: i32, iov_ptr: usize, iovcnt: usize, _ctx: &mut UserContext
         let chunk_len = iov.iov_len.min(65536);
         let mut kbuf = alloc::vec![0u8; chunk_len];
 
-        let mut reader = vmar.vm_space().reader(iov.iov_base, chunk_len).map_err(|_| Errno::EFAULT)?;
-        let mut writer = ostd::mm::VmWriter::from(&mut kbuf[..]);
-        reader.read_fallible(&mut writer).map_err(|_| Errno::EFAULT)?;
+        UserPtr::new(iov.iov_base).read_bytes(&vmar, &mut kbuf[..chunk_len])?;
 
         let nwritten = file.write(&kbuf[..chunk_len])?;
         total_written += nwritten;
@@ -117,9 +112,7 @@ pub fn sys_pwritev(
         let chunk_len = iov.iov_len.min(65536);
         let mut kbuf = alloc::vec![0u8; chunk_len];
 
-        let mut reader = vmar.vm_space().reader(iov.iov_base, chunk_len).map_err(|_| Errno::EFAULT)?;
-        let mut writer = ostd::mm::VmWriter::from(&mut kbuf[..]);
-        reader.read_fallible(&mut writer).map_err(|_| Errno::EFAULT)?;
+        UserPtr::new(iov.iov_base).read_bytes(&vmar, &mut kbuf[..chunk_len])?;
 
         let nwritten = file.pwrite(cur_offset, &kbuf[..chunk_len])?;
         total_written += nwritten;

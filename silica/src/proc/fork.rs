@@ -89,6 +89,7 @@ pub fn fork1(caller_td: &Thread, caller_user_ctx: Option<&UserContext>) -> Resul
         let task = super::thread::build_task(options, 0);
 
         let caller_td_inner = caller_td.inner.lock();
+        let fs_base = caller_td_inner.fs_base;
         Thread {
             tid: child_tid,
             td_proc: child_proc_weak,
@@ -104,7 +105,7 @@ pub fn fork1(caller_td: &Thread, caller_user_ctx: Option<&UserContext>) -> Resul
                 user_ctx: Some(child_ctx),
                 altstack: SigStack::default(),
                 handler_mask: SigSet::empty(),
-                fs_base: 0,
+                fs_base,
                 stopped_by: None,
                 handler_frame: None,
                 clear_child_tid: 0,

@@ -48,6 +48,11 @@ pub trait CharacterDevice: Send + Sync {
     fn ioctl(&self, _cmd: u32, _arg: usize) -> Result<usize> {
         crate::return_errno!(ENOTTY, "inappropriate ioctl for device")
     }
+
+    /// Optional: Reports readiness for poll/select/epoll.
+    fn poll(&self) -> Result<u32> {
+        Ok(0)
+    }
 }
 
 /// A block device that provides structured read/write operations for blocks.

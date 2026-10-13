@@ -29,6 +29,8 @@ use crate::{
     arch::signal::{self as sigframe, Redirect},
 };
 
+use crate::utils::userspace::user_ptr::UserPtr;
+
 /// Thread identifier wrapper.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Tid(pub NonZeroU32);
@@ -468,7 +470,7 @@ impl Thread {
         };
         if clear_tid != 0 {
             let zero = 0i32.to_ne_bytes();
-            let _ = crate::utils::userspace::user_ptr::UserPtr::new(clear_tid)
+            let _ = UserPtr::new(clear_tid)
                 .write_bytes(&proc.vmspace(), &zero);
             crate::syscall::sync::futex::futex_wake(&proc.vmspace(), clear_tid, 1);
         }
@@ -485,12 +487,12 @@ impl Thread {
         let Some(proc) = self.proc() else {
             return;
         };
-        let vmar = proc.vmspace();
-        vmar.activate();
-
         let mut user_mode = UserMode::new(initial_ctx);
 
         loop {
+            let vmar = proc.vmspace();
+            vmar.activate();
+
             // Adopt whatever the register file says now. `UserMode` keeps its own
             // copy of it, and the last thing that happened there was a syscall or a
             // fault, so the authoritative version is the one it holds -- not the
@@ -550,6 +552,9 @@ impl Thread {
                     if let Some(exception) = user_mode.context_mut().take_exception() {
                         match exception {
                             CpuException::PageFault(raw_pf) => {
+                                if crate::syscall::TRACE_SYSCALLS {
+                                    ostd::info!("user_page_fault: pid {} addr={:#x} code={:?}", proc.pid, raw_pf.addr, raw_pf.error_code);
+                                }
                                 let info = crate::vm::vmar::page_fault::PageFaultInfo::from_fault(
                                     raw_pf.addr,
                                     raw_pf.error_code,
@@ -588,7 +593,8 @@ impl Thread {
                             other => {
                                 let (sig, code) = signal_and_code_for_exception(&other);
                                 ostd::error!(
-                                    "Unhandled user CPU exception: {other:?} -> {sig} (code {code})"
+                                    "Unhandled user CPU exception: pid {} {other:?} -> {sig} (code {code})",
+                                    proc.pid
                                 );
                                 self.deliver_signal(QueuedSignal {
                                     info: SigInfo::kernel(sig, code),

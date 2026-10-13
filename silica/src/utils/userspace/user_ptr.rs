@@ -2,11 +2,14 @@
 
 //! Userspace pointer utilities.
 
-use ostd::mm::{io::FallibleVmRead, FallibleVmWrite};
+use ostd::mm::{io::FallibleVmRead, FallibleVmWrite, PAGE_SIZE};
 
 use crate::{
     api::errno::{Errno, Result},
-    vm::vmar::Vmar,
+    vm::{
+        perms::VmPerms,
+        vmar::{page_fault::PageFaultInfo, Vmar},
+    },
 };
 
 /// A safe wrapper representing a pointer to userspace memory.
@@ -39,12 +42,34 @@ impl UserPtr {
         if data.is_empty() {
             return Ok(());
         }
-        let mut writer = vmar
-            .vm_space()
-            .writer(self.addr, data.len())
-            .map_err(|_| Errno::EFAULT)?;
-        let mut reader = ostd::mm::VmReader::from(data);
-        writer.write_fallible(&mut reader).map_err(|_| Errno::EFAULT)?;
+        let end_addr = self.addr.checked_add(data.len()).ok_or(Errno::EFAULT)?;
+        let page_start = self.addr & !(PAGE_SIZE - 1);
+        let page_end = end_addr
+            .checked_add(PAGE_SIZE - 1)
+            .ok_or(Errno::EFAULT)?
+            & !(PAGE_SIZE - 1);
+
+        let res = (|| -> Result<()> {
+            let mut writer = vmar
+                .vm_space()
+                .writer(self.addr, data.len())
+                .map_err(|_| Errno::EFAULT)?;
+            let mut reader = ostd::mm::VmReader::from(data);
+            writer.write_fallible(&mut reader).map_err(|_| Errno::EFAULT)?;
+            Ok(())
+        })();
+
+        if res.is_err() {
+            for page in (page_start..page_end).step_by(PAGE_SIZE) {
+                let _ = vmar.handle_page_fault(&PageFaultInfo::new(page, VmPerms::WRITE));
+            }
+            let mut writer = vmar
+                .vm_space()
+                .writer(self.addr, data.len())
+                .map_err(|_| Errno::EFAULT)?;
+            let mut reader = ostd::mm::VmReader::from(data);
+            writer.write_fallible(&mut reader).map_err(|_| Errno::EFAULT)?;
+        }
         Ok(())
     }
 
@@ -56,14 +81,37 @@ impl UserPtr {
         if buf.is_empty() {
             return Ok(());
         }
-        let mut reader = vmar
-            .vm_space()
-            .reader(self.addr, buf.len())
-            .map_err(|_| Errno::EFAULT)?;
-        let mut writer = ostd::mm::VmWriter::from(&mut buf[..]);
-        reader.read_fallible(&mut writer).map_err(|_| Errno::EFAULT)?;
+        let end_addr = self.addr.checked_add(buf.len()).ok_or(Errno::EFAULT)?;
+        let page_start = self.addr & !(PAGE_SIZE - 1);
+        let page_end = end_addr
+            .checked_add(PAGE_SIZE - 1)
+            .ok_or(Errno::EFAULT)?
+            & !(PAGE_SIZE - 1);
+
+        let res = (|| -> Result<()> {
+            let mut reader = vmar
+                .vm_space()
+                .reader(self.addr, buf.len())
+                .map_err(|_| Errno::EFAULT)?;
+            let mut writer = ostd::mm::VmWriter::from(&mut buf[..]);
+            reader.read_fallible(&mut writer).map_err(|_| Errno::EFAULT)?;
+            Ok(())
+        })();
+
+        if res.is_err() {
+            for page in (page_start..page_end).step_by(PAGE_SIZE) {
+                let _ = vmar.handle_page_fault(&PageFaultInfo::new(page, VmPerms::READ));
+            }
+            let mut reader = vmar
+                .vm_space()
+                .reader(self.addr, buf.len())
+                .map_err(|_| Errno::EFAULT)?;
+            let mut writer = ostd::mm::VmWriter::from(&mut buf[..]);
+            reader.read_fallible(&mut writer).map_err(|_| Errno::EFAULT)?;
+        }
         Ok(())
     }
+
 }
 
 /// Safely writes bytes to userspace memory.

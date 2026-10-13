@@ -29,6 +29,7 @@ pub fn sys_execve(
     let argv_refs: Vec<&str> = argv_strings.iter().map(|s| s.as_str()).collect();
     let envp_refs: Vec<&str> = envp_strings.iter().map(|s| s.as_str()).collect();
 
+    ostd::info!("execve: path=\"{}\", argv={:?}", path, argv_strings);
     exec::execve(&td, &path, &argv_refs, &envp_refs, ctx)?;
     Ok(0)
 }

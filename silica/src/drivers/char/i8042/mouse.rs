@@ -199,7 +199,7 @@ fn handle_mouse_irq(_frame: &TrapFrame) {
             if let Some(pkt) = maybe_packet {
                 // If button clicked or major movement occurred, log info
                 if pkt.left_button || pkt.right_button || pkt.middle_button || pkt.side1_button || pkt.side2_button {
-                    ostd::info!(
+                    ostd::debug!(
                         "[MOUSE] Click: L={}, R={}, M={}, S1={}, S2={}, dx={}, dy={}, dz={}",
                         pkt.left_button,
                         pkt.right_button,

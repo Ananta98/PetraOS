@@ -6,4 +6,5 @@
 //! keyboards, mice, serial ports, and terminal devices.
 
 pub mod i8042;
+pub mod serial;
 pub mod tty;

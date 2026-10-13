@@ -33,6 +33,17 @@ impl Console {
             ostd::early_print!("{}", echo_char as char);
         });
     }
+
+    /// Wakes readers blocked on the line discipline (called from IRQ context).
+    pub fn notify_input(&self) {
+        self.ldisc.wq.wake_all();
+    }
+
+    pub fn poll(&self) -> Result<u32> {
+        crate::drivers::char::serial::poll_drain_rx();
+        super::drain_input();
+        self.ldisc.poll()
+    }
 }
 
 impl CharacterDevice for Console {
@@ -41,6 +52,8 @@ impl CharacterDevice for Console {
     }
 
     fn read(&self, buf: &mut [u8]) -> Result<usize> {
+        crate::drivers::char::serial::poll_drain_rx();
+        super::drain_input();
         self.ldisc.read(buf)
     }
 
@@ -74,5 +87,11 @@ impl CharacterDevice for Console {
 
     fn ioctl(&self, cmd: u32, arg: usize) -> Result<usize> {
         self.ldisc.ioctl(cmd, arg)
+    }
+
+    fn poll(&self) -> Result<u32> {
+        crate::drivers::char::serial::poll_drain_rx();
+        super::drain_input();
+        self.ldisc.poll()
     }
 }

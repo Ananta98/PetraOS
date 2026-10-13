@@ -9,8 +9,8 @@ use alloc::{sync::Arc, vec::Vec};
 use bitflags::bitflags;
 
 use crate::api::errno::Result;
-use crate::fs::devfs::{ConsoleFile, NullFile};
-use crate::fs::vfs::File;
+use crate::fs::devfs::ConsoleFile;
+use crate::fs::vfs::{File, OpenFlags};
 
 bitflags! {
     /// File descriptor flags.
@@ -48,15 +48,15 @@ impl Filedesc {
         }
     }
 
-    /// Creates a table with stdin (0) as NullFile, stdout (1) and stderr (2) as ConsoleFile.
+    /// Creates a table with stdin (0) as readable ConsoleFile, stdout (1) and stderr (2) as writable ConsoleFile.
     pub fn with_stdio() -> Self {
         let mut table = Self::new();
-        let null = NullFile::new_file();
-        let console1 = ConsoleFile::new_file();
-        let console2 = ConsoleFile::new_file();
-        let _ = table.alloc_fd(null, FdFlags::empty());
-        let _ = table.alloc_fd(console1, FdFlags::empty());
-        let _ = table.alloc_fd(console2, FdFlags::empty());
+        let stdin = ConsoleFile::new_file_with_flags(OpenFlags::READ);
+        let stdout = ConsoleFile::new_file_with_flags(OpenFlags::WRITE);
+        let stderr = ConsoleFile::new_file_with_flags(OpenFlags::WRITE);
+        let _ = table.alloc_fd(stdin, FdFlags::empty());
+        let _ = table.alloc_fd(stdout, FdFlags::empty());
+        let _ = table.alloc_fd(stderr, FdFlags::empty());
         table
     }
 
@@ -138,7 +138,7 @@ impl Filedesc {
         }
         let entry = self.files[idx].take();
         if let Some(entry) = entry {
-            let _ = entry.file.close();
+            release_entry(entry);
         }
         Ok(())
     }
@@ -157,7 +157,7 @@ impl Filedesc {
         if new_idx >= self.files.len() {
             self.files.resize(new_idx + 1, None);
         } else if let Some(old_entry) = self.files[new_idx].take() {
-            let _ = old_entry.file.close();
+            release_entry(old_entry);
         }
         self.files[new_idx] = Some(FdEntry { file, flags });
         Ok(newfd)
@@ -171,7 +171,7 @@ impl Filedesc {
                 .is_some_and(|e| e.flags.contains(FdFlags::FD_CLOEXEC))
             {
                 let e = slot.take().unwrap();
-                let _ = e.file.close();
+                release_entry(e);
             }
         }
     }
@@ -180,7 +180,7 @@ impl Filedesc {
     pub fn close_all(&mut self) {
         for slot in self.files.iter_mut() {
             if let Some(entry) = slot.take() {
-                let _ = entry.file.close();
+                release_entry(entry);
             }
         }
         self.files.clear();
@@ -193,6 +193,15 @@ impl Filedesc {
             cmask: self.cmask,
             max_files: self.max_files,
         }
+    }
+}
+
+/// Drops a descriptor entry, running the file's close hook only if this was the
+/// last reference. Files shared through `dup`/`fork` must stay open for the
+/// other holders; anything left over is cleaned up by the owner's `Drop`.
+fn release_entry(entry: FdEntry) {
+    if Arc::strong_count(&entry.file) == 1 {
+        let _ = entry.file.close();
     }
 }
 

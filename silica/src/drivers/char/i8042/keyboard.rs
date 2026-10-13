@@ -22,6 +22,8 @@ use super::{
 };
 use crate::{api::errno::Result, utils::lockless_queue::LocklessQueue};
 
+use crate::drivers::char::tty;
+
 const ISA_KEYBOARD_IRQ: u8 = 1;
 
 /// Mapped hardware interrupt line for keyboard.
@@ -138,15 +140,15 @@ impl KeyboardState {
         if self.extended {
             self.extended = false;
             return match make_code {
-                0x48 => Some(KeyAction::Seq("\x1B[A")), // Up Arrow
-                0x50 => Some(KeyAction::Seq("\x1B[B")), // Down Arrow
-                0x4D => Some(KeyAction::Seq("\x1B[C")), // Right Arrow
-                0x4B => Some(KeyAction::Seq("\x1B[D")), // Left Arrow
-                0x47 => Some(KeyAction::Seq("\x1B[H")), // Home
-                0x4F => Some(KeyAction::Seq("\x1B[F")), // End
-                0x49 => Some(KeyAction::Seq("\x1B[5~")), // PageUp
-                0x51 => Some(KeyAction::Seq("\x1B[6~")), // PageDown
-                0x52 => Some(KeyAction::Seq("\x1B[2~")), // Insert
+                0x48 => Some(KeyAction::Seq("\x1B[A")),      // Up Arrow
+                0x50 => Some(KeyAction::Seq("\x1B[B")),      // Down Arrow
+                0x4D => Some(KeyAction::Seq("\x1B[C")),      // Right Arrow
+                0x4B => Some(KeyAction::Seq("\x1B[D")),      // Left Arrow
+                0x47 => Some(KeyAction::Seq("\x1B[H")),      // Home
+                0x4F => Some(KeyAction::Seq("\x1B[F")),      // End
+                0x49 => Some(KeyAction::Seq("\x1B[5~")),     // PageUp
+                0x51 => Some(KeyAction::Seq("\x1B[6~")),     // PageDown
+                0x52 => Some(KeyAction::Seq("\x1B[2~")),     // Insert
                 0x53 => Some(KeyAction::Char(0x7F as char)), // Delete
                 _ => None,
             };
@@ -209,15 +211,13 @@ fn handle_keyboard_irq(_frame: &TrapFrame) {
             match maybe_action {
                 Some(KeyAction::Char(ch)) => {
                     KEYBOARD_BUFFER.push_overwrite(ch as u8);
-                    crate::drivers::char::tty::handle_keyboard_char(ch as u8);
-                    ostd::info!("[KEYBOARD] Key: '{}' (scancode: 0x{:02X})", ch, scancode);
+                    crate::drivers::char::tty::queue_input(ch as u8);
                 }
                 Some(KeyAction::Seq(seq)) => {
                     for b in seq.bytes() {
                         KEYBOARD_BUFFER.push_overwrite(b);
-                        crate::drivers::char::tty::handle_keyboard_char(b);
+                        crate::drivers::char::tty::queue_input(b);
                     }
-                    ostd::info!("[KEYBOARD] Seq: {:?} (scancode: 0x{:02X})", seq, scancode);
                 }
                 None => {}
             }
@@ -252,6 +252,22 @@ impl CharacterDevice for KeyboardDevice {
     fn write(&self, buf: &[u8]) -> Result<usize> {
         // Writes to keyboard node can be consumed as LED control or discarded
         Ok(buf.len())
+    }
+
+    fn ioctl(&self, cmd: u32, arg: usize) -> Result<usize> {
+        if let Some(cons) = tty::get_console() {
+            cons.ioctl(cmd, arg)
+        } else {
+            crate::return_errno!(ENOTTY, "inappropriate ioctl for device")
+        }
+    }
+
+    fn poll(&self) -> Result<u32> {
+        if let Some(cons) = tty::get_console() {
+            cons.poll()
+        } else {
+            Ok(0)
+        }
     }
 }
 

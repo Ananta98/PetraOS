@@ -11,6 +11,10 @@
 //!
 //! [`arch`]: arch
 
+/// Set to `true` to log every syscall (and user page fault) to the serial
+/// console. Very slow under QEMU, so it is off by default.
+pub const TRACE_SYSCALLS: bool = false;
+
 pub mod arch;
 pub mod fs;
 pub mod ipc;
@@ -137,6 +141,11 @@ macro_rules! impl_syscall_nums_and_dispatch_fn {
                 return;
             }
 
+            let pid_val = $crate::proc::thread::Thread::current_proc().map(|p| p.pid.as_u32()).unwrap_or(0);
+            if $crate::syscall::TRACE_SYSCALLS && sys_no != 228 && sys_no != 96 {
+                ostd::info!("syscall: pid {} sys_{} args={:x?}", pid_val, sys_no, args);
+            }
+
             let res = match sys_no {
                 $(
                     $num => $crate::invoke_syscall_handler!($($handler)::+, args, ctx $(, $arg_ty)*),
@@ -148,10 +157,18 @@ macro_rules! impl_syscall_nums_and_dispatch_fn {
             };
 
             ctx.general_regs_mut().rax = match res {
-                Ok(val) => val,
-                // Negate into `usize`: a syscall returns a signed value, and the
-                // register is only a carrier for it.
-                Err(err) => err.to_posix_raw() as isize as usize,
+                Ok(val) => {
+                    if $crate::syscall::TRACE_SYSCALLS && sys_no != 228 && sys_no != 96 {
+                        ostd::info!("syscall: pid {} sys_{} -> Ok({:#x})", pid_val, sys_no, val);
+                    }
+                    val
+                }
+                Err(err) => {
+                    if $crate::syscall::TRACE_SYSCALLS && sys_no != 228 && sys_no != 96 {
+                        ostd::info!("syscall: pid {} sys_{} -> Err({:?})", pid_val, sys_no, err);
+                    }
+                    err.to_posix_raw() as isize as usize
+                }
             };
         }
     };

@@ -929,7 +929,16 @@ impl KernelSocket {
             crate::net::unix::unbind_unix_socket(path);
         }
 
-        let kind = self.kind.lock().clone();
+        // Take the kind out for smoltcp sockets so a second close() (explicit
+        // close followed by Drop) never touches an already-removed handle.
+        let kind = {
+            let mut guard = self.kind.lock();
+            let old = guard.clone();
+            if matches!(old, SocketKind::Tcp(_) | SocketKind::Udp(_)) {
+                *guard = SocketKind::UnixUnconnected { sock_type: self.sock_type };
+            }
+            old
+        };
         match kind {
             SocketKind::Tcp(handle) => {
                 let mut net = NET_MANAGER.lock();
