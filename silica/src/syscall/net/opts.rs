@@ -60,7 +60,21 @@ pub fn sys_getsockopt(
     let val: i32 = match (level, optname) {
         (1, 2) => 1,                // SO_REUSEADDR
         (1, 3) => socket.sock_type, // SO_TYPE
-        (1, 4) => 0,                // SO_ERROR
+        (1, 4) => {
+            // SO_ERROR
+            let kind = socket.kind.lock().clone();
+            if let crate::net::socket::SocketKind::Tcp(handle) = kind {
+                let mut net = crate::net::interface::NET_MANAGER.lock();
+                let s = net.get_sockets().get_mut::<smoltcp::socket::tcp::Socket>(handle);
+                if s.state() == smoltcp::socket::tcp::State::Closed {
+                    Errno::ECONNREFUSED as i32
+                } else {
+                    0
+                }
+            } else {
+                0
+            }
+        }
         (6, 1) => 1,                // TCP_NODELAY
         _ => 0,
     };

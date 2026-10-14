@@ -61,8 +61,10 @@ impl FileOps for SocketFileOps {
                 if s.can_send() {
                     events |= PollEvents::OUT | PollEvents::WRNORM;
                 }
-                if s.state() == TcpState::Closed || s.state() == TcpState::CloseWait {
-                    events |= PollEvents::HUP;
+                if s.state() == TcpState::CloseWait {
+                    events |= PollEvents::IN | PollEvents::RDNORM | PollEvents::HUP;
+                } else if s.state() == TcpState::Closed {
+                    events |= PollEvents::IN | PollEvents::OUT | PollEvents::RDNORM | PollEvents::WRNORM | PollEvents::HUP | PollEvents::ERR;
                 }
             }
             SocketKind::Udp(handle) => {
@@ -70,7 +72,7 @@ impl FileOps for SocketFileOps {
                 if s.can_recv() {
                     events |= PollEvents::IN | PollEvents::RDNORM;
                 }
-                if s.can_send() {
+                if !s.is_open() || s.can_send() {
                     events |= PollEvents::OUT | PollEvents::WRNORM;
                 }
             }
@@ -142,6 +144,10 @@ impl NodeOps for SocketNodeOps {
 
 /// Helper to wrap a [`KernelSocket`] in an open [`File`].
 pub fn create_socket_file(socket: Arc<KernelSocket>) -> Arc<File> {
+    let mut flags = OpenFlags::READ | OpenFlags::WRITE;
+    if *socket.nonblocking.lock() {
+        flags |= OpenFlags::NONBLOCK;
+    }
     let inode = Arc::new(INode::new(
         Box::new(SocketNodeOps),
         Mode::SOCKET | Mode::RUSR | Mode::WUSR,
@@ -150,7 +156,7 @@ pub fn create_socket_file(socket: Arc<KernelSocket>) -> Arc<File> {
     Arc::new(File::new(
         Box::new(SocketFileOps { socket }),
         inode,
-        OpenFlags::READ | OpenFlags::WRITE,
+        flags,
         false, // Sockets are not seekable streams
     ))
 }

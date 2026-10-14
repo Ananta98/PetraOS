@@ -330,6 +330,15 @@ impl NodeOps for InitramfsDirNodeOps {
         Ok(())
     }
 
+    fn rename(&self, old_name: &str, new_dir: &Arc<INode>, new_name: &str) -> Result<()> {
+        let node = self.entries.write().remove(old_name).ok_or(Errno::ENOENT)?;
+        if let Err(e) = new_dir.node_ops.link(new_name, node.clone()) {
+            self.entries.write().insert(String::from(old_name), node);
+            return Err(e);
+        }
+        Ok(())
+    }
+
     fn mknod(&self, name: &str, mode: Mode, rdev: u64) -> Result<Arc<INode>> {
         static NEXT_INO: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(200_000);
         let ino = NEXT_INO.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
@@ -513,11 +522,11 @@ impl FileSystem for InitramfsFs {
     fn statfs(&self) -> Result<StatFs> {
         Ok(StatFs {
             bsize: 4096,
-            blocks: 0,
-            bfree: 0,
-            bavail: 0,
-            files: 0,
-            ffree: 0,
+            blocks: 1024 * 1024,
+            bfree: 1024 * 1024,
+            bavail: 1024 * 1024,
+            files: 1024 * 1024,
+            ffree: 1024 * 1024,
             namelen: 255,
         })
     }

@@ -42,6 +42,7 @@ impl UserPtr {
         if data.is_empty() {
             return Ok(());
         }
+        vmar.activate();
         let end_addr = self.addr.checked_add(data.len()).ok_or(Errno::EFAULT)?;
         let page_start = self.addr & !(PAGE_SIZE - 1);
         let page_end = end_addr
@@ -63,6 +64,7 @@ impl UserPtr {
             for page in (page_start..page_end).step_by(PAGE_SIZE) {
                 let _ = vmar.handle_page_fault(&PageFaultInfo::new(page, VmPerms::WRITE));
             }
+            vmar.activate();
             let mut writer = vmar
                 .vm_space()
                 .writer(self.addr, data.len())
@@ -81,6 +83,7 @@ impl UserPtr {
         if buf.is_empty() {
             return Ok(());
         }
+        vmar.activate();
         let end_addr = self.addr.checked_add(buf.len()).ok_or(Errno::EFAULT)?;
         let page_start = self.addr & !(PAGE_SIZE - 1);
         let page_end = end_addr
@@ -102,6 +105,7 @@ impl UserPtr {
             for page in (page_start..page_end).step_by(PAGE_SIZE) {
                 let _ = vmar.handle_page_fault(&PageFaultInfo::new(page, VmPerms::READ));
             }
+            vmar.activate();
             let mut reader = vmar
                 .vm_space()
                 .reader(self.addr, buf.len())

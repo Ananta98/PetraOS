@@ -40,7 +40,6 @@ crate::impl_syscall_nums_and_dispatch_fn! {
     SYS_DUP2 = 33 => fs::sys_dup2(i32, i32);
     SYS_PAUSE = 34 => signals::sys_pause();
     SYS_NANOSLEEP = 35 => time::sys_nanosleep(usize, usize);
-    SYS_SYNC = 36 => fs::sys_sync();
     SYS_GETPID = 39 => proc::sys_getpid();
     SYS_SENDFILE = 40 => fs::sys_sendfile(i32, i32, usize, usize);
     SYS_SOCKET = 41 => net::sys_socket(i32, i32, i32);
@@ -141,6 +140,7 @@ crate::impl_syscall_nums_and_dispatch_fn! {
     SYS_PRCTL = 157 => proc::sys_prctl(i32, usize, usize, usize, usize);
     SYS_ARCH_PRCTL = 158 => proc::sys_arch_prctl(i32, usize);
     SYS_SETRLIMIT = 160 => proc::sys_setrlimit(u32, usize);
+    SYS_SYNC = 162 => fs::sys_sync();
     SYS_MOUNT = 165 => fs::sys_mount(usize, usize, usize, usize, usize);
     SYS_UMOUNT2 = 166 => fs::sys_umount2(usize, i32);
     SYS_REBOOT = 169 => platform::sys_reboot(i32, i32, u32, usize);

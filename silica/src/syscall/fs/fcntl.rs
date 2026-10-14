@@ -99,10 +99,14 @@ pub fn sys_fcntl(fd: i32, cmd: i32, arg: usize, _ctx: &mut UserContext) -> Resul
             } else {
                 *flags &= !OpenFlags::APPEND;
             }
-            if (arg_u32 & 0o4000) != 0 {
+            let nonblocking = (arg_u32 & 0o4000) != 0;
+            if nonblocking {
                 *flags |= OpenFlags::NONBLOCK;
             } else {
                 *flags &= !OpenFlags::NONBLOCK;
+            }
+            if let Some(sock) = file.as_socket() {
+                *sock.nonblocking.lock() = nonblocking;
             }
             Ok(0)
         }

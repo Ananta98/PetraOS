@@ -103,7 +103,7 @@ pub fn sys_sendmsg(
         }
 
         if dest.is_some() {
-            socket.sendto(&kbuf[..offset], dest)
+            socket.sendto(&kbuf[..offset], dest, flags)
         } else {
             socket.send(&kbuf[..offset], flags)
         }
@@ -157,7 +157,7 @@ pub fn sys_recvmsg(
     if socket.sock_type == SOCK_DGRAM {
         let total_cap: usize = iovecs.iter().map(|iov| iov.iov_len).sum();
         let mut kbuf = alloc::vec![0u8; total_cap.min(65536)];
-        let (nrecv, endpoint_opt) = socket.recvfrom(&mut kbuf)?;
+        let (nrecv, endpoint_opt) = socket.recvfrom(&mut kbuf, flags)?;
 
         // Scatter received datagram bytes into user iovecs
         let mut offset = 0;

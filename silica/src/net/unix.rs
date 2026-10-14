@@ -154,12 +154,12 @@ mod tests {
 
         let payload = b"alpine_dgram_test";
         let sent = client
-            .sendto(payload, Some(SocketAddress::Unix(srv_path.into())))
+            .sendto(payload, Some(SocketAddress::Unix(srv_path.into())), 0)
             .expect("cli sendto");
         assert_eq!(sent, payload.len());
 
         let mut buf = [0u8; 32];
-        let (n, sender) = server.recvfrom(&mut buf).expect("srv recvfrom");
+        let (n, sender) = server.recvfrom(&mut buf, 0).expect("srv recvfrom");
         assert_eq!(&buf[..n], payload);
         assert_eq!(sender, Some(SocketAddress::Unix(cli_path.into())));
 

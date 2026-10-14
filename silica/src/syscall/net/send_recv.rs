@@ -47,7 +47,7 @@ pub fn sys_sendto(
     };
 
     if endpoint.is_some() {
-        socket.sendto(&kbuf[..copy_len], endpoint)
+        socket.sendto(&kbuf[..copy_len], endpoint, flags)
     } else {
         socket.send(&kbuf[..copy_len], flags)
     }
@@ -71,7 +71,7 @@ pub fn sys_recvfrom(
 
     let mut kbuf = alloc::vec![0u8; len.min(65536)];
     let (nrecv, endpoint_opt) = if src_ptr != 0 && addrlen_ptr != 0 {
-        socket.recvfrom(&mut kbuf)?
+        socket.recvfrom(&mut kbuf, flags)?
     } else {
         let n = socket.recv(&mut kbuf, flags)?;
         (n, None)

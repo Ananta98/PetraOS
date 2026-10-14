@@ -17,14 +17,27 @@ pub fn sys_write(fd: i32, buf_ptr: usize, count: usize, _ctx: &mut UserContext) 
     }
     let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
     let vmar = proc.vmspace();
-
-    let mut kbuf = alloc::vec![0u8; count.min(65536)];
-    let copy_len = kbuf.len();
-
-    UserPtr::new(buf_ptr).read_bytes(&vmar, &mut kbuf[..copy_len])?;
-
     let file = proc.fd_table.lock().get(fd)?;
-    file.write(&kbuf[..copy_len])
+
+    let mut total_written = 0;
+    let chunk_size = 65536;
+    let mut kbuf = alloc::vec![0u8; count.min(chunk_size)];
+
+    while total_written < count {
+        let to_copy = (count - total_written).min(chunk_size);
+        UserPtr::new(buf_ptr + total_written).read_bytes(&vmar, &mut kbuf[..to_copy])?;
+
+        let nwritten = file.write(&kbuf[..to_copy])?;
+        if nwritten == 0 {
+            break;
+        }
+        total_written += nwritten;
+        if nwritten < to_copy {
+            break;
+        }
+    }
+
+    Ok(total_written)
 }
 
 /// System call `pwrite64(int fd, const void *buf, size_t count, off_t offset)` (Syscall #18).
@@ -40,14 +53,27 @@ pub fn sys_pwrite64(
     }
     let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
     let vmar = proc.vmspace();
-
-    let mut kbuf = alloc::vec![0u8; count.min(65536)];
-    let copy_len = kbuf.len();
-
-    UserPtr::new(buf_ptr).read_bytes(&vmar, &mut kbuf[..copy_len])?;
-
     let file = proc.fd_table.lock().get(fd)?;
-    file.pwrite(offset as u64, &kbuf[..copy_len])
+
+    let mut total_written = 0;
+    let chunk_size = 65536;
+    let mut kbuf = alloc::vec![0u8; count.min(chunk_size)];
+
+    while total_written < count {
+        let to_copy = (count - total_written).min(chunk_size);
+        UserPtr::new(buf_ptr + total_written).read_bytes(&vmar, &mut kbuf[..to_copy])?;
+
+        let nwritten = file.pwrite((offset + total_written) as u64, &kbuf[..to_copy])?;
+        if nwritten == 0 {
+            break;
+        }
+        total_written += nwritten;
+        if nwritten < to_copy {
+            break;
+        }
+    }
+
+    Ok(total_written)
 }
 
 /// System call `writev(int fd, const struct iovec *iov, int iovcnt)` (Syscall #20).
@@ -61,19 +87,24 @@ pub fn sys_writev(fd: i32, iov_ptr: usize, iovcnt: usize, _ctx: &mut UserContext
     let file = proc.fd_table.lock().get(fd)?;
 
     let mut total_written = 0;
+    let chunk_size = 65536;
+    let mut kbuf = alloc::vec![0u8; chunk_size];
+
     for iov in iovecs {
-        if iov.iov_len == 0 {
-            continue;
-        }
-        let chunk_len = iov.iov_len.min(65536);
-        let mut kbuf = alloc::vec![0u8; chunk_len];
+        let mut iov_written = 0;
+        while iov_written < iov.iov_len {
+            let to_copy = (iov.iov_len - iov_written).min(chunk_size);
+            UserPtr::new(iov.iov_base + iov_written).read_bytes(&vmar, &mut kbuf[..to_copy])?;
 
-        UserPtr::new(iov.iov_base).read_bytes(&vmar, &mut kbuf[..chunk_len])?;
-
-        let nwritten = file.write(&kbuf[..chunk_len])?;
-        total_written += nwritten;
-        if nwritten < chunk_len {
-            break;
+            let nwritten = file.write(&kbuf[..to_copy])?;
+            if nwritten == 0 {
+                return Ok(total_written);
+            }
+            total_written += nwritten;
+            iov_written += nwritten;
+            if nwritten < to_copy {
+                return Ok(total_written);
+            }
         }
     }
 
@@ -105,20 +136,25 @@ pub fn sys_pwritev(
 
     let mut total_written = 0;
     let mut cur_offset = offset;
+    let chunk_size = 65536;
+    let mut kbuf = alloc::vec![0u8; chunk_size];
+
     for iov in iovecs {
-        if iov.iov_len == 0 {
-            continue;
-        }
-        let chunk_len = iov.iov_len.min(65536);
-        let mut kbuf = alloc::vec![0u8; chunk_len];
+        let mut iov_written = 0;
+        while iov_written < iov.iov_len {
+            let to_copy = (iov.iov_len - iov_written).min(chunk_size);
+            UserPtr::new(iov.iov_base + iov_written).read_bytes(&vmar, &mut kbuf[..to_copy])?;
 
-        UserPtr::new(iov.iov_base).read_bytes(&vmar, &mut kbuf[..chunk_len])?;
-
-        let nwritten = file.pwrite(cur_offset, &kbuf[..chunk_len])?;
-        total_written += nwritten;
-        cur_offset += nwritten as u64;
-        if nwritten < chunk_len {
-            break;
+            let nwritten = file.pwrite(cur_offset, &kbuf[..to_copy])?;
+            if nwritten == 0 {
+                return Ok(total_written);
+            }
+            total_written += nwritten;
+            iov_written += nwritten;
+            cur_offset += nwritten as u64;
+            if nwritten < to_copy {
+                return Ok(total_written);
+            }
         }
     }
 

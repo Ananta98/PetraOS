@@ -55,7 +55,7 @@ impl LinuxStatFs {
 impl From<StatFs> for LinuxStatFs {
     fn from(s: StatFs) -> Self {
         Self {
-            f_type: 0x9fa0, // ANON_INODE_FS_MAGIC / RAMFS_MAGIC
+            f_type: 0x01021994, // TMPFS_MAGIC
             f_bsize: s.bsize as i64,
             f_blocks: s.blocks,
             f_bfree: s.bfree,
@@ -95,11 +95,11 @@ pub fn sys_fstatfs(fd: i32, buf_ptr: usize, _ctx: &mut UserContext) -> Result<us
     } else {
         StatFs {
             bsize: 4096,
-            blocks: 0,
-            bfree: 0,
-            bavail: 0,
-            files: 0,
-            ffree: 0,
+            blocks: 1024 * 1024,
+            bfree: 1024 * 1024,
+            bavail: 1024 * 1024,
+            files: 1024 * 1024,
+            ffree: 1024 * 1024,
             namelen: 255,
         }
     };

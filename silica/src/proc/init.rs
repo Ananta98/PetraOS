@@ -107,7 +107,9 @@ pub fn spawn_init_process() -> Result<Arc<Proc>> {
     let kernel_cmdline = &ostd::boot::boot_info().kernel_cmdline;
     if let Some((_, after_dash)) = kernel_cmdline.split_once("--") {
         for arg in after_dash.split_whitespace() {
-            init_argv.push(String::from(arg));
+            if !arg.starts_with("initrd=") && !arg.starts_with("BOOT_IMAGE=") {
+                init_argv.push(String::from(arg));
+            }
         }
     } else {
         for arg in kernel_cmdline.split_whitespace() {

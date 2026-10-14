@@ -127,6 +127,8 @@ pub enum Errno {
     ETIMEDOUT = 110,
     /// Connection refused.
     ECONNREFUSED = 111,
+    /// Operation now in progress.
+    EINPROGRESS = 115,
 }
 
 impl Errno {
@@ -211,6 +213,7 @@ impl Errno {
             Self::ENOTCONN => "ENOTCONN",
             Self::ETIMEDOUT => "ETIMEDOUT",
             Self::ECONNREFUSED => "ECONNREFUSED",
+            Self::EINPROGRESS => "EINPROGRESS",
         }
     }
 
@@ -272,6 +275,7 @@ impl Errno {
             Self::ENOTCONN => "transport endpoint is not connected",
             Self::ETIMEDOUT => "connection timed out",
             Self::ECONNREFUSED => "connection refused",
+            Self::EINPROGRESS => "operation now in progress",
         }
     }
 }

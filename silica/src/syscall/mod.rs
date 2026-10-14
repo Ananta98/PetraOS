@@ -151,7 +151,7 @@ macro_rules! impl_syscall_nums_and_dispatch_fn {
                     $num => $crate::invoke_syscall_handler!($($handler)::+, args, ctx $(, $arg_ty)*),
                 )*
                 _ => {
-                    ostd::warn!("Unsupported syscall number: {sys_no}");
+                    ostd::error!("Unsupported syscall number: {sys_no}");
                     Err($crate::api::errno::Errno::ENOSYS)
                 }
             };
@@ -164,6 +164,9 @@ macro_rules! impl_syscall_nums_and_dispatch_fn {
                     val
                 }
                 Err(err) => {
+                    if err == $crate::api::errno::Errno::ENOSYS {
+                        ostd::error!("Syscall sys_{sys_no} returned ENOSYS!");
+                    }
                     if $crate::syscall::TRACE_SYSCALLS && sys_no != 228 && sys_no != 96 {
                         ostd::info!("syscall: pid {} sys_{} -> Err({:?})", pid_val, sys_no, err);
                     }

@@ -13,7 +13,7 @@ use smoltcp::{
         udp::{PacketBuffer as UdpPacketBuffer, PacketMetadata as UdpPacketMetadata, Socket as UdpSocket},
     },
     time::Instant,
-    wire::{EthernetAddress, HardwareAddress, IpCidr, IpEndpoint, Ipv4Address, Ipv4Cidr, Ipv6Address, Ipv6Cidr},
+    wire::{EthernetAddress, HardwareAddress, IpCidr, IpEndpoint, Ipv4Address, Ipv4Cidr},
 };
 use spin::Mutex;
 
@@ -63,6 +63,19 @@ impl NetworkManager {
         local_port: u16,
     ) -> Result<()> {
         let bound = self.bound.as_mut().ok_or(Errno::ENETDOWN)?;
+        // Check route reachability before initiating connection
+        let mut has_route = false;
+        bound.iface.routes_mut().update(|storage| {
+            has_route = storage.iter().any(|r| r.cidr.contains_addr(&endpoint.addr));
+        });
+        let in_local_subnet = bound
+            .iface
+            .ip_addrs()
+            .iter()
+            .any(|cidr| cidr.contains_addr(&endpoint.addr));
+        if !has_route && !in_local_subnet {
+            return Err(Errno::ENETUNREACH);
+        }
         let sockets = self.sockets.get_or_insert_with(|| SocketSet::new(Vec::new()));
         let socket = sockets.get_mut::<TcpSocket>(handle);
         socket
@@ -70,7 +83,7 @@ impl NetworkManager {
             .map_err(|_| Errno::ECONNREFUSED)
     }
 
-    /// Attach a network device and configure standard IPv4 & IPv6 default networking.
+    /// Attach a network device and configure standard IPv4 default networking.
     pub fn attach_device(&mut self, dev: Arc<dyn NetDevice>) {
         let mac = dev.mac_address();
         let hw_addr = HardwareAddress::Ethernet(EthernetAddress(mac));
@@ -85,18 +98,13 @@ impl NetworkManager {
         // Configure standard QEMU / default IPv4: 10.0.2.15/24, Gateway: 10.0.2.2
         iface.update_ip_addrs(|addrs| {
             let _ = addrs.push(IpCidr::Ipv4(Ipv4Cidr::new(Ipv4Address::new(10, 0, 2, 15), 24)));
-            // Configure IPv6 link-local address: fe80::5111:ca05:1/64
-            let _ = addrs.push(IpCidr::Ipv6(Ipv6Cidr::new(
-                Ipv6Address::new(0xfe80, 0, 0, 0, 0x5111, 0xca05, 0, 1),
-                64,
-            )));
         });
 
         // Set default IPv4 gateway
         iface.routes_mut().add_default_ipv4_route(Ipv4Address::new(10, 0, 2, 2)).ok();
 
         ostd::info!(
-            "Net: Configured smoltcp interface on {} (IPv4: 10.0.2.15/24, IPv6: fe80::5111:ca05:1/64)",
+            "Net: Configured smoltcp interface on {} (IPv4: 10.0.2.15/24, Gateway: 10.0.2.2)",
             smol_dev.net_dev().name()
         );
 
