@@ -5,102 +5,163 @@
 //! Provides buffering, canonical editing, and signal generation.
 
 use alloc::collections::VecDeque;
+use alloc::sync::Arc;
 use spin::Mutex;
 
 use ostd::sync::WaitQueue;
 
+use crate::api::errno::{Errno, Result};
 use crate::api::ioctl;
 use crate::api::termios::{
     winsize, Termios, ECHO, ECHOK, ICANON, ICRNL, IGNCR, INLCR, ISIG, VEOF, VEOL, VERASE, VINTR,
-    VKILL, VQUIT, VSUSP,
+    VKILL, VQUIT, VSUSP, VWERASE,
 };
-use crate::api::errno::{Errno, Result};
+use crate::fs::poll::PollEvents;
 use crate::proc::thread::Thread;
+use crate::proc::tree::Pid;
 use crate::utils::userspace::user_ptr::UserPtr;
 use crate::vm::vmar::Vmar;
-use alloc::sync::Arc;
 
-/// Internal state of the line discipline
+/// Maximum line length retained in canonical line editing buffer before Enter
+const MAX_CANON: usize = 4096;
+
+/// Internal character buffers for line discipline queues
 #[derive(Debug, Default)]
-pub struct LdiscState {
-    pub eof_received: bool,
-    pub esc_pending: bool,
+struct LdiscBuffers {
+    /// Line currently being edited in canonical mode before delimiter
+    line_buf: VecDeque<u8>,
+    /// Committed characters ready to be returned by `read()`
+    read_queue: VecDeque<u8>,
+    /// Set when an EOF character is received on an empty line
+    eof_received: bool,
+}
+
+impl LdiscBuffers {
+    fn new() -> Self {
+        Self {
+            line_buf: VecDeque::with_capacity(128),
+            read_queue: VecDeque::with_capacity(4096),
+            eof_received: false,
+        }
+    }
+
+    fn clear(&mut self) {
+        self.line_buf.clear();
+        self.read_queue.clear();
+        self.eof_received = false;
+    }
+
+    fn commit_line(&mut self) {
+        while let Some(b) = self.line_buf.pop_front() {
+            self.read_queue.push_back(b);
+        }
+    }
+}
+
+/// Keyboard and console display hardware states
+#[derive(Debug, Clone, Copy)]
+struct KeyboardConsoleState {
+    kb_mode: u32,
+    kd_mode: i32,
+    led_state: u8,
+    meta_mode: u32,
+}
+
+impl KeyboardConsoleState {
+    const fn new() -> Self {
+        Self {
+            kb_mode: ioctl::K_XLATE,
+            kd_mode: ioctl::KD_TEXT,
+            led_state: 0,
+            meta_mode: ioctl::K_METABIT,
+        }
+    }
 }
 
 /// A TTY Line Discipline instance
 pub struct LineDiscipline {
     pub termios: Mutex<Termios>,
     pub winsize: Mutex<winsize>,
-    pub read_buf: Mutex<VecDeque<u8>>,
-    pub canon_buf: Mutex<VecDeque<u8>>,
-    pub state: Mutex<LdiscState>,
-    pub pgrp: Mutex<Option<crate::proc::tree::Pid>>,
+    buffers: Mutex<LdiscBuffers>,
+    pgrp: Mutex<Option<Pid>>,
     pub wq: WaitQueue,
-    // Keyboard and console states
-    pub kb_mode: Mutex<u32>,
-    pub kd_mode: Mutex<i32>,
-    pub led_state: Mutex<u8>,
-    pub meta_mode: Mutex<u32>,
+    kb_state: Mutex<KeyboardConsoleState>,
 }
 
 impl LineDiscipline {
     pub fn new() -> Self {
+        let (rows, cols, xpix, ypix) = if let Some(cons_lock) = crate::drivers::drm::get_console() {
+            let cons = cons_lock.lock();
+            let fb = crate::drivers::drm::get_framebuffer();
+            let (w, h) = fb.map(|f| (f.width as u16, f.height as u16)).unwrap_or((1280, 800));
+            (cons.rows as u16, cons.cols as u16, w, h)
+        } else {
+            (50, 160, 1280, 800)
+        };
+
         Self {
             termios: Mutex::new(Termios::default()),
             winsize: Mutex::new(winsize {
-                ws_row: 50,
-                ws_col: 160,
-                ws_xpixel: 1280,
-                ws_ypixel: 800,
+                ws_row: rows,
+                ws_col: cols,
+                ws_xpixel: xpix,
+                ws_ypixel: ypix,
             }),
-            read_buf: Mutex::new(VecDeque::with_capacity(4096)),
-            canon_buf: Mutex::new(VecDeque::with_capacity(4096)),
-            state: Mutex::new(LdiscState::default()),
+            buffers: Mutex::new(LdiscBuffers::new()),
             pgrp: Mutex::new(None),
             wq: WaitQueue::new(),
-            kb_mode: Mutex::new(ioctl::K_XLATE),
-            kd_mode: Mutex::new(ioctl::KD_TEXT),
-            led_state: Mutex::new(0),
-            meta_mode: Mutex::new(ioctl::K_METABIT),
+            kb_state: Mutex::new(KeyboardConsoleState::new()),
         }
     }
 
-    /// Read data from the line discipline buffer
-    pub fn read(&self, buf: &mut [u8]) -> Result<usize> {
+    /// Returns `(OPOST, ONLCR)` output processing flags.
+    pub fn output_flags(&self) -> (bool, bool) {
         let termios = self.termios.lock();
-        let icanon = (termios.c_lflag & ICANON) != 0;
-        drop(termios);
+        (
+            (termios.c_oflag & crate::api::termios::OPOST) != 0,
+            (termios.c_oflag & crate::api::termios::ONLCR) != 0,
+        )
+    }
 
-        if icanon {
-            self.read_canon(buf)
-        } else {
-            self.read_raw(buf)
+    /// Wakes all sleeping readers and pollers.
+    pub fn wake_readers(&self) {
+        self.wq.wake_all();
+        crate::fs::poll::notify();
+    }
+
+    /// Delivers a signal to the foreground process group.
+    fn signal_pgrp(&self, sig: crate::api::signal::Signal) {
+        let target_pgrp = *self.pgrp.lock();
+        let pgrp_opt = target_pgrp.or_else(|| Thread::current_proc().map(|p| p.pgid()));
+        if let Some(pgrp) = pgrp_opt {
+            for proc in crate::proc::tree::allproc_iter().filter(|p| p.pgid() == pgrp) {
+                proc.post_signal(sig);
+            }
         }
     }
 
-    fn read_canon(&self, buf: &mut [u8]) -> Result<usize> {
+    /// Read data from the line discipline buffer.
+    pub fn read(&self, buf: &mut [u8]) -> Result<usize> {
         if buf.is_empty() {
             return Ok(0);
         }
 
+        let termios = *self.termios.lock();
+        let icanon = (termios.c_lflag & ICANON) != 0;
+        let veol = termios.c_cc[VEOL];
+        let vmin = termios.c_cc[crate::api::termios::VMIN];
+
         let try_read = || -> Option<usize> {
-            // Must run before taking any ldisc lock: delivery locks them itself.
             crate::drivers::char::tty::drain_input();
-            let mut canon_buf = self.canon_buf.lock();
-            let mut state = self.state.lock();
+            let mut buffers = self.buffers.lock();
 
-            if state.eof_received {
-                state.eof_received = false;
-                return Some(0);
-            }
-
-            if !canon_buf.is_empty() {
+            if !buffers.read_queue.is_empty() {
                 let mut read = 0;
                 for b in buf.iter_mut() {
-                    if let Some(c) = canon_buf.pop_front() {
+                    if let Some(c) = buffers.read_queue.pop_front() {
                         *b = c;
                         read += 1;
-                        if c == b'\n' {
+                        if icanon && (c == b'\n' || (veol != 0 && c == veol)) {
                             break;
                         }
                     } else {
@@ -110,38 +171,15 @@ impl LineDiscipline {
                 return Some(read);
             }
 
-            None
-        };
-
-        Ok(self.wq.wait_until(try_read))
-    }
-
-    fn read_raw(&self, buf: &mut [u8]) -> Result<usize> {
-        if buf.is_empty() {
-            return Ok(0);
-        }
-
-        let try_read = || -> Option<usize> {
-            crate::drivers::char::tty::drain_input();
-            let mut read_buf = self.read_buf.lock();
-            let mut state = self.state.lock();
-
-            if state.eof_received {
-                state.eof_received = false;
+            // Return EOF only after all queued input has been consumed
+            if buffers.eof_received {
+                buffers.eof_received = false;
                 return Some(0);
             }
 
-            if !read_buf.is_empty() {
-                let mut read = 0;
-                for b in buf.iter_mut() {
-                    if let Some(c) = read_buf.pop_front() {
-                        *b = c;
-                        read += 1;
-                    } else {
-                        break;
-                    }
-                }
-                return Some(read);
+            // Non-canonical mode with VMIN=0: non-blocking immediate return
+            if !icanon && vmin == 0 {
+                return Some(0);
             }
 
             None
@@ -152,32 +190,31 @@ impl LineDiscipline {
 
     /// Poll readiness report for character reading/writing
     pub fn poll(&self) -> Result<u32> {
-        let termios = self.termios.lock();
-        let icanon = (termios.c_lflag & ICANON) != 0;
-        drop(termios);
+        let mut events = (PollEvents::OUT | PollEvents::WRNORM).bits() as u32;
 
-        let mut events = 0x0004 | 0x0100; // POLLOUT | POLLWRNORM
-        let has_input = if icanon {
-            !self.canon_buf.lock().is_empty() || self.state.lock().eof_received
-        } else {
-            !self.read_buf.lock().is_empty() || self.state.lock().eof_received
-        };
+        let buffers = self.buffers.lock();
+        let has_input = !buffers.read_queue.is_empty() || buffers.eof_received;
+        drop(buffers);
 
         if has_input {
-            events |= 0x0001 | 0x0040; // POLLIN | POLLRDNORM
+            events |= (PollEvents::IN | PollEvents::RDNORM).bits() as u32;
         }
 
         Ok(events)
     }
 
     /// Receive a character from the hardware driver
-    pub fn receive_char(&self, mut ch: u8, echo_out: &mut impl FnMut(u8)) {
+    pub fn receive_char(&self, mut ch: u8, echo_out: &mut impl FnMut(&[u8])) {
         let termios = *self.termios.lock();
         let lflag = termios.c_lflag;
         let iflag = termios.c_iflag;
         let cc = termios.c_cc;
 
-        // Input processing (ICRNL, IGNCR, INLCR)
+        // Input processing (ISTRIP, IGNCR, ICRNL, INLCR)
+        if (iflag & crate::api::termios::ISTRIP) != 0 {
+            ch &= 0x7F;
+        }
+
         if ch == b'\r' {
             if (iflag & IGNCR) != 0 {
                 return;
@@ -185,10 +222,8 @@ impl LineDiscipline {
             if (iflag & ICRNL) != 0 {
                 ch = b'\n';
             }
-        } else if ch == b'\n' {
-            if (iflag & INLCR) != 0 {
-                ch = b'\r';
-            }
+        } else if ch == b'\n' && (iflag & INLCR) != 0 {
+            ch = b'\r';
         }
 
         let isig = (lflag & ISIG) != 0;
@@ -197,116 +232,122 @@ impl LineDiscipline {
 
         // Signal generation
         if isig {
-            let target_pgrp = *self.pgrp.lock();
-            let signal_group = |sig: crate::api::signal::Signal| {
-                let pgrp_opt = target_pgrp.or_else(|| Thread::current_proc().map(|p| p.pgid()));
-                if let Some(pgrp) = pgrp_opt {
-                    for proc in crate::proc::tree::allproc_iter().filter(|p| p.pgid() == pgrp) {
-                        proc.post_signal(sig);
-                    }
-                }
-            };
-
             if ch == cc[VINTR] {
-                signal_group(crate::api::signal::Signal::SIGINT);
+                self.signal_pgrp(crate::api::signal::Signal::SIGINT);
+                if (lflag & crate::api::termios::NOFLSH) == 0 {
+                    self.buffers.lock().clear();
+                }
                 if echo {
-                    echo_out(b'^');
-                    echo_out(b'C');
+                    echo_out(b"^C");
                 }
                 return;
             }
             if ch == cc[VQUIT] {
-                signal_group(crate::api::signal::Signal::SIGQUIT);
+                self.signal_pgrp(crate::api::signal::Signal::SIGQUIT);
+                if (lflag & crate::api::termios::NOFLSH) == 0 {
+                    self.buffers.lock().clear();
+                }
                 if echo {
-                    echo_out(b'^');
-                    echo_out(b'\\');
+                    echo_out(b"^\\");
                 }
                 return;
             }
             if ch == cc[VSUSP] {
-                signal_group(crate::api::signal::Signal::SIGTSTP);
+                self.signal_pgrp(crate::api::signal::Signal::SIGTSTP);
                 if echo {
-                    echo_out(b'^');
-                    echo_out(b'Z');
+                    echo_out(b"^Z");
                 }
                 return;
             }
         }
 
         if icanon {
-            let mut read_buf = self.read_buf.lock();
-            let mut canon_buf = self.canon_buf.lock();
+            let mut buffers = self.buffers.lock();
 
             if ch == cc[VEOF] {
-                if read_buf.is_empty() {
-                    self.state.lock().eof_received = true;
+                if buffers.line_buf.is_empty() {
+                    buffers.eof_received = true;
                 } else {
-                    while let Some(b) = read_buf.pop_front() {
-                        canon_buf.push_back(b);
-                    }
+                    buffers.commit_line();
                 }
-                drop(canon_buf);
-                drop(read_buf);
-                self.wq.wake_all();
+                drop(buffers);
+                self.wake_readers();
                 return;
             }
 
             if ch == cc[VERASE] || ch == 8 || ch == 127 {
                 // Backspace or DEL
-                if read_buf.pop_back().is_some() && echo {
-                    echo_out(8);
-                    echo_out(b' ');
-                    echo_out(8);
+                if buffers.line_buf.pop_back().is_some() && echo {
+                    echo_out(b"\x08 \x08");
+                }
+                return;
+            }
+
+            if ch == cc[VWERASE] && ch != 0 {
+                // Word erase (Ctrl+W)
+                let mut erased = 0;
+                while let Some(&last) = buffers.line_buf.back() {
+                    if last == b' ' || last == b'\t' {
+                        buffers.line_buf.pop_back();
+                        erased += 1;
+                    } else {
+                        break;
+                    }
+                }
+                while let Some(&last) = buffers.line_buf.back() {
+                    if last != b' ' && last != b'\t' {
+                        buffers.line_buf.pop_back();
+                        erased += 1;
+                    } else {
+                        break;
+                    }
+                }
+                if echo {
+                    for _ in 0..erased {
+                        echo_out(b"\x08 \x08");
+                    }
                 }
                 return;
             }
 
             if ch == cc[VKILL] {
-                while read_buf.pop_back().is_some() {
-                    if echo && (lflag & ECHOK) != 0 {
-                        echo_out(8);
-                        echo_out(b' ');
-                        echo_out(8);
+                let count = buffers.line_buf.len();
+                buffers.line_buf.clear();
+                if echo && (lflag & ECHOK) != 0 {
+                    for _ in 0..count {
+                        echo_out(b"\x08 \x08");
                     }
                 }
                 return;
             }
 
             // Normal character
-            read_buf.push_back(ch);
-            if echo {
-                echo_out(ch);
+            if buffers.line_buf.len() < MAX_CANON {
+                buffers.line_buf.push_back(ch);
+                if echo {
+                    echo_out(&[ch]);
+                }
             }
 
-            if ch == b'\n' || ch == cc[VEOL] {
-                // Line complete
-                while let Some(b) = read_buf.pop_front() {
-                    canon_buf.push_back(b);
-                }
-                drop(canon_buf);
-                drop(read_buf);
-                self.wq.wake_all();
+            if ch == b'\n' || (cc[VEOL] != 0 && ch == cc[VEOL]) {
+                // Line complete: commit to read queue
+                buffers.commit_line();
+                drop(buffers);
+                self.wake_readers();
             }
         } else {
             // Raw mode
-            let mut read_buf = self.read_buf.lock();
-            read_buf.push_back(ch);
+            let mut buffers = self.buffers.lock();
+            buffers.read_queue.push_back(ch);
             if echo {
-                echo_out(ch);
+                echo_out(&[ch]);
             }
-            drop(read_buf);
-            self.wq.wake_all();
+            drop(buffers);
+            self.wake_readers();
         }
     }
 
-    /// Primary ioctl dispatcher accepting explicit address space for unit tests and syscalls
-    pub fn ioctl_with_vmar(
-        &self,
-        cmd: u32,
-        arg: usize,
-        vmar: &Arc<Vmar>,
-        proc_opt: Option<&Arc<crate::proc::Proc>>,
-    ) -> Result<usize> {
+    fn handle_termios_ioctl(&self, cmd: u32, arg: usize, vmar: &Arc<Vmar>) -> Result<usize> {
         match cmd {
             ioctl::TCGETS => {
                 let termios = *self.termios.lock();
@@ -320,18 +361,22 @@ impl LineDiscipline {
                 let new_termios = Termios::from_bytes(&bytes);
                 *self.termios.lock() = new_termios;
                 if cmd == ioctl::TCSETSF {
-                    self.read_buf.lock().clear();
-                    self.canon_buf.lock().clear();
+                    self.buffers.lock().clear();
                 }
                 Ok(0)
             }
             ioctl::TCFLSH => {
                 if arg == 0 || arg == 2 {
-                    self.read_buf.lock().clear();
-                    self.canon_buf.lock().clear();
+                    self.buffers.lock().clear();
                 }
                 Ok(0)
             }
+            _ => unreachable!(),
+        }
+    }
+
+    fn handle_winsize_ioctl(&self, cmd: u32, arg: usize, vmar: &Arc<Vmar>) -> Result<usize> {
+        match cmd {
             ioctl::TIOCGWINSZ => {
                 let mut ws = *self.winsize.lock();
                 if let Some(cons_lock) = crate::drivers::drm::get_console() {
@@ -355,33 +400,29 @@ impl LineDiscipline {
                 UserPtr::new(arg).read_bytes(vmar, &mut bytes)?;
                 let new_winsize = winsize::from_bytes(&bytes);
                 *self.winsize.lock() = new_winsize;
-                let target_pgrp = *self.pgrp.lock();
-                let pgrp_opt = target_pgrp.or_else(|| Thread::current_proc().map(|p| p.pgid()));
-                if let Some(pgrp) = pgrp_opt {
-                    for proc in crate::proc::tree::allproc_iter().filter(|p| p.pgid() == pgrp) {
-                        proc.post_signal(crate::api::signal::Signal::SIGWINCH);
-                    }
-                }
+                self.signal_pgrp(crate::api::signal::Signal::SIGWINCH);
                 Ok(0)
             }
-            ioctl::FIONREAD => {
-                let count = if (self.termios.lock().c_lflag & ICANON) != 0 {
-                    self.canon_buf.lock().len()
-                } else {
-                    self.read_buf.lock().len()
-                } as i32;
-                UserPtr::new(arg).write_bytes(vmar, &count.to_ne_bytes())?;
-                Ok(0)
-            }
+            _ => unreachable!(),
+        }
+    }
+
+    fn handle_job_control_ioctl(
+        &self,
+        cmd: u32,
+        arg: usize,
+        vmar: &Arc<Vmar>,
+        proc_opt: Option<&Arc<crate::proc::Proc>>,
+    ) -> Result<usize> {
+        match cmd {
             ioctl::TIOCSPGRP => {
                 let mut pid_bytes = [0u8; 4];
                 UserPtr::new(arg).read_bytes(vmar, &mut pid_bytes)?;
                 let raw_pid = i32::from_ne_bytes(pid_bytes);
-                if raw_pid < 0 {
+                if raw_pid <= 0 {
                     crate::return_errno!(EINVAL, "invalid process group ID");
                 }
-                let pid = crate::proc::tree::Pid::from_u32(raw_pid as u32)
-                    .ok_or(Errno::EINVAL)?;
+                let pid = Pid::from_u32(raw_pid as u32).ok_or(Errno::EINVAL)?;
                 *self.pgrp.lock() = Some(pid);
                 Ok(0)
             }
@@ -392,11 +433,8 @@ impl LineDiscipline {
                 Ok(0)
             }
             ioctl::TIOCSCTTY => {
-                if let Some(proc) = proc_opt {
-                    *self.pgrp.lock() = Some(proc.pgid());
-                } else {
-                    *self.pgrp.lock() = Some(crate::proc::tree::PID_INIT);
-                }
+                let pgid = proc_opt.map(|p| p.pgid()).unwrap_or(crate::proc::tree::PID_INIT);
+                *self.pgrp.lock() = Some(pgid);
                 Ok(0)
             }
             ioctl::TIOCNOTTY => {
@@ -409,61 +447,69 @@ impl LineDiscipline {
                 UserPtr::new(arg).write_bytes(vmar, &sid.to_ne_bytes())?;
                 Ok(0)
             }
-            // ----------------------------------------------------------------
-            // Keyboard & Display Ioctls
-            // ----------------------------------------------------------------
+            _ => unreachable!(),
+        }
+    }
+
+    fn handle_keyboard_display_ioctl(
+        &self,
+        cmd: u32,
+        arg: usize,
+        vmar: &Arc<Vmar>,
+    ) -> Result<usize> {
+        let mut kb = self.kb_state.lock();
+        match cmd {
             ioctl::KDGKBTYPE => {
                 let kb_type: u8 = ioctl::KB_101;
                 UserPtr::new(arg).write_bytes(vmar, &[kb_type])?;
                 Ok(0)
             }
             ioctl::KDGETMODE => {
-                let mode = *self.kd_mode.lock();
+                let mode = kb.kd_mode;
                 UserPtr::new(arg).write_bytes(vmar, &mode.to_ne_bytes())?;
                 Ok(0)
             }
             ioctl::KDSETMODE => {
-                *self.kd_mode.lock() = arg as i32;
+                kb.kd_mode = arg as i32;
                 Ok(0)
             }
             ioctl::KDGKBMODE => {
-                let mode = *self.kb_mode.lock() as i32;
+                let mode = kb.kb_mode as i32;
                 UserPtr::new(arg).write_bytes(vmar, &mode.to_ne_bytes())?;
                 Ok(0)
             }
             ioctl::KDSKBMODE => {
-                *self.kb_mode.lock() = arg as u32;
+                kb.kb_mode = arg as u32;
                 Ok(0)
             }
             ioctl::KDGETLED => {
-                let leds = *self.led_state.lock();
+                let leds = kb.led_state;
                 UserPtr::new(arg).write_bytes(vmar, &[leds])?;
                 Ok(0)
             }
             ioctl::KDSETLED => {
-                *self.led_state.lock() = arg as u8;
+                kb.led_state = arg as u8;
                 Ok(0)
             }
             ioctl::KDGKBLED => {
-                let leds = *self.led_state.lock() as i32;
+                let leds = kb.led_state as i32;
                 UserPtr::new(arg).write_bytes(vmar, &leds.to_ne_bytes())?;
                 Ok(0)
             }
             ioctl::KDSKBLED => {
-                *self.led_state.lock() = (arg & 0xFF) as u8;
+                kb.led_state = (arg & 0xFF) as u8;
                 Ok(0)
             }
             ioctl::KDGKBMETA => {
-                let meta = *self.meta_mode.lock() as i32;
+                let meta = kb.meta_mode as i32;
                 UserPtr::new(arg).write_bytes(vmar, &meta.to_ne_bytes())?;
                 Ok(0)
             }
             ioctl::KDSKBMETA => {
-                *self.meta_mode.lock() = arg as u32;
+                kb.meta_mode = arg as u32;
                 Ok(0)
             }
             ioctl::KDGKBENT => {
-                // struct kbentry { kb_table: u8, kb_index: u8, kb_value: u16 }
                 let mut entry_bytes = [0u8; 4];
                 UserPtr::new(arg).read_bytes(vmar, &mut entry_bytes)?;
                 let table = entry_bytes[0];
@@ -475,7 +521,6 @@ impl LineDiscipline {
             }
             ioctl::KDSKBENT | ioctl::KDKBDREP => Ok(0),
             ioctl::KDGKBDIACR => {
-                // struct kbdiacrs { kb_cnt: u32, kbdiacr: [struct kbdiacr; 256] }
                 let zero_cnt: u32 = 0;
                 UserPtr::new(arg).write_bytes(vmar, &zero_cnt.to_ne_bytes())?;
                 Ok(0)
@@ -483,17 +528,18 @@ impl LineDiscipline {
             ioctl::KDGETKEYCODE | ioctl::KDSETKEYCODE => Ok(0),
             ioctl::GIO_FONT | ioctl::PIO_FONT => Ok(0),
             ioctl::GIO_CMAP | ioctl::PIO_CMAP => Ok(0),
-            ioctl::TCSBRK | ioctl::TCXONC => Ok(0),
-            // ----------------------------------------------------------------
-            // Virtual Console (VT) Ioctls
-            // ----------------------------------------------------------------
+            _ => unreachable!(),
+        }
+    }
+
+    fn handle_vt_ioctl(&self, cmd: u32, arg: usize, vmar: &Arc<Vmar>) -> Result<usize> {
+        match cmd {
             ioctl::VT_OPENQRY => {
                 let vt: i32 = 1;
                 UserPtr::new(arg).write_bytes(vmar, &vt.to_ne_bytes())?;
                 Ok(0)
             }
             ioctl::VT_GETSTATE => {
-                // struct vt_stat { v_active: u16, v_signal: u16, v_state: u16 }
                 let mut stat_bytes = [0u8; 6];
                 stat_bytes[0..2].copy_from_slice(&1u16.to_ne_bytes()); // active VT = 1
                 stat_bytes[2..4].copy_from_slice(&0u16.to_ne_bytes());
@@ -502,15 +548,71 @@ impl LineDiscipline {
                 Ok(0)
             }
             ioctl::VT_GETMODE => {
-                // struct vt_mode { mode: i8, waitv: i8, relsig: i16, acqsig: i16, frsig: i16 }
                 let mode_bytes = [0u8; 8];
                 UserPtr::new(arg).write_bytes(vmar, &mode_bytes)?;
                 Ok(0)
             }
-            ioctl::VT_SETMODE | ioctl::VT_ACTIVATE | ioctl::VT_WAITACTIVE | ioctl::VT_DISALLOCATE => {
+            ioctl::VT_SETMODE
+            | ioctl::VT_ACTIVATE
+            | ioctl::VT_WAITACTIVE
+            | ioctl::VT_DISALLOCATE
+            | ioctl::TIOCLINUX => Ok(0),
+            _ => unreachable!(),
+        }
+    }
+
+    /// Primary ioctl dispatcher accepting explicit address space for unit tests and syscalls
+    pub fn ioctl_with_vmar(
+        &self,
+        cmd: u32,
+        arg: usize,
+        vmar: &Arc<Vmar>,
+        proc_opt: Option<&Arc<crate::proc::Proc>>,
+    ) -> Result<usize> {
+        match cmd {
+            ioctl::TCGETS | ioctl::TCSETS | ioctl::TCSETSW | ioctl::TCSETSF | ioctl::TCFLSH => {
+                self.handle_termios_ioctl(cmd, arg, vmar)
+            }
+            ioctl::TIOCGWINSZ | ioctl::TIOCSWINSZ => self.handle_winsize_ioctl(cmd, arg, vmar),
+            ioctl::FIONREAD => {
+                let count = self.buffers.lock().read_queue.len() as i32;
+                UserPtr::new(arg).write_bytes(vmar, &count.to_ne_bytes())?;
                 Ok(0)
             }
-            ioctl::TIOCLINUX => Ok(0),
+            ioctl::TIOCSPGRP
+            | ioctl::TIOCGPGRP
+            | ioctl::TIOCSCTTY
+            | ioctl::TIOCNOTTY
+            | ioctl::TIOCGSID => self.handle_job_control_ioctl(cmd, arg, vmar, proc_opt),
+            ioctl::KDGKBTYPE
+            | ioctl::KDGETMODE
+            | ioctl::KDSETMODE
+            | ioctl::KDGKBMODE
+            | ioctl::KDSKBMODE
+            | ioctl::KDGETLED
+            | ioctl::KDSETLED
+            | ioctl::KDGKBLED
+            | ioctl::KDSKBLED
+            | ioctl::KDGKBMETA
+            | ioctl::KDSKBMETA
+            | ioctl::KDGKBENT
+            | ioctl::KDSKBENT
+            | ioctl::KDKBDREP
+            | ioctl::KDGKBDIACR
+            | ioctl::KDGETKEYCODE
+            | ioctl::KDSETKEYCODE
+            | ioctl::GIO_FONT
+            | ioctl::PIO_FONT
+            | ioctl::GIO_CMAP
+            | ioctl::PIO_CMAP => self.handle_keyboard_display_ioctl(cmd, arg, vmar),
+            ioctl::VT_OPENQRY
+            | ioctl::VT_GETSTATE
+            | ioctl::VT_GETMODE
+            | ioctl::VT_SETMODE
+            | ioctl::VT_ACTIVATE
+            | ioctl::VT_WAITACTIVE
+            | ioctl::VT_DISALLOCATE
+            | ioctl::TIOCLINUX => self.handle_vt_ioctl(cmd, arg, vmar),
             _ => crate::return_errno!(ENOTTY, "inappropriate ioctl for device"),
         }
     }
@@ -523,6 +625,12 @@ impl LineDiscipline {
     }
 }
 
+impl Default for LineDiscipline {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 // ----------------------------------------------------------------------------
 // Tests
 // ----------------------------------------------------------------------------
@@ -530,9 +638,9 @@ impl LineDiscipline {
 #[cfg(ktest)]
 mod tests {
     use super::*;
-    use ostd::prelude::ktest;
     use crate::vm::flags::MmapFlags;
     use crate::vm::perms::VmPerms;
+    use ostd::prelude::ktest;
 
     #[ktest]
     fn keyboard_mode_and_led_ioctls() {
@@ -652,6 +760,37 @@ mod tests {
 
         let mut buf = [0u8; 16];
         let n = ldisc.read(&mut buf).expect("read line");
+        assert_eq!(n, 3);
+        assert_eq!(&buf[..3], b"hi\n");
+    }
+
+    #[ktest]
+    fn ldisc_canonical_editing_and_word_erase() {
+        let ldisc = LineDiscipline::new();
+
+        // Feed 'a', 'b', 'c', backspace, 'd', '\n' -> "abd\n"
+        ldisc.receive_char(b'a', &mut |_| {});
+        ldisc.receive_char(b'b', &mut |_| {});
+        ldisc.receive_char(b'c', &mut |_| {});
+        ldisc.receive_char(0x7F, &mut |_| {}); // DEL/Backspace
+        ldisc.receive_char(b'd', &mut |_| {});
+        ldisc.receive_char(b'\n', &mut |_| {});
+
+        let mut buf = [0u8; 16];
+        let n = ldisc.read(&mut buf).expect("read edited line");
+        assert_eq!(n, 4);
+        assert_eq!(&buf[..4], b"abd\n");
+
+        // Test Word Erase (Ctrl+W = 0x17): feed "hi yo^W\n" -> "hi \n" -> "hi\n"
+        ldisc.receive_char(b'h', &mut |_| {});
+        ldisc.receive_char(b'i', &mut |_| {});
+        ldisc.receive_char(b' ', &mut |_| {});
+        ldisc.receive_char(b'y', &mut |_| {});
+        ldisc.receive_char(b'o', &mut |_| {});
+        ldisc.receive_char(0x17, &mut |_| {}); // Ctrl+W
+        ldisc.receive_char(b'\n', &mut |_| {});
+
+        let n = ldisc.read(&mut buf).expect("read line after word erase");
         assert_eq!(n, 3);
         assert_eq!(&buf[..3], b"hi\n");
     }

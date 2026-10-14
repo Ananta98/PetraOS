@@ -3,12 +3,33 @@
 //! System Console Driver
 //!
 //! Provides the primary system console (`/dev/console`).
-//! Integrates the line discipline and delegates to the VGA text mode driver.
+//! Integrates the line discipline and delegates to the framebuffer console.
 
 use alloc::string::String;
-use crate::drivers::CharacterDevice;
-use crate::drivers::char::tty::ldisc::LineDiscipline;
+
 use crate::api::errno::Result;
+use crate::drivers::char::tty::ldisc::LineDiscipline;
+use crate::drivers::CharacterDevice;
+
+/// Helper to iterate through output buffer chunks, splitting by `\n` if `opost && onlcr` is active.
+fn for_each_line_chunk(buf: &[u8], opost_onlcr: bool, mut on_chunk: impl FnMut(&[u8])) {
+    if !opost_onlcr {
+        on_chunk(buf);
+        return;
+    }
+    let mut start = 0;
+    while let Some(pos) = buf[start..].iter().position(|&b| b == b'\n') {
+        let nl_idx = start + pos;
+        if nl_idx > start {
+            on_chunk(&buf[start..nl_idx]);
+        }
+        on_chunk(b"\r\n");
+        start = nl_idx + 1;
+    }
+    if start < buf.len() {
+        on_chunk(&buf[start..]);
+    }
+}
 
 /// The main system console device
 pub struct Console {
@@ -22,27 +43,31 @@ impl Console {
         }
     }
 
-    /// Process an incoming character from the keyboard
+    /// Process an incoming character from the keyboard into the line discipline.
     pub fn handle_input(&self, ch: u8) {
-        // Feed into line discipline
-        self.ldisc.receive_char(ch, &mut |echo_char| {
+        self.ldisc.receive_char(ch, &mut |echo_slice| {
             if let Some(cons_lock) = crate::drivers::drm::get_console() {
                 let mut cons = cons_lock.lock();
-                cons.write_byte(echo_char);
+                cons.write_bytes(echo_slice);
             }
-            ostd::early_print!("{}", echo_char as char);
         });
     }
 
-    /// Wakes readers blocked on the line discipline (called from IRQ context).
+    /// Wakes readers blocked on the line discipline and pollers (called from IRQ context).
     pub fn notify_input(&self) {
-        self.ldisc.wq.wake_all();
+        self.ldisc.wake_readers();
     }
 
+    /// Reports poll readiness for reading/writing.
     pub fn poll(&self) -> Result<u32> {
-        crate::drivers::char::serial::poll_drain_rx();
         super::drain_input();
         self.ldisc.poll()
+    }
+}
+
+impl Default for Console {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -52,37 +77,22 @@ impl CharacterDevice for Console {
     }
 
     fn read(&self, buf: &mut [u8]) -> Result<usize> {
-        crate::drivers::char::serial::poll_drain_rx();
         super::drain_input();
         self.ldisc.read(buf)
     }
 
     fn write(&self, buf: &[u8]) -> Result<usize> {
-        let mut written = 0;
-        
-        // Output processing according to termios (OPOST, ONLCR)
-        let termios = self.ldisc.termios.lock();
-        let opost = (termios.c_oflag & crate::api::termios::OPOST) != 0;
-        let onlcr = (termios.c_oflag & crate::api::termios::ONLCR) != 0;
-        drop(termios);
+        let (opost, onlcr) = self.ldisc.output_flags();
 
-        for &b in buf {
-            if opost && b == b'\n' && onlcr {
-                if let Some(cons_lock) = crate::drivers::drm::get_console() {
-                    let mut cons = cons_lock.lock();
-                    cons.write_byte(b'\r');
-                }
-                ostd::early_print!("\r");
-            }
-            if let Some(cons_lock) = crate::drivers::drm::get_console() {
-                let mut cons = cons_lock.lock();
-                cons.write_byte(b);
-            }
-            ostd::early_print!("{}", b as char);
-            written += 1;
+        // Write batch directly to framebuffer text console
+        if let Some(cons_lock) = crate::drivers::drm::get_console() {
+            let mut cons = cons_lock.lock();
+            for_each_line_chunk(buf, opost && onlcr, |chunk| {
+                cons.write_bytes(chunk);
+            });
         }
 
-        Ok(written)
+        Ok(buf.len())
     }
 
     fn ioctl(&self, cmd: u32, arg: usize) -> Result<usize> {
@@ -90,8 +100,6 @@ impl CharacterDevice for Console {
     }
 
     fn poll(&self) -> Result<u32> {
-        crate::drivers::char::serial::poll_drain_rx();
-        super::drain_input();
-        self.ldisc.poll()
+        self.poll()
     }
 }

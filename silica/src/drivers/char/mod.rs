@@ -3,8 +3,7 @@
 //! Character Device Drivers Subsystem.
 //!
 //! Provides drivers for character devices including the i8042 PS/2 controller,
-//! keyboards, mice, serial ports, and terminal devices.
+//! keyboards, mice, and terminal devices.
 
 pub mod i8042;
-pub mod serial;
 pub mod tty;

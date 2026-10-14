@@ -3,10 +3,11 @@
 pub mod console;
 pub mod ldisc;
 
-use crate::drivers::register_chrdev;
 use alloc::sync::Arc;
+use spin::{Mutex, Once};
+
+use crate::drivers::register_chrdev;
 use console::Console;
-use spin::Once;
 
 static CONSOLE: Once<Arc<Console>> = Once::new();
 
@@ -33,11 +34,11 @@ static INPUT_QUEUE: crate::utils::lockless_queue::LocklessQueue<1024> =
     crate::utils::lockless_queue::LocklessQueue::new();
 
 /// Serialises consumers of [`INPUT_QUEUE`]. Never taken from interrupt context.
-static DRAIN_LOCK: spin::Mutex<()> = spin::Mutex::new(());
+static DRAIN_LOCK: Mutex<()> = Mutex::new(());
 
 /// Queues an input byte. Lock-free; safe to call from an interrupt handler.
 pub fn queue_input(ch: u8) {
-    let _ = INPUT_QUEUE.push(ch);
+    INPUT_QUEUE.push_overwrite(ch);
     if let Some(console) = CONSOLE.get() {
         console.notify_input();
     }
