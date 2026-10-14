@@ -371,6 +371,14 @@ impl LineDiscipline {
                 }
                 Ok(0)
             }
+            ioctl::TCSBRK | ioctl::TCSBRKP | ioctl::TIOCSBRK | ioctl::TIOCCBRK => {
+                // Break generation / drain wait: no-op on virtual console
+                Ok(0)
+            }
+            ioctl::TCXONC => {
+                // Flow control: accept and succeed
+                Ok(0)
+            }
             _ => unreachable!(),
         }
     }
@@ -389,6 +397,12 @@ impl LineDiscipline {
                 if let Some(fb) = crate::drivers::drm::get_framebuffer() {
                     ws.ws_xpixel = fb.width as u16;
                     ws.ws_ypixel = fb.height as u16;
+                }
+                if ws.ws_col == 0 {
+                    ws.ws_col = 80;
+                }
+                if ws.ws_row == 0 {
+                    ws.ws_row = 25;
                 }
                 *self.winsize.lock() = ws;
                 let bytes = ws.to_bytes();
@@ -570,12 +584,24 @@ impl LineDiscipline {
         proc_opt: Option<&Arc<crate::proc::Proc>>,
     ) -> Result<usize> {
         match cmd {
-            ioctl::TCGETS | ioctl::TCSETS | ioctl::TCSETSW | ioctl::TCSETSF | ioctl::TCFLSH => {
-                self.handle_termios_ioctl(cmd, arg, vmar)
-            }
+            ioctl::TCGETS
+            | ioctl::TCSETS
+            | ioctl::TCSETSW
+            | ioctl::TCSETSF
+            | ioctl::TCFLSH
+            | ioctl::TCSBRK
+            | ioctl::TCSBRKP
+            | ioctl::TIOCSBRK
+            | ioctl::TIOCCBRK
+            | ioctl::TCXONC => self.handle_termios_ioctl(cmd, arg, vmar),
             ioctl::TIOCGWINSZ | ioctl::TIOCSWINSZ => self.handle_winsize_ioctl(cmd, arg, vmar),
             ioctl::FIONREAD => {
                 let count = self.buffers.lock().read_queue.len() as i32;
+                UserPtr::new(arg).write_bytes(vmar, &count.to_ne_bytes())?;
+                Ok(0)
+            }
+            ioctl::TIOCOUTQ => {
+                let count: i32 = 0;
                 UserPtr::new(arg).write_bytes(vmar, &count.to_ne_bytes())?;
                 Ok(0)
             }
@@ -781,7 +807,7 @@ mod tests {
         assert_eq!(n, 4);
         assert_eq!(&buf[..4], b"abd\n");
 
-        // Test Word Erase (Ctrl+W = 0x17): feed "hi yo^W\n" -> "hi \n" -> "hi\n"
+        // Test Word Erase (Ctrl+W = 0x17): feed "hi yo^W\n" -> "hi \n"
         ldisc.receive_char(b'h', &mut |_| {});
         ldisc.receive_char(b'i', &mut |_| {});
         ldisc.receive_char(b' ', &mut |_| {});
@@ -791,7 +817,65 @@ mod tests {
         ldisc.receive_char(b'\n', &mut |_| {});
 
         let n = ldisc.read(&mut buf).expect("read line after word erase");
-        assert_eq!(n, 3);
-        assert_eq!(&buf[..3], b"hi\n");
+        assert_eq!(n, 4);
+        assert_eq!(&buf[..4], b"hi \n");
+    }
+
+    #[ktest]
+    fn tiocwinsz_and_tiocoutq_and_break_ioctls() {
+        let ldisc = LineDiscipline::new();
+        let vmar = Vmar::new();
+
+        let test_page = 0x0000_3000_0000usize;
+        vmar.mmap_anonymous(
+            test_page,
+            4096,
+            VmPerms::READ | VmPerms::WRITE,
+            MmapFlags::ANONYMOUS | MmapFlags::PRIVATE,
+        )
+        .expect("mmap anonymous page");
+        vmar.populate_range(&(test_page..test_page + 4096))
+            .expect("populate");
+        vmar.activate();
+
+        // 1. TIOCGWINSZ should return valid dimensions (at least 80x25 fallback)
+        ldisc.ioctl_with_vmar(ioctl::TIOCGWINSZ, test_page, &vmar, None)
+            .expect("TIOCGWINSZ");
+        let mut ws_bytes = [0u8; winsize::SIZE];
+        UserPtr::new(test_page)
+            .read_bytes(&vmar, &mut ws_bytes)
+            .expect("read winsize");
+        let ws = winsize::from_bytes(&ws_bytes);
+        assert!(ws.ws_col >= 80, "ws_col must be at least 80");
+        assert!(ws.ws_row >= 25, "ws_row must be at least 25");
+
+        // 2. TIOCOUTQ should return 0 (no unsent buffered bytes)
+        ldisc.ioctl_with_vmar(ioctl::TIOCOUTQ, test_page, &vmar, None)
+            .expect("TIOCOUTQ");
+        let mut outq_bytes = [0u8; 4];
+        UserPtr::new(test_page)
+            .read_bytes(&vmar, &mut outq_bytes)
+            .expect("read TIOCOUTQ");
+        assert_eq!(i32::from_ne_bytes(outq_bytes), 0);
+
+        // 3. TCSBRK, TCSBRKP, TIOCSBRK, TIOCCBRK, TCXONC must succeed
+        ldisc.ioctl_with_vmar(ioctl::TCSBRK, 0, &vmar, None).expect("TCSBRK");
+        ldisc.ioctl_with_vmar(ioctl::TCSBRKP, 0, &vmar, None).expect("TCSBRKP");
+        ldisc.ioctl_with_vmar(ioctl::TIOCSBRK, 0, &vmar, None).expect("TIOCSBRK");
+        ldisc.ioctl_with_vmar(ioctl::TIOCCBRK, 0, &vmar, None).expect("TIOCCBRK");
+        ldisc.ioctl_with_vmar(ioctl::TCXONC, 1, &vmar, None).expect("TCXONC");
+
+        // 4. FIONREAD should report available queued characters
+        ldisc.receive_char(b'o', &mut |_| {});
+        ldisc.receive_char(b'k', &mut |_| {});
+        ldisc.receive_char(b'\n', &mut |_| {});
+
+        ldisc.ioctl_with_vmar(ioctl::FIONREAD, test_page, &vmar, None)
+            .expect("FIONREAD");
+        let mut inq_bytes = [0u8; 4];
+        UserPtr::new(test_page)
+            .read_bytes(&vmar, &mut inq_bytes)
+            .expect("read FIONREAD");
+        assert_eq!(i32::from_ne_bytes(inq_bytes), 3);
     }
 }

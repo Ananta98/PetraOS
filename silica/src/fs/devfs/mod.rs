@@ -354,6 +354,13 @@ impl FileOps for TtyFileOps {
     fn ioctl(&self, cmd: u32, arg: usize) -> Result<usize> {
         self.console.ioctl(cmd, arg)
     }
+
+    fn poll(&self) -> crate::fs::poll::PollEvents {
+        match self.console.poll() {
+            Ok(mask) => crate::fs::poll::PollEvents::from_bits_truncate(mask as u16),
+            Err(_) => crate::fs::poll::PollEvents::empty(),
+        }
+    }
 }
 
 

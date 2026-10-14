@@ -9,6 +9,7 @@ pub const TCSBRK: u32 = 0x5409;
 pub const TCXONC: u32 = 0x540A;
 pub const TCFLSH: u32 = 0x540B;
 
+pub const TIOCOUTQ: u32 = 0x5411;
 pub const TIOCGWINSZ: u32 = 0x5413;
 pub const TIOCSWINSZ: u32 = 0x5414;
 
@@ -17,6 +18,9 @@ pub const TIOCSPGRP: u32 = 0x5410;
 
 pub const TIOCSCTTY: u32 = 0x540E;
 pub const TIOCNOTTY: u32 = 0x5422;
+pub const TCSBRKP: u32 = 0x5425;
+pub const TIOCSBRK: u32 = 0x5427;
+pub const TIOCCBRK: u32 = 0x5428;
 pub const FIONREAD: u32 = 0x541B;
 pub const TIOCLINUX: u32 = 0x541C;
 

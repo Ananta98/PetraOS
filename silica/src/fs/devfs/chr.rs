@@ -54,4 +54,11 @@ impl FileOps for GenericChrFileOps {
     fn ioctl(&self, cmd: u32, arg: usize) -> Result<usize> {
         self.dev.ioctl(cmd, arg)
     }
+
+    fn poll(&self) -> crate::fs::poll::PollEvents {
+        match self.dev.poll() {
+            Ok(mask) => crate::fs::poll::PollEvents::from_bits_truncate(mask as u16),
+            Err(_) => crate::fs::poll::PollEvents::empty(),
+        }
+    }
 }

@@ -141,15 +141,23 @@ pub type Termios = termios;
 impl Default for termios {
     fn default() -> Self {
         let mut cc = [0; NCCS];
-        cc[VEOF] = 4;     // ^D
-        cc[VEOL] = 0;
-        cc[VERASE] = 127; // DEL
         cc[VINTR] = 3;    // ^C
-        cc[VKILL] = 21;   // ^U
         cc[VQUIT] = 28;   // ^\
+        cc[VERASE] = 127; // DEL
+        cc[VKILL] = 21;   // ^U
+        cc[VEOF] = 4;     // ^D
+        cc[VTIME] = 0;
+        cc[VMIN] = 1;
+        cc[VSWTC] = 0;
         cc[VSTART] = 17;  // ^Q
         cc[VSTOP] = 19;   // ^S
         cc[VSUSP] = 26;   // ^Z
+        cc[VEOL] = 0;
+        cc[VREPRINT] = 18;// ^R
+        cc[VDISCARD] = 15;// ^O
+        cc[VWERASE] = 23; // ^W (Ctrl+W)
+        cc[VLNEXT] = 22;  // ^V
+        cc[VEOL2] = 0;
 
         Self {
             c_iflag: ICRNL | IXON,

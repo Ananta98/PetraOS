@@ -37,6 +37,14 @@ pub enum AnsiAction {
     SetCursorPos { col: usize, row: usize },
     /// Move cursor relative to current position.
     MoveCursor { dcol: isize, drow: isize },
+    /// Move cursor to absolute 0-indexed column in the current row (CHA - CSI G / CSI ').
+    SetCursorCol(usize),
+    /// Move cursor to absolute 0-indexed row in the current column (VPA - CSI d).
+    SetCursorRow(usize),
+    /// Save current cursor position and text style (DECSC - ESC 7 / ANSI.SYS CSI s).
+    SaveCursor,
+    /// Restore previously saved cursor position and text style (DECRC - ESC 8 / ANSI.SYS CSI u).
+    RestoreCursor,
     /// Clear screen: 0 = cursor to end, 1 = start to cursor, 2 = full screen.
     ClearDisplay(u8),
     /// Clear line: 0 = cursor to end, 1 = start to cursor, 2 = full line.
@@ -103,6 +111,27 @@ impl AnsiParser {
                     self.param_count = 0;
                     self.in_param = false;
                     self.is_private = false;
+                }
+                b'7' => {
+                    // DECSC - DEC Save Cursor
+                    emit(AnsiAction::SaveCursor);
+                    self.state = State::Ground;
+                }
+                b'8' => {
+                    // DECRC - DEC Restore Cursor
+                    emit(AnsiAction::RestoreCursor);
+                    self.state = State::Ground;
+                }
+                b'M' => {
+                    // RI - Reverse Index (cursor up)
+                    emit(AnsiAction::MoveCursor { dcol: 0, drow: -1 });
+                    self.state = State::Ground;
+                }
+                b'E' => {
+                    // NEL - Next Line
+                    emit(AnsiAction::CarriageReturn);
+                    emit(AnsiAction::Newline);
+                    self.state = State::Ground;
                 }
                 b'c' => {
                     // RIS - Reset Initial State
@@ -220,6 +249,36 @@ impl AnsiParser {
                     }
                     self.state = State::Ground;
                 }
+                b's' => {
+                    // SCO / ANSI save cursor: CSI s
+                    emit(AnsiAction::SaveCursor);
+                    self.state = State::Ground;
+                }
+                b'u' => {
+                    // SCO / ANSI restore cursor: CSI u
+                    emit(AnsiAction::RestoreCursor);
+                    self.state = State::Ground;
+                }
+                b'G' | b'\'' => {
+                    // CHA - Cursor Character Absolute (1-indexed column)
+                    let col = if self.in_param && self.params[0] > 0 {
+                        (self.params[0] - 1) as usize
+                    } else {
+                        0
+                    };
+                    emit(AnsiAction::SetCursorCol(col));
+                    self.state = State::Ground;
+                }
+                b'd' => {
+                    // VPA - Line Position Absolute (1-indexed row)
+                    let row = if self.in_param && self.params[0] > 0 {
+                        (self.params[0] - 1) as usize
+                    } else {
+                        0
+                    };
+                    emit(AnsiAction::SetCursorRow(row));
+                    self.state = State::Ground;
+                }
                 _ => {
                     // Unrecognized sequence terminator
                     self.state = State::Ground;
@@ -272,5 +331,42 @@ impl AnsiParser {
             inverse,
             reset,
         });
+    }
+}
+
+#[cfg(ktest)]
+mod tests {
+    use super::*;
+    use alloc::vec::Vec;
+    use ostd::prelude::ktest;
+
+    #[ktest]
+    fn test_ansi_dec_and_sco_cursor_save_restore() {
+        let mut parser = AnsiParser::new();
+        let mut actions = Vec::new();
+
+        // 1. Test DECSC "\x1b7" and DECRC "\x1b8" (used by apk progress bar)
+        for &b in b"\x1b7progress\x1b8\x1b[0K" {
+            parser.process_byte(b, |a| actions.push(a));
+        }
+
+        assert_eq!(actions[0], AnsiAction::SaveCursor);
+        assert_eq!(actions[1], AnsiAction::Print('p'));
+        assert_eq!(actions[9], AnsiAction::RestoreCursor);
+        assert_eq!(actions[10], AnsiAction::ClearLine(0));
+
+        // 2. Test SCO CSI s and CSI u
+        actions.clear();
+        for &b in b"\x1b[s\x1b[u" {
+            parser.process_byte(b, |a| actions.push(a));
+        }
+        assert_eq!(actions, alloc::vec![AnsiAction::SaveCursor, AnsiAction::RestoreCursor]);
+
+        // 3. Test CHA (CSI G) and VPA (CSI d)
+        actions.clear();
+        for &b in b"\x1b[15G\x1b[8d" {
+            parser.process_byte(b, |a| actions.push(a));
+        }
+        assert_eq!(actions, alloc::vec![AnsiAction::SetCursorCol(14), AnsiAction::SetCursorRow(7)]);
     }
 }

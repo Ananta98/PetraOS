@@ -54,6 +54,12 @@ pub struct FbConsole {
     inverse: bool,
     cells: Vec<ScreenCell>,
     ansi_parser: AnsiParser,
+    saved_col: usize,
+    saved_row: usize,
+    saved_fg: Color,
+    saved_bg: Color,
+    saved_bold: bool,
+    saved_inverse: bool,
 }
 
 impl FbConsole {
@@ -86,6 +92,12 @@ impl FbConsole {
             inverse: false,
             cells,
             ansi_parser: AnsiParser::new(),
+            saved_col: 0,
+            saved_row: 0,
+            saved_fg: default_fg,
+            saved_bg: default_bg,
+            saved_bold: false,
+            saved_inverse: false,
         };
 
         console.draw_cursor();
@@ -182,6 +194,9 @@ impl FbConsole {
 
         let lines = count.min(self.rows);
         self.fb.scroll_up(lines * FONT_HEIGHT, self.default_bg);
+
+        // Adjust saved cursor row when screen scrolls
+        self.saved_row = self.saved_row.saturating_sub(lines);
 
         // Shift cell rows in memory
         let shift_cells = lines * self.cols;
@@ -377,6 +392,28 @@ impl FbConsole {
                 self.col = col.min(self.cols.saturating_sub(1));
                 self.row = row.min(self.rows.saturating_sub(1));
             }
+            AnsiAction::SetCursorCol(col) => {
+                self.col = col.min(self.cols.saturating_sub(1));
+            }
+            AnsiAction::SetCursorRow(row) => {
+                self.row = row.min(self.rows.saturating_sub(1));
+            }
+            AnsiAction::SaveCursor => {
+                self.saved_col = self.col;
+                self.saved_row = self.row;
+                self.saved_fg = self.current_fg;
+                self.saved_bg = self.current_bg;
+                self.saved_bold = self.bold;
+                self.saved_inverse = self.inverse;
+            }
+            AnsiAction::RestoreCursor => {
+                self.col = self.saved_col.min(self.cols.saturating_sub(1));
+                self.row = self.saved_row.min(self.rows.saturating_sub(1));
+                self.current_fg = self.saved_fg;
+                self.current_bg = self.saved_bg;
+                self.bold = self.saved_bold;
+                self.inverse = self.saved_inverse;
+            }
             AnsiAction::MoveCursor { dcol, drow } => {
                 let new_col = (self.col as isize + dcol).max(0).min(self.cols as isize - 1);
                 let new_row = (self.row as isize + drow).max(0).min(self.rows as isize - 1);
@@ -394,6 +431,12 @@ impl FbConsole {
                 self.bold = false;
                 self.inverse = false;
                 self.cursor_visible = true;
+                self.saved_col = 0;
+                self.saved_row = 0;
+                self.saved_fg = self.default_fg;
+                self.saved_bg = self.default_bg;
+                self.saved_bold = false;
+                self.saved_inverse = false;
                 self.clear_display(2);
             }
         }
