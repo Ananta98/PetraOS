@@ -19,8 +19,12 @@ pub enum AnsiAction {
     CarriageReturn,
     /// Tab (`\t`): Advance to next 8-column tab stop.
     Tab,
-    /// Destructive Backspace (`\x08` or DEL).
+    /// Backspace (`\x08`): Move cursor left 1 column (non-destructive).
     Backspace,
+    /// Delete characters at cursor (DCH - CSI P).
+    DeleteChars(usize),
+    /// Erase characters at cursor (ECH - CSI X).
+    EraseChars(usize),
     /// Select Graphic Rendition (SGR) text styling.
     SetStyle {
         fg: Option<Color>,
@@ -83,7 +87,8 @@ impl AnsiParser {
                 b'\n' => emit(AnsiAction::Newline),
                 b'\r' => emit(AnsiAction::CarriageReturn),
                 b'\t' => emit(AnsiAction::Tab),
-                0x08 | 0x7F => emit(AnsiAction::Backspace),
+                0x08 => emit(AnsiAction::Backspace),
+                0x7F => { /* DEL - ignored in VT100 ground state */ }
                 0x07 => { /* Bell - ignore or flash */ }
                 ch if ch >= 0x20 => {
                     emit(AnsiAction::Print(ch as char));
@@ -189,6 +194,18 @@ impl AnsiParser {
                     // Erase in Line
                     let mode = if self.in_param { self.params[0] as u8 } else { 0 };
                     emit(AnsiAction::ClearLine(mode));
+                    self.state = State::Ground;
+                }
+                b'P' => {
+                    // DCH - Delete Character (shifts line left)
+                    let count = if self.in_param && self.params[0] > 0 { self.params[0] as usize } else { 1 };
+                    emit(AnsiAction::DeleteChars(count));
+                    self.state = State::Ground;
+                }
+                b'X' => {
+                    // ECH - Erase Character (erases to space in place)
+                    let count = if self.in_param && self.params[0] > 0 { self.params[0] as usize } else { 1 };
+                    emit(AnsiAction::EraseChars(count));
                     self.state = State::Ground;
                 }
                 b'h' => {

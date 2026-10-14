@@ -213,15 +213,46 @@ impl FbConsole {
         }
     }
 
-    /// Destructive backspace.
+    /// Non-destructive backspace (moves cursor left by 1 column).
     pub fn backspace(&mut self) {
         if self.col > 0 {
             self.col -= 1;
-            let idx = self.row * self.cols + self.col;
-            if idx < self.cells.len() {
-                self.cells[idx] = ScreenCell::blank(self.default_fg, self.default_bg);
-                self.draw_cell(self.col, self.row);
-            }
+        }
+    }
+
+    /// Deletes `count` characters at cursor, shifting remainder of the row to the left (DCH).
+    pub fn delete_chars(&mut self, count: usize) {
+        if self.row >= self.rows || self.col >= self.cols || count == 0 {
+            return;
+        }
+        let row_start = self.row * self.cols;
+        let c = self.col;
+        let count = count.min(self.cols - c);
+        let blank = ScreenCell::blank(self.default_fg, self.default_bg);
+
+        for i in c..(self.cols - count) {
+            self.cells[row_start + i] = self.cells[row_start + i + count];
+        }
+        for i in (self.cols - count)..self.cols {
+            self.cells[row_start + i] = blank;
+        }
+        for i in c..self.cols {
+            self.draw_cell(i, self.row);
+        }
+    }
+
+    /// Erases `count` characters from cursor position without moving the cursor (ECH).
+    pub fn erase_chars(&mut self, count: usize) {
+        if self.row >= self.rows || self.col >= self.cols || count == 0 {
+            return;
+        }
+        let row_start = self.row * self.cols;
+        let count = count.min(self.cols - self.col);
+        let blank = ScreenCell::blank(self.default_fg, self.default_bg);
+
+        for i in self.col..(self.col + count) {
+            self.cells[row_start + i] = blank;
+            self.draw_cell(i, self.row);
         }
     }
 
@@ -320,6 +351,8 @@ impl FbConsole {
             AnsiAction::CarriageReturn => self.carriage_return(),
             AnsiAction::Tab => self.tab(),
             AnsiAction::Backspace => self.backspace(),
+            AnsiAction::DeleteChars(count) => self.delete_chars(count),
+            AnsiAction::EraseChars(count) => self.erase_chars(count),
             AnsiAction::SetStyle { fg, bg, bold, inverse, reset } => {
                 if reset {
                     self.current_fg = self.default_fg;

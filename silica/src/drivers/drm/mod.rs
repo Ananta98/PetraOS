@@ -7,4 +7,4 @@
 //! emulation, and `/dev/fb0` character devices.
 
 pub mod framebuffer;
-pub use framebuffer::get_console;
+pub use framebuffer::{get_console, get_framebuffer};

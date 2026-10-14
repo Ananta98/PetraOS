@@ -20,10 +20,14 @@ pub const TIOCNOTTY: u32 = 0x5422;
 pub const FIONREAD: u32 = 0x541B;
 pub const TIOCLINUX: u32 = 0x541C;
 
+pub const TIOCGSID: u32 = 0x5429;
+
 // ----------------------------------------------------------------------------
 // Keyboard & Console Ioctls (Linux kd.h / kbd.h)
 // ----------------------------------------------------------------------------
 
+pub const KDGETLED: u32 = 0x4B31;
+pub const KDSETLED: u32 = 0x4B32;
 pub const KDGKBTYPE: u32 = 0x4B33;
 pub const KDGETMODE: u32 = 0x4B3B;
 pub const KDSETMODE: u32 = 0x4B3C;
@@ -32,13 +36,15 @@ pub const KDSKBMODE: u32 = 0x4B45;
 pub const KDGKBENT: u32 = 0x4B46;
 pub const KDSKBENT: u32 = 0x4B47;
 pub const KDGKBDIACR: u32 = 0x4B4A;
+pub const KDGETKEYCODE: u32 = 0x4B4C;
+pub const KDSETKEYCODE: u32 = 0x4B4D;
 pub const KDKBDREP: u32 = 0x4B52;
 pub const GIO_FONT: u32 = 0x4B60;
 pub const PIO_FONT: u32 = 0x4B61;
-pub const KDGETLED: u32 = 0x4B62;
-pub const KDSETLED: u32 = 0x4B63;
-pub const KDGKBMETA: u32 = 0x4B64;
-pub const KDSKBMETA: u32 = 0x4B65;
+pub const KDGKBMETA: u32 = 0x4B62;
+pub const KDSKBMETA: u32 = 0x4B63;
+pub const KDGKBLED: u32 = 0x4B64;
+pub const KDSKBLED: u32 = 0x4B65;
 pub const GIO_CMAP: u32 = 0x4B70;
 pub const PIO_CMAP: u32 = 0x4B71;
 

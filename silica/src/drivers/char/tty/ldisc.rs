@@ -48,10 +48,10 @@ impl LineDiscipline {
         Self {
             termios: Mutex::new(Termios::default()),
             winsize: Mutex::new(winsize {
-                ws_row: 25,
-                ws_col: 80,
-                ws_xpixel: 800,
-                ws_ypixel: 600,
+                ws_row: 50,
+                ws_col: 160,
+                ws_xpixel: 1280,
+                ws_ypixel: 800,
             }),
             read_buf: Mutex::new(VecDeque::with_capacity(4096)),
             canon_buf: Mutex::new(VecDeque::with_capacity(4096)),
@@ -333,8 +333,20 @@ impl LineDiscipline {
                 Ok(0)
             }
             ioctl::TIOCGWINSZ => {
-                let winsize = *self.winsize.lock();
-                let bytes = winsize.to_bytes();
+                let mut ws = *self.winsize.lock();
+                if let Some(cons_lock) = crate::drivers::drm::get_console() {
+                    let cons = cons_lock.lock();
+                    if cons.cols > 0 && cons.rows > 0 {
+                        ws.ws_col = cons.cols as u16;
+                        ws.ws_row = cons.rows as u16;
+                    }
+                }
+                if let Some(fb) = crate::drivers::drm::get_framebuffer() {
+                    ws.ws_xpixel = fb.width as u16;
+                    ws.ws_ypixel = fb.height as u16;
+                }
+                *self.winsize.lock() = ws;
+                let bytes = ws.to_bytes();
                 UserPtr::new(arg).write_bytes(vmar, &bytes)?;
                 Ok(0)
             }
@@ -343,6 +355,13 @@ impl LineDiscipline {
                 UserPtr::new(arg).read_bytes(vmar, &mut bytes)?;
                 let new_winsize = winsize::from_bytes(&bytes);
                 *self.winsize.lock() = new_winsize;
+                let target_pgrp = *self.pgrp.lock();
+                let pgrp_opt = target_pgrp.or_else(|| Thread::current_proc().map(|p| p.pgid()));
+                if let Some(pgrp) = pgrp_opt {
+                    for proc in crate::proc::tree::allproc_iter().filter(|p| p.pgid() == pgrp) {
+                        proc.post_signal(crate::api::signal::Signal::SIGWINCH);
+                    }
+                }
                 Ok(0)
             }
             ioctl::FIONREAD => {
@@ -384,6 +403,12 @@ impl LineDiscipline {
                 *self.pgrp.lock() = None;
                 Ok(0)
             }
+            ioctl::TIOCGSID => {
+                let default_sid = proc_opt.map(|p| p.pgid().as_u32() as i32).unwrap_or(1);
+                let sid = self.pgrp.lock().map(|p| p.as_u32() as i32).unwrap_or(default_sid);
+                UserPtr::new(arg).write_bytes(vmar, &sid.to_ne_bytes())?;
+                Ok(0)
+            }
             // ----------------------------------------------------------------
             // Keyboard & Display Ioctls
             // ----------------------------------------------------------------
@@ -419,6 +444,15 @@ impl LineDiscipline {
                 *self.led_state.lock() = arg as u8;
                 Ok(0)
             }
+            ioctl::KDGKBLED => {
+                let leds = *self.led_state.lock() as i32;
+                UserPtr::new(arg).write_bytes(vmar, &leds.to_ne_bytes())?;
+                Ok(0)
+            }
+            ioctl::KDSKBLED => {
+                *self.led_state.lock() = (arg & 0xFF) as u8;
+                Ok(0)
+            }
             ioctl::KDGKBMETA => {
                 let meta = *self.meta_mode.lock() as i32;
                 UserPtr::new(arg).write_bytes(vmar, &meta.to_ne_bytes())?;
@@ -440,6 +474,16 @@ impl LineDiscipline {
                 Ok(0)
             }
             ioctl::KDSKBENT | ioctl::KDKBDREP => Ok(0),
+            ioctl::KDGKBDIACR => {
+                // struct kbdiacrs { kb_cnt: u32, kbdiacr: [struct kbdiacr; 256] }
+                let zero_cnt: u32 = 0;
+                UserPtr::new(arg).write_bytes(vmar, &zero_cnt.to_ne_bytes())?;
+                Ok(0)
+            }
+            ioctl::KDGETKEYCODE | ioctl::KDSETKEYCODE => Ok(0),
+            ioctl::GIO_FONT | ioctl::PIO_FONT => Ok(0),
+            ioctl::GIO_CMAP | ioctl::PIO_CMAP => Ok(0),
+            ioctl::TCSBRK | ioctl::TCXONC => Ok(0),
             // ----------------------------------------------------------------
             // Virtual Console (VT) Ioctls
             // ----------------------------------------------------------------
