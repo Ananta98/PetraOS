@@ -85,4 +85,8 @@ impl FileOps for GenericBlkFileOps {
         let _ = self.dev.flush();
         Ok(())
     }
+
+    fn fsync(&self, _datasync: bool) -> Result<()> {
+        self.dev.flush()
+    }
 }

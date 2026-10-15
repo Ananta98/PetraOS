@@ -250,7 +250,11 @@ impl File {
 
     /// Flushes the file to storage.
     pub fn fsync(&self, datasync: bool) -> Result<()> {
-        self.ops.fsync(datasync)
+        self.ops.fsync(datasync)?;
+        if let Some(ref pn) = self.path_node {
+            let _ = pn.mount.fs.sync();
+        }
+        Ok(())
     }
 
     /// Validates a memory-mapping request against this file.

@@ -33,6 +33,7 @@ pub fn sys_fdatasync(fd: i32, _ctx: &mut UserContext) -> Result<usize> {
 
 /// System call `sync(void)` (Syscall #162).
 pub fn sys_sync(_ctx: &mut UserContext) -> Result<usize> {
+    crate::fs::vfs::mount::sync_all()?;
     Ok(0)
 }
 
@@ -44,6 +45,9 @@ pub fn sys_syncfs(fd: i32, _ctx: &mut UserContext) -> Result<usize> {
     let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
     let file = proc.fd_table.lock().get(fd)?;
     file.fsync(false)?;
+    if let Some(ref pn) = file.path_node {
+        let _ = pn.mount.fs.sync();
+    }
     Ok(0)
 }
 

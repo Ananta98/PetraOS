@@ -29,7 +29,7 @@ pub use sysfs::SysFs;
 pub use tmpfs::TmpFs;
 pub use vfs::{
     File, FileOps, FileSystem, INode, Mode, OpenFlags, PathNode, dcache::DEntry, lookup,
-    mount::Mount, open, open_at, perms, root, set_root,
+    mount::Mount, open, open_at, perms, root, set_root, sync_all,
 };
 
 use crate::fs::initramfs::{InitramfsDirNodeOps, InitramfsFs};

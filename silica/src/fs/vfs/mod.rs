@@ -16,6 +16,6 @@ pub use inode::*;
 pub use file::*;
 pub use perms::*;
 pub use dcache::*;
-pub use mount::{Mount, PathNode, VFS_ROOT, root, set_root};
+pub use mount::{Mount, PathNode, VFS_ROOT, collect_all_mounts, root, set_root, sync_all};
 pub use ops::*;
 pub use path::{LookupFlags, lookup, open, open_at};

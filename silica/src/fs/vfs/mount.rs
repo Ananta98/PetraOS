@@ -139,3 +139,36 @@ pub fn get_mounts() -> alloc::vec::Vec<MountRecord> {
     ACTIVE_MOUNTS.read().clone()
 }
 
+/// Collects all unique mounted filesystems across the active VFS namespace.
+pub fn collect_all_mounts() -> alloc::vec::Vec<Arc<Mount>> {
+    let mut mounts = alloc::vec::Vec::new();
+    if let Ok(root_node) = root() {
+        mounts.push(root_node.mount.clone());
+        collect_mounts_from_dentry(&root_node.mount.root, &mut mounts);
+    }
+    mounts
+}
+
+fn collect_mounts_from_dentry(dentry: &Arc<DEntry>, mounts: &mut alloc::vec::Vec<Arc<Mount>>) {
+    for submount in dentry.mounts.read().iter() {
+        if !mounts.iter().any(|m| Arc::ptr_eq(m, submount)) {
+            mounts.push(submount.clone());
+            collect_mounts_from_dentry(&submount.root, mounts);
+        }
+    }
+    for child in dentry.children.read().values() {
+        collect_mounts_from_dentry(child, mounts);
+    }
+}
+
+/// Synchronizes all mounted filesystems and flushes all underlying block devices.
+pub fn sync_all() -> Result<()> {
+    for mount in collect_all_mounts() {
+        let _ = mount.fs.sync();
+    }
+    for blk in crate::drivers::get_blkdevs() {
+        let _ = blk.flush();
+    }
+    Ok(())
+}
+

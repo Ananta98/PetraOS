@@ -239,6 +239,10 @@ impl FileSystem for Ext2Fs {
             namelen: 255,
         })
     }
+
+    fn sync(&self) -> Result<()> {
+        self.dev.flush()
+    }
 }
 
 // ----------------------------------------------------------------------------
@@ -367,6 +371,10 @@ impl FileOps for Ext2FileOps {
 
     fn mmap(&self, _offset: u64, _len: usize) -> Result<()> {
         Ok(())
+    }
+
+    fn fsync(&self, _datasync: bool) -> Result<()> {
+        self.fs.sync()
     }
 }
 
