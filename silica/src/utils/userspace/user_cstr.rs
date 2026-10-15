@@ -3,6 +3,7 @@
 //! Userspace C-style string utilities.
 
 use alloc::{string::String, vec::Vec};
+use ostd::mm::PAGE_SIZE;
 
 use super::user_ptr::UserPtr;
 use crate::{
@@ -22,9 +23,24 @@ impl UserCStr {
         Self { addr }
     }
 
+    /// Returns the raw userspace virtual address.
+    pub const fn addr(&self) -> usize {
+        self.addr
+    }
+
+    /// Returns `true` if the pointer is null (`0`).
+    pub const fn is_null(&self) -> bool {
+        self.addr == 0
+    }
+
+    /// Returns the underlying `UserPtr`.
+    pub const fn as_ptr(&self) -> UserPtr {
+        UserPtr::new(self.addr)
+    }
+
     /// Safely copies a null-terminated string from userspace memory up to `max_len` bytes.
     pub fn read_string(&self, vmar: &Vmar, max_len: usize) -> Result<String> {
-        if self.addr == 0 {
+        if self.is_null() {
             return Err(Errno::EFAULT);
         }
         let mut bytes = Vec::new();
@@ -34,7 +50,7 @@ impl UserCStr {
         while bytes.len() < max_len {
             // Never cross a page boundary: the next page may be unmapped even
             // though the string terminates before it.
-            let to_page_end = 4096 - (cur_addr & 4095);
+            let to_page_end = PAGE_SIZE - (cur_addr & (PAGE_SIZE - 1));
             let chunk_size = 64.min(max_len - bytes.len()).min(to_page_end);
             UserPtr::new(cur_addr).read_bytes(vmar, &mut buf[..chunk_size])?;
 
@@ -79,7 +95,14 @@ impl UserCStr {
     }
 }
 
-/// Safely copies a null-terminated string from userspace memory.
-pub fn read_user_string(vmar: &Vmar, user_ptr: usize, max_len: usize) -> Result<String> {
-    UserCStr::new(user_ptr).read_string(vmar, max_len)
+impl From<usize> for UserCStr {
+    fn from(addr: usize) -> Self {
+        Self::new(addr)
+    }
+}
+
+impl From<UserPtr> for UserCStr {
+    fn from(ptr: UserPtr) -> Self {
+        Self::new(ptr.addr())
+    }
 }

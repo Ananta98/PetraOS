@@ -11,10 +11,7 @@ use ostd::arch::cpu::context::UserContext;
 use crate::{
     api::errno::{Errno, Result},
     proc::thread::Thread,
-    utils::userspace::{
-        user_cstr::read_user_string,
-        user_ptr::read_user_bytes,
-    },
+    utils::userspace::{UserCStr, UserPtr},
 };
 
 /// Handles `init_module(2)` system call (`SYS_INIT_MODULE = 175`).
@@ -36,12 +33,12 @@ pub fn sys_init_module(
 
     let vmar = proc.vmspace();
     let mut elf_data = vec![0u8; len];
-    read_user_bytes(&vmar, module_image, &mut elf_data)?;
+    UserPtr::new(module_image).read_bytes(&vmar, &mut elf_data)?;
 
     let cmdline = if param_values == 0 {
         String::new()
     } else {
-        read_user_string(&vmar, param_values, 1024)?
+        UserCStr::new(param_values).read_string(&vmar, 1024)?
     };
 
     let _name = crate::modules::load_module(&elf_data, &cmdline)?;
@@ -79,7 +76,7 @@ pub fn sys_finit_module(
     let cmdline = if param_values == 0 {
         String::new()
     } else {
-        read_user_string(&vmar, param_values, 1024)?
+        UserCStr::new(param_values).read_string(&vmar, 1024)?
     };
 
     let _name = crate::modules::load_module(&elf_data, &cmdline)?;
@@ -100,7 +97,7 @@ pub fn sys_delete_module(
     }
 
     let vmar = proc.vmspace();
-    let name = read_user_string(&vmar, name_ptr, 256)?;
+    let name = UserCStr::new(name_ptr).read_string(&vmar, 256)?;
     crate::modules::unload_module(&name)?;
     Ok(0)
 }

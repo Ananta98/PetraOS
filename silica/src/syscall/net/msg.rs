@@ -12,7 +12,7 @@ use crate::{
     api::errno::{Errno, Result},
     net::socket::SOCK_DGRAM,
     proc::thread::Thread,
-    syscall::fs::utils::{read_user_bytes, read_user_iovecs, write_user_bytes},
+    syscall::fs::utils::{read_user_iovecs, UserPtr},
 };
 
 /// Linux `struct msghdr` layout on x86-64 (56 bytes).
@@ -33,7 +33,7 @@ pub struct MsgHdr {
 impl MsgHdr {
     pub fn read_from_user(vmar: &crate::vm::vmar::Vmar, ptr: usize) -> Result<Self> {
         let mut raw = [0u8; 56];
-        read_user_bytes(vmar, ptr, &mut raw)?;
+        UserPtr::new(ptr).read_bytes(vmar, &mut raw)?;
         Ok(Self {
             msg_name: usize::from_ne_bytes(raw[0..8].try_into().unwrap()),
             msg_namelen: u32::from_ne_bytes(raw[8..12].try_into().unwrap()),
@@ -48,9 +48,9 @@ impl MsgHdr {
     }
 
     pub fn write_results_to_user(&self, vmar: &crate::vm::vmar::Vmar, ptr: usize) -> Result<()> {
-        write_user_bytes(vmar, ptr + 8, &self.msg_namelen.to_ne_bytes())?;
-        write_user_bytes(vmar, ptr + 40, &self.msg_controllen.to_ne_bytes())?;
-        write_user_bytes(vmar, ptr + 48, &self.msg_flags.to_ne_bytes())?;
+        UserPtr::new(ptr + 8).write_bytes(vmar, &self.msg_namelen.to_ne_bytes())?;
+        UserPtr::new(ptr + 40).write_bytes(vmar, &self.msg_controllen.to_ne_bytes())?;
+        UserPtr::new(ptr + 48).write_bytes(vmar, &self.msg_flags.to_ne_bytes())?;
         Ok(())
     }
 }
@@ -249,7 +249,7 @@ pub fn sys_sendmmsg(
         match sys_sendmsg(fd, entry_ptr, flags, ctx) {
             Ok(n) => {
                 let len_bytes = (n as u32).to_ne_bytes();
-                write_user_bytes(&vmar, entry_ptr + 56, &len_bytes)?;
+                UserPtr::new(entry_ptr + 56).write_bytes(&vmar, &len_bytes)?;
                 sent_count += 1;
             }
             Err(e) => {
@@ -290,7 +290,7 @@ pub fn sys_recvmmsg(
         match sys_recvmsg(fd, entry_ptr, flags, ctx) {
             Ok(n) => {
                 let len_bytes = (n as u32).to_ne_bytes();
-                write_user_bytes(&vmar, entry_ptr + 56, &len_bytes)?;
+                UserPtr::new(entry_ptr + 56).write_bytes(&vmar, &len_bytes)?;
                 recv_count += 1;
             }
             Err(e) => {

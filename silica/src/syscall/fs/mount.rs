@@ -20,7 +20,7 @@ use crate::{
         },
     },
     proc::thread::Thread,
-    syscall::fs::utils::read_user_string,
+    syscall::fs::utils::UserCStr,
 };
 
 pub const MS_RDONLY: usize = 1;
@@ -47,19 +47,19 @@ pub fn sys_mount(
     let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
     let vmar = proc.vmspace();
 
-    let target = read_user_string(&vmar, dir_name_ptr, 4096)?;
+    let target = UserCStr::new(dir_name_ptr).read_string(&vmar, 4096)?;
     let source = if dev_name_ptr != 0 {
-        read_user_string(&vmar, dev_name_ptr, 4096).unwrap_or_default()
+        UserCStr::new(dev_name_ptr).read_string(&vmar, 4096).unwrap_or_default()
     } else {
         alloc::string::String::new()
     };
     let fstype = if type_ptr != 0 {
-        read_user_string(&vmar, type_ptr, 64).unwrap_or_default()
+        UserCStr::new(type_ptr).read_string(&vmar, 64).unwrap_or_default()
     } else {
         alloc::string::String::new()
     };
     let _data = if data_ptr != 0 {
-        read_user_string(&vmar, data_ptr, 1024).unwrap_or_default()
+        UserCStr::new(data_ptr).read_string(&vmar, 1024).unwrap_or_default()
     } else {
         alloc::string::String::new()
     };
@@ -141,7 +141,7 @@ pub fn sys_umount2(
     let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
     let vmar = proc.vmspace();
 
-    let target = read_user_string(&vmar, target_ptr, 4096)?;
+    let target = UserCStr::new(target_ptr).read_string(&vmar, 4096)?;
     let root_node = root()?;
     let target_node = lookup(
         root_node.clone(),

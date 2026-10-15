@@ -11,8 +11,7 @@ use crate::{
     fs::vfs::{INode, LookupFlags},
     proc::thread::Thread,
     syscall::fs::utils::{
-        AT_EMPTY_PATH, AT_FDCWD, AT_SYMLINK_NOFOLLOW, read_user_string, resolve_at_start,
-        write_user_bytes,
+        resolve_at_start, UserCStr, UserPtr, AT_EMPTY_PATH, AT_FDCWD, AT_SYMLINK_NOFOLLOW,
     },
     vm::vmar::Vmar,
 };
@@ -95,7 +94,7 @@ pub fn stat_inode_to_user(inode: &Arc<INode>, statbuf_ptr: usize, vmar: &Vmar) -
         __glibc_reserved: [0; 3],
     };
 
-    write_user_bytes(vmar, statbuf_ptr, &stat.to_bytes())
+    UserPtr::new(statbuf_ptr).write_bytes(vmar, &stat.to_bytes())
 }
 
 /// System call `newfstatat(int dirfd, const char *pathname, struct stat *statbuf, int flags)` (Syscall #262).
@@ -119,7 +118,7 @@ pub fn sys_newfstatat(
             proc.fd_table.lock().get(dirfd)?.inode.clone()
         }
     } else {
-        let path = read_user_string(&vmar, path_ptr, 4096)?;
+        let path = UserCStr::new(path_ptr).read_string(&vmar, 4096)?;
         if path.is_empty() {
             if (flags & AT_EMPTY_PATH) != 0 {
                 if dirfd == AT_FDCWD {

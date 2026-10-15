@@ -12,7 +12,7 @@ use crate::{
         IPPROTO_UDP, SOCK_DGRAM, SOCK_RAW, SOCK_STREAM,
     },
     proc::thread::Thread,
-    syscall::fs::utils::write_user_bytes,
+    syscall::fs::utils::UserPtr,
 };
 
 pub const SOCK_NONBLOCK: i32 = 0o4000;
@@ -141,6 +141,6 @@ pub fn sys_socketpair(
     raw_bytes[0..4].copy_from_slice(&fds[0].to_ne_bytes());
     raw_bytes[4..8].copy_from_slice(&fds[1].to_ne_bytes());
 
-    write_user_bytes(&proc.vmspace(), sv_ptr, &raw_bytes)?;
+    UserPtr::new(sv_ptr).write_bytes(&proc.vmspace(), &raw_bytes)?;
     Ok(0)
 }

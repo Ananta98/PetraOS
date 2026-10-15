@@ -7,7 +7,7 @@ use ostd::arch::cpu::context::UserContext;
 use crate::{
     api::errno::{Errno, Result},
     proc::thread::Thread,
-    syscall::fs::utils::{read_user_bytes, write_user_bytes},
+    syscall::fs::utils::UserPtr,
 };
 
 /// System call `sendfile(int out_fd, int in_fd, off_t *offset, size_t count)` (Syscall #40).
@@ -31,7 +31,7 @@ pub fn sys_sendfile(
 
     let (mut offset, has_offset) = if offset_ptr != 0 {
         let mut raw = [0u8; 8];
-        read_user_bytes(&vmar, offset_ptr, &mut raw)?;
+        UserPtr::new(offset_ptr).read_bytes(&vmar, &mut raw)?;
         (u64::from_ne_bytes(raw), true)
     } else {
         (0, false)
@@ -64,7 +64,7 @@ pub fn sys_sendfile(
     }
 
     if has_offset {
-        write_user_bytes(&vmar, offset_ptr, &offset.to_ne_bytes())?;
+        UserPtr::new(offset_ptr).write_bytes(&vmar, &offset.to_ne_bytes())?;
     }
 
     Ok(total_transferred)
@@ -93,7 +93,7 @@ pub fn sys_copy_file_range(
 
     let (mut off_in, has_off_in) = if off_in_ptr != 0 {
         let mut raw = [0u8; 8];
-        read_user_bytes(&vmar, off_in_ptr, &mut raw)?;
+        UserPtr::new(off_in_ptr).read_bytes(&vmar, &mut raw)?;
         (u64::from_ne_bytes(raw), true)
     } else {
         (0, false)
@@ -101,7 +101,7 @@ pub fn sys_copy_file_range(
 
     let (mut off_out, has_off_out) = if off_out_ptr != 0 {
         let mut raw = [0u8; 8];
-        read_user_bytes(&vmar, off_out_ptr, &mut raw)?;
+        UserPtr::new(off_out_ptr).read_bytes(&vmar, &mut raw)?;
         (u64::from_ne_bytes(raw), true)
     } else {
         (0, false)
@@ -142,10 +142,10 @@ pub fn sys_copy_file_range(
     }
 
     if has_off_in {
-        write_user_bytes(&vmar, off_in_ptr, &off_in.to_ne_bytes())?;
+        UserPtr::new(off_in_ptr).write_bytes(&vmar, &off_in.to_ne_bytes())?;
     }
     if has_off_out {
-        write_user_bytes(&vmar, off_out_ptr, &off_out.to_ne_bytes())?;
+        UserPtr::new(off_out_ptr).write_bytes(&vmar, &off_out.to_ne_bytes())?;
     }
 
     Ok(total_copied)

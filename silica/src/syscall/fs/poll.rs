@@ -8,7 +8,7 @@ use crate::{
     api::errno::{Errno, Result},
     fs::poll::{PollEvents, PollFd},
     proc::thread::{Thread, ThreadFlags},
-    syscall::fs::utils::{read_user_bytes, write_user_bytes},
+    syscall::fs::utils::UserPtr,
     vm::vmar::Vmar,
 };
 
@@ -40,7 +40,7 @@ fn read_fd_set(vmar: &Vmar, ptr: usize) -> Result<FdSet> {
     let mut set = FdSet::default();
     let byte_len = core::mem::size_of::<FdSet>();
     let mut raw = alloc::vec![0u8; byte_len];
-    read_user_bytes(vmar, ptr, &mut raw)?;
+    UserPtr::new(ptr).read_bytes(vmar, &mut raw)?;
     for (i, chunk) in raw.chunks_exact(8).enumerate() {
         set.fds_bits[i] = u64::from_ne_bytes(chunk.try_into().unwrap());
     }
@@ -53,7 +53,7 @@ fn write_fd_set(vmar: &Vmar, ptr: usize, set: &FdSet) -> Result<()> {
     for (i, &word) in set.fds_bits.iter().enumerate() {
         raw[i * 8..(i + 1) * 8].copy_from_slice(&word.to_ne_bytes());
     }
-    write_user_bytes(vmar, ptr, &raw)
+    UserPtr::new(ptr).write_bytes(vmar, &raw)
 }
 
 /// System call `poll(struct pollfd *fds, nfds_t nfds, int timeout)` (Syscall #7).
@@ -82,7 +82,7 @@ pub fn sys_poll(
 
     let byte_len = nfds * core::mem::size_of::<PollFd>();
     let mut raw = alloc::vec![0u8; byte_len];
-    read_user_bytes(&vmar, fds_ptr, &mut raw)?;
+    UserPtr::new(fds_ptr).read_bytes(&vmar, &mut raw)?;
 
     let mut fds = alloc::vec![PollFd::default(); nfds];
     for (i, pfd) in fds.iter_mut().enumerate() {
@@ -127,7 +127,7 @@ pub fn sys_poll(
             for (i, pfd) in fds.iter().enumerate() {
                 let off = i * 8 + 6;
                 let revents_bytes = pfd.revents.to_ne_bytes();
-                write_user_bytes(&vmar, fds_ptr + off, &revents_bytes)?;
+                UserPtr::new(fds_ptr + off).write_bytes(&vmar, &revents_bytes)?;
             }
             return Ok(ready_count);
         }
@@ -138,7 +138,7 @@ pub fn sys_poll(
             for (i, pfd) in fds.iter().enumerate() {
                 let off = i * 8 + 6;
                 let revents_bytes = pfd.revents.to_ne_bytes();
-                write_user_bytes(&vmar, fds_ptr + off, &revents_bytes)?;
+                UserPtr::new(fds_ptr + off).write_bytes(&vmar, &revents_bytes)?;
             }
             return Ok(0);
         }
@@ -168,7 +168,7 @@ pub fn sys_ppoll(
         let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
         let vmar = proc.vmspace();
         let mut raw = [0u8; 16];
-        read_user_bytes(&vmar, tmo_ptr, &mut raw)?;
+        UserPtr::new(tmo_ptr).read_bytes(&vmar, &mut raw)?;
         let sec = i64::from_ne_bytes(raw[0..8].try_into().unwrap());
         let nsec = i64::from_ne_bytes(raw[8..16].try_into().unwrap());
         if sec < 0 || !(0..1_000_000_000).contains(&nsec) {
@@ -316,7 +316,7 @@ pub fn sys_select(
         let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
         let vmar = proc.vmspace();
         let mut raw = [0u8; 16];
-        read_user_bytes(&vmar, timeout_ptr, &mut raw)?;
+        UserPtr::new(timeout_ptr).read_bytes(&vmar, &mut raw)?;
         let sec = i64::from_ne_bytes(raw[0..8].try_into().unwrap());
         let usec = i64::from_ne_bytes(raw[8..16].try_into().unwrap());
         if sec < 0 || usec < 0 {
@@ -344,7 +344,7 @@ pub fn sys_pselect6(
         let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
         let vmar = proc.vmspace();
         let mut raw = [0u8; 16];
-        read_user_bytes(&vmar, timeout_ptr, &mut raw)?;
+        UserPtr::new(timeout_ptr).read_bytes(&vmar, &mut raw)?;
         let sec = i64::from_ne_bytes(raw[0..8].try_into().unwrap());
         let nsec = i64::from_ne_bytes(raw[8..16].try_into().unwrap());
         if sec < 0 || !(0..1_000_000_000).contains(&nsec) {

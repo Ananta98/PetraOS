@@ -10,7 +10,7 @@ use crate::{
     api::errno::{Errno, Result},
     fs::vfs::{AccessFlags, LookupFlags},
     proc::thread::Thread,
-    syscall::fs::utils::{read_user_string, write_user_bytes},
+    syscall::fs::utils::{UserCStr, UserPtr},
 };
 
 /// System call `getcwd(char *buf, size_t size)` (Syscall #79).
@@ -34,7 +34,7 @@ pub fn sys_getcwd(buf_ptr: usize, size: usize, _ctx: &mut UserContext) -> Result
     user_buf.extend_from_slice(bytes);
     user_buf.push(0);
 
-    write_user_bytes(&vmar, buf_ptr, &user_buf)?;
+    UserPtr::new(buf_ptr).write_bytes(&vmar, &user_buf)?;
     Ok(len)
 }
 
@@ -42,7 +42,7 @@ pub fn sys_getcwd(buf_ptr: usize, size: usize, _ctx: &mut UserContext) -> Result
 pub fn sys_chdir(path_ptr: usize, _ctx: &mut UserContext) -> Result<usize> {
     let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
     let vmar = proc.vmspace();
-    let path = read_user_string(&vmar, path_ptr, 4096)?;
+    let path = UserCStr::new(path_ptr).read_string(&vmar, 4096)?;
 
     let start = if path.starts_with('/') {
         crate::fs::root()?

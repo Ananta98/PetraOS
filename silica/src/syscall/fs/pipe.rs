@@ -8,7 +8,7 @@ use crate::{
     api::errno::{Errno, Result},
     fs::fd::FdFlags,
     proc::thread::Thread,
-    syscall::fs::utils::write_user_bytes,
+    syscall::fs::utils::UserPtr,
 };
 
 const O_CLOEXEC: i32 = 0o2000000;
@@ -48,7 +48,7 @@ pub fn sys_pipe2(
     bytes[0..4].copy_from_slice(&fds[0].to_ne_bytes());
     bytes[4..8].copy_from_slice(&fds[1].to_ne_bytes());
 
-    write_user_bytes(&proc.vmspace(), pipefd_ptr, &bytes)?;
+    UserPtr::new(pipefd_ptr).write_bytes(&proc.vmspace(), &bytes)?;
     Ok(0)
 }
 

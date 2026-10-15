@@ -14,16 +14,15 @@ use crate::{
     fs::vfs::{INode, LookupFlags, Mode, S_IFMT},
     proc::thread::Thread,
     syscall::fs::utils::{
-        AT_EMPTY_PATH, AT_FDCWD, AT_SYMLINK_NOFOLLOW, read_user_bytes, read_user_string,
-        resolve_at_start,
+        AT_EMPTY_PATH, AT_FDCWD, AT_SYMLINK_NOFOLLOW, resolve_at_start, UserCStr, UserPtr,
     },
 };
 
 const UTIME_NOW: i64 = 0x3fffffff;
 const UTIME_OMIT: i64 = 0x3ffffffe;
 
-/// System call `fchmodat(int dirfd, const char *pathname, mode_t mode, int flags)` (Syscall #268).
-pub fn sys_fchmodat(
+/// System call `fchmodat2(int dirfd, const char *pathname, mode_t mode, int flags)` (Syscall #452).
+pub fn sys_fchmodat2(
     dirfd: i32,
     path_ptr: usize,
     mode: u32,
@@ -43,7 +42,7 @@ pub fn sys_fchmodat(
             proc.fd_table.lock().get(dirfd)?.inode.clone()
         }
     } else {
-        let path = read_user_string(&vmar, path_ptr, 4096)?;
+        let path = UserCStr::new(path_ptr).read_string(&vmar, 4096)?;
         if path.is_empty() {
             if (flags & AT_EMPTY_PATH) != 0 {
                 if dirfd == AT_FDCWD {
@@ -84,9 +83,19 @@ pub fn sys_fchmodat(
     Ok(0)
 }
 
+/// System call `fchmodat(int dirfd, const char *pathname, mode_t mode)` (Syscall #268).
+pub fn sys_fchmodat(
+    dirfd: i32,
+    path_ptr: usize,
+    mode: u32,
+    ctx: &mut UserContext,
+) -> Result<usize> {
+    sys_fchmodat2(dirfd, path_ptr, mode, 0, ctx)
+}
+
 /// System call `chmod(const char *pathname, mode_t mode)` (Syscall #90).
 pub fn sys_chmod(path_ptr: usize, mode: u32, ctx: &mut UserContext) -> Result<usize> {
-    sys_fchmodat(AT_FDCWD, path_ptr, mode, 0, ctx)
+    sys_fchmodat2(AT_FDCWD, path_ptr, mode, 0, ctx)
 }
 
 /// System call `fchmod(int fd, mode_t mode)` (Syscall #91).
@@ -131,7 +140,7 @@ pub fn sys_fchownat(
             proc.fd_table.lock().get(dirfd)?.inode.clone()
         }
     } else {
-        let path = read_user_string(&vmar, path_ptr, 4096)?;
+        let path = UserCStr::new(path_ptr).read_string(&vmar, 4096)?;
         if path.is_empty() {
             if (flags & AT_EMPTY_PATH) != 0 {
                 if dirfd == AT_FDCWD {
@@ -232,7 +241,7 @@ pub fn sys_utimensat(
         let file = proc.fd_table.lock().get(dirfd)?;
         file.inode.clone()
     } else {
-        let path = read_user_string(&vmar, path_ptr, 4096)?;
+        let path = UserCStr::new(path_ptr).read_string(&vmar, 4096)?;
         if path.is_empty() {
             if (flags & AT_EMPTY_PATH) != 0 {
                 if dirfd == AT_FDCWD {
@@ -270,7 +279,7 @@ pub fn sys_utimensat(
         cur_times.mtime = now;
     } else {
         let mut raw = [0u8; 32];
-        read_user_bytes(&vmar, times_ptr, &mut raw)?;
+        UserPtr::new(times_ptr).read_bytes(&vmar, &mut raw)?;
 
         let atime_sec = i64::from_ne_bytes(raw[0..8].try_into().unwrap());
         let atime_nsec = i64::from_ne_bytes(raw[8..16].try_into().unwrap());
@@ -316,7 +325,7 @@ pub fn sys_futimesat(
         let file = proc.fd_table.lock().get(dirfd)?;
         file.inode.clone()
     } else {
-        let path = read_user_string(&vmar, path_ptr, 4096)?;
+        let path = UserCStr::new(path_ptr).read_string(&vmar, 4096)?;
         if path.is_empty() {
             if dirfd == AT_FDCWD {
                 proc.cwd()?.dentry.get_inode().ok_or(Errno::ENOENT)?
@@ -345,7 +354,7 @@ pub fn sys_futimesat(
         cur_times.mtime = now;
     } else {
         let mut raw = [0u8; 32];
-        read_user_bytes(&vmar, times_ptr, &mut raw)?;
+        UserPtr::new(times_ptr).read_bytes(&vmar, &mut raw)?;
 
         let atime_sec = i64::from_ne_bytes(raw[0..8].try_into().unwrap());
         let atime_usec = i64::from_ne_bytes(raw[8..16].try_into().unwrap());

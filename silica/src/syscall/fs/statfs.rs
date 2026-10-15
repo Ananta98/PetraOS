@@ -8,7 +8,7 @@ use crate::{
     api::errno::{Errno, Result},
     fs::vfs::StatFs,
     proc::thread::Thread,
-    syscall::fs::utils::{read_user_string, write_user_bytes},
+    syscall::fs::utils::{UserCStr, UserPtr},
 };
 
 /// Linux x86_64 ABI compatible `struct statfs` (120 bytes).
@@ -75,11 +75,11 @@ impl From<StatFs> for LinuxStatFs {
 pub fn sys_statfs(path_ptr: usize, buf_ptr: usize, _ctx: &mut UserContext) -> Result<usize> {
     let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
     let vmar = proc.vmspace();
-    let path = read_user_string(&vmar, path_ptr, 4096)?;
+    let path = UserCStr::new(path_ptr).read_string(&vmar, 4096)?;
 
     let statfs = crate::fs::vfs::statfs(&path)?;
     let linux_statfs = LinuxStatFs::from(statfs);
-    write_user_bytes(&vmar, buf_ptr, &linux_statfs.to_bytes())?;
+    UserPtr::new(buf_ptr).write_bytes(&vmar, &linux_statfs.to_bytes())?;
 
     Ok(0)
 }
@@ -105,7 +105,7 @@ pub fn sys_fstatfs(fd: i32, buf_ptr: usize, _ctx: &mut UserContext) -> Result<us
     };
 
     let linux_statfs = LinuxStatFs::from(statfs);
-    write_user_bytes(&vmar, buf_ptr, &linux_statfs.to_bytes())?;
+    UserPtr::new(buf_ptr).write_bytes(&vmar, &linux_statfs.to_bytes())?;
 
     Ok(0)
 }

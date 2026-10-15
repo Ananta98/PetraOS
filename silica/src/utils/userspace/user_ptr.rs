@@ -2,8 +2,11 @@
 
 //! Userspace pointer utilities.
 
-use ostd::mm::{io::FallibleVmRead, FallibleVmWrite, PAGE_SIZE};
+use core::ops::Range;
 
+use ostd::mm::{io::FallibleVmRead, FallibleVmWrite, MAX_USERSPACE_VADDR, PAGE_SIZE};
+
+use super::user_cstr::UserCStr;
 use crate::{
     api::errno::{Errno, Result},
     vm::{
@@ -34,6 +37,48 @@ impl UserPtr {
         self.addr == 0
     }
 
+    /// Converts this pointer into a `UserCStr`.
+    pub const fn as_cstr(self) -> UserCStr {
+        UserCStr::new(self.addr)
+    }
+
+    /// Safely copies a null-terminated string from userspace memory up to `max_len` bytes.
+    pub fn read_string(&self, vmar: &Vmar, max_len: usize) -> Result<alloc::string::String> {
+        self.as_cstr().read_string(vmar, max_len)
+    }
+
+    /// Helper to perform a memory access, falling back to activating `vmar`
+    /// and resolving page faults across the requested range if the access fails.
+    fn access_with_fault_handling<F>(
+        &self,
+        vmar: &Vmar,
+        range: Range<usize>,
+        perms: VmPerms,
+        mut op: F,
+    ) -> Result<()>
+    where
+        F: FnMut() -> Result<()>,
+    {
+        if op().is_ok() {
+            return Ok(());
+        }
+
+        // On failure, activate the address space and handle page faults for the range.
+        vmar.activate();
+        let page_start = range.start & !(PAGE_SIZE - 1);
+        let page_end = range
+            .end
+            .checked_add(PAGE_SIZE - 1)
+            .ok_or(Errno::EFAULT)?
+            & !(PAGE_SIZE - 1);
+
+        for page in (page_start..page_end).step_by(PAGE_SIZE) {
+            let _ = vmar.handle_page_fault(&PageFaultInfo::new(page, perms));
+        }
+
+        op()
+    }
+
     /// Safely writes bytes to userspace memory at this pointer.
     pub fn write_bytes(&self, vmar: &Vmar, data: &[u8]) -> Result<()> {
         if self.is_null() {
@@ -42,15 +87,12 @@ impl UserPtr {
         if data.is_empty() {
             return Ok(());
         }
-        vmar.activate();
         let end_addr = self.addr.checked_add(data.len()).ok_or(Errno::EFAULT)?;
-        let page_start = self.addr & !(PAGE_SIZE - 1);
-        let page_end = end_addr
-            .checked_add(PAGE_SIZE - 1)
-            .ok_or(Errno::EFAULT)?
-            & !(PAGE_SIZE - 1);
+        if end_addr > MAX_USERSPACE_VADDR {
+            return Err(Errno::EFAULT);
+        }
 
-        let res = (|| -> Result<()> {
+        self.access_with_fault_handling(vmar, self.addr..end_addr, VmPerms::WRITE, || {
             let mut writer = vmar
                 .vm_space()
                 .writer(self.addr, data.len())
@@ -58,21 +100,7 @@ impl UserPtr {
             let mut reader = ostd::mm::VmReader::from(data);
             writer.write_fallible(&mut reader).map_err(|_| Errno::EFAULT)?;
             Ok(())
-        })();
-
-        if res.is_err() {
-            for page in (page_start..page_end).step_by(PAGE_SIZE) {
-                let _ = vmar.handle_page_fault(&PageFaultInfo::new(page, VmPerms::WRITE));
-            }
-            vmar.activate();
-            let mut writer = vmar
-                .vm_space()
-                .writer(self.addr, data.len())
-                .map_err(|_| Errno::EFAULT)?;
-            let mut reader = ostd::mm::VmReader::from(data);
-            writer.write_fallible(&mut reader).map_err(|_| Errno::EFAULT)?;
-        }
-        Ok(())
+        })
     }
 
     /// Safely reads bytes from userspace memory at this pointer into `buf`.
@@ -83,15 +111,12 @@ impl UserPtr {
         if buf.is_empty() {
             return Ok(());
         }
-        vmar.activate();
         let end_addr = self.addr.checked_add(buf.len()).ok_or(Errno::EFAULT)?;
-        let page_start = self.addr & !(PAGE_SIZE - 1);
-        let page_end = end_addr
-            .checked_add(PAGE_SIZE - 1)
-            .ok_or(Errno::EFAULT)?
-            & !(PAGE_SIZE - 1);
+        if end_addr > MAX_USERSPACE_VADDR {
+            return Err(Errno::EFAULT);
+        }
 
-        let res = (|| -> Result<()> {
+        self.access_with_fault_handling(vmar, self.addr..end_addr, VmPerms::READ, || {
             let mut reader = vmar
                 .vm_space()
                 .reader(self.addr, buf.len())
@@ -99,31 +124,18 @@ impl UserPtr {
             let mut writer = ostd::mm::VmWriter::from(&mut buf[..]);
             reader.read_fallible(&mut writer).map_err(|_| Errno::EFAULT)?;
             Ok(())
-        })();
-
-        if res.is_err() {
-            for page in (page_start..page_end).step_by(PAGE_SIZE) {
-                let _ = vmar.handle_page_fault(&PageFaultInfo::new(page, VmPerms::READ));
-            }
-            vmar.activate();
-            let mut reader = vmar
-                .vm_space()
-                .reader(self.addr, buf.len())
-                .map_err(|_| Errno::EFAULT)?;
-            let mut writer = ostd::mm::VmWriter::from(&mut buf[..]);
-            reader.read_fallible(&mut writer).map_err(|_| Errno::EFAULT)?;
-        }
-        Ok(())
+        })
     }
-
 }
 
-/// Safely writes bytes to userspace memory.
-pub fn write_user_bytes(vmar: &Vmar, user_ptr: usize, data: &[u8]) -> Result<()> {
-    UserPtr::new(user_ptr).write_bytes(vmar, data)
+impl From<usize> for UserPtr {
+    fn from(addr: usize) -> Self {
+        Self::new(addr)
+    }
 }
 
-/// Safely reads bytes from userspace memory.
-pub fn read_user_bytes(vmar: &Vmar, user_ptr: usize, buf: &mut [u8]) -> Result<()> {
-    UserPtr::new(user_ptr).read_bytes(vmar, buf)
+impl From<UserPtr> for usize {
+    fn from(ptr: UserPtr) -> Self {
+        ptr.addr()
+    }
 }

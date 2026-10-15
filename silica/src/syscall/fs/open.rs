@@ -8,7 +8,7 @@ use crate::{
     api::errno::{Errno, Result},
     fs::vfs::Mode,
     proc::thread::Thread,
-    syscall::fs::utils::{AT_FDCWD, parse_open_flags, read_user_string, resolve_at_start},
+    syscall::fs::utils::{AT_FDCWD, parse_open_flags, resolve_at_start, UserCStr},
 };
 
 /// System call `openat(int dirfd, const char *pathname, int flags, mode_t mode)` (Syscall #257).
@@ -21,7 +21,7 @@ pub fn sys_openat(
 ) -> Result<usize> {
     let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
     let vmar = proc.vmspace();
-    let path = read_user_string(&vmar, path_ptr, 4096)?;
+    let path = UserCStr::new(path_ptr).read_string(&vmar, 4096)?;
 
     let start = resolve_at_start(&proc, dirfd, &path)?;
     let (open_flags, fd_flags) = parse_open_flags(flags);

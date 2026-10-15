@@ -3,5 +3,5 @@
 pub mod user_cstr;
 pub mod user_ptr;
 
-pub use user_cstr::{read_user_string, UserCStr};
-pub use user_ptr::{read_user_bytes, write_user_bytes, UserPtr};
+pub use user_cstr::UserCStr;
+pub use user_ptr::UserPtr;

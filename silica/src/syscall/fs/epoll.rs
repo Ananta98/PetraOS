@@ -14,7 +14,7 @@ use crate::{
         fd::FdFlags,
     },
     proc::thread::{Thread, ThreadFlags},
-    syscall::fs::utils::{read_user_bytes, write_user_bytes},
+    syscall::fs::utils::UserPtr,
 };
 
 /// System call `epoll_create(int size)` (Syscall #213).
@@ -70,7 +70,7 @@ pub fn sys_epoll_ctl(
             let target_file = proc.fd_table.lock().get(fd)?;
             let vmar = proc.vmspace();
             let mut raw = [0u8; 12];
-            read_user_bytes(&vmar, event_ptr, &mut raw)?;
+            UserPtr::new(event_ptr).read_bytes(&vmar, &mut raw)?;
             let events = u32::from_ne_bytes(raw[0..4].try_into().unwrap());
             let data = u64::from_ne_bytes(raw[4..12].try_into().unwrap());
             epoll.add(fd, target_file, events, data)?;
@@ -82,7 +82,7 @@ pub fn sys_epoll_ctl(
             }
             let vmar = proc.vmspace();
             let mut raw = [0u8; 12];
-            read_user_bytes(&vmar, event_ptr, &mut raw)?;
+            UserPtr::new(event_ptr).read_bytes(&vmar, &mut raw)?;
             let events = u32::from_ne_bytes(raw[0..4].try_into().unwrap());
             let data = u64::from_ne_bytes(raw[4..12].try_into().unwrap());
             epoll.modify(fd, events, data)?;
@@ -131,7 +131,7 @@ pub fn sys_epoll_wait(
                 let mut raw = [0u8; 12];
                 raw[0..4].copy_from_slice(&ev.events.to_ne_bytes());
                 raw[4..12].copy_from_slice(&ev.data.to_ne_bytes());
-                write_user_bytes(&vmar, events_ptr + off, &raw)?;
+                UserPtr::new(events_ptr + off).write_bytes(&vmar, &raw)?;
             }
             return Ok(ready);
         }

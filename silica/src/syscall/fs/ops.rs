@@ -11,7 +11,7 @@ use crate::{
     fs::vfs::{Mode, OpenFlags},
     proc::thread::Thread,
     syscall::fs::utils::{
-        AT_FDCWD, AT_REMOVEDIR, read_user_string, resolve_at_start, write_user_bytes,
+        resolve_at_start, UserCStr, UserPtr, AT_FDCWD, AT_REMOVEDIR,
     },
 };
 
@@ -19,7 +19,7 @@ use crate::{
 pub fn sys_truncate(path_ptr: usize, length: usize, _ctx: &mut UserContext) -> Result<usize> {
     let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
     let vmar = proc.vmspace();
-    let path = read_user_string(&vmar, path_ptr, 4096)?;
+    let path = UserCStr::new(path_ptr).read_string(&vmar, 4096)?;
 
     crate::fs::vfs::truncate(&path, length)?;
     Ok(0)
@@ -93,7 +93,7 @@ pub fn sys_readlink(
 pub fn sys_mkdirat(dirfd: i32, path_ptr: usize, mode: u32, _ctx: &mut UserContext) -> Result<usize> {
     let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
     let vmar = proc.vmspace();
-    let path = read_user_string(&vmar, path_ptr, 4096)?;
+    let path = UserCStr::new(path_ptr).read_string(&vmar, 4096)?;
 
     let start = resolve_at_start(&proc, dirfd, &path)?;
     crate::fs::vfs::mkdir_at(&start, &path, Mode::from_bits_truncate(mode))?;
@@ -110,7 +110,7 @@ pub fn sys_mknodat(
 ) -> Result<usize> {
     let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
     let vmar = proc.vmspace();
-    let path = read_user_string(&vmar, path_ptr, 4096)?;
+    let path = UserCStr::new(path_ptr).read_string(&vmar, 4096)?;
 
     let start = resolve_at_start(&proc, dirfd, &path)?;
     crate::fs::vfs::mknod_at(&start, &path, Mode::from_bits_truncate(mode), dev)?;
@@ -121,7 +121,7 @@ pub fn sys_mknodat(
 pub fn sys_unlinkat(dirfd: i32, path_ptr: usize, flags: i32, _ctx: &mut UserContext) -> Result<usize> {
     let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
     let vmar = proc.vmspace();
-    let path = read_user_string(&vmar, path_ptr, 4096)?;
+    let path = UserCStr::new(path_ptr).read_string(&vmar, 4096)?;
 
     let start = resolve_at_start(&proc, dirfd, &path)?;
     if (flags & AT_REMOVEDIR) != 0 {
@@ -142,8 +142,8 @@ pub fn sys_renameat(
 ) -> Result<usize> {
     let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
     let vmar = proc.vmspace();
-    let oldpath = read_user_string(&vmar, oldpath_ptr, 4096)?;
-    let newpath = read_user_string(&vmar, newpath_ptr, 4096)?;
+    let oldpath = UserCStr::new(oldpath_ptr).read_string(&vmar, 4096)?;
+    let newpath = UserCStr::new(newpath_ptr).read_string(&vmar, 4096)?;
 
     let old_start = resolve_at_start(&proc, olddirfd, &oldpath)?;
     let new_start = resolve_at_start(&proc, newdirfd, &newpath)?;
@@ -178,8 +178,8 @@ pub fn sys_linkat(
 ) -> Result<usize> {
     let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
     let vmar = proc.vmspace();
-    let oldpath = read_user_string(&vmar, oldpath_ptr, 4096)?;
-    let newpath = read_user_string(&vmar, newpath_ptr, 4096)?;
+    let oldpath = UserCStr::new(oldpath_ptr).read_string(&vmar, 4096)?;
+    let newpath = UserCStr::new(newpath_ptr).read_string(&vmar, 4096)?;
 
     let old_start = resolve_at_start(&proc, olddirfd, &oldpath)?;
     let new_start = resolve_at_start(&proc, newdirfd, &newpath)?;
@@ -197,8 +197,8 @@ pub fn sys_symlinkat(
 ) -> Result<usize> {
     let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
     let vmar = proc.vmspace();
-    let target = read_user_string(&vmar, target_ptr, 4096)?;
-    let linkpath = read_user_string(&vmar, linkpath_ptr, 4096)?;
+    let target = UserCStr::new(target_ptr).read_string(&vmar, 4096)?;
+    let linkpath = UserCStr::new(linkpath_ptr).read_string(&vmar, 4096)?;
 
     let new_start = resolve_at_start(&proc, newdirfd, &linkpath)?;
     crate::fs::vfs::symlink_at(&target, &new_start, &linkpath)?;
@@ -215,14 +215,14 @@ pub fn sys_readlinkat(
 ) -> Result<usize> {
     let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
     let vmar = proc.vmspace();
-    let path = read_user_string(&vmar, path_ptr, 4096)?;
+    let path = UserCStr::new(path_ptr).read_string(&vmar, 4096)?;
 
     let start = resolve_at_start(&proc, dirfd, &path)?;
     let target = crate::fs::vfs::readlink_at(&start, &path)?;
 
     let bytes = target.as_bytes();
     let copy_len = bytes.len().min(bufsiz);
-    write_user_bytes(&vmar, buf_ptr, &bytes[..copy_len])?;
+    UserPtr::new(buf_ptr).write_bytes(&vmar, &bytes[..copy_len])?;
 
     Ok(copy_len)
 }

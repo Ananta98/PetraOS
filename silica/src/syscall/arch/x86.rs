@@ -175,8 +175,8 @@ crate::impl_syscall_nums_and_dispatch_fn! {
     SYS_LINKAT = 265 => fs::sys_linkat(i32, usize, i32, usize, i32);
     SYS_SYMLINKAT = 266 => fs::sys_symlinkat(usize, i32, usize);
     SYS_READLINKAT = 267 => fs::sys_readlinkat(i32, usize, usize, usize);
-    SYS_FCHMODAT = 268 => fs::sys_fchmodat(i32, usize, u32, i32);
-    SYS_FACCESSAT = 269 => fs::sys_faccessat(i32, usize, i32, i32);
+    SYS_FCHMODAT = 268 => fs::sys_fchmodat(i32, usize, u32);
+    SYS_FACCESSAT = 269 => fs::sys_faccessat(i32, usize, i32);
     SYS_PSELECT6 = 270 => fs::sys_pselect6(i32, usize, usize, usize, usize, usize);
     SYS_PPOLL = 271 => fs::sys_ppoll(usize, usize, usize, usize, usize);
     SYS_UTIMENSAT = 280 => fs::sys_utimensat(i32, usize, usize, i32);
@@ -200,4 +200,6 @@ crate::impl_syscall_nums_and_dispatch_fn! {
     SYS_COPY_FILE_RANGE = 326 => fs::sys_copy_file_range(i32, usize, i32, usize, usize, u32);
     SYS_PREADV2 = 327 => fs::sys_preadv2(i32, usize, usize, usize, usize, i32);
     SYS_PWRITEV2 = 328 => fs::sys_pwritev2(i32, usize, usize, usize, usize, i32);
+    SYS_FACCESSAT2 = 439 => fs::sys_faccessat2(i32, usize, i32, i32);
+    SYS_FCHMODAT2 = 452 => fs::sys_fchmodat2(i32, usize, u32, i32);
 }

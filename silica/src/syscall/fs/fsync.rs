@@ -31,7 +31,7 @@ pub fn sys_fdatasync(fd: i32, _ctx: &mut UserContext) -> Result<usize> {
     Ok(0)
 }
 
-/// System call `sync(void)` (Syscall #36).
+/// System call `sync(void)` (Syscall #162).
 pub fn sys_sync(_ctx: &mut UserContext) -> Result<usize> {
     Ok(0)
 }

@@ -9,7 +9,7 @@ use crate::{
     api::errno::{Errno, Result},
     fs::vfs::Mode,
     proc::thread::Thread,
-    syscall::fs::utils::write_user_bytes,
+    syscall::fs::utils::UserPtr,
 };
 
 pub const DT_UNKNOWN: u8 = 0;
@@ -125,7 +125,7 @@ pub fn sys_getdents64(
         record[19..19 + name_bytes.len()].copy_from_slice(name_bytes);
         record[19 + name_bytes.len()] = 0;
 
-        write_user_bytes(&vmar, dirp_ptr + written, &record)?;
+        UserPtr::new(dirp_ptr + written).write_bytes(&vmar, &record)?;
         written += reclen;
         pos += 1;
     }
@@ -218,7 +218,7 @@ pub fn sys_getdents(
         record[18 + name_bytes.len()] = 0;
         record[reclen - 1] = d_type;
 
-        write_user_bytes(&vmar, dirp_ptr + written, &record)?;
+        UserPtr::new(dirp_ptr + written).write_bytes(&vmar, &record)?;
         written += reclen;
         pos += 1;
     }

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
 
-//! The `access` and `faccessat` system calls (Syscalls #21 and #269 on x86_64).
+//! The `access`, `faccessat`, and `faccessat2` system calls (Syscalls #21, #269, and #439 on x86_64).
 
 use ostd::arch::cpu::context::UserContext;
 
@@ -9,7 +9,7 @@ use crate::{
     fs::vfs::{AccessFlags, LookupFlags},
     proc::thread::Thread,
     syscall::fs::utils::{
-        AT_EMPTY_PATH, AT_FDCWD, AT_SYMLINK_NOFOLLOW, read_user_string, resolve_at_start,
+        AT_EMPTY_PATH, AT_FDCWD, AT_SYMLINK_NOFOLLOW, resolve_at_start, UserCStr,
     },
 };
 
@@ -18,8 +18,10 @@ const X_OK: i32 = 1;
 const W_OK: i32 = 2;
 const R_OK: i32 = 4;
 
-/// System call `faccessat(int dirfd, const char *pathname, int mode, int flags)` (Syscall #269).
-pub fn sys_faccessat(
+pub const AT_EACCESS: i32 = 0x200;
+
+/// System call `faccessat2(int dirfd, const char *pathname, int mode, int flags)` (Syscall #439).
+pub fn sys_faccessat2(
     dirfd: i32,
     path_ptr: usize,
     mode: i32,
@@ -27,6 +29,9 @@ pub fn sys_faccessat(
     _ctx: &mut UserContext,
 ) -> Result<usize> {
     if (mode & !(R_OK | W_OK | X_OK | F_OK)) != 0 {
+        return Err(Errno::EINVAL);
+    }
+    if (flags & !(AT_EACCESS | AT_SYMLINK_NOFOLLOW | AT_EMPTY_PATH)) != 0 {
         return Err(Errno::EINVAL);
     }
 
@@ -43,7 +48,7 @@ pub fn sys_faccessat(
             proc.fd_table.lock().get(dirfd)?.inode.clone()
         }
     } else {
-        let path = read_user_string(&vmar, path_ptr, 4096)?;
+        let path = UserCStr::new(path_ptr).read_string(&vmar, 4096)?;
         if path.is_empty() {
             if (flags & AT_EMPTY_PATH) != 0 {
                 if dirfd == AT_FDCWD {
@@ -88,7 +93,17 @@ pub fn sys_faccessat(
     Ok(0)
 }
 
+/// System call `faccessat(int dirfd, const char *pathname, int mode)` (Syscall #269).
+pub fn sys_faccessat(
+    dirfd: i32,
+    path_ptr: usize,
+    mode: i32,
+    ctx: &mut UserContext,
+) -> Result<usize> {
+    sys_faccessat2(dirfd, path_ptr, mode, 0, ctx)
+}
+
 /// System call `access(const char *pathname, int mode)` (Syscall #21).
 pub fn sys_access(path_ptr: usize, mode: i32, ctx: &mut UserContext) -> Result<usize> {
-    sys_faccessat(AT_FDCWD, path_ptr, mode, 0, ctx)
+    sys_faccessat2(AT_FDCWD, path_ptr, mode, 0, ctx)
 }
