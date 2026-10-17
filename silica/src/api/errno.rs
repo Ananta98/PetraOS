@@ -27,6 +27,8 @@ pub enum Errno {
     EINTR = 4,
     /// Input/output error.
     EIO = 5,
+    /// No such device or address.
+    ENXIO = 6,
     /// Argument list too long.
     E2BIG = 7,
     /// Exec format error.
@@ -163,6 +165,7 @@ impl Errno {
             Self::ESRCH => "ESRCH",
             Self::EINTR => "EINTR",
             Self::EIO => "EIO",
+            Self::ENXIO => "ENXIO",
             Self::E2BIG => "E2BIG",
             Self::ENOEXEC => "ENOEXEC",
             Self::EBADF => "EBADF",
@@ -225,6 +228,7 @@ impl Errno {
             Self::ESRCH => "no such process",
             Self::EINTR => "interrupted system call",
             Self::EIO => "input/output error",
+            Self::ENXIO => "no such device or address",
             Self::E2BIG => "argument list too long",
             Self::ENOEXEC => "exec format error",
             Self::EBADF => "bad file descriptor",

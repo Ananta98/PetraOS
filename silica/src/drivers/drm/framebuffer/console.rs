@@ -1,481 +1,936 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: MPL-2.0
 
-//! Virtual Terminal Framebuffer Console (`fbcon` / `vt_term`).
+//! Framebuffer Console.
 //!
-//! Provides a hardware-accelerated text console on top of the linear framebuffer,
-//! supporting a full character cell grid, hardware cursor management, automatic
-//! line wrapping, smooth scrolling, and ANSI escape sequence rendering.
+//! Maintains an in-memory shadow buffer mirroring the framebuffer content for
+//! high-performance, flicker-free rendering and scrolling.
 
 use alloc::{sync::Arc, vec, vec::Vec};
+use ostd::mm::HasSize;
 
 use super::{
-    ansi::{AnsiAction, AnsiParser},
-    fb::Framebuffer,
-    font::{FONT_HEIGHT, FONT_WIDTH, get_glyph},
-    pixel::Color,
+    ansi::{EraseInDisplay, EraseInLine, EscapeFsm, EscapeOp},
+    font::BitmapFont,
+    framebuffer::FrameBuffer,
+    mode::ConsoleMode,
+    pixel::Pixel,
 };
+use spin::{Mutex, Once};
 
-/// A single cell in the console's character grid.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ScreenCell {
-    pub ch: char,
-    pub fg: Color,
-    pub bg: Color,
-    pub bold: bool,
-    pub inverse: bool,
+static CONSOLE: Once<Mutex<FramebufferConsole>> = Once::new();
+
+pub fn init(framebuffer: Arc<FrameBuffer>) {
+    let console = FramebufferConsole::new(framebuffer);
+    CONSOLE.call_once(|| Mutex::new(console));
 }
 
-impl ScreenCell {
-    pub const fn blank(fg: Color, bg: Color) -> Self {
-        Self {
-            ch: ' ',
-            fg,
-            bg,
-            bold: false,
-            inverse: false,
+pub fn get_console() -> Option<&'static Mutex<FramebufferConsole>> {
+    CONSOLE.get()
+}
+
+/// A text console rendered onto the linear framebuffer.
+pub struct FramebufferConsole {
+    state: ConsoleState,
+    escape_fsm: EscapeFsm,
+}
+
+pub type FbConsole = FramebufferConsole;
+
+#[derive(Clone, Copy, Debug)]
+pub enum ConsoleSetFontError {
+    InvalidFont,
+}
+
+impl FramebufferConsole {
+    /// Creates a new framebuffer console, activated by default.
+    pub fn new(framebuffer: Arc<FrameBuffer>) -> Self {
+        let mut state = ConsoleState::new(framebuffer);
+        state.is_active = true;
+        let escape_fsm = EscapeFsm::new();
+
+        let mut cons = Self { state, escape_fsm };
+        cons.state.flush_fullscreen();
+        cons.state.draw_cursor();
+        cons
+    }
+
+    /// Activates the console and flushes shadow buffer to hardware display.
+    pub fn activate(&mut self) {
+        let old_active = self.state.is_active;
+        self.state.is_active = true;
+        if !old_active {
+            self.state.flush_fullscreen();
+            self.state.draw_cursor();
         }
+    }
+
+    /// Deactivates hardware rendering.
+    pub fn deactivate(&mut self) {
+        self.state.erase_cursor();
+        self.state.is_active = false;
+    }
+
+    /// Returns the current console mode.
+    pub fn mode(&self) -> ConsoleMode {
+        self.state.mode
+    }
+
+    /// Sets the console mode (Text or Graphics).
+    pub fn set_mode(&mut self, mode: ConsoleMode) {
+        let old_mode = self.state.mode;
+        self.state.mode = mode;
+        if old_mode == ConsoleMode::Graphics && mode == ConsoleMode::Text {
+            self.state.flush_fullscreen();
+            self.state.draw_cursor();
+        }
+    }
+
+    /// Sets a custom font.
+    pub fn set_font(&mut self, font: BitmapFont) -> Result<(), ConsoleSetFontError> {
+        self.state.set_font(font)
+    }
+
+    /// Sends a byte buffer to the console, processing ANSI escapes and text.
+    pub fn send(&mut self, buf: &[u8]) {
+        self.state.erase_cursor();
+        for &byte in buf {
+            if self.escape_fsm.eat(byte, &mut self.state) {
+                continue;
+            }
+            if byte == 0 {
+                continue;
+            }
+            self.state.send_char(byte);
+        }
+        self.state.draw_cursor();
+    }
+
+    /// Writes raw byte slice (alias for send).
+    pub fn write_bytes(&mut self, buf: &[u8]) {
+        self.send(buf);
+    }
+
+    /// Returns the number of text columns.
+    pub fn cols(&self) -> usize {
+        self.state.backend.width() / self.state.font.width()
+    }
+
+    /// Returns the number of text rows.
+    pub fn rows(&self) -> usize {
+        self.state.backend.height() / self.state.font.height()
+    }
+
+    /// Returns the character width in pixels.
+    pub fn font_width(&self) -> usize {
+        self.state.font.width()
+    }
+
+    /// Returns the character height in pixels.
+    pub fn font_height(&self) -> usize {
+        self.state.font.height()
+    }
+
+    /// Clears the entire console.
+    pub fn clear(&mut self) {
+        self.state.erase_cursor();
+        self.state.erase_in_display(EraseInDisplay::EntireScreen);
+        self.state.x_pos = 0;
+        self.state.y_pos = 0;
+        self.state.draw_cursor();
     }
 }
 
-/// A Linux `fbcon` / FreeBSD `vt` style virtual terminal console.
-pub struct FbConsole {
-    fb: Arc<Framebuffer>,
-    pub cols: usize,
-    pub rows: usize,
-    pub col: usize,
-    pub row: usize,
-    pub cursor_visible: bool,
-    cursor_drawn: bool,
-    default_fg: Color,
-    default_bg: Color,
-    current_fg: Color,
-    current_bg: Color,
-    bold: bool,
-    inverse: bool,
-    cells: Vec<ScreenCell>,
-    ansi_parser: AnsiParser,
-    saved_col: usize,
-    saved_row: usize,
-    saved_fg: Color,
-    saved_bg: Color,
-    saved_bold: bool,
-    saved_inverse: bool,
+impl core::fmt::Debug for FramebufferConsole {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("FramebufferConsole")
+            .field("cols", &self.cols())
+            .field("rows", &self.rows())
+            .field("mode", &self.mode())
+            .finish()
+    }
 }
 
-impl FbConsole {
-    /// Creates and initializes a new virtual terminal console on the framebuffer.
-    pub fn new(fb: Arc<Framebuffer>) -> Self {
-        let cols = fb.width / FONT_WIDTH;
-        let rows = fb.height / FONT_HEIGHT;
-        let default_fg = Color::WHITE;
-        let default_bg = Color::BLACK;
+#[derive(Debug)]
+struct ConsoleState {
+    x_pos: usize,
+    y_pos: usize,
+    fg_color: Pixel,
+    bg_color: Pixel,
+    is_inverse: bool,
+    font: BitmapFont,
 
-        let total_cells = cols * rows;
-        let cells = vec![ScreenCell::blank(default_fg, default_bg); total_cells];
+    is_active: bool,
+    mode: ConsoleMode,
 
-        // Clear the physical surface
-        fb.clear(default_bg);
+    cursor_visible: bool,
+    cursor_drawn: bool,
+    last_cursor_x: usize,
+    last_cursor_y: usize,
 
-        let mut console = Self {
-            fb,
-            cols,
-            rows,
-            col: 0,
-            row: 0,
+    saved_x: usize,
+    saved_y: usize,
+    saved_fg: Pixel,
+    saved_bg: Pixel,
+    saved_inverse: bool,
+
+    scroll_top: usize,
+    scroll_bottom: usize,
+    origin_mode: bool,
+    wrap_pending: bool,
+
+    bytes: Vec<u8>,
+    backend: Arc<FrameBuffer>,
+}
+
+impl ConsoleState {
+    fn new(backend: Arc<FrameBuffer>) -> Self {
+        let buffer_size = backend.io_mem().size();
+        let font = BitmapFont::new_basic();
+        let max_rows = backend.height() / font.height();
+        Self {
+            x_pos: 0,
+            y_pos: 0,
+            fg_color: Pixel::WHITE,
+            bg_color: Pixel::BLACK,
+            is_inverse: false,
+            font,
+            is_active: true,
+            mode: ConsoleMode::Text,
             cursor_visible: true,
             cursor_drawn: false,
-            default_fg,
-            default_bg,
-            current_fg: default_fg,
-            current_bg: default_bg,
-            bold: false,
-            inverse: false,
-            cells,
-            ansi_parser: AnsiParser::new(),
-            saved_col: 0,
-            saved_row: 0,
-            saved_fg: default_fg,
-            saved_bg: default_bg,
-            saved_bold: false,
+            last_cursor_x: 0,
+            last_cursor_y: 0,
+            saved_x: 0,
+            saved_y: 0,
+            saved_fg: Pixel::WHITE,
+            saved_bg: Pixel::BLACK,
             saved_inverse: false,
-        };
-
-        console.draw_cursor();
-        console
+            scroll_top: 0,
+            scroll_bottom: max_rows.saturating_sub(1),
+            origin_mode: false,
+            wrap_pending: false,
+            bytes: vec![0u8; buffer_size],
+            backend,
+        }
     }
 
-    /// Redraws a character cell at grid position `(col, row)`.
-    pub fn draw_cell(&self, col: usize, row: usize) {
-        if col >= self.cols || row >= self.rows {
+    fn is_output_enabled(&self) -> bool {
+        self.is_active && self.mode == ConsoleMode::Text
+    }
+
+    fn flush_fullscreen(&mut self) {
+        if self.is_output_enabled() {
+            let _ = self.backend.write_bytes_at(0, &self.bytes);
+            self.cursor_drawn = false;
+        }
+    }
+
+    fn draw_cursor(&mut self) {
+        if !self.cursor_visible || self.cursor_drawn || !self.is_output_enabled() {
             return;
         }
 
-        let cell = self.cells[row * self.cols + col];
-        let (mut fg, bg) = if cell.inverse {
-            (cell.bg, cell.fg)
-        } else {
-            (cell.fg, cell.bg)
-        };
+        let cx = self.x_pos.min(self.backend.width().saturating_sub(self.font.width()));
+        let cy = self.y_pos.min(self.backend.height().saturating_sub(self.font.height()));
 
-        if cell.bold {
-            // Brighten standard foreground color if bold
-            if fg == Color::WHITE {
-                fg = Color::BRIGHT_WHITE;
-            }
-        }
-
-        let glyph = get_glyph(cell.ch as u8);
-        self.fb.draw_glyph(col * FONT_WIDTH, row * FONT_HEIGHT, glyph, fg, bg);
-    }
-
-    /// Renders the hardware text cursor at current `(self.col, self.row)`.
-    pub fn draw_cursor(&mut self) {
-        if !self.cursor_visible || self.cursor_drawn || self.col >= self.cols || self.row >= self.rows {
-            return;
-        }
-
-        let x = self.col * FONT_WIDTH;
-        let y = self.row * FONT_HEIGHT;
-
-        // Draw a solid 2-pixel underline cursor at the bottom of the current cell
         let cursor_height = 2;
-        let cursor_y = y + FONT_HEIGHT.saturating_sub(cursor_height);
-        self.fb.fill_rect(x, cursor_y, FONT_WIDTH, cursor_height, Color::BRIGHT_WHITE);
+        let cursor_y = cy + self.font.height().saturating_sub(cursor_height);
+        let cursor_w = self.font.width();
 
+        let cursor_color = if self.is_inverse { self.bg_color } else { self.fg_color };
+        let cursor_pixel = self.backend.render_pixel(cursor_color);
+        let pixel_size = cursor_pixel.nbytes();
+        let row_bytes = cursor_w * pixel_size;
+
+        for y in cursor_y..cy + self.font.height() {
+            let off = self.backend.calc_offset(cx, y).as_usize();
+            let mut buf = [0u8; 64];
+            let len = row_bytes.min(buf.len());
+            for chunk in buf[..len].chunks_exact_mut(pixel_size) {
+                chunk.copy_from_slice(cursor_pixel.as_slice());
+            }
+            let _ = self.backend.write_bytes_at(off, &buf[..len]);
+        }
+
+        self.last_cursor_x = cx;
+        self.last_cursor_y = cy;
         self.cursor_drawn = true;
     }
 
-    /// Erases the cursor by redrawing the underlying character cell.
-    pub fn erase_cursor(&mut self) {
-        if !self.cursor_drawn {
+    fn erase_cursor(&mut self) {
+        if !self.cursor_drawn || !self.is_output_enabled() {
             return;
         }
 
-        self.draw_cell(self.col, self.row);
+        let cx = self.last_cursor_x;
+        let cy = self.last_cursor_y;
+
+        let cursor_height = 2;
+        let cursor_y = cy + self.font.height().saturating_sub(cursor_height);
+        let cursor_w = self.font.width();
+
+        let pixel_size = self.backend.pixel_format().nbytes();
+        let row_bytes = cursor_w * pixel_size;
+
+        for y in cursor_y..cy + self.font.height() {
+            let off = self.backend.calc_offset(cx, y).as_usize();
+            if off + row_bytes <= self.bytes.len() {
+                let _ = self.backend.write_bytes_at(off, &self.bytes[off..off + row_bytes]);
+            }
+        }
+
         self.cursor_drawn = false;
     }
 
-    /// Appends a printable character at the cursor position.
-    pub fn put_char(&mut self, ch: char) {
-        if self.col >= self.cols {
-            self.newline();
+    fn send_char(&mut self, ch: u8) {
+        match ch {
+            b'\n' => self.newline(),
+            b'\r' => self.carriage_return(),
+            b'\x08' => self.backspace(),
+            b'\t' => {
+                self.wrap_pending = false;
+                let tab_cols = 8;
+                let col = self.x_pos / self.font.width();
+                let next_col = ((col / tab_cols) + 1) * tab_cols;
+                let max_cols = self.backend.width() / self.font.width();
+                if next_col >= max_cols {
+                    self.newline();
+                    self.x_pos = 0;
+                } else {
+                    self.x_pos = next_col * self.font.width();
+                }
+            }
+            _ => {
+                if self.wrap_pending {
+                    self.wrap_pending = false;
+                    self.newline();
+                    self.x_pos = 0;
+                }
+                self.draw_char(ch);
+                if self.x_pos + self.font.width() >= self.backend.width() {
+                    self.wrap_pending = true;
+                } else {
+                    self.x_pos += self.font.width();
+                }
+            }
         }
-
-        let idx = self.row * self.cols + self.col;
-        if idx < self.cells.len() {
-            self.cells[idx] = ScreenCell {
-                ch,
-                fg: self.current_fg,
-                bg: self.current_bg,
-                bold: self.bold,
-                inverse: self.inverse,
-            };
-            self.draw_cell(self.col, self.row);
-        }
-
-        self.col += 1;
     }
 
-    /// Advances the cursor to a new line, scrolling if at the bottom row.
-    pub fn newline(&mut self) {
-        self.col = 0;
-        if self.row + 1 < self.rows {
-            self.row += 1;
+    fn newline(&mut self) {
+        self.wrap_pending = false;
+        let top_y = self.scroll_top * self.font.height();
+        let bottom_y = self.scroll_bottom * self.font.height();
+
+        if self.y_pos >= top_y && self.y_pos <= bottom_y {
+            if self.y_pos == bottom_y {
+                self.scroll_region_up(1);
+            } else {
+                self.y_pos += self.font.height();
+            }
         } else {
-            self.scroll_up(1);
+            let max_rows = self.backend.height() / self.font.height();
+            if self.y_pos + self.font.height() < self.backend.height() {
+                self.y_pos += self.font.height();
+            } else if self.scroll_top == 0 && self.scroll_bottom == max_rows.saturating_sub(1) {
+                self.shift_lines_up();
+            }
         }
     }
 
-    /// Scrolls the console buffer and physical display upward by `count` lines.
-    pub fn scroll_up(&mut self, count: usize) {
+    fn carriage_return(&mut self) {
+        self.wrap_pending = false;
+        self.x_pos = 0;
+    }
+
+    fn backspace(&mut self) {
+        self.wrap_pending = false;
+        if self.x_pos >= self.font.width() {
+            self.x_pos -= self.font.width();
+        }
+    }
+
+    fn draw_char(&mut self, ch: u8) {
+        let Some(font_ch) = self.font.char(ch) else {
+            return;
+        };
+
+        let (fg, bg) = if self.is_inverse {
+            (self.bg_color, self.fg_color)
+        } else {
+            (self.fg_color, self.bg_color)
+        };
+
+        let fg_pixel = self.backend.render_pixel(fg);
+        let bg_pixel = self.backend.render_pixel(bg);
+        let pixel_size = fg_pixel.nbytes();
+        let is_output_enabled = self.is_output_enabled();
+
+        let mut offset = self.backend.calc_offset(self.x_pos, self.y_pos);
+
+        for row in font_ch.rows() {
+            let off_st = offset.as_usize();
+            let off_ed = off_st + pixel_size * self.font.width();
+            if off_ed <= self.bytes.len() {
+                let render_buf = &mut self.bytes[off_st..off_ed];
+
+                let chunks = render_buf.chunks_exact_mut(pixel_size);
+                for (chunk, is_fg) in chunks.zip(row.bits()) {
+                    let pixel = if is_fg { fg_pixel } else { bg_pixel };
+                    chunk.copy_from_slice(pixel.as_slice());
+                }
+
+                if is_output_enabled {
+                    let _ = self.backend.write_bytes_at(off_st, render_buf);
+                }
+            }
+            offset.y_add(1);
+        }
+    }
+
+    fn shift_lines_up(&mut self) {
+        let offset = self.backend.calc_offset(0, self.font.height()).as_usize();
+        if offset < self.bytes.len() {
+            self.bytes.copy_within(offset.., 0);
+            let total_size = self.bytes.len();
+            self.bytes[total_size - offset..].fill(0);
+
+            if self.is_output_enabled() {
+                let _ = self.backend.write_bytes_at(0, &self.bytes);
+            }
+        }
+        self.y_pos = self.y_pos.saturating_sub(self.font.height());
+        self.saved_y = self.saved_y.saturating_sub(self.font.height());
+        self.cursor_drawn = false;
+    }
+
+    fn scroll_region_up(&mut self, count: usize) {
+        let max_row = (self.backend.height() / self.font.height()).saturating_sub(1);
+        let top_row = self.scroll_top.min(max_row);
+        let bot_row = self.scroll_bottom.min(max_row).max(top_row);
+        let num_rows = bot_row - top_row + 1;
+        let count = count.min(num_rows);
         if count == 0 {
             return;
         }
 
-        let lines = count.min(self.rows);
-        self.fb.scroll_up(lines * FONT_HEIGHT, self.default_bg);
+        let bg = if self.is_inverse { self.fg_color } else { self.bg_color };
+        let top_y = top_row * self.font.height();
+        let bot_y = (bot_row + 1) * self.font.height();
+        let shift_y = count * self.font.height();
 
-        // Adjust saved cursor row when screen scrolls
-        self.saved_row = self.saved_row.saturating_sub(lines);
+        let top_off = self.backend.calc_offset(0, top_y).as_usize();
+        let src_off = self.backend.calc_offset(0, top_y + shift_y).as_usize();
+        let bot_off = self.backend.calc_offset(0, bot_y).as_usize().min(self.bytes.len());
 
-        // Shift cell rows in memory
-        let shift_cells = lines * self.cols;
-        let total_cells = self.cols * self.rows;
-
-        for i in 0..(total_cells.saturating_sub(shift_cells)) {
-            self.cells[i] = self.cells[i + shift_cells];
+        if src_off < bot_off && top_off < self.bytes.len() {
+            self.bytes.copy_within(src_off..bot_off, top_off);
         }
 
-        // Fill newly freed bottom lines with blank cells
-        let blank = ScreenCell::blank(self.default_fg, self.default_bg);
-        for i in (total_cells.saturating_sub(shift_cells))..total_cells {
-            self.cells[i] = blank;
+        let clear_top_y = (bot_row + 1 - count) * self.font.height();
+        self.fill_rect_pixels(0, clear_top_y, self.backend.width(), bot_y, bg);
+
+        if self.is_output_enabled() && top_off < bot_off {
+            let _ = self.backend.write_bytes_at(top_off, &self.bytes[top_off..bot_off]);
+        }
+        self.cursor_drawn = false;
+    }
+
+    fn scroll_region_down(&mut self, count: usize) {
+        let max_row = (self.backend.height() / self.font.height()).saturating_sub(1);
+        let top_row = self.scroll_top.min(max_row);
+        let bot_row = self.scroll_bottom.min(max_row).max(top_row);
+        let num_rows = bot_row - top_row + 1;
+        let count = count.min(num_rows);
+        if count == 0 {
+            return;
+        }
+
+        let bg = if self.is_inverse { self.fg_color } else { self.bg_color };
+        let top_y = top_row * self.font.height();
+        let bot_y = (bot_row + 1) * self.font.height();
+        let shift_y = count * self.font.height();
+
+        let top_off = self.backend.calc_offset(0, top_y).as_usize();
+        let dst_off = self.backend.calc_offset(0, top_y + shift_y).as_usize();
+        let bot_off = self.backend.calc_offset(0, bot_y).as_usize().min(self.bytes.len());
+
+        if dst_off < bot_off && top_off < self.bytes.len() {
+            let copy_len = bot_off - dst_off;
+            self.bytes.copy_within(top_off..top_off + copy_len, dst_off);
+        }
+
+        self.fill_rect_pixels(0, top_y, self.backend.width(), top_y + shift_y, bg);
+
+        if self.is_output_enabled() && top_off < bot_off {
+            let _ = self.backend.write_bytes_at(top_off, &self.bytes[top_off..bot_off]);
+        }
+        self.cursor_drawn = false;
+    }
+
+    fn delete_lines_internal(&mut self, count: usize) {
+        let cur_row = self.y_pos / self.font.height();
+        let max_row = (self.backend.height() / self.font.height()).saturating_sub(1);
+        let top_row = self.scroll_top.min(max_row);
+        let bot_row = self.scroll_bottom.min(max_row).max(top_row);
+
+        if cur_row < top_row || cur_row > bot_row {
+            return;
+        }
+
+        let num_rows = bot_row - cur_row + 1;
+        let count = count.min(num_rows);
+        if count == 0 {
+            return;
+        }
+
+        let bg = if self.is_inverse { self.fg_color } else { self.bg_color };
+        let top_y = cur_row * self.font.height();
+        let bot_y = (bot_row + 1) * self.font.height();
+        let shift_y = count * self.font.height();
+
+        let top_off = self.backend.calc_offset(0, top_y).as_usize();
+        let src_off = self.backend.calc_offset(0, top_y + shift_y).as_usize();
+        let bot_off = self.backend.calc_offset(0, bot_y).as_usize().min(self.bytes.len());
+
+        if src_off < bot_off && top_off < self.bytes.len() {
+            self.bytes.copy_within(src_off..bot_off, top_off);
+        }
+
+        let clear_top_y = (bot_row + 1 - count) * self.font.height();
+        self.fill_rect_pixels(0, clear_top_y, self.backend.width(), bot_y, bg);
+
+        if self.is_output_enabled() && top_off < bot_off {
+            let _ = self.backend.write_bytes_at(top_off, &self.bytes[top_off..bot_off]);
+        }
+        self.cursor_drawn = false;
+    }
+
+    fn insert_lines_internal(&mut self, count: usize) {
+        let cur_row = self.y_pos / self.font.height();
+        let max_row = (self.backend.height() / self.font.height()).saturating_sub(1);
+        let top_row = self.scroll_top.min(max_row);
+        let bot_row = self.scroll_bottom.min(max_row).max(top_row);
+
+        if cur_row < top_row || cur_row > bot_row {
+            return;
+        }
+
+        let num_rows = bot_row - cur_row + 1;
+        let count = count.min(num_rows);
+        if count == 0 {
+            return;
+        }
+
+        let bg = if self.is_inverse { self.fg_color } else { self.bg_color };
+        let top_y = cur_row * self.font.height();
+        let bot_y = (bot_row + 1) * self.font.height();
+        let shift_y = count * self.font.height();
+
+        let top_off = self.backend.calc_offset(0, top_y).as_usize();
+        let dst_off = self.backend.calc_offset(0, top_y + shift_y).as_usize();
+        let bot_off = self.backend.calc_offset(0, bot_y).as_usize().min(self.bytes.len());
+
+        if dst_off < bot_off && top_off < self.bytes.len() {
+            let copy_len = bot_off - dst_off;
+            self.bytes.copy_within(top_off..top_off + copy_len, dst_off);
+        }
+
+        self.fill_rect_pixels(0, top_y, self.backend.width(), top_y + shift_y, bg);
+
+        if self.is_output_enabled() && top_off < bot_off {
+            let _ = self.backend.write_bytes_at(top_off, &self.bytes[top_off..bot_off]);
+        }
+        self.cursor_drawn = false;
+    }
+
+    fn delete_chars_internal(&mut self, count: usize) {
+        let max_cols = self.backend.width() / self.font.width();
+        let cur_col = self.x_pos / self.font.width();
+        if cur_col >= max_cols {
+            return;
+        }
+        let count = count.min(max_cols - cur_col);
+        if count == 0 {
+            return;
+        }
+
+        let bg = if self.is_inverse { self.fg_color } else { self.bg_color };
+        let pixel_size = self.backend.pixel_format().nbytes();
+        let row_w = self.backend.width();
+        let shift_bytes = count * self.font.width() * pixel_size;
+        let cy0 = self.y_pos;
+        let cy1 = (cy0 + self.font.height()).min(self.backend.height());
+
+        for y in cy0..cy1 {
+            let line_st = self.backend.calc_offset(0, y).as_usize();
+            let cur_st = line_st + self.x_pos * pixel_size;
+            let src_st = cur_st + shift_bytes;
+            let line_ed = line_st + row_w * pixel_size;
+
+            if src_st < line_ed && line_ed <= self.bytes.len() {
+                self.bytes.copy_within(src_st..line_ed, cur_st);
+            }
+        }
+
+        let clear_x0 = (max_cols - count) * self.font.width();
+        self.fill_rect_pixels(clear_x0, cy0, row_w, cy1, bg);
+        if self.is_output_enabled() {
+            for y in cy0..cy1 {
+                let cur_st = self.backend.calc_offset(self.x_pos, y).as_usize();
+                let line_ed = self.backend.calc_offset(row_w, y).as_usize().min(self.bytes.len());
+                if cur_st < line_ed {
+                    let _ = self.backend.write_bytes_at(cur_st, &self.bytes[cur_st..line_ed]);
+                }
+            }
         }
     }
 
-    /// Moves cursor to start of current row (Carriage Return).
-    pub fn carriage_return(&mut self) {
-        self.col = 0;
+    fn insert_chars_internal(&mut self, count: usize) {
+        let max_cols = self.backend.width() / self.font.width();
+        let cur_col = self.x_pos / self.font.width();
+        if cur_col >= max_cols {
+            return;
+        }
+        let count = count.min(max_cols - cur_col);
+        if count == 0 {
+            return;
+        }
+
+        let bg = if self.is_inverse { self.fg_color } else { self.bg_color };
+        let pixel_size = self.backend.pixel_format().nbytes();
+        let row_w = self.backend.width();
+        let shift_bytes = count * self.font.width() * pixel_size;
+        let cy0 = self.y_pos;
+        let cy1 = (cy0 + self.font.height()).min(self.backend.height());
+
+        for y in cy0..cy1 {
+            let line_st = self.backend.calc_offset(0, y).as_usize();
+            let cur_st = line_st + self.x_pos * pixel_size;
+            let dst_st = cur_st + shift_bytes;
+            let line_ed = line_st + row_w * pixel_size;
+
+            if dst_st < line_ed && line_ed <= self.bytes.len() {
+                let copy_len = line_ed - dst_st;
+                self.bytes.copy_within(cur_st..cur_st + copy_len, dst_st);
+            }
+        }
+
+        let clear_x1 = (cur_col + count) * self.font.width();
+        self.fill_rect_pixels(self.x_pos, cy0, clear_x1, cy1, bg);
+        if self.is_output_enabled() {
+            for y in cy0..cy1 {
+                let cur_st = self.backend.calc_offset(self.x_pos, y).as_usize();
+                let line_ed = self.backend.calc_offset(row_w, y).as_usize().min(self.bytes.len());
+                if cur_st < line_ed {
+                    let _ = self.backend.write_bytes_at(cur_st, &self.bytes[cur_st..line_ed]);
+                }
+            }
+        }
     }
 
-    /// Advances to the next 8-column tab stop.
-    pub fn tab(&mut self) {
-        let next_tab = ((self.col / 8) + 1) * 8;
-        if next_tab >= self.cols {
-            self.newline();
+    fn erase_chars_internal(&mut self, count: usize) {
+        let bg = if self.is_inverse { self.fg_color } else { self.bg_color };
+        let cy0 = self.y_pos;
+        let cy1 = (cy0 + self.font.height()).min(self.backend.height());
+        let x_len = count * self.font.width();
+        let x1 = (self.x_pos + x_len).min(self.backend.width());
+        self.fill_rect_pixels(self.x_pos, cy0, x1, cy1, bg);
+    }
+
+    fn set_font(&mut self, font: BitmapFont) -> Result<(), ConsoleSetFontError> {
+        if font.width() > self.backend.width() || font.height() > self.backend.height() / 2 {
+            return Err(ConsoleSetFontError::InvalidFont);
+        }
+        self.erase_cursor();
+        self.font = font;
+        if self.y_pos + self.font.height() > self.backend.height() {
+            self.shift_lines_up();
+        }
+        self.draw_cursor();
+        Ok(())
+    }
+
+    fn fill_rect_pixels(&mut self, x0: usize, y0: usize, x1: usize, y1: usize, color: Pixel) {
+        let x0 = x0.min(self.backend.width());
+        let x1 = x1.min(self.backend.width());
+        let y0 = y0.min(self.backend.height());
+        let y1 = y1.min(self.backend.height());
+
+        if x0 >= x1 || y0 >= y1 {
+            return;
+        }
+
+        let rendered_pixel = self.backend.render_pixel(color);
+        let pixel_size = rendered_pixel.nbytes();
+        let row_bytes = (x1 - x0) * pixel_size;
+        let is_output_enabled = self.is_output_enabled();
+
+        for y in y0..y1 {
+            let off = self.backend.calc_offset(x0, y).as_usize();
+            if off + row_bytes <= self.bytes.len() {
+                let buf = &mut self.bytes[off..off + row_bytes];
+                for chunk in buf.chunks_exact_mut(pixel_size) {
+                    chunk.copy_from_slice(rendered_pixel.as_slice());
+                }
+                if is_output_enabled {
+                    let _ = self.backend.write_bytes_at(off, buf);
+                }
+            }
+        }
+    }
+
+    fn cursor_cell_rect(&self) -> (usize, usize, usize, usize) {
+        let cx0 = self.x_pos;
+        let cx1 = (cx0 + self.font.width()).min(self.backend.width());
+        let cy0 = self.y_pos;
+        let cy1 = (cy0 + self.font.height()).min(self.backend.height());
+        (cx0, cy0, cx1, cy1)
+    }
+}
+
+impl EscapeOp for ConsoleState {
+    fn set_cursor(&mut self, col: usize, row: usize) {
+        self.wrap_pending = false;
+        let max_col = self.backend.width().saturating_sub(self.font.width()) / self.font.width();
+        let max_row = self.backend.height().saturating_sub(self.font.height()) / self.font.height();
+
+        let actual_row = if self.origin_mode {
+            (self.scroll_top + row).min(self.scroll_bottom)
         } else {
-            self.col = next_tab;
+            row.min(max_row)
+        };
+
+        self.x_pos = col.min(max_col) * self.font.width();
+        self.y_pos = actual_row * self.font.height();
+    }
+
+    fn move_cursor(&mut self, dx: isize, dy: isize) {
+        self.wrap_pending = false;
+        let current_col = (self.x_pos / self.font.width()) as isize;
+        let current_row = (self.y_pos / self.font.height()) as isize;
+        let max_col = (self.backend.width() / self.font.width()).saturating_sub(1) as isize;
+        let max_row = (self.backend.height() / self.font.height()).saturating_sub(1) as isize;
+
+        let (min_row, max_allowed_row) = if self.origin_mode {
+            (self.scroll_top as isize, self.scroll_bottom as isize)
+        } else {
+            (0, max_row)
+        };
+
+        let new_col = (current_col + dx).clamp(0, max_col) as usize;
+        let new_row = (current_row + dy).clamp(min_row, max_allowed_row) as usize;
+
+        self.x_pos = new_col * self.font.width();
+        self.y_pos = new_row * self.font.height();
+    }
+
+    fn set_cursor_col(&mut self, col: usize) {
+        self.wrap_pending = false;
+        let max_col = (self.backend.width() / self.font.width()).saturating_sub(1);
+        self.x_pos = col.min(max_col) * self.font.width();
+    }
+
+    fn set_cursor_row(&mut self, row: usize) {
+        self.wrap_pending = false;
+        let max_row = (self.backend.height() / self.font.height()).saturating_sub(1);
+        let actual_row = if self.origin_mode {
+            (self.scroll_top + row).min(self.scroll_bottom)
+        } else {
+            row.min(max_row)
+        };
+        self.y_pos = actual_row * self.font.height();
+    }
+
+    fn save_cursor(&mut self) {
+        self.saved_x = self.x_pos;
+        self.saved_y = self.y_pos;
+        self.saved_fg = self.fg_color;
+        self.saved_bg = self.bg_color;
+        self.saved_inverse = self.is_inverse;
+    }
+
+    fn restore_cursor(&mut self) {
+        self.wrap_pending = false;
+        let max_x = self.backend.width().saturating_sub(self.font.width());
+        let max_y = self.backend.height().saturating_sub(self.font.height());
+
+        self.x_pos = self.saved_x.min(max_x);
+        self.y_pos = self.saved_y.min(max_y);
+        self.fg_color = self.saved_fg;
+        self.bg_color = self.saved_bg;
+        self.is_inverse = self.saved_inverse;
+    }
+
+    fn set_origin_mode(&mut self, mode: bool) {
+        self.origin_mode = mode;
+        self.set_cursor(0, 0);
+    }
+
+    fn set_cursor_visible(&mut self, visible: bool) {
+        if self.cursor_visible != visible {
+            if !visible {
+                self.erase_cursor();
+            }
+            self.cursor_visible = visible;
         }
     }
 
-    /// Non-destructive backspace (moves cursor left by 1 column).
-    pub fn backspace(&mut self) {
-        if self.col > 0 {
-            self.col -= 1;
-        }
+    fn set_inverse(&mut self, val: bool) {
+        self.is_inverse = val;
     }
 
-    /// Deletes `count` characters at cursor, shifting remainder of the row to the left (DCH).
-    pub fn delete_chars(&mut self, count: usize) {
-        if self.row >= self.rows || self.col >= self.cols || count == 0 {
-            return;
-        }
-        let row_start = self.row * self.cols;
-        let c = self.col;
-        let count = count.min(self.cols - c);
-        let blank = ScreenCell::blank(self.default_fg, self.default_bg);
-
-        for i in c..(self.cols - count) {
-            self.cells[row_start + i] = self.cells[row_start + i + count];
-        }
-        for i in (self.cols - count)..self.cols {
-            self.cells[row_start + i] = blank;
-        }
-        for i in c..self.cols {
-            self.draw_cell(i, self.row);
-        }
+    fn reset(&mut self) {
+        self.fg_color = Pixel::WHITE;
+        self.bg_color = Pixel::BLACK;
+        self.is_inverse = false;
+        self.cursor_visible = true;
+        self.saved_x = 0;
+        self.saved_y = 0;
+        self.saved_fg = Pixel::WHITE;
+        self.saved_bg = Pixel::BLACK;
+        self.saved_inverse = false;
+        let max_rows = self.backend.height() / self.font.height();
+        self.scroll_top = 0;
+        self.scroll_bottom = max_rows.saturating_sub(1);
+        self.erase_in_display(EraseInDisplay::EntireScreen);
+        self.x_pos = 0;
+        self.y_pos = 0;
     }
 
-    /// Erases `count` characters from cursor position without moving the cursor (ECH).
-    pub fn erase_chars(&mut self, count: usize) {
-        if self.row >= self.rows || self.col >= self.cols || count == 0 {
-            return;
-        }
-        let row_start = self.row * self.cols;
-        let count = count.min(self.cols - self.col);
-        let blank = ScreenCell::blank(self.default_fg, self.default_bg);
-
-        for i in self.col..(self.col + count) {
-            self.cells[row_start + i] = blank;
-            self.draw_cell(i, self.row);
-        }
+    fn set_fg_color(&mut self, val: Pixel) {
+        self.fg_color = val;
     }
 
-    /// Clears the display according to mode (0: cursor to end, 1: start to cursor, 2: full display).
-    pub fn clear_display(&mut self, mode: u8) {
+    fn set_bg_color(&mut self, val: Pixel) {
+        self.bg_color = val;
+    }
+
+    fn erase_in_display(&mut self, mode: EraseInDisplay) {
+        let bg = if self.is_inverse { self.fg_color } else { self.bg_color };
+        let w = self.backend.width();
+        let h = self.backend.height();
+        let (cx0, cy0, cx1, cy1) = self.cursor_cell_rect();
+
         match mode {
-            2 => {
-                // Entire screen
-                self.fb.clear(self.default_bg);
-                let blank = ScreenCell::blank(self.default_fg, self.default_bg);
-                for cell in self.cells.iter_mut() {
-                    *cell = blank;
-                }
-                self.col = 0;
-                self.row = 0;
-            }
-            0 => {
-                // From cursor to end of screen
-                let start_idx = self.row * self.cols + self.col;
-                let blank = ScreenCell::blank(self.default_fg, self.default_bg);
-                for i in start_idx..self.cells.len() {
-                    self.cells[i] = blank;
-                }
-                // Clear the rest of current row
-                let rest_w = (self.cols - self.col) * FONT_WIDTH;
-                self.fb.fill_rect(self.col * FONT_WIDTH, self.row * FONT_HEIGHT, rest_w, FONT_HEIGHT, self.default_bg);
-                // Clear remaining rows below
-                if self.row + 1 < self.rows {
-                    let y = (self.row + 1) * FONT_HEIGHT;
-                    let h = (self.rows - (self.row + 1)) * FONT_HEIGHT;
-                    self.fb.fill_rect(0, y, self.fb.width, h, self.default_bg);
+            EraseInDisplay::CursorToEnd => {
+                self.fill_rect_pixels(cx0, cy0, w, cy1, bg);
+                if cy1 < h {
+                    self.fill_rect_pixels(0, cy1, w, h, bg);
                 }
             }
-            1 => {
-                // From start of screen to cursor
-                let end_idx = (self.row * self.cols + self.col).min(self.cells.len());
-                let blank = ScreenCell::blank(self.default_fg, self.default_bg);
-                for i in 0..=end_idx {
-                    if i < self.cells.len() {
-                        self.cells[i] = blank;
-                    }
+            EraseInDisplay::CursorToBeginning => {
+                if cy0 > 0 {
+                    self.fill_rect_pixels(0, 0, w, cy0, bg);
                 }
-                // Clear preceding rows
-                if self.row > 0 {
-                    self.fb.fill_rect(0, 0, self.fb.width, self.row * FONT_HEIGHT, self.default_bg);
-                }
-                // Clear start of current row up to cursor
-                self.fb.fill_rect(0, self.row * FONT_HEIGHT, (self.col + 1) * FONT_WIDTH, FONT_HEIGHT, self.default_bg);
+                self.fill_rect_pixels(0, cy0, cx1, cy1, bg);
             }
-            _ => {}
+            EraseInDisplay::EntireScreen | EraseInDisplay::EntireScreenAndScrollback => {
+                self.fill_rect_pixels(0, 0, w, h, bg);
+            }
         }
     }
 
-    /// Clears the line according to mode (0: cursor to end, 1: start to cursor, 2: full line).
-    pub fn clear_line(&mut self, mode: u8) {
-        if self.row >= self.rows {
-            return;
-        }
-
-        let blank = ScreenCell::blank(self.default_fg, self.default_bg);
-        let row_start = self.row * self.cols;
+    fn erase_in_line(&mut self, mode: EraseInLine) {
+        let bg = if self.is_inverse { self.fg_color } else { self.bg_color };
+        let w = self.backend.width();
+        let (_, cy0, cx1, cy1) = self.cursor_cell_rect();
 
         match mode {
-            2 => {
-                // Whole line
-                for c in 0..self.cols {
-                    self.cells[row_start + c] = blank;
-                }
-                self.fb.fill_rect(0, self.row * FONT_HEIGHT, self.fb.width, FONT_HEIGHT, self.default_bg);
+            EraseInLine::CursorToEnd => {
+                self.fill_rect_pixels(self.x_pos, cy0, w, cy1, bg);
             }
-            0 => {
-                // Cursor to end of line
-                for c in self.col..self.cols {
-                    self.cells[row_start + c] = blank;
-                }
-                let w = (self.cols.saturating_sub(self.col)) * FONT_WIDTH;
-                self.fb.fill_rect(self.col * FONT_WIDTH, self.row * FONT_HEIGHT, w, FONT_HEIGHT, self.default_bg);
+            EraseInLine::CursorToBeginning => {
+                self.fill_rect_pixels(0, cy0, cx1, cy1, bg);
             }
-            1 => {
-                // Start of line to cursor
-                for c in 0..=self.col.min(self.cols.saturating_sub(1)) {
-                    self.cells[row_start + c] = blank;
-                }
-                let w = (self.col + 1).min(self.cols) * FONT_WIDTH;
-                self.fb.fill_rect(0, self.row * FONT_HEIGHT, w, FONT_HEIGHT, self.default_bg);
-            }
-            _ => {}
-        }
-    }
-
-    /// Executes a parsed ANSI action on the console.
-    fn execute_action(&mut self, action: AnsiAction) {
-        match action {
-            AnsiAction::Print(ch) => self.put_char(ch),
-            AnsiAction::Newline => self.newline(),
-            AnsiAction::CarriageReturn => self.carriage_return(),
-            AnsiAction::Tab => self.tab(),
-            AnsiAction::Backspace => self.backspace(),
-            AnsiAction::DeleteChars(count) => self.delete_chars(count),
-            AnsiAction::EraseChars(count) => self.erase_chars(count),
-            AnsiAction::SetStyle { fg, bg, bold, inverse, reset } => {
-                if reset {
-                    self.current_fg = self.default_fg;
-                    self.current_bg = self.default_bg;
-                    self.bold = false;
-                    self.inverse = false;
-                }
-                if let Some(c) = fg {
-                    self.current_fg = c;
-                }
-                if let Some(c) = bg {
-                    self.current_bg = c;
-                }
-                if bold {
-                    self.bold = true;
-                }
-                if inverse {
-                    self.inverse = true;
-                }
-            }
-            AnsiAction::SetCursorPos { col, row } => {
-                self.col = col.min(self.cols.saturating_sub(1));
-                self.row = row.min(self.rows.saturating_sub(1));
-            }
-            AnsiAction::SetCursorCol(col) => {
-                self.col = col.min(self.cols.saturating_sub(1));
-            }
-            AnsiAction::SetCursorRow(row) => {
-                self.row = row.min(self.rows.saturating_sub(1));
-            }
-            AnsiAction::SaveCursor => {
-                self.saved_col = self.col;
-                self.saved_row = self.row;
-                self.saved_fg = self.current_fg;
-                self.saved_bg = self.current_bg;
-                self.saved_bold = self.bold;
-                self.saved_inverse = self.inverse;
-            }
-            AnsiAction::RestoreCursor => {
-                self.col = self.saved_col.min(self.cols.saturating_sub(1));
-                self.row = self.saved_row.min(self.rows.saturating_sub(1));
-                self.current_fg = self.saved_fg;
-                self.current_bg = self.saved_bg;
-                self.bold = self.saved_bold;
-                self.inverse = self.saved_inverse;
-            }
-            AnsiAction::MoveCursor { dcol, drow } => {
-                let new_col = (self.col as isize + dcol).max(0).min(self.cols as isize - 1);
-                let new_row = (self.row as isize + drow).max(0).min(self.rows as isize - 1);
-                self.col = new_col as usize;
-                self.row = new_row as usize;
-            }
-            AnsiAction::ClearDisplay(mode) => self.clear_display(mode),
-            AnsiAction::ClearLine(mode) => self.clear_line(mode),
-            AnsiAction::SetCursorVisible(visible) => {
-                self.cursor_visible = visible;
-            }
-            AnsiAction::Reset => {
-                self.current_fg = self.default_fg;
-                self.current_bg = self.default_bg;
-                self.bold = false;
-                self.inverse = false;
-                self.cursor_visible = true;
-                self.saved_col = 0;
-                self.saved_row = 0;
-                self.saved_fg = self.default_fg;
-                self.saved_bg = self.default_bg;
-                self.saved_bold = false;
-                self.saved_inverse = false;
-                self.clear_display(2);
+            EraseInLine::EntireLine => {
+                self.fill_rect_pixels(0, cy0, w, cy1, bg);
             }
         }
     }
 
-    /// Writes a single byte into the terminal, evaluating escape codes.
-    pub fn write_byte(&mut self, byte: u8) {
+    fn set_scroll_region(&mut self, top: usize, bottom: usize) {
+        self.wrap_pending = false;
+        let max_rows = self.backend.height() / self.font.height();
+        if top == 0 && bottom == 0 {
+            self.scroll_top = 0;
+            self.scroll_bottom = max_rows.saturating_sub(1);
+        } else {
+            let top_0b = top.saturating_sub(1).min(max_rows.saturating_sub(1));
+            let bot_0b = if bottom == 0 || bottom > max_rows {
+                max_rows.saturating_sub(1)
+            } else {
+                bottom.saturating_sub(1)
+            };
+            self.scroll_top = top_0b.min(bot_0b);
+            self.scroll_bottom = bot_0b.max(top_0b);
+        }
+        self.x_pos = 0;
+        self.y_pos = if self.origin_mode {
+            self.scroll_top * self.font.height()
+        } else {
+            0
+        };
+    }
+
+    fn delete_lines(&mut self, count: usize) {
+        self.wrap_pending = false;
         self.erase_cursor();
-        let mut parser = core::mem::replace(&mut self.ansi_parser, AnsiParser::new());
-        parser.process_byte(byte, |action| {
-            self.execute_action(action);
-        });
-        self.ansi_parser = parser;
+        self.delete_lines_internal(count);
         self.draw_cursor();
     }
 
-    /// Writes a string slice into the terminal.
-    pub fn write_str(&mut self, s: &str) {
+    fn insert_lines(&mut self, count: usize) {
+        self.wrap_pending = false;
         self.erase_cursor();
-        let mut parser = core::mem::replace(&mut self.ansi_parser, AnsiParser::new());
-        for &b in s.as_bytes() {
-            parser.process_byte(b, |action| {
-                self.execute_action(action);
-            });
-        }
-        self.ansi_parser = parser;
+        self.insert_lines_internal(count);
         self.draw_cursor();
     }
 
-    /// Writes raw byte buffer into the terminal.
-    pub fn write_bytes(&mut self, bytes: &[u8]) {
+    fn delete_chars(&mut self, count: usize) {
+        self.wrap_pending = false;
         self.erase_cursor();
-        let mut parser = core::mem::replace(&mut self.ansi_parser, AnsiParser::new());
-        for &b in bytes {
-            parser.process_byte(b, |action| {
-                self.execute_action(action);
-            });
+        self.delete_chars_internal(count);
+        self.draw_cursor();
+    }
+
+    fn insert_chars(&mut self, count: usize) {
+        self.wrap_pending = false;
+        self.erase_cursor();
+        self.insert_chars_internal(count);
+        self.draw_cursor();
+    }
+
+    fn erase_chars(&mut self, count: usize) {
+        self.wrap_pending = false;
+        self.erase_cursor();
+        self.erase_chars_internal(count);
+        self.draw_cursor();
+    }
+
+    fn report_cursor_position(&mut self) {
+        let row = (self.y_pos / self.font.height()) + 1;
+        let col = (self.x_pos / self.font.width()) + 1;
+        let resp = alloc::format!("\x1B[{};{}R", row, col);
+        for b in resp.bytes() {
+            crate::drivers::char::tty::queue_input(b);
         }
-        self.ansi_parser = parser;
+    }
+
+    fn reverse_index(&mut self) {
+        self.wrap_pending = false;
+        self.erase_cursor();
+        let top_y = self.scroll_top * self.font.height();
+        let bottom_y = self.scroll_bottom * self.font.height();
+
+        if self.y_pos >= top_y && self.y_pos <= bottom_y {
+            if self.y_pos == top_y {
+                self.scroll_region_down(1);
+            } else {
+                self.y_pos = self.y_pos.saturating_sub(self.font.height());
+            }
+        } else if self.y_pos >= self.font.height() {
+            self.y_pos -= self.font.height();
+        }
         self.draw_cursor();
     }
 }

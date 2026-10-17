@@ -1,336 +1,599 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: MPL-2.0
 
-//! ANSI / VT100 Terminal Escape Sequence Parser.
+//! ANSI Escape Sequence Parser.
 //!
-//! Implements a resilient, zero-allocation terminal state machine inspired
-//! by FreeBSD's `teken` and Linux's `vt.c` for parsing VT100/ANSI CSI escape
-//! sequences, SGR color codes, cursor motion, and screen clearing commands.
+//! Based on Asterinas framebuffer ansi_escape module.
 
-use super::pixel::Color;
+use super::pixel::Pixel;
 
-/// Parsed ANSI terminal control action to execute on the console surface.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum AnsiAction {
-    /// Render a single printable ASCII character.
-    Print(char),
-    /// Line Feed (`\n`): Move cursor down, scrolling if at bottom margin.
-    Newline,
-    /// Carriage Return (`\r`): Move cursor to column 0.
-    CarriageReturn,
-    /// Tab (`\t`): Advance to next 8-column tab stop.
-    Tab,
-    /// Backspace (`\x08`): Move cursor left 1 column (non-destructive).
-    Backspace,
-    /// Delete characters at cursor (DCH - CSI P).
-    DeleteChars(usize),
-    /// Erase characters at cursor (ECH - CSI X).
-    EraseChars(usize),
-    /// Select Graphic Rendition (SGR) text styling.
-    SetStyle {
-        fg: Option<Color>,
-        bg: Option<Color>,
-        bold: bool,
-        inverse: bool,
-        reset: bool,
-    },
-    /// Move cursor to absolute 0-indexed grid coordinates `(col, row)`.
-    SetCursorPos { col: usize, row: usize },
-    /// Move cursor relative to current position.
-    MoveCursor { dcol: isize, drow: isize },
-    /// Move cursor to absolute 0-indexed column in the current row (CHA - CSI G / CSI ').
-    SetCursorCol(usize),
-    /// Move cursor to absolute 0-indexed row in the current column (VPA - CSI d).
-    SetCursorRow(usize),
-    /// Save current cursor position and text style (DECSC - ESC 7 / ANSI.SYS CSI s).
-    SaveCursor,
-    /// Restore previously saved cursor position and text style (DECRC - ESC 8 / ANSI.SYS CSI u).
-    RestoreCursor,
-    /// Clear screen: 0 = cursor to end, 1 = start to cursor, 2 = full screen.
-    ClearDisplay(u8),
-    /// Clear line: 0 = cursor to end, 1 = start to cursor, 2 = full line.
-    ClearLine(u8),
-    /// Set hardware cursor visibility (DEC private mode 25).
-    SetCursorVisible(bool),
-    /// Reset terminal to default initial state (RIS).
-    Reset,
+/// A finite-state machine (FSM) to handle ANSI escape sequences.
+#[derive(Debug)]
+pub struct EscapeFsm {
+    state: WaitFor,
+    params: [Option<u32>; MAX_PARAMS],
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum State {
-    Ground,
+/// The mode for "Erase in Display" (ED) commands.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum EraseInDisplay {
+    CursorToEnd,
+    CursorToBeginning,
+    EntireScreen,
+    EntireScreenAndScrollback,
+}
+
+/// The mode for "Erase in Line" (EL) commands.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum EraseInLine {
+    CursorToEnd,
+    CursorToBeginning,
+    EntireLine,
+}
+
+/// A trait to execute operations from ANSI escape sequences.
+pub trait EscapeOp {
+    /// Sets the cursor position (0-indexed: x = col, y = row).
+    fn set_cursor(&mut self, x: usize, y: usize);
+
+    /// Moves the cursor relative to current position.
+    fn move_cursor(&mut self, _dx: isize, _dy: isize) {}
+
+    /// Sets the cursor column (0-indexed).
+    fn set_cursor_col(&mut self, _col: usize) {}
+
+    /// Sets the cursor row (0-indexed).
+    fn set_cursor_row(&mut self, _row: usize) {}
+
+    /// Saves the current cursor position and attributes (DECSC / SCO).
+    fn save_cursor(&mut self) {}
+
+    /// Restores the previously saved cursor position and attributes (DECRC / SCO).
+    fn restore_cursor(&mut self) {}
+
+    /// Shows or hides the cursor (DECTCEM).
+    fn set_cursor_visible(&mut self, _visible: bool) {}
+
+    /// Sets or resets origin mode (DECOM: CSI ? 6 h / l).
+    fn set_origin_mode(&mut self, _mode: bool) {}
+
+    /// Sets reverse video mode (SGR 7 / 27).
+    fn set_inverse(&mut self, _val: bool) {}
+
+    /// Resets console style and cursor to initial state (RIS).
+    fn reset(&mut self) {}
+
+    /// Sets the foreground color.
+    fn set_fg_color(&mut self, val: Pixel);
+
+    /// Sets the background color.
+    fn set_bg_color(&mut self, val: Pixel);
+
+    /// Erases part or all of the display.
+    fn erase_in_display(&mut self, mode: EraseInDisplay);
+
+    /// Erases part or all of the current line.
+    fn erase_in_line(&mut self, _mode: EraseInLine) {}
+
+    /// Sets top and bottom scrolling margins (DECSTBM: CSI Pt ; Pb r). 1-indexed.
+    fn set_scroll_region(&mut self, _top: usize, _bottom: usize) {}
+
+    /// Deletes n lines starting from current line (DL: CSI n M).
+    fn delete_lines(&mut self, _count: usize) {}
+
+    /// Inserts n blank lines at current line (IL: CSI n L).
+    fn insert_lines(&mut self, _count: usize) {}
+
+    /// Deletes n characters from current line (DCH: CSI n P).
+    fn delete_chars(&mut self, _count: usize) {}
+
+    /// Inserts n blank characters into current line (ICH: CSI n @).
+    fn insert_chars(&mut self, _count: usize) {}
+
+    /// Erases n characters from cursor without moving cursor (ECH: CSI n X).
+    fn erase_chars(&mut self, _count: usize) {}
+
+    /// Reports cursor position to input queue (DSR: CSI 6 n).
+    fn report_cursor_position(&mut self) {}
+
+    /// Reverse index (RI: ESC M). Scrolls down if at top margin.
+    fn reverse_index(&mut self) {}
+}
+
+const MAX_PARAMS: usize = 8;
+const MAX_OSC_LEN: u8 = 128;
+
+#[derive(Clone, Copy, Debug)]
+enum WaitFor {
     Escape,
-    Csi,
+    EscapeSeq,
+    Charset,
+    Csi {
+        idx: u8,
+        is_private: bool,
+        in_intermediate: bool,
+    },
+    Osc {
+        len: u8,
+        is_last_esc: bool,
+    },
 }
 
-/// ANSI / VT100 state machine parser.
-pub struct AnsiParser {
-    state: State,
-    params: [u16; 8],
-    param_count: usize,
-    in_param: bool,
-    is_private: bool,
-}
+#[rustfmt::skip]
+const COLORS: [Pixel; 16] = [
+    // Black
+    Pixel { red: 0, green: 0, blue: 0 },
+    // Red
+    Pixel { red: 170, green: 0, blue: 0 },
+    // Green
+    Pixel { red: 0, green: 170, blue: 0 },
+    // Yellow
+    Pixel { red: 170, green: 85, blue: 0 },
+    // Blue
+    Pixel { red: 0, green: 0, blue: 170 },
+    // Magenta
+    Pixel { red: 170, green: 0, blue: 170 },
+    // Cyan
+    Pixel { red: 0, green: 170, blue: 170 },
+    // White
+    Pixel { red: 170, green: 170, blue: 170 },
+    // Bright Black (Gray)
+    Pixel { red: 85, green: 85, blue: 85 },
+    // Bright Red
+    Pixel { red: 255, green: 85, blue: 85 },
+    // Bright Green
+    Pixel { red: 85, green: 255, blue: 85 },
+    // Bright Yellow
+    Pixel { red: 255, green: 255, blue: 85 },
+    // Bright Blue
+    Pixel { red: 85, green: 85, blue: 255 },
+    // Bright Magenta
+    Pixel { red: 255, green: 85, blue: 255 },
+    // Bright Cyan
+    Pixel { red: 85, green: 255, blue: 255 },
+    // Bright White
+    Pixel { red: 255, green: 255, blue: 255 },
+];
 
-impl AnsiParser {
-    pub const fn new() -> Self {
+impl EscapeFsm {
+    const ESC: u8 = 0x1B;
+    const BEL: u8 = 0x07;
+
+    pub fn new() -> Self {
         Self {
-            state: State::Ground,
-            params: [0; 8],
-            param_count: 0,
-            in_param: false,
-            is_private: false,
+            state: WaitFor::Escape,
+            params: [None; MAX_PARAMS],
         }
     }
 
-    /// Process a single incoming byte and execute corresponding actions via callback.
-    pub fn process_byte<F>(&mut self, byte: u8, mut emit: F)
-    where
-        F: FnMut(AnsiAction),
-    {
+    /// Tries to eat a byte as part of the ANSI escape sequence.
+    /// Returns `true` if consumed by the FSM; `false` if printable text.
+    pub fn eat<T: EscapeOp>(&mut self, byte: u8, op: &mut T) -> bool {
         match self.state {
-            State::Ground => match byte {
-                0x1B => {
-                    self.state = State::Escape;
+            WaitFor::Escape => {
+                if byte == Self::ESC {
+                    self.state = WaitFor::EscapeSeq;
+                    return true;
                 }
-                b'\n' => emit(AnsiAction::Newline),
-                b'\r' => emit(AnsiAction::CarriageReturn),
-                b'\t' => emit(AnsiAction::Tab),
-                0x08 => emit(AnsiAction::Backspace),
-                0x7F => { /* DEL - ignored in VT100 ground state */ }
-                0x07 => { /* Bell - ignore or flash */ }
-                ch if ch >= 0x20 => {
-                    emit(AnsiAction::Print(ch as char));
-                }
-                _ => {}
-            },
+                false
+            }
 
-            State::Escape => match byte {
-                b'[' => {
-                    self.state = State::Csi;
-                    self.params = [0; 8];
-                    self.param_count = 0;
-                    self.in_param = false;
-                    self.is_private = false;
+            WaitFor::EscapeSeq => {
+                match byte {
+                    b'[' => {
+                        self.params.fill(None);
+                        self.state = WaitFor::Csi {
+                            idx: 0,
+                            is_private: false,
+                            in_intermediate: false,
+                        };
+                    }
+                    b']' => {
+                        self.state = WaitFor::Osc {
+                            len: 0,
+                            is_last_esc: false,
+                        };
+                    }
+                    b'7' => {
+                        // DECSC - DEC Save Cursor (used by apk progress bar)
+                        op.save_cursor();
+                        self.state = WaitFor::Escape;
+                    }
+                    b'8' => {
+                        // DECRC - DEC Restore Cursor (used by apk progress bar)
+                        op.restore_cursor();
+                        self.state = WaitFor::Escape;
+                    }
+                    b'M' => {
+                        // RI - Reverse Index
+                        op.reverse_index();
+                        self.state = WaitFor::Escape;
+                    }
+                    b'E' => {
+                        // NEL - Next Line
+                        op.set_cursor_col(0);
+                        op.move_cursor(0, 1);
+                        self.state = WaitFor::Escape;
+                    }
+                    b'c' => {
+                        // RIS - Reset Initial State
+                        op.reset();
+                        self.state = WaitFor::Escape;
+                    }
+                    b'(' | b')' => {
+                        // Charset designation (e.g. \e(B for ASCII)
+                        self.state = WaitFor::Charset;
+                    }
+                    Self::ESC => {
+                        self.state = WaitFor::EscapeSeq;
+                    }
+                    _ => self.state = WaitFor::Escape,
                 }
-                b'7' => {
-                    // DECSC - DEC Save Cursor
-                    emit(AnsiAction::SaveCursor);
-                    self.state = State::Ground;
-                }
-                b'8' => {
-                    // DECRC - DEC Restore Cursor
-                    emit(AnsiAction::RestoreCursor);
-                    self.state = State::Ground;
-                }
-                b'M' => {
-                    // RI - Reverse Index (cursor up)
-                    emit(AnsiAction::MoveCursor { dcol: 0, drow: -1 });
-                    self.state = State::Ground;
-                }
-                b'E' => {
-                    // NEL - Next Line
-                    emit(AnsiAction::CarriageReturn);
-                    emit(AnsiAction::Newline);
-                    self.state = State::Ground;
-                }
-                b'c' => {
-                    // RIS - Reset Initial State
-                    emit(AnsiAction::Reset);
-                    self.state = State::Ground;
-                }
-                _ => {
-                    // Unknown escape sequence, abort back to Ground
-                    self.state = State::Ground;
-                }
-            },
+                true
+            }
 
-            State::Csi => match byte {
-                b'?' => {
-                    self.is_private = true;
+            WaitFor::Charset => {
+                self.state = WaitFor::Escape;
+                true
+            }
+
+            WaitFor::Csi {
+                idx,
+                is_private,
+                in_intermediate,
+            } => {
+                self.parse_csi(byte, idx, is_private, in_intermediate, op);
+                true
+            }
+
+            WaitFor::Osc { len, is_last_esc } => {
+                match byte {
+                    Self::BEL => self.state = WaitFor::Escape,
+                    b'\\' if is_last_esc => self.state = WaitFor::Escape,
+                    _ => {
+                        if len > MAX_OSC_LEN {
+                            self.state = WaitFor::Escape;
+                            return false;
+                        }
+                        self.state = WaitFor::Osc {
+                            len: len + 1,
+                            is_last_esc: byte == Self::ESC,
+                        };
+                    }
                 }
+                true
+            }
+        }
+    }
+
+    fn parse_csi<T: EscapeOp>(
+        &mut self,
+        byte: u8,
+        idx: u8,
+        is_private: bool,
+        in_intermediate: bool,
+        op: &mut T,
+    ) {
+        match byte {
+            0x20..=0x2F => {
+                self.state = WaitFor::Csi {
+                    idx,
+                    is_private,
+                    in_intermediate: true,
+                };
+            }
+
+            0x30..=0x3F if !in_intermediate => match byte {
                 b'0'..=b'9' => {
-                    self.in_param = true;
-                    if self.param_count < self.params.len() {
-                        let val = (byte - b'0') as u16;
-                        self.params[self.param_count] = self.params[self.param_count]
-                            .saturating_mul(10)
-                            .saturating_add(val);
+                    let i = idx as usize;
+                    if i < MAX_PARAMS {
+                        let p = &mut self.params[i];
+                        *p = Some(
+                            p.unwrap_or(0)
+                                .saturating_mul(10)
+                                .saturating_add((byte - b'0') as u32),
+                        );
                     }
+                    self.state = WaitFor::Csi {
+                        idx,
+                        is_private,
+                        in_intermediate: false,
+                    };
                 }
+
                 b';' => {
-                    if self.in_param && self.param_count < self.params.len() {
-                        self.param_count += 1;
-                    }
-                    self.in_param = false;
-                }
-                // Terminators
-                b'm' => {
-                    if self.in_param && self.param_count < self.params.len() {
-                        self.param_count += 1;
-                    }
-                    self.dispatch_sgr(&mut emit);
-                    self.state = State::Ground;
-                }
-                b'H' | b'f' => {
-                    if self.in_param && self.param_count < self.params.len() {
-                        self.param_count += 1;
-                    }
-                    // 1-indexed coordinates: default row=1, col=1
-                    let row = if self.param_count > 0 && self.params[0] > 0 {
-                        (self.params[0] - 1) as usize
+                    let next = idx + 1;
+                    if (next as usize) < MAX_PARAMS {
+                        self.state = WaitFor::Csi {
+                            idx: next,
+                            is_private,
+                            in_intermediate: false,
+                        };
                     } else {
-                        0
+                        self.state = WaitFor::Escape;
+                    }
+                }
+
+                b':' => self.state = WaitFor::Escape,
+
+                b'<' | b'=' | b'>' | b'?' => {
+                    self.state = WaitFor::Csi {
+                        idx,
+                        is_private: true,
+                        in_intermediate: false,
                     };
-                    let col = if self.param_count > 1 && self.params[1] > 0 {
-                        (self.params[1] - 1) as usize
-                    } else {
-                        0
-                    };
-                    emit(AnsiAction::SetCursorPos { col, row });
-                    self.state = State::Ground;
                 }
-                b'A' => {
-                    // Cursor Up
-                    let count = if self.in_param && self.params[0] > 0 { self.params[0] as isize } else { 1 };
-                    emit(AnsiAction::MoveCursor { dcol: 0, drow: -count });
-                    self.state = State::Ground;
-                }
-                b'B' => {
-                    // Cursor Down
-                    let count = if self.in_param && self.params[0] > 0 { self.params[0] as isize } else { 1 };
-                    emit(AnsiAction::MoveCursor { dcol: 0, drow: count });
-                    self.state = State::Ground;
-                }
-                b'C' => {
-                    // Cursor Forward
-                    let count = if self.in_param && self.params[0] > 0 { self.params[0] as isize } else { 1 };
-                    emit(AnsiAction::MoveCursor { dcol: count, drow: 0 });
-                    self.state = State::Ground;
-                }
-                b'D' => {
-                    // Cursor Back
-                    let count = if self.in_param && self.params[0] > 0 { self.params[0] as isize } else { 1 };
-                    emit(AnsiAction::MoveCursor { dcol: -count, drow: 0 });
-                    self.state = State::Ground;
-                }
-                b'J' => {
-                    // Erase in Display
-                    let mode = if self.in_param { self.params[0] as u8 } else { 0 };
-                    emit(AnsiAction::ClearDisplay(mode));
-                    self.state = State::Ground;
-                }
-                b'K' => {
-                    // Erase in Line
-                    let mode = if self.in_param { self.params[0] as u8 } else { 0 };
-                    emit(AnsiAction::ClearLine(mode));
-                    self.state = State::Ground;
-                }
-                b'P' => {
-                    // DCH - Delete Character (shifts line left)
-                    let count = if self.in_param && self.params[0] > 0 { self.params[0] as usize } else { 1 };
-                    emit(AnsiAction::DeleteChars(count));
-                    self.state = State::Ground;
-                }
-                b'X' => {
-                    // ECH - Erase Character (erases to space in place)
-                    let count = if self.in_param && self.params[0] > 0 { self.params[0] as usize } else { 1 };
-                    emit(AnsiAction::EraseChars(count));
-                    self.state = State::Ground;
-                }
+
+                _ => unreachable!(),
+            },
+
+            0x30..=0x3F if in_intermediate => {
+                self.state = WaitFor::Escape;
+            }
+
+            0x40..=0x7E => {
+                self.state = WaitFor::Escape;
+                let num_params = (idx as usize) + 1;
+                self.handle_csi(byte, num_params, is_private, op);
+            }
+
+            _ => {
+                self.state = WaitFor::Escape;
+            }
+        }
+    }
+
+    fn handle_csi<T: EscapeOp>(
+        &self,
+        final_byte: u8,
+        num_params: usize,
+        is_private: bool,
+        op: &mut T,
+    ) {
+        if is_private {
+            match final_byte {
                 b'h' => {
-                    if self.is_private && self.params[0] == 25 {
-                        emit(AnsiAction::SetCursorVisible(true));
+                    for i in 0..num_params {
+                        match self.param_or(i, 0) {
+                            25 => op.set_cursor_visible(true),
+                            6 => op.set_origin_mode(true),
+                            _ => {}
+                        }
                     }
-                    self.state = State::Ground;
                 }
                 b'l' => {
-                    if self.is_private && self.params[0] == 25 {
-                        emit(AnsiAction::SetCursorVisible(false));
+                    for i in 0..num_params {
+                        match self.param_or(i, 0) {
+                            25 => op.set_cursor_visible(false),
+                            6 => op.set_origin_mode(false),
+                            _ => {}
+                        }
                     }
-                    self.state = State::Ground;
                 }
-                b's' => {
-                    // SCO / ANSI save cursor: CSI s
-                    emit(AnsiAction::SaveCursor);
-                    self.state = State::Ground;
-                }
-                b'u' => {
-                    // SCO / ANSI restore cursor: CSI u
-                    emit(AnsiAction::RestoreCursor);
-                    self.state = State::Ground;
-                }
-                b'G' | b'\'' => {
-                    // CHA - Cursor Character Absolute (1-indexed column)
-                    let col = if self.in_param && self.params[0] > 0 {
-                        (self.params[0] - 1) as usize
-                    } else {
-                        0
-                    };
-                    emit(AnsiAction::SetCursorCol(col));
-                    self.state = State::Ground;
-                }
-                b'd' => {
-                    // VPA - Line Position Absolute (1-indexed row)
-                    let row = if self.in_param && self.params[0] > 0 {
-                        (self.params[0] - 1) as usize
-                    } else {
-                        0
-                    };
-                    emit(AnsiAction::SetCursorRow(row));
-                    self.state = State::Ground;
-                }
-                _ => {
-                    // Unrecognized sequence terminator
-                    self.state = State::Ground;
-                }
-            },
-        }
-    }
-
-    fn dispatch_sgr<F>(&self, emit: &mut F)
-    where
-        F: FnMut(AnsiAction),
-    {
-        if self.param_count == 0 {
-            // Default `\x1b[m` resets all attributes
-            emit(AnsiAction::SetStyle {
-                fg: None,
-                bg: None,
-                bold: false,
-                inverse: false,
-                reset: true,
-            });
+                _ => {}
+            }
             return;
         }
 
-        let mut fg = None;
-        let mut bg = None;
-        let mut bold = false;
-        let mut inverse = false;
-        let mut reset = false;
+        match final_byte {
+            // CUP - Cursor Position: CSI n ; m H
+            b'H' | b'f' => {
+                let row_1b = self.param_or(0, 1);
+                let col_1b = self.param_or(1, 1);
+                op.set_cursor(
+                    col_1b.saturating_sub(1) as usize,
+                    row_1b.saturating_sub(1) as usize,
+                );
+            }
 
-        for &p in &self.params[..self.param_count] {
-            match p {
-                0 => reset = true,
-                1 => bold = true,
-                7 => inverse = true,
-                30..=37 => fg = Some(Color::from_ansi((p - 30) as u8)),
-                39 => fg = None, // Reset fg to default
-                40..=47 => bg = Some(Color::from_ansi((p - 40) as u8)),
-                49 => bg = None, // Reset bg to default
-                90..=97 => fg = Some(Color::from_ansi((p - 90 + 8) as u8)),
-                100..=107 => bg = Some(Color::from_ansi((p - 100 + 8) as u8)),
+            // Cursor movements
+            b'A' => {
+                let count = self.param_or(0, 1).max(1) as isize;
+                op.move_cursor(0, -count);
+            }
+            b'B' => {
+                let count = self.param_or(0, 1).max(1) as isize;
+                op.move_cursor(0, count);
+            }
+            b'C' => {
+                let count = self.param_or(0, 1).max(1) as isize;
+                op.move_cursor(count, 0);
+            }
+            b'D' => {
+                let count = self.param_or(0, 1).max(1) as isize;
+                op.move_cursor(-count, 0);
+            }
+
+            // CHA - Cursor Horizontal Absolute: CSI n G / '
+            b'G' | b'\'' => {
+                let col_1b = self.param_or(0, 1);
+                op.set_cursor_col(col_1b.saturating_sub(1) as usize);
+            }
+
+            // VPA - Line Position Absolute: CSI n d
+            b'd' => {
+                let row_1b = self.param_or(0, 1);
+                op.set_cursor_row(row_1b.saturating_sub(1) as usize);
+            }
+
+            // Save / Restore Cursor (SCO: CSI s / CSI u)
+            b's' => op.save_cursor(),
+            b'u' => op.restore_cursor(),
+
+            // ED - Erase in Display: CSI n J
+            b'J' => {
+                let n = self.param_or(0, 0);
+                let mode = match n {
+                    0 => EraseInDisplay::CursorToEnd,
+                    1 => EraseInDisplay::CursorToBeginning,
+                    2 => EraseInDisplay::EntireScreen,
+                    3 => EraseInDisplay::EntireScreenAndScrollback,
+                    _ => return,
+                };
+                op.erase_in_display(mode);
+            }
+
+            // EL - Erase in Line: CSI n K
+            b'K' => {
+                let n = self.param_or(0, 0);
+                let mode = match n {
+                    0 => EraseInLine::CursorToEnd,
+                    1 => EraseInLine::CursorToBeginning,
+                    2 => EraseInLine::EntireLine,
+                    _ => return,
+                };
+                op.erase_in_line(mode);
+            }
+
+            // SGR - Select Graphic Rendition
+            b'm' => self.handle_sgr(num_params, op),
+
+            // CSR - Change Scrolling Region: CSI Pt ; Pb r
+            b'r' => {
+                let top_1b = self.param_or(0, 1) as usize;
+                let bottom_1b = self.param_or(1, 0) as usize;
+                op.set_scroll_region(top_1b, bottom_1b);
+            }
+
+            // DL - Delete Lines: CSI n M
+            b'M' => {
+                let count = self.param_or(0, 1).max(1) as usize;
+                op.delete_lines(count);
+            }
+
+            // IL - Insert Lines: CSI n L
+            b'L' => {
+                let count = self.param_or(0, 1).max(1) as usize;
+                op.insert_lines(count);
+            }
+
+            // DCH - Delete Characters: CSI n P
+            b'P' => {
+                let count = self.param_or(0, 1).max(1) as usize;
+                op.delete_chars(count);
+            }
+
+            // ICH - Insert Characters: CSI n @
+            b'@' => {
+                let count = self.param_or(0, 1).max(1) as usize;
+                op.insert_chars(count);
+            }
+
+            // ECH - Erase Characters: CSI n X
+            b'X' => {
+                let count = self.param_or(0, 1).max(1) as usize;
+                op.erase_chars(count);
+            }
+
+            // DSR - Device Status Report: CSI n n
+            b'n' => {
+                if self.param_or(0, 0) == 6 {
+                    op.report_cursor_position();
+                }
+            }
+
+            _ => {}
+        }
+    }
+
+    fn handle_sgr<T: EscapeOp>(&self, num_params: usize, op: &mut T) {
+        if num_params == 0 {
+            op.set_fg_color(Pixel::WHITE);
+            op.set_bg_color(Pixel::BLACK);
+            op.set_inverse(false);
+            return;
+        }
+
+        let mut cursor = 0;
+        while cursor < num_params {
+            let op_code = self.param_or(cursor, 0) as u8;
+            cursor += 1;
+
+            match op_code {
+                0 => {
+                    op.set_fg_color(Pixel::WHITE);
+                    op.set_bg_color(Pixel::BLACK);
+                    op.set_inverse(false);
+                }
+                7 => op.set_inverse(true),
+                27 => op.set_inverse(false),
+                30..=37 => op.set_fg_color(COLORS[op_code as usize - 30]),
+                38 if num_params - cursor >= 2 && self.param_or(cursor, 0) == 5 => {
+                    op.set_fg_color(Self::get_256_color(self.param_or(cursor + 1, 0) as u8));
+                    cursor += 2;
+                }
+                38 if num_params - cursor >= 4 && self.param_or(cursor, 0) == 2 => {
+                    op.set_fg_color(Pixel {
+                        red: self.param_or(cursor + 1, 0) as u8,
+                        green: self.param_or(cursor + 2, 0) as u8,
+                        blue: self.param_or(cursor + 3, 0) as u8,
+                    });
+                    cursor += 4;
+                }
+                39 => op.set_fg_color(Pixel::WHITE),
+                90..=97 => op.set_fg_color(COLORS[op_code as usize - 90 + 8]),
+
+                40..=47 => op.set_bg_color(COLORS[op_code as usize - 40]),
+                48 if num_params - cursor >= 2 && self.param_or(cursor, 0) == 5 => {
+                    op.set_bg_color(Self::get_256_color(self.param_or(cursor + 1, 0) as u8));
+                    cursor += 2;
+                }
+                48 if num_params - cursor >= 4 && self.param_or(cursor, 0) == 2 => {
+                    op.set_bg_color(Pixel {
+                        red: self.param_or(cursor + 1, 0) as u8,
+                        green: self.param_or(cursor + 2, 0) as u8,
+                        blue: self.param_or(cursor + 3, 0) as u8,
+                    });
+                    cursor += 4;
+                }
+                49 => op.set_bg_color(Pixel::BLACK),
+                100..=107 => op.set_bg_color(COLORS[op_code as usize - 100 + 8]),
+
                 _ => {}
             }
         }
+    }
 
-        emit(AnsiAction::SetStyle {
-            fg,
-            bg,
-            bold,
-            inverse,
-            reset,
-        });
+    fn get_256_color(i: u8) -> Pixel {
+        let mut i = i as u16;
+        let (red, green, blue) = match i {
+            0..=7 => {
+                let r = if i & 1 != 0 { 0xAA } else { 0x00 };
+                let g = if i & 2 != 0 { 0xAA } else { 0x00 };
+                let b = if i & 4 != 0 { 0xAA } else { 0x00 };
+                (r, g, b)
+            }
+            8..=15 => {
+                let r = if i & 1 != 0 { 0xFF } else { 0x55 };
+                let g = if i & 2 != 0 { 0xFF } else { 0x55 };
+                let b = if i & 4 != 0 { 0xFF } else { 0x55 };
+                (r, g, b)
+            }
+            16..=231 => {
+                i -= 16;
+                let b = i % 6 * 255 / 6;
+                i /= 6;
+                let g = i % 6 * 255 / 6;
+                i /= 6;
+                let r = i * 255 / 6;
+                (r as u8, g as u8, b as u8)
+            }
+            _ => {
+                let g = (i * 10 - 2312) as u8;
+                (g, g, g)
+            }
+        };
+
+        Pixel { red, green, blue }
+    }
+
+    fn param_or(&self, i: usize, default: u32) -> u32 {
+        self.params.get(i).and_then(|p| *p).unwrap_or(default)
+    }
+}
+
+impl Default for EscapeFsm {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -340,33 +603,124 @@ mod tests {
     use alloc::vec::Vec;
     use ostd::prelude::ktest;
 
+    #[derive(Debug, PartialEq, Eq)]
+    enum TestOp {
+        SetCursor(usize, usize),
+        MoveCursor(isize, isize),
+        SetCursorCol(usize),
+        SetCursorRow(usize),
+        SaveCursor,
+        RestoreCursor,
+        SetCursorVisible(bool),
+        SetInverse(bool),
+        Reset,
+        SetFg(Pixel),
+        SetBg(Pixel),
+        ClearDisplay(EraseInDisplay),
+        ClearLine(EraseInLine),
+    }
+
+    struct MockOp {
+        ops: Vec<TestOp>,
+    }
+
+    impl MockOp {
+        fn new() -> Self {
+            Self { ops: Vec::new() }
+        }
+    }
+
+    impl EscapeOp for MockOp {
+        fn set_cursor(&mut self, x: usize, y: usize) {
+            self.ops.push(TestOp::SetCursor(x, y));
+        }
+        fn move_cursor(&mut self, dx: isize, dy: isize) {
+            self.ops.push(TestOp::MoveCursor(dx, dy));
+        }
+        fn set_cursor_col(&mut self, col: usize) {
+            self.ops.push(TestOp::SetCursorCol(col));
+        }
+        fn set_cursor_row(&mut self, row: usize) {
+            self.ops.push(TestOp::SetCursorRow(row));
+        }
+        fn save_cursor(&mut self) {
+            self.ops.push(TestOp::SaveCursor);
+        }
+        fn restore_cursor(&mut self) {
+            self.ops.push(TestOp::RestoreCursor);
+        }
+        fn set_cursor_visible(&mut self, visible: bool) {
+            self.ops.push(TestOp::SetCursorVisible(visible));
+        }
+        fn set_inverse(&mut self, val: bool) {
+            self.ops.push(TestOp::SetInverse(val));
+        }
+        fn reset(&mut self) {
+            self.ops.push(TestOp::Reset);
+        }
+        fn set_fg_color(&mut self, val: Pixel) {
+            self.ops.push(TestOp::SetFg(val));
+        }
+        fn set_bg_color(&mut self, val: Pixel) {
+            self.ops.push(TestOp::SetBg(val));
+        }
+        fn erase_in_display(&mut self, mode: EraseInDisplay) {
+            self.ops.push(TestOp::ClearDisplay(mode));
+        }
+        fn erase_in_line(&mut self, mode: EraseInLine) {
+            self.ops.push(TestOp::ClearLine(mode));
+        }
+    }
+
     #[ktest]
-    fn test_ansi_dec_and_sco_cursor_save_restore() {
-        let mut parser = AnsiParser::new();
-        let mut actions = Vec::new();
+    fn test_apk_progress_bar_escapes() {
+        let mut fsm = EscapeFsm::new();
+        let mut mock = MockOp::new();
 
-        // 1. Test DECSC "\x1b7" and DECRC "\x1b8" (used by apk progress bar)
+        // apk progress bar sequence: \e7 (save), text, \e8 (restore), \e[0K (clear line)
         for &b in b"\x1b7progress\x1b8\x1b[0K" {
-            parser.process_byte(b, |a| actions.push(a));
+            fsm.eat(b, &mut mock);
         }
 
-        assert_eq!(actions[0], AnsiAction::SaveCursor);
-        assert_eq!(actions[1], AnsiAction::Print('p'));
-        assert_eq!(actions[9], AnsiAction::RestoreCursor);
-        assert_eq!(actions[10], AnsiAction::ClearLine(0));
+        assert_eq!(mock.ops, alloc::vec![
+            TestOp::SaveCursor,
+            TestOp::RestoreCursor,
+            TestOp::ClearLine(EraseInLine::CursorToEnd),
+        ]);
+    }
 
-        // 2. Test SCO CSI s and CSI u
-        actions.clear();
+    #[ktest]
+    fn test_cursor_visibility_and_sco() {
+        let mut fsm = EscapeFsm::new();
+        let mut mock = MockOp::new();
+
+        // DECTCEM hide cursor \e[?25l and show cursor \e[?25h
+        for &b in b"\x1b[?25l\x1b[?25h" {
+            fsm.eat(b, &mut mock);
+        }
+        assert_eq!(mock.ops, alloc::vec![
+            TestOp::SetCursorVisible(false),
+            TestOp::SetCursorVisible(true),
+        ]);
+
+        // SCO save \e[s and restore \e[u
+        mock.ops.clear();
         for &b in b"\x1b[s\x1b[u" {
-            parser.process_byte(b, |a| actions.push(a));
+            fsm.eat(b, &mut mock);
         }
-        assert_eq!(actions, alloc::vec![AnsiAction::SaveCursor, AnsiAction::RestoreCursor]);
+        assert_eq!(mock.ops, alloc::vec![
+            TestOp::SaveCursor,
+            TestOp::RestoreCursor,
+        ]);
 
-        // 3. Test CHA (CSI G) and VPA (CSI d)
-        actions.clear();
+        // CHA \e[15G and VPA \e[8d
+        mock.ops.clear();
         for &b in b"\x1b[15G\x1b[8d" {
-            parser.process_byte(b, |a| actions.push(a));
+            fsm.eat(b, &mut mock);
         }
-        assert_eq!(actions, alloc::vec![AnsiAction::SetCursorCol(14), AnsiAction::SetCursorRow(7)]);
+        assert_eq!(mock.ops, alloc::vec![
+            TestOp::SetCursorCol(14),
+            TestOp::SetCursorRow(7),
+        ]);
     }
 }

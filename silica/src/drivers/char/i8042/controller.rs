@@ -135,6 +135,16 @@ impl I8042Controller {
         self.read_status().contains(StatusFlags::OUTPUT_FULL)
     }
 
+    /// Receives a byte from port 0x60 if available and not from AUX/mouse port.
+    pub fn receive_data(&self) -> Option<u8> {
+        let status = self.read_status();
+        if status.contains(StatusFlags::OUTPUT_FULL) && !status.contains(StatusFlags::AUX_FULL) {
+            Some(self.read_data())
+        } else {
+            None
+        }
+    }
+
     /// Checks if the input buffer is empty and ready to accept writes.
     pub fn can_write(&self) -> bool {
         !self.read_status().contains(StatusFlags::INPUT_FULL)

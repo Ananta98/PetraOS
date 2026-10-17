@@ -9,7 +9,7 @@ use alloc::{sync::Arc, vec::Vec};
 use bitflags::bitflags;
 
 use crate::api::errno::Result;
-use crate::fs::devfs::ConsoleFile;
+use crate::drivers::char::tty::create_console_file;
 use crate::fs::vfs::{File, OpenFlags};
 
 bitflags! {
@@ -51,9 +51,9 @@ impl Filedesc {
     /// Creates a table with stdin (0) as readable ConsoleFile, stdout (1) and stderr (2) as writable ConsoleFile.
     pub fn with_stdio() -> Self {
         let mut table = Self::new();
-        let stdin = ConsoleFile::new_file_with_flags(OpenFlags::READ);
-        let stdout = ConsoleFile::new_file_with_flags(OpenFlags::WRITE);
-        let stderr = ConsoleFile::new_file_with_flags(OpenFlags::WRITE);
+        let stdin = create_console_file(OpenFlags::READ);
+        let stdout = create_console_file(OpenFlags::WRITE);
+        let stderr = create_console_file(OpenFlags::WRITE);
         let _ = table.alloc_fd(stdin, FdFlags::empty());
         let _ = table.alloc_fd(stdout, FdFlags::empty());
         let _ = table.alloc_fd(stderr, FdFlags::empty());

@@ -136,6 +136,19 @@ pub const OCRNL: tcflag_t  = 0o000010;
 pub const ONOCR: tcflag_t  = 0o000020;
 pub const ONLRET: tcflag_t = 0o000040;
 
+// c_cflag bits
+pub const CSIZE: tcflag_t  = 0o000060;
+pub const CS5: tcflag_t    = 0o000000;
+pub const CS6: tcflag_t    = 0o000020;
+pub const CS7: tcflag_t    = 0o000040;
+pub const CS8: tcflag_t    = 0o000060;
+pub const CSTOPB: tcflag_t = 0o000100;
+pub const CREAD: tcflag_t  = 0o000200;
+pub const PARENB: tcflag_t = 0o000400;
+pub const PARODD: tcflag_t = 0o001000;
+pub const HUPCL: tcflag_t  = 0o002000;
+pub const CLOCAL: tcflag_t = 0o004000;
+
 pub type Termios = termios;
 
 impl Default for termios {

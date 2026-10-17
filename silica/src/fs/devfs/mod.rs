@@ -7,13 +7,11 @@
 
 pub mod blk;
 pub mod chr;
-pub mod console;
 pub mod net;
 pub mod null;
 pub mod random;
 pub mod zero;
 
-pub use console::ConsoleFile;
 pub use null::NullFile;
 pub use random::{RandomFile, UrandomFile};
 pub use zero::ZeroFile;
@@ -35,7 +33,6 @@ use chr::GenericChrNodeOps;
 use null::NullNodeOps;
 use random::{RandomNodeOps, UrandomNodeOps};
 use zero::ZeroNodeOps;
-use crate::drivers::CharacterDevice;
 
 /// Operations on the `/dev` root directory inode.
 pub struct DevFsDirOps;
@@ -107,6 +104,33 @@ impl NodeOps for DevFsDirOps {
                         | Mode::ROTH
                         | Mode::WOTH,
                     5,
+                )));
+            }
+            "ptmx" => {
+                return Ok(Arc::new(INode::new(
+                    Box::new(crate::drivers::char::tty::pty::PtmxNodeOps),
+                    Mode::CHAR
+                        | Mode::RUSR
+                        | Mode::WUSR
+                        | Mode::RGRP
+                        | Mode::WGRP
+                        | Mode::ROTH
+                        | Mode::WOTH,
+                    10,
+                )));
+            }
+            "pts" => {
+                return Ok(Arc::new(INode::new(
+                    Box::new(crate::drivers::char::tty::pty::PtsDirNodeOps),
+                    Mode::DIR
+                        | Mode::RUSR
+                        | Mode::WUSR
+                        | Mode::XUSR
+                        | Mode::RGRP
+                        | Mode::XGRP
+                        | Mode::ROTH
+                        | Mode::XOTH,
+                    11,
                 )));
             }
             "fd" => {
@@ -315,8 +339,8 @@ pub struct TtyNodeOps;
 
 impl NodeOps for TtyNodeOps {
     fn open(&self, _flags: OpenFlags) -> Result<Box<dyn FileOps>> {
-        let console = crate::drivers::char::tty::get_console().ok_or(Errno::ENODEV)?;
-        Ok(Box::new(TtyFileOps { console }))
+        let tty = crate::drivers::char::tty::get_console().ok_or(Errno::ENODEV)?;
+        Ok(Box::new(crate::drivers::char::tty::TtyFileOps { tty }))
     }
 
     fn getattr(&self) -> Result<INodeAttr> {
@@ -336,33 +360,6 @@ impl NodeOps for TtyNodeOps {
         })
     }
 }
-
-/// File operations for `/dev/tty`.
-pub struct TtyFileOps {
-    console: Arc<crate::drivers::char::tty::console::Console>,
-}
-
-impl FileOps for TtyFileOps {
-    fn read(&self, _offset: u64, buf: &mut [u8]) -> Result<usize> {
-        self.console.read(buf)
-    }
-
-    fn write(&self, _offset: u64, buf: &[u8]) -> Result<usize> {
-        self.console.write(buf)
-    }
-
-    fn ioctl(&self, cmd: u32, arg: usize) -> Result<usize> {
-        self.console.ioctl(cmd, arg)
-    }
-
-    fn poll(&self) -> crate::fs::poll::PollEvents {
-        match self.console.poll() {
-            Ok(mask) => crate::fs::poll::PollEvents::from_bits_truncate(mask as u16),
-            Err(_) => crate::fs::poll::PollEvents::empty(),
-        }
-    }
-}
-
 
 /// The DevFS filesystem representation.
 pub struct DevFs;
