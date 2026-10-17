@@ -1,30 +1,29 @@
 // SPDX-License-Identifier: GPL-2.0
 
-//! `mmap(2)`.
+//! `mmap(2)` implementation and batched page population.
 
 use alloc::sync::Arc;
 use core::num::NonZeroUsize;
 
-use ostd::mm::{PAGE_SIZE, Vaddr, VmSpace};
+use ostd::mm::{PAGE_SIZE, Vaddr, tlb::TlbFlushOp};
+use ostd::task::disable_preempt;
 
 use crate::{
-    api::errno::{Errno, Result},
-    vm::{backing::Backing, flags::MmapFlags, perms::VmPerms, reclaim},
+    api::errno::Result,
+    vm::{
+        backing::Backing,
+        flags::MmapFlags,
+        perms::VmPerms,
+    },
 };
 
-use super::{
+use super::super::{
     VMAR_CAP_ADDR, VMAR_LOWEST_ADDR, Vmar, check_page_aligned_range, is_mappable_range,
-    mappings::VmMapping, page_fault::PageFaultInfo,
+    mappings::VmMapping,
 };
 
 impl Vmar {
     /// Maps `len` bytes of anonymous memory.
-    ///
-    /// A `MAP_PRIVATE` mapping gets a fresh zeroed page on every fault, so
-    /// nothing is materialized here. A `MAP_SHARED` mapping instead needs an
-    /// object to share, so it is backed by one created here; use
-    /// [`Self::mmap_backed`] to share a specific object with other address
-    /// spaces, which is what a named shared memory region is for.
     pub fn mmap_anonymous(
         &self,
         addr: Vaddr,
@@ -33,7 +32,7 @@ impl Vmar {
         flags: MmapFlags,
     ) -> Result<Vaddr> {
         let backing = if flags.is_shared() {
-            Some(Arc::clone(&crate::vm::shm::new_anonymous(len)?) as Arc<dyn Backing>)
+            Some(Arc::clone(&crate::vm::backing::shm::new_anonymous(len)?) as Arc<dyn Backing>)
         } else {
             None
         };
@@ -41,10 +40,6 @@ impl Vmar {
     }
 
     /// Maps `len` bytes of `backing`, starting at `offset` within it.
-    ///
-    /// The mapping is rejected with [`EINVAL`](crate::api::errno::Errno::EINVAL) if
-    /// it would reach past the end of the object, so that a mapping always has
-    /// backing and never has to answer a fault with a signal.
     pub fn mmap_backed(
         &self,
         backing: &Arc<dyn Backing>,
@@ -67,11 +62,9 @@ impl Vmar {
         flags: MmapFlags,
         offset: usize,
     ) -> Result<Vaddr> {
-        // ---- validate ----
         if len == 0 {
             crate::return_errno!(EINVAL, "cannot map zero bytes");
         }
-        // Linux rounds a partial trailing page up rather than failing.
         let Some(len) = len.checked_next_multiple_of(PAGE_SIZE) else {
             crate::return_errno!(ENOMEM, "the length {len} overflows");
         };
@@ -85,16 +78,20 @@ impl Vmar {
         if prot != prot.granted() {
             crate::return_errno!(EINVAL, "{prot:?} is not a valid protection");
         }
-        // The mapping starts out exactly as permissive as it will ever be.
-        let perms = prot.with_ceiling();
+
+        // Anonymous memory or private (CoW) file mappings are owned by the process,
+        // so grant full ceiling (MAY_READ | MAY_WRITE | MAY_EXEC) allowing subsequent mprotect.
+        let perms = if backing.is_none() || !flags.is_shared() {
+            prot.with_full_ceiling()
+        } else {
+            prot.with_ceiling()
+        };
         perms.check()?;
 
         let Some(size) = NonZeroUsize::new(len) else {
             crate::return_errno!(EINVAL, "cannot map zero bytes");
         };
 
-        // A mapping must be fully backed, so that a fault on it can always be
-        // resolved from the object.
         if let Some(backing) = &backing {
             let Some(end) = offset.checked_add(len) else {
                 crate::return_errno!(
@@ -111,7 +108,6 @@ impl Vmar {
             }
         }
 
-        // ---- choose an address ----
         let mut inner = self.inner.write();
         let high_limit = inner.default_high_limit();
 
@@ -130,15 +126,13 @@ impl Vmar {
         } else {
             #[cfg(target_arch = "x86_64")]
             let search_high = if flags.contains(MmapFlags::MAP_32BIT) {
-                super::MAP_32BIT_HIGH_LIMIT.min(high_limit)
+                super::super::MAP_32BIT_HIGH_LIMIT.min(high_limit)
             } else {
                 high_limit
             };
             #[cfg(not(target_arch = "x86_64"))]
             let search_high = high_limit;
 
-            // A non-zero address is a hint: use it when it is usable, otherwise
-            // search. Address zero means "no hint".
             let hint = (addr != 0).then(|| addr..addr + len);
             match hint {
                 Some(hint)
@@ -159,20 +153,13 @@ impl Vmar {
                 range.end
             );
         }
-        // `MAP_FIXED` is exempt from the address space limit, as it is on Linux.
-        // It names the address rather than hinting at it, and it replaces what was
-        // there, so the limit is not what decides whether it can happen: counting
-        // the bytes it displaces would still reject a `MAP_FIXED` that grows the
-        // total, which Linux allows. Every other placement is checked.
         if !flags.contains(MmapFlags::FIXED) {
             inner.check_fits_addr_space(self, len)?;
         }
 
-        // Whatever was in the way is replaced. This is the `MAP_FIXED`
-        // contract, and a no-op for every other placement.
         inner.unmap_range(&self.vm_space, &range);
 
-        let mapping = VmMapping::new(
+        let mut mapping = VmMapping::new(
             start,
             size,
             perms,
@@ -181,6 +168,10 @@ impl Vmar {
             backing,
             offset,
         );
+        if flags.is_locked() {
+            mapping.set_locked(true);
+        }
+
         inner.total_vm += len;
         inner.mappings.insert(mapping);
         drop(inner);
@@ -191,73 +182,63 @@ impl Vmar {
         Ok(start)
     }
 
-    /// Faults in every page of the mapped part of `range` that is not resident
-    /// yet.
-    ///
-    /// This is how `MADV_WILLNEED` and `MAP_POPULATE` are served: both are
-    /// defined in terms of "access the range soon", so both are satisfied by
-    /// running the ordinary fault path over the range rather than by a second,
-    /// backing-specific mechanism.
+    /// Faults in every page of the mapped part of `range` using batched mapping.
     pub fn populate_range(&self, range: &core::ops::Range<Vaddr>) -> Result<()> {
         check_page_aligned_range(range)?;
 
-        // Work from copies of the records so that the address-space lock is not
-        // held while faults are resolved, and so that a concurrent `munmap`
-        // cannot pull a record out from under the cursor.
         let mappings: alloc::vec::Vec<VmMapping> = self
             .inner
             .read()
             .mappings
-            .iter_in(range)
-            .iter()
+            .iter_range(range)
             .map(|m| m.dup())
             .collect();
 
         for mapping in mappings {
-            // Only the part of the mapping that was asked for. Faulting in a
-            // whole mapping because one page of it was mentioned would defeat
-            // the point of the call.
-            let wanted = super::intersect(range, &mapping.range());
+            let wanted = super::super::intersect(range, &mapping.range());
             let perms = mapping.perms().granted();
+            let is_write = perms.contains(VmPerms::WRITE);
+
+            let guard = disable_preempt();
+            let Ok(mut cursor) = self.vm_space.cursor_mut(&guard, &wanted) else {
+                continue;
+            };
+
             let mut addr = wanted.start;
+            let mut modified = false;
+
             while addr < wanted.end {
-                match Self::fault_one_page(&mapping, &self.vm_space, addr, perms) {
-                    Ok(()) => {}
-                    Err(errno) => return Err(errno),
+                cursor.jump(addr).ok();
+                let (_, item) = cursor.query().expect("page-aligned");
+                if item.is_none() {
+                    let offset = addr - mapping.start();
+                    let frame = match mapping.backing() {
+                        Some(backing) if mapping.is_backed(offset) => {
+                            backing.frame(mapping.backing_offset_of(offset))?
+                        }
+                        _ => {
+                            if !is_write && !mapping.is_shared() {
+                                crate::vm::backing::zero::get_zero_frame()?
+                            } else {
+                                crate::vm::backing::alloc_zeroed_frame()?
+                            }
+                        }
+                    };
+                    let is_shared_zero = crate::vm::backing::zero::is_zero_frame(&frame);
+                    let must_copy = mapping.is_cow() && (frame.reference_count() > 1 || is_shared_zero);
+                    let property = mapping.fault_property(!must_copy, is_write);
+                    cursor.map(frame, property);
+                    modified = true;
                 }
                 addr += PAGE_SIZE;
             }
+
+            if modified {
+                cursor.flusher().issue_tlb_flush(TlbFlushOp::for_range(wanted.clone()));
+                cursor.flusher().dispatch_tlb_flush();
+                cursor.flusher().sync_tlb_flush();
+            }
         }
         Ok(())
-    }
-
-    /// Resolves one page fault, reclaiming and retrying once if the kernel has
-    /// run out of frames.
-    ///
-    /// This is the one place in the subsystem where reclaiming inline is safe,
-    /// and it is safe for a structural reason rather than an incidental one: the
-    /// records were copied out above and the address space lock is not held, so
-    /// a reclaim pass can take every address space's write lock, including this
-    /// one's. The fault path itself cannot do this — it holds this address
-    /// space's read lock across the allocation — which is why reclaim is not
-    /// wired into [`super::page_fault::handle_mapping_fault`].
-    ///
-    /// The retry happens once. A pass that releases nothing will not release
-    /// anything on the next one either, so retrying again would only turn an
-    /// `ENOMEM` into a wait.
-    fn fault_one_page(
-        mapping: &VmMapping,
-        vm_space: &VmSpace,
-        addr: Vaddr,
-        perms: VmPerms,
-    ) -> Result<()> {
-        let fault = || PageFaultInfo::new(addr, perms);
-        match super::page_fault::handle_mapping_fault(mapping, vm_space, &fault()) {
-            Err(Errno::ENOMEM) => {
-                reclaim::reclaim_at_least(1);
-                super::page_fault::handle_mapping_fault(mapping, vm_space, &fault())
-            }
-            result => result,
-        }
     }
 }

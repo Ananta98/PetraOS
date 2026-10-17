@@ -7,24 +7,6 @@
 //! the same frame, so a write through one is immediately visible through the
 //! other, and the object survives for exactly as long as it is reachable —
 //! which is what `fork(2)` inheritance and `MAP_SHARED` need.
-//!
-//! [`SharedPages`] serves two roles:
-//!
-//! - It is the object behind `MAP_SHARED | MAP_ANONYMOUS`. The kernel creates
-//!   one for such a mapping and the child inherits it across `fork(2)`.
-//! - It is the object behind a *named* shared memory region, reachable through
-//!   [`create`], [`open`] and [`unlink`]. These mirror the object half of
-//!   `shm_open(3)`/`shm_unlink(3)`; once the `fs` layer exists it will hold
-//!   the same `Arc` in a file handle, which is all that is needed to serve the
-//!   real system calls.
-//!
-//! # Lifetime
-//!
-//! A named object is kept alive by the registry, so it disappears when it is
-//! [`unlink`]ed and the last mapping goes away. This matches POSIX, where a
-//! named object outlives the file descriptors that opened it. The flip side is
-//! that a name that is never unlinked keeps its memory: that is POSIX's rule,
-//! not an oversight.
 
 use alloc::{
     collections::BTreeMap,
@@ -37,26 +19,16 @@ use core::fmt::{self, Debug, Formatter};
 use ostd::mm::{UFrame, io::util::HasVmReaderWriter};
 use ostd::sync::SpinLock;
 
-use crate::{
-    api::errno::Result,
-    vm::backing::{Backing, alloc_zeroed_frame},
-};
+use crate::api::errno::Result;
+use super::{Backing, alloc_zeroed_frame};
 
 /// The longest name a shared memory object may have, matching `NAME_MAX`.
 const NAME_MAX: usize = 255;
 
 /// A fixed-size region of shared physical memory.
-///
-/// Pages are materialized on first access and then stay resident for the life
-/// of the object. An object is never resized; a mapping that would reach past
-/// [`Self::size`] is rejected when it is created.
 pub struct SharedPages {
     size: usize,
     /// Materialized pages, keyed by their offset in the object.
-    ///
-    /// A spinlock suffices: the critical section is one map lookup and at most
-    /// one insert, and the page-fault path that reaches it runs with
-    /// preemption disabled.
     pages: SpinLock<BTreeMap<usize, UFrame>>,
 }
 
@@ -83,9 +55,6 @@ impl SharedPages {
     }
 
     /// Returns the `u64` stored at `offset` in the object.
-    ///
-    /// This bypasses every mapping, so it is the way a test tells whether a
-    /// mapping wrote to the object byte it was supposed to.
     pub fn peek_u64(&self, offset: usize) -> Result<u64> {
         let frame = self.frame_at(offset)?;
         let mut reader = frame.reader();
@@ -103,8 +72,6 @@ impl SharedPages {
             return Ok(frame.clone());
         }
 
-        // The page is zero-filled, which is what `shm_open` promises for pages
-        // that have never been written.
         let frame = alloc_zeroed_frame()?;
         pages.insert(offset, frame.clone());
         Ok(frame)
@@ -132,27 +99,16 @@ impl Debug for SharedPages {
 }
 
 /// Creates the unnamed object that backs `MAP_SHARED | MAP_ANONYMOUS`.
-///
-/// The name is `None` because there is nothing to look the object up by: it
-/// lives exactly as long as the mappings that refer to it, which is how
-/// `MAP_SHARED` anonymous memory is inherited across `fork(2)` and disappears
-/// when the last holder unmaps it.
-pub(super) fn new_anonymous(size: usize) -> Result<Arc<SharedPages>> {
+pub fn new_anonymous(size: usize) -> Result<Arc<SharedPages>> {
     SharedPages::new(size)
 }
 
 /// A named shared memory object.
-///
-/// The registry holds a strong reference, which is what keeps a named object
-/// alive after the process that created it exits.
 type Registry = SpinLock<Vec<(String, Arc<SharedPages>)>>;
 
 static REGISTRY: Registry = SpinLock::new(Vec::new());
 
 /// Checks that `name` is usable as a shared memory object name.
-///
-/// POSIX requires a leading slash and forbids interior ones, so that a name can
-/// never escape the shared memory namespace.
 fn check_name(name: &str) -> Result<()> {
     if name.len() > NAME_MAX {
         crate::return_errno!(
@@ -173,9 +129,6 @@ fn check_name(name: &str) -> Result<()> {
 }
 
 /// Creates a new named object of `size` bytes.
-///
-/// Returns [`crate::api::errno::Errno::EEXIST`] if the name is already taken, and
-/// [`crate::api::errno::Errno::EINVAL`] if `size` is zero.
 pub fn create(name: &str, size: usize) -> Result<Arc<SharedPages>> {
     check_name(name)?;
     let object = SharedPages::new(size)?;
@@ -189,8 +142,6 @@ pub fn create(name: &str, size: usize) -> Result<Arc<SharedPages>> {
 }
 
 /// Opens an existing named object.
-///
-/// Returns [`crate::api::errno::Errno::ENOENT`] if no such object exists.
 pub fn open(name: &str) -> Result<Arc<SharedPages>> {
     check_name(name)?;
 
@@ -206,10 +157,6 @@ pub fn open(name: &str) -> Result<Arc<SharedPages>> {
 }
 
 /// Removes a name from the shared memory namespace.
-///
-/// The object itself survives until its last mapping is unmapped.
-///
-/// Returns [`crate::api::errno::Errno::ENOENT`] if no such object exists.
 pub fn unlink(name: &str) -> Result<()> {
     check_name(name)?;
 

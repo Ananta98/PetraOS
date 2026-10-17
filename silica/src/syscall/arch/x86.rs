@@ -32,6 +32,7 @@ crate::impl_syscall_nums_and_dispatch_fn! {
     SYS_SCHED_YIELD = 24 => sched::sys_sched_yield();
     SYS_MREMAP = 25 => mm::sys_mremap(usize, usize, usize, u32, usize);
     SYS_MSYNC = 26 => mm::sys_msync(usize, usize, u32);
+    SYS_MINCORE = 27 => mm::sys_mincore(usize, usize, usize);
     SYS_MADVISE = 28 => mm::sys_madvise(usize, usize, u32);
     SYS_SHMGET = 29 => ipc::sys_shmget(i32, usize, i32);
     SYS_SHMAT = 30 => ipc::sys_shmat(i32, usize, i32);

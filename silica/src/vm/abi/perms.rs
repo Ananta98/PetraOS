@@ -10,15 +10,13 @@
 //! - `MAY_READ | MAY_WRITE | MAY_EXEC` is the ceiling fixed at `mmap(2)` time.
 //!
 //! Keeping the ceiling is what makes `mprotect` faithful: a mapping created
-//! with `PROT_READ` must fail a later `mprotect(PROT_READ | PROT_WRITE)` with
-//! `EACCES` rather than silently granting write access. The `MAY_*` bits are
-//! laid out so that shifting them down by three yields the corresponding
+//! with `PROT_READ` on a read-only shared file must fail a later
+//! `mprotect(PROT_READ | PROT_WRITE)` with `EACCES` rather than silently granting write access.
+//! The `MAY_*` bits are laid out so that shifting them down by three yields the corresponding
 //! `PROT_*` bit.
 
 use bitflags::bitflags;
-
 use ostd::mm::PageFlags;
-
 use crate::api::errno::Result;
 
 bitflags! {
@@ -31,11 +29,11 @@ bitflags! {
     #[derive(Clone, Copy, PartialEq, Eq, Debug)]
     pub struct VmPerms: u8 {
         /// Readable.
-        const READ    = 1 << 0;
+        const READ      = 1 << 0;
         /// Writable.
-        const WRITE   = 1 << 1;
+        const WRITE     = 1 << 1;
         /// Executable.
-        const EXEC    = 1 << 2;
+        const EXEC      = 1 << 2;
         /// May be protected to readable.
         const MAY_READ  = 1 << 3;
         /// May be protected to writable.
@@ -52,6 +50,9 @@ impl VmPerms {
     /// The bits that represent the ceiling.
     pub const ALL_MAY: Self = Self::MAY_READ.union(Self::MAY_WRITE).union(Self::MAY_EXEC);
 
+    /// Maximum ceiling allowing full read, write, and execute permissions.
+    pub const FULL_CEILING: Self = Self::MAY_READ.union(Self::MAY_WRITE).union(Self::MAY_EXEC);
+
     /// Parses a `PROT_*` bitmask coming from user space.
     ///
     /// Returns [`Errno::EINVAL`] if any bit outside `PROT_READ | PROT_WRITE |
@@ -66,17 +67,25 @@ impl VmPerms {
 
     /// Returns the permissions currently in force.
     pub const fn granted(self) -> Self {
-        // `intersect` is not const in `bitflags` 2, so mask the bits by hand.
         Self::from_bits_retain(self.bits() & Self::GRANTED.bits())
     }
 
-    /// Returns `perms` with its ceiling raised to match.
-    ///
-    /// This is what `mmap(2)` does: the mapping gets exactly the `PROT_*`
-    /// permissions that were requested, and `mprotect(2)` may later narrow them
-    /// but never widen them.
+    /// Returns `perms` with its ceiling raised to match the granted permissions.
     pub const fn with_ceiling(self) -> Self {
         Self::from_bits_retain(self.bits() | (self.granted().bits() << 3))
+    }
+
+    /// Returns `perms` with maximum ceiling (`MAY_READ | MAY_WRITE | MAY_EXEC`).
+    ///
+    /// This is used for anonymous memory and private (CoW) file mappings, where
+    /// the process is allowed to subsequently commit or widen permissions via `mprotect`.
+    pub const fn with_full_ceiling(self) -> Self {
+        Self::from_bits_retain(self.granted().bits() | Self::FULL_CEILING.bits())
+    }
+
+    /// Returns `self` with granted permissions and a custom ceiling.
+    pub const fn with_custom_ceiling(self, ceiling_mask: Self) -> Self {
+        Self::from_bits_retain(self.granted().bits() | (ceiling_mask.bits() & Self::ALL_MAY.bits()))
     }
 
     /// Returns `self` with the permissions in force replaced by `granted`, and
@@ -88,7 +97,7 @@ impl VmPerms {
         Self::from_bits_retain((self.bits() & Self::ALL_MAY.bits()) | granted.granted().bits())
     }
 
-    /// Returns the ceiling, i.e. the permissions that were requested at
+    /// Returns the ceiling, i.e. the permissions that were requested or granted at
     /// `mmap(2)` time.
     pub const fn may(self) -> Self {
         Self::from_bits_retain((self.bits() & Self::ALL_MAY.bits()) >> 3)

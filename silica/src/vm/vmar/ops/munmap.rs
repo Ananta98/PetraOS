@@ -1,20 +1,15 @@
 // SPDX-License-Identifier: GPL-2.0
 
-//! `munmap(2)` and `madvise(2)`.
+//! `munmap(2)` and `madvise(2)` implementation.
 
 use core::ops::Range;
-
 use ostd::mm::Vaddr;
 
 use crate::{api::errno::Result, vm::flags::MadviseAdvice};
-
-use super::{Vmar, check_page_aligned_range, is_mappable_range};
+use super::super::{Vmar, check_page_aligned_range, is_mappable_range};
 
 impl Vmar {
     /// Releases the mappings that intersect `range`.
-    ///
-    /// Unmapping a range that is not mapped is not an error, so a range that
-    /// covers holes is released in part and reported as a success.
     pub fn munmap(&self, range: Range<Vaddr>) -> Result<()> {
         check_page_aligned_range(&range)?;
         if range.end <= range.start {
@@ -35,10 +30,47 @@ impl Vmar {
             return Ok(());
         }
 
+        // Fork controls: update mappings in the range
+        match advice {
+            MadviseAdvice::DontFork => {
+                let mut inner = self.inner.write();
+                inner.carve(&range, |mut piece, _| {
+                    piece.set_dont_fork(true);
+                    Some(piece)
+                });
+                return Ok(());
+            }
+            MadviseAdvice::DoFork => {
+                let mut inner = self.inner.write();
+                inner.carve(&range, |mut piece, _| {
+                    piece.set_dont_fork(false);
+                    Some(piece)
+                });
+                return Ok(());
+            }
+            MadviseAdvice::WipeOnFork => {
+                let mut inner = self.inner.write();
+                inner.carve(&range, |mut piece, _| {
+                    piece.set_wipe_on_fork(true);
+                    Some(piece)
+                });
+                return Ok(());
+            }
+            MadviseAdvice::KeepOnFork => {
+                let mut inner = self.inner.write();
+                inner.carve(&range, |mut piece, _| {
+                    piece.set_wipe_on_fork(false);
+                    Some(piece)
+                });
+                return Ok(());
+            }
+            MadviseAdvice::HugePage | MadviseAdvice::NoHugePage | MadviseAdvice::Mergeable | MadviseAdvice::Unmergeable => {
+                return Ok(());
+            }
+            _ => {}
+        }
+
         if !advice.drops_pages() {
-            // `MADV_NORMAL`, `MADV_RANDOM` and `MADV_SEQUENTIAL` only tune the
-            // kernel's readahead heuristics, which a RAM-only backing has no use
-            // for.
             return Ok(());
         }
 
@@ -49,14 +81,6 @@ impl Vmar {
             );
         }
 
-        // Dropping the page table entries is all that is needed, and it is all
-        // that is correct: the pages themselves belong to the backing object,
-        // which keeps both its contents and the pages other mappings of it are
-        // using. For private anonymous memory a later fault allocates a fresh
-        // zeroed page, which is what `MADV_DONTNEED` promises.
-        //
-        // The record is put back, so unlike `munmap` the address range stays
-        // mapped and a later access re-faults instead of failing.
         let mut inner = self.inner.write();
         let outcome = inner.unmap_pages_only(&self.vm_space, &range);
 

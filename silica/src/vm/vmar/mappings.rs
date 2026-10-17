@@ -4,17 +4,7 @@
 //!
 //! A [`VmMapping`] is the record of one contiguous run of virtual addresses
 //! with a single set of properties. A [`Mappings`] holds those records ordered
-//! by start address, guaranteed to be pairwise non-overlapping, and is the only
-//! place that maintains that guarantee.
-//!
-//! # Why one method does almost everything
-//!
-//! `munmap`, `mprotect`, `mremap` and a `MAP_FIXED` `mmap` all do the same
-//! three-step dance: pull out the records that intersect a range, split each of
-//! them so the range is covered exactly, and put back whatever should survive.
-//! [`Mappings::carve`] is that dance, once. Each caller becomes a single
-//! closure saying what happens to the part that is being changed, which is why
-//! the three operations are a handful of lines each and stay in step.
+//! by start address, guaranteed to be pairwise non-overlapping.
 
 use alloc::{collections::BTreeMap, sync::Arc, vec::Vec};
 use core::{num::NonZeroUsize, ops::Range};
@@ -23,47 +13,34 @@ use ostd::mm::{CachePolicy, PAGE_SIZE, PageFlags, PageProperty, Vaddr, VmSpace, 
 use ostd::task::disable_preempt;
 
 use crate::vm::{backing::Backing, perms::VmPerms};
-
 use super::intersect;
 
 /// One contiguous run of virtual addresses sharing a set of properties.
-///
-/// A `VmMapping` is a linear value: it is never dropped while it still owns
-/// page table entries, because dropping it would silently leak them. Callers
-/// therefore hand ownership on deliberately — [`Self::unmap`] releases the
-/// pages, and [`Mappings`] releases the record when a piece is discarded.
 pub struct VmMapping {
     /// The first virtual address of the mapping.
     start: Vaddr,
-    /// The length in bytes. Always non-zero, so the record can never represent
-    /// an empty range.
+    /// The length in bytes. Always non-zero.
     len: NonZeroUsize,
-    /// The permissions in force, together with the ceiling `mprotect` may not
-    /// exceed.
+    /// The permissions in force, together with the ceiling `mprotect` may not exceed.
     perms: VmPerms,
-    /// Whether writes are carried through to the backing object and are visible
-    /// to every other mapping of it.
+    /// Whether writes are carried through to the backing object.
     shared: bool,
-    /// Whether a fault below this mapping extends it downwards.
-    ///
-    /// This is `MAP_GROWSDOWN`, and it is what a main stack is: one mapping
-    /// created at the top of the address space that grows towards low addresses
-    /// as the function nesting deepens, rather than being resized by a system
-    /// call. The request alone does not make growth possible — see
-    /// [`Self::is_growable`].
+    /// Whether a fault below this mapping extends it downwards (`MAP_GROWSDOWN`).
     grows_down: bool,
-    /// The object supplying the pages, or `None` for `MAP_PRIVATE` anonymous
-    /// memory, where every fault gets a fresh zeroed page.
+    /// Whether this mapping is locked into RAM (`MAP_LOCKED` / `mlock`).
+    locked: bool,
+    /// Whether this mapping is excluded from child on `fork(2)` (`MADV_DONTFORK`).
+    dont_fork: bool,
+    /// Whether this mapping is zeroed in child on `fork(2)` (`MADV_WIPEONFORK`).
+    wipe_on_fork: bool,
+    /// The object supplying the pages, or `None` for anonymous memory.
     backing: Option<Arc<dyn Backing>>,
     /// The offset within the backing object that `start` maps to.
-    ///
-    /// A mapping may be larger than its backing, in which case the tail has no
-    /// backing and faults give private zeroed pages.
     backing_offset: usize,
 }
 
 impl VmMapping {
-    /// Creates a record. `len` must be non-zero and a multiple of the page size.
+    /// Creates a record. `len` must be non-zero and page-aligned.
     pub(super) fn new(
         start: Vaddr,
         len: NonZeroUsize,
@@ -82,6 +59,9 @@ impl VmMapping {
             perms,
             shared,
             grows_down,
+            locked: false,
+            dont_fork: false,
+            wipe_on_fork: false,
             backing,
             backing_offset,
         }
@@ -98,8 +78,6 @@ impl VmMapping {
     }
 
     /// Returns the length in bytes.
-    ///
-    /// A mapping is never empty, so there is deliberately no `is_empty`.
     #[expect(clippy::len_without_is_empty, reason = "a mapping is never empty")]
     pub fn len(&self) -> usize {
         self.len.get()
@@ -120,8 +98,7 @@ impl VmMapping {
         self.perms = perms;
     }
 
-    /// Returns whether this mapping is shared with other mappings of its
-    /// backing object.
+    /// Returns whether this mapping is shared with other mappings of its backing object.
     pub fn is_shared(&self) -> bool {
         self.shared
     }
@@ -131,15 +108,37 @@ impl VmMapping {
         self.grows_down
     }
 
+    /// Returns whether this mapping is locked into RAM.
+    pub fn is_locked(&self) -> bool {
+        self.locked
+    }
+
+    /// Sets whether this mapping is locked into RAM.
+    pub fn set_locked(&mut self, locked: bool) {
+        self.locked = locked;
+    }
+
+    /// Returns whether this mapping is excluded on fork.
+    pub fn dont_fork(&self) -> bool {
+        self.dont_fork
+    }
+
+    /// Sets whether this mapping is excluded on fork.
+    pub fn set_dont_fork(&mut self, dont_fork: bool) {
+        self.dont_fork = dont_fork;
+    }
+
+    /// Returns whether this mapping is wiped (zeroed) on fork.
+    pub fn wipe_on_fork(&self) -> bool {
+        self.wipe_on_fork
+    }
+
+    /// Sets whether this mapping is wiped on fork.
+    pub fn set_wipe_on_fork(&mut self, wipe_on_fork: bool) {
+        self.wipe_on_fork = wipe_on_fork;
+    }
+
     /// Returns whether a fault below this mapping may extend it.
-    ///
-    /// `MAP_GROWSDOWN` is the request; this is whether the kernel will honour
-    /// it. Only private anonymous memory qualifies, and this is where Linux
-    /// agrees: a file-backed mapping may carry the flag and still never grow,
-    /// because dropping the mapping would lose the file's contents rather than
-    /// re-reading them. Private anonymous memory instead faults in a fresh
-    /// zeroed page, so extending the mapping downwards is invisible to the
-    /// program beyond the pages becoming addressable.
     pub(super) fn is_growable(&self) -> bool {
         self.grows_down && !self.shared && self.backing.is_none()
     }
@@ -155,10 +154,6 @@ impl VmMapping {
     }
 
     /// Returns whether the offset lies within the backing object.
-    ///
-    /// Addresses past the end of the object are mapped, but have no backing, so
-    /// a fault there produces a fresh private page instead of touching the
-    /// object.
     pub fn is_backed(&self, offset_in_mapping: usize) -> bool {
         match &self.backing {
             Some(backing) => self.backing_offset + offset_in_mapping < backing.size(),
@@ -166,33 +161,19 @@ impl VmMapping {
         }
     }
 
-    /// Returns the offset in the backing object that the address
-    /// `start + offset_in_mapping` maps to.
+    /// Returns the offset in the backing object that `start + offset_in_mapping` maps to.
     pub(super) fn backing_offset_of(&self, offset_in_mapping: usize) -> usize {
         self.backing_offset + offset_in_mapping
     }
 
     /// Returns whether a write to this mapping must copy the page first.
-    ///
-    /// A shared mapping is never copied: the whole point is that the write
-    /// reaches the other mappings.
     pub fn is_cow(&self) -> bool {
         !self.shared
     }
 
-    /// Returns whether the pages this mapping installs are ones the reclaim pass
-    /// may drop again.
-    ///
-    /// Only private anonymous memory qualifies, and only because both of the
-    /// conditions reclaim needs hold at once: the page is referenced by nothing
-    /// but its page table entry, and until something writes to it the page holds
-    /// nothing but the zeroes a re-fault would produce anyway.
-    ///
-    /// A mapping with a backing object is excluded whatever its flags, because
-    /// those pages are the object's rather than the page table's. The reasoning
-    /// is in `vmar::reclaim`, which is where a page's ownership is decided.
-    pub(super) fn is_reclaimable(&self) -> bool {
-        !self.shared && self.backing.is_none()
+    /// Returns whether the pages this mapping installs may be reclaimed.
+    pub(crate) fn is_reclaimable(&self) -> bool {
+        !self.shared && self.backing.is_none() && !self.locked
     }
 
     /// Returns the page table flags that this mapping's permissions imply.
@@ -209,13 +190,7 @@ impl VmMapping {
         }
     }
 
-    /// Lowers the start of the record to `page`, which must be page-aligned and
-    /// strictly below the current start.
-    ///
-    /// This is how a growing stack grows: the record reaches down far enough to
-    /// cover the page that faulted. Nothing is faulted in here. The pages
-    /// between `page` and the old start become *mapped but not resident*, and
-    /// the fault that led here installs the one it needs.
+    /// Lowers the start of the record to `page`.
     pub(super) fn extend_downwards(self, page: Vaddr) -> Self {
         debug_assert!(page.is_multiple_of(PAGE_SIZE));
         debug_assert!(page < self.start);
@@ -228,10 +203,7 @@ impl VmMapping {
         }
     }
 
-    /// Moves the record to `new_start`, keeping its properties and backing.
-    ///
-    /// The page table entries have to be moved separately; see
-    /// `Vmar::move_pt`.
+    /// Moves the record to `new_start`, keeping properties and backing.
     pub(super) fn relocate(self, new_start: Vaddr) -> Self {
         debug_assert!(new_start.is_multiple_of(PAGE_SIZE));
         Self {
@@ -254,6 +226,9 @@ impl VmMapping {
             perms: self.perms,
             shared: self.shared,
             grows_down: self.grows_down,
+            locked: self.locked,
+            dont_fork: self.dont_fork,
+            wipe_on_fork: self.wipe_on_fork,
             backing: self.backing.clone(),
             backing_offset: self.backing_offset,
         }
@@ -270,6 +245,9 @@ impl VmMapping {
             perms,
             shared,
             grows_down,
+            locked,
+            dont_fork,
+            wipe_on_fork,
             backing,
             backing_offset,
         } = self;
@@ -281,6 +259,9 @@ impl VmMapping {
             perms,
             shared,
             grows_down,
+            locked,
+            dont_fork,
+            wipe_on_fork,
             backing: backing.clone(),
             backing_offset,
         };
@@ -290,6 +271,9 @@ impl VmMapping {
             perms,
             shared,
             grows_down,
+            locked,
+            dont_fork,
+            wipe_on_fork,
             backing,
             backing_offset: backing_offset + left_len,
         };
@@ -297,9 +281,6 @@ impl VmMapping {
     }
 
     /// Splits the record so that `sub` is covered by exactly the middle result.
-    ///
-    /// Returns `(outside-left, within, outside-right)`, either side being
-    /// `None` when the record ends there.
     pub(super) fn split_range(self, sub: &Range<Vaddr>) -> (Option<Self>, Self, Option<Self>) {
         let mine = self.range();
         assert!(
@@ -325,16 +306,14 @@ impl VmMapping {
         }
     }
 
-    /// Returns whether `left` and `right` are adjacent records that may be
-    /// represented by a single one.
-    ///
-    /// Two records merge when they are contiguous in the address space and
-    /// indistinguishable in every other respect, so that the set stays as
-    /// canonical as possible and lookups find long runs.
+    /// Returns whether `left` and `right` are adjacent records that may be merged.
     pub(super) fn can_merge(left: &Self, right: &Self) -> bool {
         left.end() == right.start
             && left.shared == right.shared
             && left.grows_down == right.grows_down
+            && left.locked == right.locked
+            && left.dont_fork == right.dont_fork
+            && left.wipe_on_fork == right.wipe_on_fork
             && left.perms == right.perms
             && match (&left.backing, &right.backing) {
                 (None, None) => true,
@@ -347,8 +326,6 @@ impl VmMapping {
     }
 
     /// Returns a record covering `left` immediately followed by `right`.
-    ///
-    /// The caller must have checked [`Self::can_merge`].
     pub(super) fn merged(left: &Self, right: &Self) -> Self {
         debug_assert!(Self::can_merge(left, right));
         Self {
@@ -357,13 +334,15 @@ impl VmMapping {
             perms: left.perms,
             shared: left.shared,
             grows_down: left.grows_down,
+            locked: left.locked,
+            dont_fork: left.dont_fork,
+            wipe_on_fork: left.wipe_on_fork,
             backing: left.backing.clone(),
             backing_offset: left.backing_offset,
         }
     }
 
-    /// Removes this mapping's page table entries and returns how many pages
-    /// were released.
+    /// Removes this mapping's page table entries and returns how many pages were released.
     pub(super) fn unmap(&self, vm_space: &VmSpace) -> usize {
         let range = self.range();
         let guard = disable_preempt();
@@ -376,12 +355,6 @@ impl VmMapping {
     }
 
     /// Applies `perms` to the page table entries of this mapping.
-    ///
-    /// The write bit is always cleared for private mappings, whatever the new permissions are. A
-    /// mapping is only ever widened by the page-fault handler, which is the one
-    /// place that can tell whether the page has to be copied first; a private
-    /// page shared with a sibling mapping must stay read-only until then. Shared
-    /// mappings do not have this restriction.
     pub(super) fn protect(&self, vm_space: &VmSpace, perms: VmPerms) {
         let mut new_flags = PageFlags::from(perms);
         if !self.shared {
@@ -409,8 +382,7 @@ impl VmMapping {
         cursor.flusher().sync_tlb_flush();
     }
 
-    /// Returns the page property that a fault on this mapping installs, minus
-    /// the write bit if the page must stay read-only.
+    /// Returns the page property that a fault on this mapping installs.
     pub(super) fn fault_property(&self, writable: bool, is_write: bool) -> PageProperty {
         let mut flags = self.page_flags() | PageFlags::ACCESSED;
         if is_write {
@@ -430,6 +402,9 @@ impl core::fmt::Debug for VmMapping {
             .field("perms", &self.perms)
             .field("shared", &self.shared)
             .field("grows_down", &self.grows_down)
+            .field("locked", &self.locked)
+            .field("dont_fork", &self.dont_fork)
+            .field("wipe_on_fork", &self.wipe_on_fork)
             .field("backing_offset", &self.backing_offset)
             .field("backing", &self.backing)
             .finish()
@@ -438,82 +413,69 @@ impl core::fmt::Debug for VmMapping {
 
 /// What [`Mappings::carve`] did.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(super) struct CarveOutcome {
-    /// The number of bytes of the requested range that were mapped.
+pub struct CarveOutcome {
     pub mapped: usize,
-    /// The number of bytes that `op` chose to discard.
     pub dropped: usize,
 }
 
 /// The records of a virtual address space, ordered by start address.
-///
-/// The records are always pairwise non-overlapping, and neighbours that could
-/// be represented by one record always are. Every mutation goes through
-/// [`Self::insert`], so the two invariants cannot be broken by a caller.
 #[derive(Debug, Default)]
-pub(super) struct Mappings {
-    /// Keyed by the start address, which is also the record's key in practice
-    /// because a `BTreeMap` needs the key to be the ordering.
+pub struct Mappings {
     map: BTreeMap<Vaddr, VmMapping>,
 }
 
 impl Mappings {
-    /// Returns an empty set.
-    pub(super) fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             map: BTreeMap::new(),
         }
     }
 
-    /// Returns the number of records.
     pub fn len(&self) -> usize {
         self.map.len()
     }
 
-    /// Returns the record containing `addr`, if any.
     pub fn get(&self, addr: Vaddr) -> Option<&VmMapping> {
-        // Records are non-overlapping, so the only candidate for containing
-        // `addr` is the last one that starts at or before it.
         let mapping = self.map.range(..=addr).next_back().map(|(_, m)| m)?;
         (mapping.end() > addr).then_some(mapping)
     }
 
-    /// Returns the last record that starts strictly before `addr`.
     pub fn prev(&self, addr: Vaddr) -> Option<&VmMapping> {
         self.map.range(..addr).next_back().map(|(_, m)| m)
     }
 
-    /// Returns the first record that starts at or after `addr`.
     pub fn next(&self, addr: Vaddr) -> Option<&VmMapping> {
         self.map.range(addr..).next().map(|(_, m)| m)
     }
 
-    /// Returns every record, in ascending address order.
     pub fn iter(&self) -> impl DoubleEndedIterator<Item = &VmMapping> {
         self.map.values()
     }
 
+    /// Zero-allocation iterator over all mappings that intersect `range`.
+    pub fn iter_range<'a>(&'a self, range: &Range<Vaddr>) -> impl Iterator<Item = &'a VmMapping> {
+        let start_bound = range.start;
+        let end_bound = range.end;
+        let start_key = self
+            .map
+            .range(..start_bound)
+            .next_back()
+            .map(|(k, _)| *k)
+            .unwrap_or(0);
+        self.map
+            .range(start_key..end_bound)
+            .map(|(_, m)| m)
+            .filter(move |m| m.end() > start_bound && m.start() < end_bound)
+    }
+
     /// Returns every record intersecting `range`, in ascending address order.
     pub fn iter_in(&self, range: &Range<Vaddr>) -> Vec<&VmMapping> {
-        // Walk down from the first record that could reach `range.start`. Only
-        // that one can begin before the range, and because the records do not
-        // overlap, the first record that ends too early means every earlier
-        // one does too.
-        let mut found: Vec<&VmMapping> = self
-            .map
-            .range(..range.end)
-            .rev()
-            .take_while(|(_, m)| m.end() > range.start)
-            .map(|(_, m)| m)
-            .collect();
-        found.reverse();
-        found
+        self.iter_range(range).collect()
     }
 
     /// Returns the total length of `range` that is covered by a record.
     pub fn count_overlap(&self, range: &Range<Vaddr>) -> usize {
-        self.iter_in(range)
-            .iter()
+        self.iter_range(range)
             .map(|m| intersect(range, &m.range()).len())
             .sum()
     }
@@ -523,9 +485,8 @@ impl Mappings {
         self.count_overlap(range) == range.len()
     }
 
-    /// Removes and returns every record intersecting `range`.
     pub(super) fn take_in(&mut self, range: &Range<Vaddr>) -> Vec<VmMapping> {
-        let keys: Vec<Vaddr> = self.iter_in(range).iter().map(|m| m.start).collect();
+        let keys: Vec<Vaddr> = self.iter_range(range).map(|m| m.start).collect();
         keys.into_iter()
             .map(|key| {
                 self.map
@@ -535,11 +496,6 @@ impl Mappings {
             .collect()
     }
 
-    /// Adds a record, merging it with its neighbours where that is possible.
-    ///
-    /// Merging only ever joins two contiguous records, so it cannot introduce
-    /// an overlap; the debug assertion catches a caller that hands us a record
-    /// straddling an existing one.
     pub(super) fn insert(&mut self, mapping: VmMapping) {
         let mut mapping = mapping;
 
@@ -571,27 +527,10 @@ impl Mappings {
         debug_assert!(replaced.is_none(), "an overlapping record was inserted");
     }
 
-    /// Removes the record starting at `start`.
     pub(super) fn remove(&mut self, start: Vaddr) -> Option<VmMapping> {
         self.map.remove(&start)
     }
 
-    /// Extends the record that begins at or above `page` downwards so that it
-    /// covers `page`, and returns the extended record.
-    ///
-    /// Returns `None` when the address cannot be grown into: when nothing lies
-    /// above it, when what lies above it is not allowed to grow — see
-    /// [`VmMapping::is_growable`] — or when a record already starts at `page`.
-    ///
-    /// The record has to be re-inserted under its new start address, which
-    /// [`Self::insert`] then merges with the neighbours it is now adjacent to.
-    /// That is the same bookkeeping as any other mutation, so the set's
-    /// invariants do not need anything extra here.
-    ///
-    /// The caller must have established that no record covers `page` and that
-    /// `[page, above)` is clear, which is what rules out an overlap here. The
-    /// record's pages are not touched: the new low pages are mapped but not
-    /// resident, and the fault that led here installs the one it needs.
     pub(super) fn grow_downwards(&mut self, page: Vaddr) -> Option<VmMapping> {
         let above = self.next(page)?;
         if above.start() <= page || !above.is_growable() {
@@ -604,20 +543,10 @@ impl Mappings {
         self.get(page).map(VmMapping::dup)
     }
 
-    /// Removes every record.
     pub(super) fn clear(&mut self) {
         self.map.clear();
     }
 
-    /// Applies `op` to the part of every record that intersects `range`.
-    ///
-    /// Each intersected piece is removed from the set, split so that `range` is
-    /// covered exactly, and handed to `op` with the sub-range it covers.
-    /// Whatever `op` returns is put back and merged with its neighbours;
-    /// returning `None` discards the piece, which is how `munmap` releases the
-    /// pages. The pieces outside `range` are always preserved.
-    ///
-    /// Returns how much of `range` was mapped and how much `op` discarded.
     pub(super) fn carve<F>(&mut self, range: &Range<Vaddr>, mut op: F) -> CarveOutcome
     where
         F: FnMut(VmMapping, &Range<Vaddr>) -> Option<VmMapping>,

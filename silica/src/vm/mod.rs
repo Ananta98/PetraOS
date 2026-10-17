@@ -18,6 +18,7 @@
 //! | `mprotect` | [`Vmar::mprotect`](vmar::Vmar::mprotect) |
 //! | `mremap` | [`Vmar::mremap`](vmar::Vmar::mremap) |
 //! | `madvise` | [`Vmar::madvise`](vmar::Vmar::madvise) |
+//! | `mincore` | [`Vmar::mincore`](vmar::Vmar::mincore) |
 //! | `sbrk` | [`Vmar::resize_mapping`](vmar::Vmar::resize_mapping) |
 //! | `fork` | [`Vmar::fork_from`](vmar::Vmar::fork_from) |
 //!
@@ -28,12 +29,17 @@
 //! The scheduler is responsible for installing the running task's address space
 //! after every switch, which [`init`] arranges.
 
+pub mod abi;
 pub mod backing;
-pub mod flags;
-pub mod perms;
+pub mod benchmark;
 pub mod reclaim;
-pub mod shm;
 pub mod vmar;
+
+// Re-exports for backward compatibility throughout silica
+pub use abi::{flags, perms};
+pub use abi::flags::*;
+pub use abi::perms::VmPerms;
+pub use backing::shm;
 
 use alloc::sync::Arc;
 
@@ -141,14 +147,6 @@ pub(crate) mod tests {
 
     /// Stores `value` as a `u64` at `addr` in `vmar`, faulting the page in
     /// first.
-    ///
-    /// The page is populated explicitly because the test task has no address
-    /// space of its own for the fault handler to find, so a fault raised by the
-    /// write itself could not be resolved.
-    ///
-    /// The write is checked to be permitted before it is issued. A kernel-mode
-    /// access to a user page the handler declines does not come back as an
-    /// error, so finding out the hard way costs the whole run.
     pub(crate) fn poke(vmar: &Vmar, addr: Vaddr, value: u64) {
         fault_in(vmar, addr);
         assert!(
@@ -181,9 +179,6 @@ pub(crate) mod tests {
     }
 
     /// Returns the mapping that covers `addr`.
-    ///
-    /// A range has to be given to the query, and an empty one never matches a
-    /// record, so the probe has to reach inside the address.
     pub(crate) fn record_at(vmar: &Vmar, addr: Vaddr) -> vmar::VmMapping {
         vmar.mappings_in(addr..addr + 1)
             .iter()
@@ -199,10 +194,6 @@ pub(crate) mod tests {
 
     /// Returns what the page table holds for the page containing `addr`: the
     /// frame's physical address and the page's flags.
-    ///
-    /// This is the only way to tell two things apart that the record bookkeeping
-    /// cannot: whether an operation moved the *pages* or only the *records*, and
-    /// whether a fault copied a page or granted permission on the existing one.
     pub(crate) fn page_at(vmar: &Vmar, addr: Vaddr) -> Option<(Paddr, PageFlags)> {
         use ostd::mm::vm_space::VmQueriedItem;
 

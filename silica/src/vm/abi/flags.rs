@@ -24,30 +24,20 @@ bitflags! {
         const FIXED           = 0x0000_0010;
         /// `MAP_ANONYMOUS`: the mapping is not backed by a file.
         const ANONYMOUS       = 0x0000_0020;
+        /// `MAP_GROWSDOWN`: let a fault below the mapping extend it downwards.
+        const GROWSDOWN       = 0x0000_0100;
+        /// `MAP_LOCKED`: lock the mapping into RAM, preventing paging/reclaim.
+        const LOCKED          = 0x0000_2000;
+        /// `MAP_POPULATE`: fault the whole mapping in before returning.
+        const POPULATE        = 0x0000_8000;
         /// `MAP_FIXED_NOREPLACE`: like `MAP_FIXED`, but fail rather than
         /// replace an existing mapping.
         const FIXED_NOREPLACE = 0x0010_0000;
-        /// `MAP_POPULATE`: fault the whole mapping in before returning.
-        const POPULATE = 0x0000_8000;
-        /// `MAP_GROWSDOWN`: let a fault below the mapping extend it downwards.
-        ///
-        /// This is what a main stack is: one mapping at the top of the address
-        /// space that grows towards low addresses as the function nesting deepens,
-        /// instead of being resized by a system call. See
-        /// [`Vmar::handle_page_fault`](crate::vm::vmar::Vmar::handle_page_fault).
-        ///
-        /// It only ever applies to private anonymous memory. Linux accepts the
-        /// flag on a file mapping and then refuses to grow it, and this does the
-        /// same: the mapping records the request and the fault path declines.
-        const GROWSDOWN = 0x0000_0100;
     }
 }
 
 impl MmapFlags {
     /// `MAP_32BIT`: place the mapping in the first 2 GiB of the address space.
-    ///
-    /// The bit has this value only on x86-64; on other architectures bit 6 is
-    /// not assigned to any flag.
     #[cfg(target_arch = "x86_64")]
     pub const MAP_32BIT: Self = Self::from_bits_retain(0x0000_0040);
 
@@ -55,9 +45,10 @@ impl MmapFlags {
         .union(Self::PRIVATE)
         .union(Self::FIXED)
         .union(Self::ANONYMOUS)
-        .union(Self::FIXED_NOREPLACE)
+        .union(Self::GROWSDOWN)
+        .union(Self::LOCKED)
         .union(Self::POPULATE)
-        .union(Self::GROWSDOWN);
+        .union(Self::FIXED_NOREPLACE);
 
     /// Every bit this architecture assigns, which is what `from_raw` checks the
     /// argument against.
@@ -75,17 +66,12 @@ impl MmapFlags {
                 Self::KNOWN.bits()
             );
         }
-        // Every remaining bit is assigned, including the architecture-specific
-        // ones that are not part of the `bitflags` declaration.
         let flags = Self::from_bits_retain(raw);
         flags.validate()?;
         Ok(flags)
     }
 
     /// Rejects flag combinations that Linux also rejects.
-    ///
-    /// This runs on every `mmap`, not just on a parsed argument word, because a
-    /// caller that assembles the flags itself must not be able to slip past it.
     pub(crate) fn validate(self) -> Result<()> {
         if self.contains(Self::SHARED) && self.contains(Self::PRIVATE) {
             crate::return_errno!(EINVAL, "MAP_SHARED and MAP_PRIVATE are mutually exclusive");
@@ -114,6 +100,11 @@ impl MmapFlags {
     pub fn grows_down(self) -> bool {
         self.contains(Self::GROWSDOWN)
     }
+
+    /// Returns whether the mapping requested pages to be locked in memory.
+    pub fn is_locked(self) -> bool {
+        self.contains(Self::LOCKED)
+    }
 }
 
 /// The `advice` argument of `madvise(2)`.
@@ -122,20 +113,34 @@ impl MmapFlags {
 pub enum MadviseAdvice {
     /// `MADV_NORMAL`: no special treatment.
     Normal = 0,
-    /// `MADV_RANDOM`: expect page-readahead-disabled access. No effect here.
+    /// `MADV_RANDOM`: expect page-readahead-disabled access.
     Random = 1,
-    /// `MADV_SEQUENTIAL`: expect aggressive read-ahead. No effect here.
+    /// `MADV_SEQUENTIAL`: expect aggressive read-ahead.
     Sequential = 2,
     /// `MADV_WILLNEED`: fault the range in ahead of time.
     WillNeed = 3,
     /// `MADV_DONTNEED`: drop the pages; a later access gets a fresh page.
     DontNeed = 4,
-    /// `MADV_FREE`: drop the pages but keep their contents available until the
-    /// memory is needed elsewhere. Treated as [`Self::DontNeed`].
+    /// `MADV_FREE`: drop pages when under memory pressure.
     Free = 8,
-    /// `MADV_DONTNEED_COLD`: like [`Self::DontNeed`], but more eager to
-    /// reclaim under pressure. Treated as [`Self::DontNeed`].
+    /// `MADV_DONTFORK`: do not copy this range on fork(2).
+    DontFork = 10,
+    /// `MADV_DOFORK`: restore copying this range on fork(2).
+    DoFork = 11,
+    /// `MADV_MERGEABLE`: KSM hint (transparently supported).
+    Mergeable = 12,
+    /// `MADV_UNMERGEABLE`: KSM unmerge hint.
+    Unmergeable = 13,
+    /// `MADV_HUGEPAGE`: THP hint.
+    HugePage = 14,
+    /// `MADV_NOHUGEPAGE`: disable THP hint.
+    NoHugePage = 15,
+    /// `MADV_DONTNEED_COLD`: like `MADV_DONTNEED`, but eager to reclaim.
     DontNeedCold = 16,
+    /// `MADV_WIPEONFORK`: zero out this mapping in child on fork(2).
+    WipeOnFork = 18,
+    /// `MADV_KEEPONFORK`: restore standard fork behavior.
+    KeepOnFork = 19,
 }
 
 impl MadviseAdvice {
@@ -148,7 +153,15 @@ impl MadviseAdvice {
             3 => Ok(Self::WillNeed),
             4 => Ok(Self::DontNeed),
             8 => Ok(Self::Free),
+            10 => Ok(Self::DontFork),
+            11 => Ok(Self::DoFork),
+            12 => Ok(Self::Mergeable),
+            13 => Ok(Self::Unmergeable),
+            14 => Ok(Self::HugePage),
+            15 => Ok(Self::NoHugePage),
             16 => Ok(Self::DontNeedCold),
+            18 => Ok(Self::WipeOnFork),
+            19 => Ok(Self::KeepOnFork),
             _ => crate::return_errno!(EINVAL, "unsupported madvise advice {raw}"),
         }
     }
@@ -183,8 +196,6 @@ impl MremapFlags {
         }
         let flags = Self::from_bits_retain(raw);
         if flags.contains(Self::FIXED) && flags.contains(Self::DONTUNMAP) {
-            // Linux rejects this because the two describe incompatible
-            // dispositions of the old range.
             crate::return_errno!(EINVAL, "MREMAP_FIXED and MREMAP_DONTUNMAP conflict");
         }
         Ok(flags)
@@ -193,18 +204,15 @@ impl MremapFlags {
 
 bitflags! {
     /// The `flags` argument of `msync(2)`.
-    ///
-    /// Exactly one of these may be given, because each says something different
-    /// about what should happen to the pages.
     #[derive(Clone, Copy, PartialEq, Eq, Debug)]
     pub struct MsyncFlags: u32 {
         /// `MS_ASYNC`: start the writeback and return without waiting for it.
-        const ASYNC = 0x01;
+        const ASYNC      = 0x01;
         /// `MS_INVALIDATE`: drop the mapping's cached view, so that a later
         /// access re-reads the object.
         const INVALIDATE = 0x02;
         /// `MS_SYNC`: wait for the writeback to finish.
-        const SYNC = 0x04;
+        const SYNC       = 0x04;
     }
 }
 
@@ -221,10 +229,12 @@ impl MsyncFlags {
         Ok(flags)
     }
 
-    /// Rejects anything other than exactly one of the three flags.
+    /// Rejects invalid flag combinations.
     ///
-    /// This runs on every `msync`, not just on a parsed argument word, because a
-    /// caller that assembles the flags itself must not be able to slip past it.
+    /// Per POSIX:
+    /// - At least one flag must be given.
+    /// - `MS_ASYNC` and `MS_SYNC` are mutually exclusive.
+    /// - `MS_INVALIDATE` may be combined with `MS_ASYNC` or `MS_SYNC`.
     pub(crate) fn validate(self) -> Result<()> {
         if self.is_empty() {
             crate::return_errno!(
@@ -232,10 +242,18 @@ impl MsyncFlags {
                 "msync needs one of MS_ASYNC, MS_SYNC or MS_INVALIDATE"
             );
         }
-        if self != Self::ASYNC && self != Self::INVALIDATE && self != Self::SYNC {
+        if self.contains(Self::ASYNC) && self.contains(Self::SYNC) {
             crate::return_errno!(
                 EINVAL,
-                "MS_ASYNC, MS_SYNC and MS_INVALIDATE are mutually exclusive, got {:#x}",
+                "MS_ASYNC and MS_SYNC are mutually exclusive, got {:#x}",
+                self.bits()
+            );
+        }
+        let recognized = Self::ASYNC | Self::SYNC | Self::INVALIDATE;
+        if !recognized.contains(self) {
+            crate::return_errno!(
+                EINVAL,
+                "unknown msync flags {:#x}",
                 self.bits()
             );
         }
