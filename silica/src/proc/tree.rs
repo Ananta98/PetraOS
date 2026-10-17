@@ -56,7 +56,7 @@ impl PidAllocator {
     ///
     /// PID 1 belongs to init, so allocation starts after it rather than at it.
     /// Booting code creates kernel processes before init exists -- the memory
-    /// reclaimer registers `kswapd0` first -- and an allocator starting at 1 gave
+    /// reclaimer registers `page_reclaim` first -- and an allocator starting at 1 gave
     /// that daemon init's identifier. Reserving 1 from the start makes that
     /// unrepresentable instead of relying on init being the first process created.
     const FIRST_ALLOCATABLE: u32 = 2;

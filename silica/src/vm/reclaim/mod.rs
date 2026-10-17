@@ -24,11 +24,11 @@ type Registry = SpinLock<BTreeMap<usize, Weak<dyn ReclaimSource>>>;
 
 static SOURCES: Registry = SpinLock::new(BTreeMap::new());
 
-/// Wait queue for kswapd daemon.
-pub static KSWAPD_WAIT_QUEUE: WaitQueue = WaitQueue::new();
+/// Wait queue for page reclaim daemon.
+pub static PAGE_RECLAIM_WAIT_QUEUE: WaitQueue = WaitQueue::new();
 
-/// Flag to signal kswapd to wake up.
-pub static KSWAPD_WAKEUP_FLAG: AtomicBool = AtomicBool::new(false);
+/// Flag to signal page reclaim daemon to wake up.
+pub static PAGE_RECLAIM_WAKEUP_FLAG: AtomicBool = AtomicBool::new(false);
 
 /// The next free slot in [`SOURCES`].
 static NEXT_SLOT: AtomicUsize = AtomicUsize::new(0);
@@ -99,15 +99,15 @@ pub fn reclaim_at_least(pages: usize) -> usize {
     freed
 }
 
-/// Spawns the background page daemon (`kswapd0`).
-pub fn init_kswapd() {
+/// Spawns the background page reclaim daemon (`page_reclaim`).
+pub fn init_page_reclaim_daemon() {
     crate::proc::kthread::kproc_create(
-        "kswapd0",
+        "page_reclaim",
         || loop {
             let _ = reclaim_at_least(32);
 
-            KSWAPD_WAIT_QUEUE.wait_until(|| {
-                if KSWAPD_WAKEUP_FLAG.swap(false, Ordering::Acquire) {
+            PAGE_RECLAIM_WAIT_QUEUE.wait_until(|| {
+                if PAGE_RECLAIM_WAKEUP_FLAG.swap(false, Ordering::Acquire) {
                     Some(())
                 } else {
                     None
@@ -116,11 +116,5 @@ pub fn init_kswapd() {
         },
         19, // Lowest priority (nice 19)
     )
-    .expect("failed to spawn kswapd0");
-}
-
-/// Wakes up the background page daemon (`kswapd0`) to reclaim memory.
-pub fn wakeup_kswapd() {
-    KSWAPD_WAKEUP_FLAG.store(true, Ordering::Release);
-    KSWAPD_WAIT_QUEUE.wake_one();
+    .expect("failed to spawn page reclaim daemon");
 }
