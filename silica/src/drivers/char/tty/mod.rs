@@ -6,17 +6,10 @@
 //! Integrates line discipline, termios, session job control, pseudo-terminals,
 //! and hardware display drivers.
 
-pub mod console;
 pub mod ldisc;
 pub mod pty;
 
-use alloc::{
-    boxed::Box,
-    collections::btree_map::BTreeMap,
-    string::String,
-    sync::Arc,
-    vec::Vec,
-};
+use alloc::{boxed::Box, collections::btree_map::BTreeMap, string::String, sync::Arc, vec::Vec};
 use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use spin::Mutex;
 
@@ -26,20 +19,19 @@ use crate::api::errno::{Errno, Result};
 use crate::api::ioctl;
 use crate::api::signal::Signal;
 use crate::api::termios::{
-    winsize, Termios, CS8, CREAD, ECHO, ECHOE, ECHOK, ECHONL, ICANON, ICRNL, IEXTEN, ISIG, IXON,
-    ONLCR, OPOST, VDISCARD, VEOF, VEOL, VEOL2, VERASE, VINTR, VKILL, VLNEXT, VMIN, VQUIT,
-    VREPRINT, VSTART, VSTOP, VSUSP, VTIME, VWERASE,
+    CREAD, CS8, ECHO, ECHOE, ECHOK, ECHONL, ICANON, ICRNL, IEXTEN, ISIG, IXON, ONLCR, OPOST,
+    Termios, VDISCARD, VEOF, VEOL, VEOL2, VERASE, VINTR, VKILL, VLNEXT, VMIN, VQUIT, VREPRINT,
+    VSTART, VSTOP, VSUSP, VTIME, VWERASE, winsize,
 };
-use crate::drivers::{register_chrdev, CharacterDevice};
+use crate::drivers::{CharacterDevice, register_chrdev};
 use crate::fs::poll::PollEvents;
 use crate::fs::vfs::{File, FileOps, INode, Mode, OpenFlags};
 use crate::proc::thread::Thread;
 use crate::proc::tree::Pid;
-use crate::utils::lockless_queue::LocklessQueue;
+use crate::utils::ring_buffer::RingBuffer;
 use crate::utils::userspace::user_ptr::UserPtr;
 use crate::vm::vmar::Vmar;
 
-use console::FramebufferConsoleDriver;
 use ldisc::LineDiscipline;
 
 /// Hardware or virtual driver backing a TTY.
@@ -172,7 +164,11 @@ impl Tty {
 
         if let Some(fg) = fg_opt {
             if fg != pgrp {
-                let sig = if is_read { Signal::SIGTTIN } else { Signal::SIGTTOU };
+                let sig = if is_read {
+                    Signal::SIGTTIN
+                } else {
+                    Signal::SIGTTOU
+                };
                 proc.post_signal(sig);
                 return Err(Errno::EINTR);
             }
@@ -332,7 +328,10 @@ impl Tty {
                 let dws = self.driver.get_winsize();
                 let mut ws = *self.winsize.lock();
                 if dws.ws_col > 0 && dws.ws_row > 0 {
-                    if !self.winsize_user_set.load(Ordering::Acquire) || ws.ws_col == 0 || ws.ws_row == 0 {
+                    if !self.winsize_user_set.load(Ordering::Acquire)
+                        || ws.ws_col == 0
+                        || ws.ws_row == 0
+                    {
                         ws = dws;
                         *self.winsize.lock() = ws;
                     }
@@ -406,7 +405,12 @@ impl Tty {
         }
     }
 
-    fn handle_keyboard_display_ioctl(&self, cmd: u32, arg: usize, vmar: &Arc<Vmar>) -> Result<usize> {
+    fn handle_keyboard_display_ioctl(
+        &self,
+        cmd: u32,
+        arg: usize,
+        vmar: &Arc<Vmar>,
+    ) -> Result<usize> {
         match cmd {
             ioctl::KDGKBTYPE => {
                 let kb_type = [ioctl::KB_101];
@@ -447,8 +451,11 @@ impl Tty {
                 UserPtr::new(arg).write_bytes(vmar, &entry_bytes)?;
                 Ok(0)
             }
-            ioctl::KDSKBENT | ioctl::KDKBDREP | ioctl::KDGKBDIACR
-            | ioctl::KDGETKEYCODE | ioctl::KDSETKEYCODE => Ok(0),
+            ioctl::KDSKBENT
+            | ioctl::KDKBDREP
+            | ioctl::KDGKBDIACR
+            | ioctl::KDGETKEYCODE
+            | ioctl::KDSETKEYCODE => Ok(0),
             ioctl::GIO_FONT | ioctl::PIO_FONT | ioctl::GIO_CMAP | ioctl::PIO_CMAP => Ok(0),
             _ => crate::return_errno!(ENOTTY, "unsupported keyboard display ioctl"),
         }
@@ -475,9 +482,10 @@ impl Tty {
                 UserPtr::new(arg).write_bytes(vmar, &bytes)?;
                 Ok(0)
             }
-            ioctl::VT_SETMODE | ioctl::VT_ACTIVATE | ioctl::VT_WAITACTIVE | ioctl::VT_DISALLOCATE => {
-                Ok(0)
-            }
+            ioctl::VT_SETMODE
+            | ioctl::VT_ACTIVATE
+            | ioctl::VT_WAITACTIVE
+            | ioctl::VT_DISALLOCATE => Ok(0),
             ioctl::TIOCLINUX => Ok(0),
             _ => crate::return_errno!(ENOTTY, "unsupported VT ioctl"),
         }
@@ -618,6 +626,40 @@ impl FileOps for TtyFileOps {
 // Console Device & File Integration
 // ----------------------------------------------------------------------------
 
+/// Driver delivering TTY output directly to the Framebuffer Console.
+pub struct FramebufferConsoleDriver;
+
+impl TtyDriver for FramebufferConsoleDriver {
+    fn write_output(&self, data: &[u8]) -> Result<()> {
+        if let Some(cons_lock) = crate::drivers::drm::get_console() {
+            let mut cons = cons_lock.lock();
+            cons.send(data);
+        }
+        Ok(())
+    }
+
+    fn get_winsize(&self) -> winsize {
+        if let Some(cons_lock) = crate::drivers::drm::get_console() {
+            let cons = cons_lock.lock();
+            let fb = crate::drivers::drm::get_framebuffer();
+            let (w, h) = fb.map(|f| (f.width as u16, f.height as u16)).unwrap_or((1280, 800));
+            winsize {
+                ws_row: cons.rows() as u16,
+                ws_col: cons.cols() as u16,
+                ws_xpixel: w,
+                ws_ypixel: h,
+            }
+        } else {
+            winsize {
+                ws_row: 25,
+                ws_col: 80,
+                ws_xpixel: 1280,
+                ws_ypixel: 800,
+            }
+        }
+    }
+}
+
 pub struct Console;
 
 static ACTIVE_CONSOLE: SpinLock<Option<Arc<Tty>>, LocalIrqDisabled> = SpinLock::new(None);
@@ -702,14 +744,10 @@ impl FileOps for ConsoleFileOps {
 /// Creates a standard open file description for /dev/console.
 pub fn create_console_file(flags: OpenFlags) -> Arc<File> {
     let inode = Arc::new(INode::new(
-        Box::new(crate::fs::devfs::chr::GenericChrNodeOps::new(Arc::new(Console))),
-        Mode::CHAR
-            | Mode::RUSR
-            | Mode::WUSR
-            | Mode::RGRP
-            | Mode::WGRP
-            | Mode::ROTH
-            | Mode::WOTH,
+        Box::new(crate::fs::devfs::chr::GenericChrNodeOps::new(Arc::new(
+            Console,
+        ))),
+        Mode::CHAR | Mode::RUSR | Mode::WUSR | Mode::RGRP | Mode::WGRP | Mode::ROTH | Mode::WOTH,
         2,
     ));
     Arc::new(File::new(Box::new(ConsoleFileOps), inode, flags, false))
@@ -728,8 +766,36 @@ pub fn get_console() -> Option<Arc<Tty>> {
     ACTIVE_CONSOLE.lock().clone()
 }
 
+static DECCKM: AtomicBool = AtomicBool::new(false);
+
+/// Returns whether DEC Application Cursor Keys mode (DECCKM) is enabled.
+pub fn is_application_cursor_keys() -> bool {
+    DECCKM.load(Ordering::Relaxed)
+}
+
+/// Sets DEC Application Cursor Keys mode (DECCKM).
+pub fn set_application_cursor_keys(enabled: bool) {
+    DECCKM.store(enabled, Ordering::Relaxed);
+}
+
+/// Updates the console winsize to match the underlying hardware driver dimensions.
+pub fn update_console_winsize() {
+    if let Some(console) = get_console() {
+        let ws = console.driver.get_winsize();
+        let changed = {
+            let mut guard = console.winsize.lock();
+            let old = *guard;
+            *guard = ws;
+            old.ws_row != ws.ws_row || old.ws_col != ws.ws_col
+        };
+        if changed {
+            console.signal_foreground(Signal::SIGWINCH);
+        }
+    }
+}
+
 /// Bytes received from interrupt handlers, waiting to be fed to the line discipline.
-static INPUT_QUEUE: LocklessQueue<1024> = LocklessQueue::new();
+static INPUT_QUEUE: RingBuffer<1024> = RingBuffer::new();
 
 /// Serializes consumers of INPUT_QUEUE. Never taken from interrupt context.
 static DRAIN_LOCK: Mutex<()> = Mutex::new(());

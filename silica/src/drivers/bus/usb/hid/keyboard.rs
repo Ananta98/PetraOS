@@ -9,14 +9,10 @@
 use alloc::{string::String, sync::Arc};
 use spin::{Mutex, Once};
 
-use crate::{
-    api::errno::Result,
-    drivers::CharacterDevice,
-    utils::lockless_queue::LocklessQueue,
-};
+use crate::{api::errno::Result, drivers::CharacterDevice, utils::ring_buffer::RingBuffer};
 
 /// Interrupt-safe, lock-free ring buffer for USB keyboard characters.
-static KEYBOARD_BUFFER: LocklessQueue<1024> = LocklessQueue::new();
+static KEYBOARD_BUFFER: RingBuffer<1024> = RingBuffer::new();
 static KEYBOARD_REGISTERED: Once<()> = Once::new();
 
 pub struct UsbKeyboardDevice;
@@ -62,7 +58,11 @@ pub fn init_usb_keyboard() -> Result<()> {
 pub fn handle_usb_keyboard_char(ch: char) {
     KEYBOARD_BUFFER.push_overwrite(ch as u8);
     crate::drivers::char::tty::handle_keyboard_char(ch as u8);
-    ostd::info!("[USB-KEYBOARD] Key: '{}' ({:#04X})", ch.escape_default(), ch as u32);
+    ostd::info!(
+        "[USB-KEYBOARD] Key: '{}' ({:#04X})",
+        ch.escape_default(),
+        ch as u32
+    );
 }
 
 /// Dispatches raw string/sequence (such as escape sequences for arrow keys) to the TTY layer.
@@ -78,16 +78,102 @@ pub enum KeyCode {
     ErrorRollOver,
     POSTFail,
     ErrorUndefined,
-    A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z,
-    Num1, Num2, Num3, Num4, Num5, Num6, Num7, Num8, Num9, Num0,
-    Enter, Escape, Backspace, Tab, Space,
-    Minus, Equal, LeftBrace, RightBrace, Backslash, HashTilde,
-    Semicolon, Apostrophe, Grave, Comma, Dot, Slash, CapsLock,
-    F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12,
-    PrintScreen, ScrollLock, Pause, Insert, Home, PageUp, Delete, End, PageDown,
-    RightArrow, LeftArrow, DownArrow, UpArrow,
-    NumLock, KpSlash, KpAsterisk, KpMinus, KpPlus, KpEnter,
-    Kp1, Kp2, Kp3, Kp4, Kp5, Kp6, Kp7, Kp8, Kp9, Kp0, KpDot,
+    A,
+    B,
+    C,
+    D,
+    E,
+    F,
+    G,
+    H,
+    I,
+    J,
+    K,
+    L,
+    M,
+    N,
+    O,
+    P,
+    Q,
+    R,
+    S,
+    T,
+    U,
+    V,
+    W,
+    X,
+    Y,
+    Z,
+    Num1,
+    Num2,
+    Num3,
+    Num4,
+    Num5,
+    Num6,
+    Num7,
+    Num8,
+    Num9,
+    Num0,
+    Enter,
+    Escape,
+    Backspace,
+    Tab,
+    Space,
+    Minus,
+    Equal,
+    LeftBrace,
+    RightBrace,
+    Backslash,
+    HashTilde,
+    Semicolon,
+    Apostrophe,
+    Grave,
+    Comma,
+    Dot,
+    Slash,
+    CapsLock,
+    F1,
+    F2,
+    F3,
+    F4,
+    F5,
+    F6,
+    F7,
+    F8,
+    F9,
+    F10,
+    F11,
+    F12,
+    PrintScreen,
+    ScrollLock,
+    Pause,
+    Insert,
+    Home,
+    PageUp,
+    Delete,
+    End,
+    PageDown,
+    RightArrow,
+    LeftArrow,
+    DownArrow,
+    UpArrow,
+    NumLock,
+    KpSlash,
+    KpAsterisk,
+    KpMinus,
+    KpPlus,
+    KpEnter,
+    Kp1,
+    Kp2,
+    Kp3,
+    Kp4,
+    Kp5,
+    Kp6,
+    Kp7,
+    Kp8,
+    Kp9,
+    Kp0,
+    KpDot,
     Unknown(u8),
 }
 
@@ -273,7 +359,10 @@ pub fn handle_usb_keyboard_report(report: &[u8; 8]) {
         let keycode = KeyCode::from(raw_code);
 
         // Ignore ghosting / rollover error codes
-        if matches!(keycode, KeyCode::ErrorRollOver | KeyCode::POSTFail | KeyCode::ErrorUndefined) {
+        if matches!(
+            keycode,
+            KeyCode::ErrorRollOver | KeyCode::POSTFail | KeyCode::ErrorUndefined
+        ) {
             continue;
         }
 
@@ -301,11 +390,12 @@ pub fn handle_usb_keyboard_report(report: &[u8; 8]) {
 }
 
 fn keycode_to_escape_seq(key: KeyCode) -> Option<&'static str> {
+    let app_cursor = crate::drivers::char::tty::is_application_cursor_keys();
     match key {
-        KeyCode::UpArrow => Some("\x1B[A"),
-        KeyCode::DownArrow => Some("\x1B[B"),
-        KeyCode::RightArrow => Some("\x1B[C"),
-        KeyCode::LeftArrow => Some("\x1B[D"),
+        KeyCode::UpArrow => Some(if app_cursor { "\x1BOA" } else { "\x1B[A" }),
+        KeyCode::DownArrow => Some(if app_cursor { "\x1BOB" } else { "\x1B[B" }),
+        KeyCode::RightArrow => Some(if app_cursor { "\x1BOC" } else { "\x1B[C" }),
+        KeyCode::LeftArrow => Some(if app_cursor { "\x1BOD" } else { "\x1B[D" }),
         KeyCode::Home => Some("\x1B[H"),
         KeyCode::End => Some("\x1B[F"),
         KeyCode::PageUp => Some("\x1B[5~"),
@@ -316,7 +406,12 @@ fn keycode_to_escape_seq(key: KeyCode) -> Option<&'static str> {
     }
 }
 
-fn keycode_to_char(key: KeyCode, mods: &Modifiers, caps_lock: bool, num_lock: bool) -> Option<char> {
+fn keycode_to_char(
+    key: KeyCode,
+    mods: &Modifiers,
+    caps_lock: bool,
+    num_lock: bool,
+) -> Option<char> {
     let shift = mods.shift;
 
     // Check if it's an alphabetic letter (A-Z)

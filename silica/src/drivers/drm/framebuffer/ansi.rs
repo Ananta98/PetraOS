@@ -53,6 +53,12 @@ pub trait EscapeOp {
     /// Shows or hides the cursor (DECTCEM).
     fn set_cursor_visible(&mut self, _visible: bool) {}
 
+    /// Enables or disables DEC Application Cursor Keys mode (DECCKM: CSI ? 1 h / l).
+    fn set_cursor_key_mode(&mut self, _mode: bool) {}
+
+    /// Enables or disables DEC Auto-wrap Mode (DECAWM: CSI ? 7 h / l).
+    fn set_autowrap(&mut self, _mode: bool) {}
+
     /// Sets or resets origin mode (DECOM: CSI ? 6 h / l).
     fn set_origin_mode(&mut self, _mode: bool) {}
 
@@ -219,6 +225,14 @@ impl EscapeFsm {
                         op.reset();
                         self.state = WaitFor::Escape;
                     }
+                    b'=' => {
+                        // DECKPAM - Application Keypad
+                        self.state = WaitFor::Escape;
+                    }
+                    b'>' => {
+                        // DECKPNM - Normal Keypad
+                        self.state = WaitFor::Escape;
+                    }
                     b'(' | b')' => {
                         // Charset designation (e.g. \e(B for ASCII)
                         self.state = WaitFor::Charset;
@@ -354,8 +368,10 @@ impl EscapeFsm {
                 b'h' => {
                     for i in 0..num_params {
                         match self.param_or(i, 0) {
-                            25 => op.set_cursor_visible(true),
+                            1 => op.set_cursor_key_mode(true),
                             6 => op.set_origin_mode(true),
+                            7 => op.set_autowrap(true),
+                            25 => op.set_cursor_visible(true),
                             _ => {}
                         }
                     }
@@ -363,8 +379,10 @@ impl EscapeFsm {
                 b'l' => {
                     for i in 0..num_params {
                         match self.param_or(i, 0) {
-                            25 => op.set_cursor_visible(false),
+                            1 => op.set_cursor_key_mode(false),
                             6 => op.set_origin_mode(false),
+                            7 => op.set_autowrap(false),
+                            25 => op.set_cursor_visible(false),
                             _ => {}
                         }
                     }
@@ -377,8 +395,8 @@ impl EscapeFsm {
         match final_byte {
             // CUP - Cursor Position: CSI n ; m H
             b'H' | b'f' => {
-                let row_1b = self.param_or(0, 1);
-                let col_1b = self.param_or(1, 1);
+                let row_1b = self.param_or_1(0);
+                let col_1b = self.param_or_1(1);
                 op.set_cursor(
                     col_1b.saturating_sub(1) as usize,
                     row_1b.saturating_sub(1) as usize,
@@ -387,31 +405,45 @@ impl EscapeFsm {
 
             // Cursor movements
             b'A' => {
-                let count = self.param_or(0, 1).max(1) as isize;
+                let count = self.param_or_1(0) as isize;
                 op.move_cursor(0, -count);
             }
             b'B' => {
-                let count = self.param_or(0, 1).max(1) as isize;
+                let count = self.param_or_1(0) as isize;
                 op.move_cursor(0, count);
             }
             b'C' => {
-                let count = self.param_or(0, 1).max(1) as isize;
+                let count = self.param_or_1(0) as isize;
                 op.move_cursor(count, 0);
             }
             b'D' => {
-                let count = self.param_or(0, 1).max(1) as isize;
+                let count = self.param_or_1(0) as isize;
                 op.move_cursor(-count, 0);
+            }
+
+            // CNL - Cursor Next Line: CSI n E
+            b'E' => {
+                let count = self.param_or_1(0) as isize;
+                op.set_cursor_col(0);
+                op.move_cursor(0, count);
+            }
+
+            // CPL - Cursor Previous Line: CSI n F
+            b'F' => {
+                let count = self.param_or_1(0) as isize;
+                op.set_cursor_col(0);
+                op.move_cursor(0, -count);
             }
 
             // CHA - Cursor Horizontal Absolute: CSI n G / '
             b'G' | b'\'' => {
-                let col_1b = self.param_or(0, 1);
+                let col_1b = self.param_or_1(0);
                 op.set_cursor_col(col_1b.saturating_sub(1) as usize);
             }
 
             // VPA - Line Position Absolute: CSI n d
             b'd' => {
-                let row_1b = self.param_or(0, 1);
+                let row_1b = self.param_or_1(0);
                 op.set_cursor_row(row_1b.saturating_sub(1) as usize);
             }
 
@@ -456,31 +488,31 @@ impl EscapeFsm {
 
             // DL - Delete Lines: CSI n M
             b'M' => {
-                let count = self.param_or(0, 1).max(1) as usize;
+                let count = self.param_or_1(0) as usize;
                 op.delete_lines(count);
             }
 
             // IL - Insert Lines: CSI n L
             b'L' => {
-                let count = self.param_or(0, 1).max(1) as usize;
+                let count = self.param_or_1(0) as usize;
                 op.insert_lines(count);
             }
 
             // DCH - Delete Characters: CSI n P
             b'P' => {
-                let count = self.param_or(0, 1).max(1) as usize;
+                let count = self.param_or_1(0) as usize;
                 op.delete_chars(count);
             }
 
             // ICH - Insert Characters: CSI n @
             b'@' => {
-                let count = self.param_or(0, 1).max(1) as usize;
+                let count = self.param_or_1(0) as usize;
                 op.insert_chars(count);
             }
 
             // ECH - Erase Characters: CSI n X
             b'X' => {
-                let count = self.param_or(0, 1).max(1) as usize;
+                let count = self.param_or_1(0) as usize;
                 op.erase_chars(count);
             }
 
@@ -589,6 +621,13 @@ impl EscapeFsm {
     fn param_or(&self, i: usize, default: u32) -> u32 {
         self.params.get(i).and_then(|p| *p).unwrap_or(default)
     }
+
+    fn param_or_1(&self, i: usize) -> u32 {
+        match self.params.get(i).and_then(|p| *p) {
+            None | Some(0) => 1,
+            Some(v) => v,
+        }
+    }
 }
 
 impl Default for EscapeFsm {
@@ -618,6 +657,8 @@ mod tests {
         SetBg(Pixel),
         ClearDisplay(EraseInDisplay),
         ClearLine(EraseInLine),
+        SetCursorKeyMode(bool),
+        SetAutowrap(bool),
     }
 
     struct MockOp {
@@ -651,6 +692,12 @@ mod tests {
         }
         fn set_cursor_visible(&mut self, visible: bool) {
             self.ops.push(TestOp::SetCursorVisible(visible));
+        }
+        fn set_cursor_key_mode(&mut self, mode: bool) {
+            self.ops.push(TestOp::SetCursorKeyMode(mode));
+        }
+        fn set_autowrap(&mut self, mode: bool) {
+            self.ops.push(TestOp::SetAutowrap(mode));
         }
         fn set_inverse(&mut self, val: bool) {
             self.ops.push(TestOp::SetInverse(val));
@@ -721,6 +768,33 @@ mod tests {
         assert_eq!(mock.ops, alloc::vec![
             TestOp::SetCursorCol(14),
             TestOp::SetCursorRow(7),
+        ]);
+    }
+
+    #[ktest]
+    fn test_decckm_and_decawm() {
+        let mut fsm = EscapeFsm::new();
+        let mut mock = MockOp::new();
+
+        // DECCKM \e[?1h and \e[?1l, DECAWM \e[?7l and \e[?7h
+        for &b in b"\x1b[?1h\x1b[?7l\x1b[?1l\x1b[?7h" {
+            fsm.eat(b, &mut mock);
+        }
+        assert_eq!(mock.ops, alloc::vec![
+            TestOp::SetCursorKeyMode(true),
+            TestOp::SetAutowrap(false),
+            TestOp::SetCursorKeyMode(false),
+            TestOp::SetAutowrap(true),
+        ]);
+
+        // CUP with 0 defaults: \e[0;0H -> (0, 0), \e[H -> (0, 0)
+        mock.ops.clear();
+        for &b in b"\x1b[0;0H\x1b[H" {
+            fsm.eat(b, &mut mock);
+        }
+        assert_eq!(mock.ops, alloc::vec![
+            TestOp::SetCursor(0, 0),
+            TestOp::SetCursor(0, 0),
         ]);
     }
 }

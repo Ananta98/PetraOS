@@ -22,10 +22,8 @@ use super::{
     ps2::{CMD_ENABLE_SCANNING, CMD_RESET, send_keyboard_cmd},
 };
 use crate::{
-    api::errno::Result,
-    drivers::CharacterDevice,
-    drivers::char::tty,
-    utils::lockless_queue::LocklessQueue,
+    api::errno::Result, drivers::CharacterDevice, drivers::char::tty,
+    utils::ring_buffer::RingBuffer,
 };
 
 const ISA_KEYBOARD_IRQ: u8 = 1;
@@ -34,7 +32,7 @@ const ISA_KEYBOARD_IRQ: u8 = 1;
 static KEYBOARD_IRQ_LINE: Once<MappedIrqLine> = Once::new();
 
 /// Global lock-free ring buffer storing received keyboard ASCII characters.
-static KEYBOARD_BUFFER: LocklessQueue<1024> = LocklessQueue::new();
+static KEYBOARD_BUFFER: RingBuffer<1024> = RingBuffer::new();
 
 /// Global keyboard state machine for modifier tracking and character emission.
 static KEYBOARD_STATE: Mutex<KeyboardState> = Mutex::new(KeyboardState::new());
@@ -592,11 +590,20 @@ impl KeyboardState {
         }
 
         // Navigation and editing keys emit standard ANSI escape sequences
+        let app_cursor = tty::is_application_cursor_keys();
         match key_code {
-            KeyCode::Up => return Some(KeyAction::Seq("\x1B[A")),
-            KeyCode::Down => return Some(KeyAction::Seq("\x1B[B")),
-            KeyCode::Right => return Some(KeyAction::Seq("\x1B[C")),
-            KeyCode::Left => return Some(KeyAction::Seq("\x1B[D")),
+            KeyCode::Up => {
+                return Some(KeyAction::Seq(if app_cursor { "\x1BOA" } else { "\x1B[A" }));
+            }
+            KeyCode::Down => {
+                return Some(KeyAction::Seq(if app_cursor { "\x1BOB" } else { "\x1B[B" }));
+            }
+            KeyCode::Right => {
+                return Some(KeyAction::Seq(if app_cursor { "\x1BOC" } else { "\x1B[C" }));
+            }
+            KeyCode::Left => {
+                return Some(KeyAction::Seq(if app_cursor { "\x1BOD" } else { "\x1B[D" }));
+            }
             KeyCode::Home => return Some(KeyAction::Seq("\x1B[1~")),
             KeyCode::End => return Some(KeyAction::Seq("\x1B[4~")),
             KeyCode::PageUp => return Some(KeyAction::Seq("\x1B[5~")),
@@ -664,29 +671,155 @@ impl KeyboardState {
 
         // Digits 0-9
         let digit_char = match key_code {
-            KeyCode::Num1 => if is_shifted { '!' } else { '1' },
-            KeyCode::Num2 => if is_shifted { '@' } else { '2' },
-            KeyCode::Num3 => if is_shifted { '#' } else { '3' },
-            KeyCode::Num4 => if is_shifted { '$' } else { '4' },
-            KeyCode::Num5 => if is_shifted { '%' } else { '5' },
-            KeyCode::Num6 => if is_shifted { '^' } else { '6' },
-            KeyCode::Num7 => if is_shifted { '&' } else { '7' },
-            KeyCode::Num8 => if is_shifted { '*' } else { '8' },
-            KeyCode::Num9 => if is_shifted { '(' } else { '9' },
-            KeyCode::Num0 => if is_shifted { ')' } else { '0' },
+            KeyCode::Num1 => {
+                if is_shifted {
+                    '!'
+                } else {
+                    '1'
+                }
+            }
+            KeyCode::Num2 => {
+                if is_shifted {
+                    '@'
+                } else {
+                    '2'
+                }
+            }
+            KeyCode::Num3 => {
+                if is_shifted {
+                    '#'
+                } else {
+                    '3'
+                }
+            }
+            KeyCode::Num4 => {
+                if is_shifted {
+                    '$'
+                } else {
+                    '4'
+                }
+            }
+            KeyCode::Num5 => {
+                if is_shifted {
+                    '%'
+                } else {
+                    '5'
+                }
+            }
+            KeyCode::Num6 => {
+                if is_shifted {
+                    '^'
+                } else {
+                    '6'
+                }
+            }
+            KeyCode::Num7 => {
+                if is_shifted {
+                    '&'
+                } else {
+                    '7'
+                }
+            }
+            KeyCode::Num8 => {
+                if is_shifted {
+                    '*'
+                } else {
+                    '8'
+                }
+            }
+            KeyCode::Num9 => {
+                if is_shifted {
+                    '('
+                } else {
+                    '9'
+                }
+            }
+            KeyCode::Num0 => {
+                if is_shifted {
+                    ')'
+                } else {
+                    '0'
+                }
+            }
 
             // Punctuation
-            KeyCode::Minus => if is_shifted { '_' } else { '-' },
-            KeyCode::Equal => if is_shifted { '+' } else { '=' },
-            KeyCode::Grave => if is_shifted { '~' } else { '`' },
-            KeyCode::Backslash => if is_shifted { '|' } else { '\\' },
-            KeyCode::Comma => if is_shifted { '<' } else { ',' },
-            KeyCode::Dot => if is_shifted { '>' } else { '.' },
-            KeyCode::Slash => if is_shifted { '?' } else { '/' },
-            KeyCode::Semicolon => if is_shifted { ':' } else { ';' },
-            KeyCode::Apostrophe => if is_shifted { '"' } else { '\'' },
-            KeyCode::LeftBrace => if is_shifted { '{' } else { '[' },
-            KeyCode::RightBrace => if is_shifted { '}' } else { ']' },
+            KeyCode::Minus => {
+                if is_shifted {
+                    '_'
+                } else {
+                    '-'
+                }
+            }
+            KeyCode::Equal => {
+                if is_shifted {
+                    '+'
+                } else {
+                    '='
+                }
+            }
+            KeyCode::Grave => {
+                if is_shifted {
+                    '~'
+                } else {
+                    '`'
+                }
+            }
+            KeyCode::Backslash => {
+                if is_shifted {
+                    '|'
+                } else {
+                    '\\'
+                }
+            }
+            KeyCode::Comma => {
+                if is_shifted {
+                    '<'
+                } else {
+                    ','
+                }
+            }
+            KeyCode::Dot => {
+                if is_shifted {
+                    '>'
+                } else {
+                    '.'
+                }
+            }
+            KeyCode::Slash => {
+                if is_shifted {
+                    '?'
+                } else {
+                    '/'
+                }
+            }
+            KeyCode::Semicolon => {
+                if is_shifted {
+                    ':'
+                } else {
+                    ';'
+                }
+            }
+            KeyCode::Apostrophe => {
+                if is_shifted {
+                    '"'
+                } else {
+                    '\''
+                }
+            }
+            KeyCode::LeftBrace => {
+                if is_shifted {
+                    '{'
+                } else {
+                    '['
+                }
+            }
+            KeyCode::RightBrace => {
+                if is_shifted {
+                    '}'
+                } else {
+                    ']'
+                }
+            }
             _ => return None,
         };
 

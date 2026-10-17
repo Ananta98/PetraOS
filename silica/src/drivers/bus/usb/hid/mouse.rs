@@ -11,11 +11,11 @@ use spin::Once;
 use crate::{
     api::errno::Result,
     drivers::CharacterDevice,
-    utils::lockless_queue::LocklessQueue,
+    utils::ring_buffer::RingBuffer,
 };
 
 /// Interrupt-safe, lock-free ring buffer for USB mouse packets.
-static MOUSE_BUFFER: LocklessQueue<2048> = LocklessQueue::new();
+static MOUSE_BUFFER: RingBuffer<2048> = RingBuffer::new();
 static MOUSE_REGISTERED: Once<()> = Once::new();
 
 pub struct UsbMouseDevice;

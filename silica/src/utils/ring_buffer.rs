@@ -8,16 +8,16 @@
 use core::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
 
 /// A 100% safe, lock-free Single-Producer Single-Consumer (SPSC) byte ring buffer.
-pub struct LocklessQueue<const CAP: usize> {
+pub struct RingBuffer<const CAP: usize> {
     buffer: [AtomicU8; CAP],
     head: AtomicUsize,
     tail: AtomicUsize,
 }
 
-impl<const CAP: usize> LocklessQueue<CAP> {
-    /// Creates a new, empty `LocklessQueue`.
+impl<const CAP: usize> RingBuffer<CAP> {
+    /// Creates a new, empty `RingBuffer`.
     pub const fn new() -> Self {
-        assert!(CAP > 0, "LocklessQueue capacity must be non-zero");
+        assert!(CAP > 0, "RingBuffer capacity must be non-zero");
 
         Self {
             buffer: [const { AtomicU8::new(0) }; CAP],

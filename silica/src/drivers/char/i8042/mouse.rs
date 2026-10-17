@@ -25,7 +25,7 @@ use super::{
         reset_mouse, send_mouse_cmd, send_mouse_cmd_arg,
     },
 };
-use crate::{api::errno::Result, utils::lockless_queue::LocklessQueue};
+use crate::{api::errno::Result, utils::ring_buffer::RingBuffer};
 
 const ISA_MOUSE_IRQ: u8 = 12;
 
@@ -33,7 +33,7 @@ const ISA_MOUSE_IRQ: u8 = 12;
 static MOUSE_IRQ_LINE: Once<MappedIrqLine> = Once::new();
 
 /// Global lock-free ring buffer storing raw mouse packets for `/dev/psaux` and `/dev/mouse`.
-static MOUSE_BUFFER: LocklessQueue<2048> = LocklessQueue::new();
+static MOUSE_BUFFER: RingBuffer<2048> = RingBuffer::new();
 
 /// Global mouse packet parser state.
 static MOUSE_PARSER: Mutex<MousePacketParser> = Mutex::new(MousePacketParser::new());
