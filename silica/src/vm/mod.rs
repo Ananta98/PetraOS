@@ -31,14 +31,13 @@
 
 pub mod abi;
 pub mod backing;
-pub mod benchmark;
 pub mod reclaim;
 pub mod vmar;
 
 // Re-exports for backward compatibility throughout silica
-pub use abi::{flags, perms};
 pub use abi::flags::*;
 pub use abi::perms::VmPerms;
+pub use abi::{flags, perms};
 pub use backing::shm;
 
 use alloc::sync::Arc;
