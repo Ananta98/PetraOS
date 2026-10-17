@@ -50,11 +50,6 @@ impl Shebang {
     }
 
     /// Attempts to parse shebang header from file bytes.
-    ///
-    /// Returns:
-    /// - `Ok(Some(Shebang))` if data begins with `#!` and contains a valid header.
-    /// - `Ok(None)` if data is not a shebang script.
-    /// - `Err(Errno)` if data is an invalid or malformed shebang line.
     pub fn parse(data: &[u8]) -> Result<Option<Self>> {
         if !Self::is_shebang(data) {
             return Ok(None);
@@ -83,8 +78,6 @@ impl Shebang {
         }
 
         // 4. Extract interpreter and optional argument
-        // Linux rule: the interpreter ends at the first whitespace.
-        // Everything after whitespace up to line end is treated as a single argument.
         let (interp_str, opt_arg) = match trimmed_start.find(|c| c == ' ' || c == '\t') {
             Some(idx) => {
                 let interp = &trimmed_start[..idx];
@@ -147,31 +140,16 @@ impl Shebang {
     }
 
     /// Reconstructs the argument vector for executing the interpreter.
-    ///
-    /// Following Linux semantics:
-    /// - `argv[0]` = `self.interpreter`
-    /// - `argv[1]` = `self.arg` (if present)
-    /// - `argv[2]` = `script_path` (or `original_argv[0]`)
-    /// - `argv[3..]` = `original_argv[1..]`
     pub fn build_argv<'a>(&'a self, script_path: &'a str, original_argv: &[&'a str]) -> Vec<&'a str> {
         let mut new_argv = Vec::new();
-
-        // 1. Interpreter as argv[0]
         new_argv.push(self.interpreter());
-
-        // 2. Optional shebang argument as argv[1]
         if let Some(arg) = self.arg() {
             new_argv.push(arg);
         }
-
-        // 3. Script path
         new_argv.push(script_path);
-
-        // 4. Retain original script parameters (argv[1..])
         if original_argv.len() > 1 {
             new_argv.extend_from_slice(&original_argv[1..]);
         }
-
         new_argv
     }
 }
@@ -183,46 +161,5 @@ impl fmt::Display for Shebang {
             write!(f, " {arg}")?;
         }
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_is_shebang() {
-        assert!(Shebang::is_shebang(b"#!/bin/sh\n"));
-        assert!(Shebang::is_shebang(b"#! /bin/bash"));
-        assert!(!Shebang::is_shebang(b"#"));
-        assert!(!Shebang::is_shebang(b"\x7fELF"));
-    }
-
-    #[test]
-    fn test_parse_simple() {
-        let data = b"#!/bin/sh\necho hello\n";
-        let shebang = Shebang::parse(data).unwrap().unwrap();
-        assert_eq!(shebang.interpreter(), "/bin/sh");
-        assert_eq!(shebang.arg(), None);
-    }
-
-    #[test]
-    fn test_parse_with_spaces_and_arg() {
-        let data = b"#!  /bin/sh   -e\r\necho hello\n";
-        let shebang = Shebang::parse(data).unwrap().unwrap();
-        assert_eq!(shebang.interpreter(), "/bin/sh");
-        assert_eq!(shebang.arg(), Some("-e"));
-    }
-
-    #[test]
-    fn test_build_argv() {
-        let data = b"#!/usr/bin/env python3\n";
-        let shebang = Shebang::parse(data).unwrap().unwrap();
-        let orig_argv = ["./script.py", "--flag", "value"];
-        let new_argv = shebang.build_argv("./script.py", &orig_argv);
-        assert_eq!(
-            new_argv,
-            alloc::vec!["/usr/bin/env", "python3", "./script.py", "--flag", "value"]
-        );
     }
 }

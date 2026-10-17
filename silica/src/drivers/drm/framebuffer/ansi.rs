@@ -30,6 +30,18 @@ pub enum EraseInLine {
     EntireLine,
 }
 
+/// The style and shape of the text cursor (DECSCUSR).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CursorStyle {
+    Default,
+    BlinkingBlock,
+    SteadyBlock,
+    BlinkingUnderline,
+    SteadyUnderline,
+    BlinkingBar,
+    SteadyBar,
+}
+
 /// A trait to execute operations from ANSI escape sequences.
 pub trait EscapeOp {
     /// Sets the cursor position (0-indexed: x = col, y = row).
@@ -103,6 +115,21 @@ pub trait EscapeOp {
 
     /// Reverse index (RI: ESC M). Scrolls down if at top margin.
     fn reverse_index(&mut self) {}
+
+    /// Forward index (IND: ESC D). Scrolls up if at bottom margin.
+    fn index(&mut self) {}
+
+    /// Next line (NEL: ESC E). Moves to column 0 and performs forward index.
+    fn next_line(&mut self) {}
+
+    /// Scrolls the active scrolling region up by n lines (SU: CSI n S).
+    fn scroll_up(&mut self, _count: usize) {}
+
+    /// Scrolls the active scrolling region down by n lines (SD: CSI n T).
+    fn scroll_down(&mut self, _count: usize) {}
+
+    /// Sets the cursor shape/style (DECSCUSR: CSI Ps SP q or CSI Ps q).
+    fn set_cursor_style(&mut self, _style: CursorStyle) {}
 }
 
 const MAX_PARAMS: usize = 8;
@@ -214,10 +241,18 @@ impl EscapeFsm {
                         op.reverse_index();
                         self.state = WaitFor::Escape;
                     }
+                    b'D' => {
+                        // IND - Index
+                        op.index();
+                        self.state = WaitFor::Escape;
+                    }
                     b'E' => {
                         // NEL - Next Line
-                        op.set_cursor_col(0);
-                        op.move_cursor(0, 1);
+                        op.next_line();
+                        self.state = WaitFor::Escape;
+                    }
+                    b'H' => {
+                        // HTS - Horizontal Tabulation Set (ignored)
                         self.state = WaitFor::Escape;
                     }
                     b'c' => {
@@ -347,7 +382,7 @@ impl EscapeFsm {
             0x40..=0x7E => {
                 self.state = WaitFor::Escape;
                 let num_params = (idx as usize) + 1;
-                self.handle_csi(byte, num_params, is_private, op);
+                self.handle_csi(byte, num_params, is_private, in_intermediate, op);
             }
 
             _ => {
@@ -361,6 +396,7 @@ impl EscapeFsm {
         final_byte: u8,
         num_params: usize,
         is_private: bool,
+        _in_intermediate: bool,
         op: &mut T,
     ) {
         if is_private {
@@ -408,11 +444,11 @@ impl EscapeFsm {
                 let count = self.param_or_1(0) as isize;
                 op.move_cursor(0, -count);
             }
-            b'B' => {
+            b'B' | b'e' => {
                 let count = self.param_or_1(0) as isize;
                 op.move_cursor(0, count);
             }
-            b'C' => {
+            b'C' | b'a' => {
                 let count = self.param_or_1(0) as isize;
                 op.move_cursor(count, 0);
             }
@@ -521,6 +557,34 @@ impl EscapeFsm {
                 if self.param_or(0, 0) == 6 {
                     op.report_cursor_position();
                 }
+            }
+
+            // SU - Scroll Up: CSI n S
+            b'S' => {
+                let count = self.param_or_1(0) as usize;
+                op.scroll_up(count);
+            }
+
+            // SD - Scroll Down: CSI n T
+            b'T' => {
+                let count = self.param_or_1(0) as usize;
+                op.scroll_down(count);
+            }
+
+            // DECSCUSR - Set Cursor Style: CSI Ps SP q or CSI Ps q
+            b'q' => {
+                let ps = self.param_or(0, 0);
+                let style = match ps {
+                    0 => CursorStyle::Default,
+                    1 => CursorStyle::BlinkingBlock,
+                    2 => CursorStyle::SteadyBlock,
+                    3 => CursorStyle::BlinkingUnderline,
+                    4 => CursorStyle::SteadyUnderline,
+                    5 => CursorStyle::BlinkingBar,
+                    6 => CursorStyle::SteadyBar,
+                    _ => CursorStyle::Default,
+                };
+                op.set_cursor_style(style);
             }
 
             _ => {}

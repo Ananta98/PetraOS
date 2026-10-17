@@ -125,3 +125,104 @@ impl Default for Plimit {
         Self::default_limits()
     }
 }
+
+/// Linux x86_64 resource usage statistics (POSIX `struct rusage`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(C)]
+pub struct Rusage {
+    /// User CPU time used (seconds)
+    pub ru_utime_sec: i64,
+    /// User CPU time used (microseconds)
+    pub ru_utime_usec: i64,
+    /// System CPU time used (seconds)
+    pub ru_stime_sec: i64,
+    /// System CPU time used (microseconds)
+    pub ru_stime_usec: i64,
+    /// Maximum resident set size in kilobytes
+    pub ru_maxrss: i64,
+    /// Integral shared memory size
+    pub ru_ixrss: i64,
+    /// Integral unshared data size
+    pub ru_idrss: i64,
+    /// Integral unshared stack size
+    pub ru_isrss: i64,
+    /// Page reclaims (soft page faults)
+    pub ru_minflt: i64,
+    /// Page faults (hard page faults)
+    pub ru_majflt: i64,
+    /// Swaps
+    pub ru_nswap: i64,
+    /// Block input operations
+    pub ru_inblock: i64,
+    /// Block output operations
+    pub ru_oublock: i64,
+    /// IPC messages sent
+    pub ru_msgsnd: i64,
+    /// IPC messages received
+    pub ru_msgrcv: i64,
+    /// Signals received
+    pub ru_nsignals: i64,
+    /// Voluntary context switches
+    pub ru_nvcsw: i64,
+    /// Involuntary context switches
+    pub ru_nivcsw: i64,
+}
+
+impl Rusage {
+    /// Accumulates metrics from another `Rusage` into `self`.
+    pub fn accumulate(&mut self, other: &Self) {
+        self.ru_utime_sec += other.ru_utime_sec;
+        self.ru_utime_usec += other.ru_utime_usec;
+        if self.ru_utime_usec >= 1_000_000 {
+            self.ru_utime_sec += self.ru_utime_usec / 1_000_000;
+            self.ru_utime_usec %= 1_000_000;
+        }
+
+        self.ru_stime_sec += other.ru_stime_sec;
+        self.ru_stime_usec += other.ru_stime_usec;
+        if self.ru_stime_usec >= 1_000_000 {
+            self.ru_stime_sec += self.ru_stime_usec / 1_000_000;
+            self.ru_stime_usec %= 1_000_000;
+        }
+
+        if other.ru_maxrss > self.ru_maxrss {
+            self.ru_maxrss = other.ru_maxrss;
+        }
+        self.ru_minflt += other.ru_minflt;
+        self.ru_majflt += other.ru_majflt;
+        self.ru_inblock += other.ru_inblock;
+        self.ru_oublock += other.ru_oublock;
+        self.ru_nvcsw += other.ru_nvcsw;
+        self.ru_nivcsw += other.ru_nivcsw;
+    }
+
+    /// Converts into raw byte representation for userspace copying.
+    pub fn to_bytes(&self) -> [u8; core::mem::size_of::<Self>()] {
+        let mut bytes = [0u8; core::mem::size_of::<Self>()];
+        let fields = [
+            self.ru_utime_sec,
+            self.ru_utime_usec,
+            self.ru_stime_sec,
+            self.ru_stime_usec,
+            self.ru_maxrss,
+            self.ru_ixrss,
+            self.ru_idrss,
+            self.ru_isrss,
+            self.ru_minflt,
+            self.ru_majflt,
+            self.ru_nswap,
+            self.ru_inblock,
+            self.ru_oublock,
+            self.ru_msgsnd,
+            self.ru_msgrcv,
+            self.ru_nsignals,
+            self.ru_nvcsw,
+            self.ru_nivcsw,
+        ];
+        for (i, val) in fields.iter().enumerate() {
+            bytes[i * 8..(i + 1) * 8].copy_from_slice(&val.to_ne_bytes());
+        }
+        bytes
+    }
+}
+

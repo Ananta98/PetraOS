@@ -10,7 +10,7 @@ use crate::{
         procfs::template::{ProcSymNodeOps, ProcSymOps},
         vfs::{FileOps, INode, INodeAttr, Mode, NodeOps, OpenFlags},
     },
-    proc::tree::{allproc_find, Pid},
+    proc::{allproc_find, Pid},
 };
 
 use super::pid_ino;

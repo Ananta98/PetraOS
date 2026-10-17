@@ -83,16 +83,16 @@ pub fn sys_sysinfo(info_ptr: usize, _ctx: &mut UserContext) -> Result<usize> {
 
     // Compute approximate mapped RAM from all processes
     let mut mapped_ram: u64 = 0;
-    for p in crate::proc::tree::allproc_iter() {
+    crate::proc::allproc_for_each(|p| {
         mapped_ram = mapped_ram.saturating_add(p.vmspace().total_mapped_size() as u64);
-    }
+    });
 
     let free_ram = total_ram
         .saturating_sub(mapped_ram)
         .saturating_sub(32 * 1024 * 1024)
         .max(total_ram / 4);
 
-    let procs = crate::proc::tree::allproc_count() as u16;
+    let procs = crate::proc::allproc_count() as u16;
 
     let info = SysInfo {
         uptime,

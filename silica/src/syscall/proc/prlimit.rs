@@ -11,8 +11,8 @@ use crate::{
         limit::{RLimit, Resource},
     },
     proc::{
+        Pid, allproc_find,
         thread::Thread,
-        tree::{Pid, allproc_find},
     },
     utils::userspace::user_ptr::UserPtr,
 };

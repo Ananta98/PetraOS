@@ -7,7 +7,7 @@ use core::fmt::Write;
 
 pub fn generate_stat() -> Vec<u8> {
     let uptime_ticks = crate::sched::now();
-    let procs = crate::proc::tree::allproc_count();
+    let procs = crate::proc::allproc_count();
     let mut s = String::new();
     let _ = writeln!(s, "cpu  {} 0 10 1000 0 0 0 0 0 0", uptime_ticks);
     let _ = writeln!(s, "btime 1700000000");

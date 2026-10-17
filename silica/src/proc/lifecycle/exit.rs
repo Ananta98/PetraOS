@@ -5,18 +5,25 @@
 //! Implements `exit1` for process termination, zombie state transitions,
 //! orphan reparenting to designated reapers, and resource reclamation via `proc_reap`.
 
-use super::{
-    ExitStatus, Proc, ProcState,
-    thread::{Thread, ThreadState},
-    tree::{
-        PID_ALLOCATOR, Pid, allproc_find, allproc_remove, tree_find_reaper, tree_reparent_children,
+use alloc::{sync::Arc, vec::Vec};
+
+use crate::{
+    api::{
+        errno::{Errno, Result},
+        signal::Signal,
+    },
+    proc::{
+        ExitStatus, Proc, ProcState,
+        thread::{Thread, ThreadState},
+        types::{
+            pid::Pid,
+            table::{
+                PID_ALLOCATOR, allproc_find, allproc_remove, tree_find_reaper,
+                tree_reparent_children,
+            },
+        },
     },
 };
-use crate::api::{
-    errno::{Errno, Result},
-    signal::Signal,
-};
-use alloc::{sync::Arc, vec::Vec};
 
 /// Terminates the current process.
 pub fn exit1(td: &Thread, status: ExitStatus) {
@@ -51,10 +58,16 @@ pub fn exit1(td: &Thread, status: ExitStatus) {
     if !children_to_reparent.is_empty() {
         tree_reparent_children(&children_to_reparent, reaper_pid);
         for &child_pid in &children_to_reparent {
-            let is_zombie = allproc_find(child_pid).is_some_and(|c| c.state() == ProcState::Zombie);
-            if is_zombie && let Some(reaper) = allproc_find(reaper_pid) {
-                reaper.post_signal(Signal::SIGCHLD);
-                super::wait::notify_child_events();
+            if let Some(child) = allproc_find(child_pid) {
+                if child.state() == ProcState::Zombie {
+                    if let Some(reaper) = allproc_find(reaper_pid) {
+                        reaper.post_signal(Signal::SIGCHLD);
+                        reaper.child_waitq.wake_all();
+                        super::wait::notify_child_events();
+                    }
+                } else {
+                    crate::proc::job::notify_orphaned_pgrp_if_stopped(child.pgid());
+                }
             }
         }
     }
@@ -81,8 +94,12 @@ pub fn exit1(td: &Thread, status: ExitStatus) {
                 | crate::proc::thread::ThreadFlags::KILL_PENDING,
         );
     }
-    // Wake any threads parked on stop_queue so they terminate immediately
+    // Wake any threads parked on stop_queue and any parent sleeping in vfork
     proc.stop_queue.wake_all();
+    proc.wake_vfork();
+    if let Some(parent_pid) = ppid && let Some(parent) = allproc_find(parent_pid) {
+        parent.wake_vfork();
+    }
 
     // Report the status so a process's end is visible in the log. Nothing else
     // does: the zombie keeps `xstat` until a parent reaps it, and a process with
@@ -158,9 +175,15 @@ pub fn proc_reap(parent: &Arc<Proc>, child_pid: Pid) -> Result<(Pid, ExitStatus)
     // Clean up remaining threads from the child process
     child.inner.lock().threads.clear();
 
-    // Remove from parent's children list
+    // Accumulate child's rusage and remove from parent's children list
     {
+        let child_inner = child.inner.lock();
         let mut p_inner = parent.inner.lock();
+        p_inner.children_rusage.accumulate(&child_inner.children_rusage);
+        let child_rss_kb = (child.vmspace().total_mapped_size() / 1024) as i64;
+        if child_rss_kb > p_inner.children_rusage.ru_maxrss {
+            p_inner.children_rusage.ru_maxrss = child_rss_kb;
+        }
         p_inner.children.retain(|&p| p != child_pid);
     }
 
@@ -184,7 +207,7 @@ mod tests {
         fs::fd::Filedesc,
         proc::{
             thread::{ThreadFlags, ThreadInner, alloc_tid},
-            tree::allproc_insert,
+            types::table::allproc_insert,
         },
         vm::{flags::MmapFlags, perms::VmPerms, vmar::Vmar},
     };
@@ -248,7 +271,6 @@ mod tests {
         let vmar = proc.vmspace();
         let test_addr = 0x0000_1000_0000usize;
 
-        // Allocate anonymous memory for clear_child_tid
         let mapped = vmar
             .mmap_anonymous(
                 test_addr,
@@ -258,12 +280,10 @@ mod tests {
             )
             .expect("mmap anonymous");
 
-        // Populate page so UserPtr write/read succeeds
         vmar.populate_range(&(mapped..mapped + ostd::mm::PAGE_SIZE))
             .expect("populate range");
         vmar.activate();
 
-        // Write a non-zero TID to user memory
         let tid_val = 12345i32;
         crate::utils::userspace::user_ptr::UserPtr::new(mapped)
             .write_bytes(&vmar, &tid_val.to_ne_bytes())
@@ -272,20 +292,16 @@ mod tests {
         let thread = create_test_thread(&proc, mapped);
         assert_eq!(thread.inner.lock().clear_child_tid, mapped);
 
-        // Execute handle_clear_child_tid
         thread.handle_clear_child_tid(&proc);
 
-        // Verify clear_child_tid in thread is now 0 (idempotent)
         assert_eq!(thread.inner.lock().clear_child_tid, 0);
 
-        // Verify userspace memory at mapped is now 0
         let mut read_bytes = [0u8; 4];
         crate::utils::userspace::user_ptr::UserPtr::new(mapped)
             .read_bytes(&vmar, &mut read_bytes)
             .expect("read bytes");
         assert_eq!(i32::from_ne_bytes(read_bytes), 0);
 
-        // Verify calling again does not fail or panic
         thread.handle_clear_child_tid(&proc);
         assert_eq!(thread.inner.lock().clear_child_tid, 0);
     }
@@ -299,7 +315,6 @@ mod tests {
         assert_eq!(proc.inner.lock().threads.len(), 2);
         assert_eq!(proc.state(), ProcState::Alive);
 
-        // Terminate thread 1 via exit_thread: thread 1 should die, but process and thread 2 survive
         exit_thread(&thread1, 0);
 
         assert_eq!(thread1.inner.lock().state, ThreadState::Dead);
@@ -307,7 +322,6 @@ mod tests {
         assert_eq!(proc.inner.lock().threads[0].tid, thread2.tid);
         assert_eq!(proc.state(), ProcState::Alive);
 
-        // Now terminate the last thread (thread 2) via exit_thread: process should terminate
         exit_thread(&thread2, 42);
 
         assert_eq!(thread2.inner.lock().state, ThreadState::Dead);
@@ -324,10 +338,8 @@ mod tests {
         assert_eq!(proc.inner.lock().threads.len(), 2);
         assert_eq!(proc.state(), ProcState::Alive);
 
-        // Call exit1 (exit_group) from thread 1
         exit1(&thread1, ExitStatus::Exited(99));
 
-        // Both threads must be Dead and process must be Zombie
         assert_eq!(thread1.inner.lock().state, ThreadState::Dead);
         assert_eq!(thread2.inner.lock().state, ThreadState::Dead);
         assert_eq!(proc.state(), ProcState::Zombie);

@@ -19,7 +19,7 @@ use crate::{
     proc::{
         Proc,
         thread::{Thread, ThreadFlags, ThreadInner, ThreadState, alloc_tid},
-        tree::{PID_ALLOCATOR, allproc_insert},
+        types::{PID_ALLOCATOR, allproc_insert},
     },
     vm::vmar::Vmar,
 };

@@ -13,15 +13,19 @@ pub fn generate_proc_stat(proc: &Arc<Proc>) -> Vec<u8> {
         ProcState::Zombie => 'Z',
     };
     let ppid = inner.ppid.map(|p| p.as_u32()).unwrap_or(0);
+    let pgrp = inner.pgid.unwrap_or(proc.pid).as_u32();
+    let sid = inner.sid.unwrap_or(proc.pid).as_u32();
     let num_threads = inner.threads.len();
     drop(inner);
 
     format!(
-        "{} ({}) {} {} 0 0 0 0 0 0 0 0 0 0 0 20 0 {} 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0\n",
+        "{} ({}) {} {} {} {} 0 0 0 0 0 0 0 0 0 20 0 {} 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0\n",
         proc.pid.as_u32(),
         proc.comm_name(),
         state_char,
         ppid,
+        pgrp,
+        sid,
         num_threads
     )
     .into_bytes()

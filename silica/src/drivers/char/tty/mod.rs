@@ -27,7 +27,7 @@ use crate::drivers::{CharacterDevice, register_chrdev};
 use crate::fs::poll::PollEvents;
 use crate::fs::vfs::{File, FileOps, INode, Mode, OpenFlags};
 use crate::proc::thread::Thread;
-use crate::proc::tree::Pid;
+use crate::proc::{PID_INIT, Pid, pgrp_for_each};
 use crate::utils::ring_buffer::RingBuffer;
 use crate::utils::userspace::user_ptr::UserPtr;
 use crate::vm::vmar::Vmar;
@@ -147,9 +147,9 @@ impl Tty {
         let target_pgrp = *self.foreground_pgrp.lock();
         let pgrp_opt = target_pgrp.or_else(|| Thread::current_proc().map(|p| p.pgid()));
         if let Some(pgrp) = pgrp_opt {
-            for proc in crate::proc::tree::allproc_iter().filter(|p| p.pgid() == pgrp) {
+            pgrp_for_each(pgrp, |proc| {
                 proc.post_signal(sig);
-            }
+            });
         }
     }
 
@@ -375,7 +375,7 @@ impl Tty {
                     .foreground_pgrp
                     .lock()
                     .or_else(|| proc_opt.map(|p| p.pgid()))
-                    .unwrap_or(crate::proc::tree::PID_INIT);
+                    .unwrap_or(PID_INIT);
                 let bytes = pgrp.as_u32().to_ne_bytes();
                 UserPtr::new(arg).write_bytes(vmar, &bytes)?;
                 Ok(0)
@@ -396,7 +396,7 @@ impl Tty {
                     .session
                     .lock()
                     .or_else(|| proc_opt.map(|p| p.pid()))
-                    .unwrap_or(crate::proc::tree::PID_INIT);
+                    .unwrap_or(PID_INIT);
                 let bytes = sid.as_u32().to_ne_bytes();
                 UserPtr::new(arg).write_bytes(vmar, &bytes)?;
                 Ok(0)

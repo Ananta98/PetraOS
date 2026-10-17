@@ -11,7 +11,7 @@ use crate::api::cred::Uid;
 use crate::api::errno::{Errno, Result};
 use crate::proc::Proc;
 use crate::proc::thread::Thread;
-use crate::proc::tree::{Pid, allproc_iter};
+use crate::proc::{Pid, allproc_iter, pgrp_members};
 use crate::syscall::time::Timespec;
 use crate::utils::userspace::UserPtr;
 
@@ -42,18 +42,12 @@ fn find_matching_procs(caller: &Arc<Proc>, which: i32, who: i32) -> Result<Vec<A
                 return Err(Errno::EINVAL);
             }
             let target_pgid = if who == 0 {
-                caller.inner.lock().pgid.unwrap_or(caller.pid)
+                caller.pgid()
             } else {
                 Pid::from_u32(who as u32).ok_or(Errno::ESRCH)?
             };
 
-            let procs: Vec<Arc<Proc>> = allproc_iter()
-                .filter(|p| {
-                    let pgid = p.inner.lock().pgid.unwrap_or(p.pid);
-                    pgid == target_pgid
-                })
-                .collect();
-
+            let procs = pgrp_members(target_pgid);
             if procs.is_empty() {
                 return Err(Errno::ESRCH);
             }
@@ -70,6 +64,7 @@ fn find_matching_procs(caller: &Arc<Proc>, which: i32, who: i32) -> Result<Vec<A
             };
 
             let procs: Vec<Arc<Proc>> = allproc_iter()
+                .into_iter()
                 .filter(|p| p.cred().cr_uid == target_uid)
                 .collect();
 

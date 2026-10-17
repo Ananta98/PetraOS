@@ -18,9 +18,9 @@ pub fn generate_meminfo() -> Vec<u8> {
     }
 
     let mut mapped_ram: u64 = 0;
-    for p in crate::proc::tree::allproc_iter() {
+    crate::proc::allproc_for_each(|p| {
         mapped_ram = mapped_ram.saturating_add(p.vmspace().total_mapped_size() as u64);
-    }
+    });
 
     let free_ram = total_ram
         .saturating_sub(mapped_ram)

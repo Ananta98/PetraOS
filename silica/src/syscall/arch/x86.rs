@@ -165,6 +165,7 @@ crate::impl_syscall_nums_and_dispatch_fn! {
     SYS_EPOLL_WAIT = 232 => fs::sys_epoll_wait(i32, usize, i32, i32);
     SYS_EPOLL_CTL = 233 => fs::sys_epoll_ctl(i32, i32, i32, usize);
     SYS_TGKILL = 234 => signals::sys_tgkill(i32, i32, i32);
+    SYS_WAITID = 247 => proc::sys_waitid(i32, i32, usize, i32, usize);
     SYS_OPENAT = 257 => fs::sys_openat(i32, usize, i32, u32);
     SYS_MKDIRAT = 258 => fs::sys_mkdirat(i32, usize, u32);
     SYS_MKNODAT = 259 => fs::sys_mknodat(i32, usize, u32, u64);

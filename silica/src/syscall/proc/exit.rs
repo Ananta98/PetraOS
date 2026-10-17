@@ -5,7 +5,7 @@ use crate::{
     api::errno::Result,
     proc::{
         ExitStatus,
-        exit::{exit1, exit_thread},
+        lifecycle::{exit1, exit_thread},
         thread::Thread,
     },
 };

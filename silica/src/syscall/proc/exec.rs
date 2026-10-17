@@ -7,7 +7,7 @@ use ostd::arch::cpu::context::UserContext;
 
 use crate::{
     api::errno::{Errno, Result},
-    proc::{exec, thread::Thread},
+    proc::{lifecycle::execve, thread::Thread},
     utils::userspace::user_cstr::UserCStr,
 };
 
@@ -30,6 +30,6 @@ pub fn sys_execve(
     let envp_refs: Vec<&str> = envp_strings.iter().map(|s| s.as_str()).collect();
 
     ostd::info!("execve: path=\"{}\", argv={:?}", path, argv_strings);
-    exec::execve(&td, &path, &argv_refs, &envp_refs, ctx)?;
+    execve(&td, &path, &argv_refs, &envp_refs, ctx)?;
     Ok(0)
 }

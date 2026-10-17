@@ -38,6 +38,7 @@ pub struct FramebufferConsole {
 }
 
 pub type FbConsole = FramebufferConsole;
+pub use super::ansi::CursorStyle;
 
 #[derive(Clone, Copy, Debug)]
 pub enum ConsoleSetFontError {
@@ -176,6 +177,7 @@ struct ConsoleState {
     mode: ConsoleMode,
 
     cursor_visible: bool,
+    cursor_style: CursorStyle,
     cursor_drawn: bool,
     last_cursor_x: usize,
     last_cursor_y: usize,
@@ -211,6 +213,7 @@ impl ConsoleState {
             is_active: true,
             mode: ConsoleMode::Text,
             cursor_visible: true,
+            cursor_style: CursorStyle::Default,
             cursor_drawn: false,
             last_cursor_x: 0,
             last_cursor_y: 0,
@@ -252,10 +255,6 @@ impl ConsoleState {
             .y_pos
             .min(self.backend.height().saturating_sub(self.font.height()));
 
-        let cursor_height = 2;
-        let cursor_y = cy + self.font.height().saturating_sub(cursor_height);
-        let cursor_w = self.font.width();
-
         let cursor_color = if self.is_inverse {
             self.bg_color
         } else {
@@ -263,16 +262,53 @@ impl ConsoleState {
         };
         let cursor_pixel = self.backend.render_pixel(cursor_color);
         let pixel_size = cursor_pixel.nbytes();
-        let row_bytes = cursor_w * pixel_size;
 
-        for y in cursor_y..cy + self.font.height() {
-            let off = self.backend.calc_offset(cx, y).as_usize();
-            let mut buf = [0u8; 64];
-            let len = row_bytes.min(buf.len());
-            for chunk in buf[..len].chunks_exact_mut(pixel_size) {
-                chunk.copy_from_slice(cursor_pixel.as_slice());
+        match self.cursor_style {
+            CursorStyle::BlinkingBlock | CursorStyle::SteadyBlock => {
+                let cell_w = self.font.width();
+                let row_bytes = cell_w * pixel_size;
+                for y in cy..cy + self.font.height() {
+                    let off = self.backend.calc_offset(cx, y).as_usize();
+                    if off + row_bytes <= self.bytes.len() {
+                        let mut buf = [0u8; 64];
+                        let len = row_bytes.min(buf.len());
+                        buf[..len].copy_from_slice(&self.bytes[off..off + len]);
+                        for chunk in buf[..len].chunks_exact_mut(pixel_size) {
+                            for b in chunk.iter_mut().take(3.min(pixel_size)) {
+                                *b = !*b;
+                            }
+                        }
+                        let _ = self.backend.write_bytes_at(off, &buf[..len]);
+                    }
+                }
             }
-            let _ = self.backend.write_bytes_at(off, &buf[..len]);
+            CursorStyle::BlinkingBar | CursorStyle::SteadyBar => {
+                let bar_w = 2.min(self.font.width());
+                let row_bytes = bar_w * pixel_size;
+                for y in cy..cy + self.font.height() {
+                    let off = self.backend.calc_offset(cx, y).as_usize();
+                    let mut buf = [0u8; 32];
+                    let len = row_bytes.min(buf.len());
+                    for chunk in buf[..len].chunks_exact_mut(pixel_size) {
+                        chunk.copy_from_slice(cursor_pixel.as_slice());
+                    }
+                    let _ = self.backend.write_bytes_at(off, &buf[..len]);
+                }
+            }
+            CursorStyle::Default | CursorStyle::BlinkingUnderline | CursorStyle::SteadyUnderline => {
+                let cursor_height = 2.min(self.font.height());
+                let cursor_y = cy + self.font.height().saturating_sub(cursor_height);
+                let row_bytes = self.font.width() * pixel_size;
+                for y in cursor_y..cy + self.font.height() {
+                    let off = self.backend.calc_offset(cx, y).as_usize();
+                    let mut buf = [0u8; 64];
+                    let len = row_bytes.min(buf.len());
+                    for chunk in buf[..len].chunks_exact_mut(pixel_size) {
+                        chunk.copy_from_slice(cursor_pixel.as_slice());
+                    }
+                    let _ = self.backend.write_bytes_at(off, &buf[..len]);
+                }
+            }
         }
 
         self.last_cursor_x = cx;
@@ -288,14 +324,10 @@ impl ConsoleState {
         let cx = self.last_cursor_x;
         let cy = self.last_cursor_y;
 
-        let cursor_height = 2;
-        let cursor_y = cy + self.font.height().saturating_sub(cursor_height);
-        let cursor_w = self.font.width();
-
         let pixel_size = self.backend.pixel_format().nbytes();
-        let row_bytes = cursor_w * pixel_size;
+        let row_bytes = self.font.width() * pixel_size;
 
-        for y in cursor_y..cy + self.font.height() {
+        for y in cy..cy + self.font.height() {
             let off = self.backend.calc_offset(cx, y).as_usize();
             if off + row_bytes <= self.bytes.len() {
                 let _ = self
@@ -430,19 +462,7 @@ impl ConsoleState {
 
     fn shift_lines_up(&mut self) {
         self.erase_cursor();
-        let offset = self.backend.calc_offset(0, self.font.height()).as_usize();
-        if offset < self.bytes.len() {
-            self.bytes.copy_within(offset.., 0);
-            let total_size = self.bytes.len();
-            self.bytes[total_size - offset..].fill(0);
-
-            if self.is_output_enabled() {
-                let _ = self.backend.write_bytes_at(0, &self.bytes);
-            }
-        }
-        self.y_pos = self.y_pos.saturating_sub(self.font.height());
-        self.saved_y = self.saved_y.saturating_sub(self.font.height());
-        self.draw_cursor();
+        self.scroll_region_up(1);
     }
 
     fn scroll_region_up(&mut self, count: usize) {
@@ -800,8 +820,8 @@ impl EscapeOp for ConsoleState {
     fn set_cursor(&mut self, col: usize, row: usize) {
         self.erase_cursor();
         self.wrap_pending = false;
-        let max_col = self.backend.width().saturating_sub(self.font.width()) / self.font.width();
-        let max_row = self.backend.height().saturating_sub(self.font.height()) / self.font.height();
+        let max_col = (self.backend.width() / self.font.width()).saturating_sub(1);
+        let max_row = (self.backend.height() / self.font.height()).saturating_sub(1);
 
         let actual_row = if self.origin_mode {
             (self.scroll_top + row).min(self.scroll_bottom)
@@ -917,6 +937,7 @@ impl EscapeOp for ConsoleState {
         self.bg_color = Pixel::BLACK;
         self.is_inverse = false;
         self.cursor_visible = true;
+        self.cursor_style = CursorStyle::Default;
         self.autowrap = true;
         self.wrap_pending = false;
         self.saved_x = 0;
@@ -943,6 +964,7 @@ impl EscapeOp for ConsoleState {
 
     fn erase_in_display(&mut self, mode: EraseInDisplay) {
         self.erase_cursor();
+        self.wrap_pending = false;
         let bg = if self.is_inverse {
             self.fg_color
         } else {
@@ -974,6 +996,7 @@ impl EscapeOp for ConsoleState {
 
     fn erase_in_line(&mut self, mode: EraseInLine) {
         self.erase_cursor();
+        self.wrap_pending = false;
         let bg = if self.is_inverse {
             self.fg_color
         } else {
@@ -1082,5 +1105,51 @@ impl EscapeOp for ConsoleState {
             self.y_pos -= self.font.height();
         }
         self.draw_cursor();
+    }
+
+    fn index(&mut self) {
+        self.wrap_pending = false;
+        self.erase_cursor();
+        let top_y = self.scroll_top * self.font.height();
+        let bottom_y = self.scroll_bottom * self.font.height();
+
+        if self.y_pos >= top_y && self.y_pos <= bottom_y {
+            if self.y_pos == bottom_y {
+                self.scroll_region_up(1);
+            } else {
+                self.y_pos += self.font.height();
+            }
+        } else if self.y_pos + self.font.height() < self.backend.height() {
+            self.y_pos += self.font.height();
+        } else {
+            self.scroll_region_up(1);
+        }
+        self.draw_cursor();
+    }
+
+    fn next_line(&mut self) {
+        self.wrap_pending = false;
+        self.x_pos = 0;
+        self.index();
+    }
+
+    fn scroll_up(&mut self, count: usize) {
+        self.wrap_pending = false;
+        self.erase_cursor();
+        self.scroll_region_up(count);
+    }
+
+    fn scroll_down(&mut self, count: usize) {
+        self.wrap_pending = false;
+        self.erase_cursor();
+        self.scroll_region_down(count);
+    }
+
+    fn set_cursor_style(&mut self, style: CursorStyle) {
+        if self.cursor_style != style {
+            self.erase_cursor();
+            self.cursor_style = style;
+            self.draw_cursor();
+        }
     }
 }

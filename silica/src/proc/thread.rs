@@ -8,10 +8,6 @@
 
 use alloc::sync::{Arc, Weak};
 use bitflags::bitflags;
-use core::{
-    num::NonZeroU32,
-    sync::atomic::{AtomicU32, Ordering},
-};
 use ostd::{
     arch::cpu::context::{CpuException, FsBase, UserContext},
     sync::SpinLock,
@@ -31,49 +27,7 @@ use crate::{
 
 use crate::utils::userspace::user_ptr::UserPtr;
 
-/// Thread identifier wrapper.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Tid(pub NonZeroU32);
-
-impl Tid {
-    pub const fn from_u32(val: u32) -> Option<Self> {
-        match NonZeroU32::new(val) {
-            Some(nz) => Some(Self(nz)),
-            None => None,
-        }
-    }
-
-    pub const fn as_u32(&self) -> u32 {
-        self.0.get()
-    }
-}
-
-impl core::fmt::Display for Tid {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "{}", self.as_u32())
-    }
-}
-
-static NEXT_TID: AtomicU32 = AtomicU32::new(1);
-
-/// The largest thread identifier handed out before `alloc_tid` wraps.
-pub const TID_MAX: u32 = u32::MAX / 2;
-
-/// Allocates a unique TID.
-///
-/// Wrapping restarts at 1 rather than 0. `Tid` wraps a [`NonZeroU32`], and a plain
-/// `fetch_add` that reached 0 would be forced back onto 1 -- the identifier init's
-/// thread already owns -- and so would hand out a live TID.
-pub fn alloc_tid() -> Tid {
-    let id = NEXT_TID
-        .try_update(Ordering::Relaxed, Ordering::Relaxed, |cur| {
-            Some(if cur >= TID_MAX { 1 } else { cur + 1 })
-        })
-        // `fetch_update` only fails when the closure returns `None`, which it never
-        // does, so the current value is returned unchanged.
-        .unwrap_or(TID_MAX);
-    Tid(NonZeroU32::new(id).expect("alloc_tid never yields 0"))
-}
+pub use crate::proc::types::pid::{TID_MAX, Tid, alloc_tid};
 
 /// Builds the OSTD task that backs a thread.
 ///

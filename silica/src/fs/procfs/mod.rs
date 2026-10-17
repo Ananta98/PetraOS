@@ -16,7 +16,7 @@ use alloc::{boxed::Box, format, sync::Arc, vec::Vec};
 use crate::{
     api::errno::Result,
     fs::vfs::{FileOps, FileSystem, INode, INodeAttr, Mode, NodeOps, OpenFlags, StatFs},
-    proc::tree::{allproc_find, allproc_iter, Pid},
+    proc::{allproc_find, allproc_iter, Pid},
 };
 
 pub use pid::ProcPidDirOps;

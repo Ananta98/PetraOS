@@ -9,7 +9,7 @@ use crate::api::errno::{Errno, Result};
 use crate::api::sched::*;
 use crate::proc::Proc;
 use crate::proc::thread::Thread;
-use crate::proc::tree::{Pid, allproc_find};
+use crate::proc::{Pid, allproc_find};
 use crate::utils::userspace::UserPtr;
 
 /// Resolves target process for scheduler syscalls.

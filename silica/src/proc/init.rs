@@ -2,7 +2,6 @@
 
 //! Initial user process (`init`, PID 1) bootstrap and execution.
 //!
-//! Inspired by FreeBSD `sys/kern/init_main.c` and Asterinas `init_proc.rs`.
 //! Locates the initial userspace binary or script, resolves shebang interpreters
 //! and symlinks, creates the root address space, binds standard descriptors, and launches PID 1.
 
@@ -17,8 +16,10 @@ use crate::{
     },
     proc::{
         Proc, comm_from_name, create_init_process_with_vmar, create_main_thread,
-        exec::{self, load_and_setup_full},
-        shebang::{MAX_SHEBANG_RECURSION, Shebang},
+        lifecycle::{
+            exec::{MAX_SHEBANG_RECURSION, Shebang},
+            load_and_setup_full, read_binary_data,
+        },
     },
 };
 
@@ -33,7 +34,10 @@ fn find_init_target() -> Option<(String, Vec<String>, Vec<u8>)> {
     // 1. Explicit command line parameter (e.g., "init=/bin/sh" or "rdinit=/init")
     let kernel_cmdline = &ostd::boot::boot_info().kernel_cmdline;
     for arg in kernel_cmdline.split_whitespace() {
-        if let Some(path) = arg.strip_prefix("init=").or_else(|| arg.strip_prefix("rdinit=")) {
+        if let Some(path) = arg
+            .strip_prefix("init=")
+            .or_else(|| arg.strip_prefix("rdinit="))
+        {
             candidates.push(String::from(path));
             break;
         }
@@ -45,7 +49,7 @@ fn find_init_target() -> Option<(String, Vec<String>, Vec<u8>)> {
     }
 
     for path in candidates {
-        if let Ok(mut data) = exec::read_binary_data(&path) {
+        if let Ok(mut data) = read_binary_data(&path) {
             let mut current_path = path;
             let mut current_argv = alloc::vec![current_path.clone()];
             let mut depth = 0;
@@ -65,17 +69,22 @@ fn find_init_target() -> Option<(String, Vec<String>, Vec<u8>)> {
 
                 let argv_refs: Vec<&str> = current_argv.iter().map(|s| s.as_str()).collect();
                 let next_argv_refs = shebang.build_argv(&current_path, &argv_refs);
-                let next_argv: Vec<String> = next_argv_refs.iter().map(|s| String::from(*s)).collect();
+                let next_argv: Vec<String> =
+                    next_argv_refs.iter().map(|s| String::from(*s)).collect();
                 let interp = String::from(shebang.interpreter());
 
-                match exec::read_binary_data(&interp) {
+                match read_binary_data(&interp) {
                     Ok(interp_data) => {
                         current_path = interp;
                         current_argv = next_argv;
                         data = interp_data;
                     }
                     Err(err) => {
-                        ostd::warn!("init: Failed to read shebang interpreter \"{}\": {:?}", interp, err);
+                        ostd::warn!(
+                            "init: Failed to read shebang interpreter \"{}\": {:?}",
+                            interp,
+                            err
+                        );
                         break;
                     }
                 }
@@ -135,13 +144,24 @@ pub fn spawn_init_process() -> Result<Arc<Proc>> {
     let mut has_home = false;
     let mut has_user = false;
 
-    let before_dash = kernel_cmdline.split_once("--").map(|(b, _)| b).unwrap_or(kernel_cmdline);
+    let before_dash = kernel_cmdline
+        .split_once("--")
+        .map(|(b, _)| b)
+        .unwrap_or(kernel_cmdline);
     for arg in before_dash.split_whitespace() {
         if arg.contains('=') && !arg.starts_with("init=") && !arg.starts_with("rdinit=") {
-            if arg.starts_with("PATH=") { has_path = true; }
-            if arg.starts_with("TERM=") { has_term = true; }
-            if arg.starts_with("HOME=") { has_home = true; }
-            if arg.starts_with("USER=") { has_user = true; }
+            if arg.starts_with("PATH=") {
+                has_path = true;
+            }
+            if arg.starts_with("TERM=") {
+                has_term = true;
+            }
+            if arg.starts_with("HOME=") {
+                has_home = true;
+            }
+            if arg.starts_with("USER=") {
+                has_user = true;
+            }
             init_envp.push(String::from(arg));
         }
     }
@@ -162,13 +182,8 @@ pub fn spawn_init_process() -> Result<Arc<Proc>> {
     let envp_refs: Vec<&str> = init_envp.iter().map(|s| s.as_str()).collect();
 
     // 1. Build address space, map ELF segments (supporting PIE and dynamic linking), setup AMD64 ABI user stack
-    let (vmar, entry_point, sp) = load_and_setup_full(
-        &elf_data,
-        &argv_refs,
-        &envp_refs,
-        &init_path,
-        &root_cred,
-    )?;
+    let (vmar, entry_point, sp) =
+        load_and_setup_full(&elf_data, &argv_refs, &envp_refs, &init_path, &root_cred)?;
 
     // 2. Create Process Control Block for PID 1 with root credentials and stdio
     let proc = create_init_process_with_vmar(vmar)?;

@@ -7,8 +7,7 @@ use ostd::sync::SpinLock;
 
 use crate::api::errno::{Errno, Result};
 use crate::api::sched::{CpuMask, SCHED_OTHER};
-use crate::proc::Proc;
-use crate::proc::tree::Pid;
+use crate::proc::{Pid, Proc};
 
 /// Per-process scheduling attributes and CPU affinity.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

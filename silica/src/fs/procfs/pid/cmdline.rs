@@ -4,7 +4,7 @@
 
 use alloc::vec::Vec;
 
-use crate::proc::tree::{allproc_find, Pid};
+use crate::proc::{allproc_find, Pid};
 
 pub fn generate_proc_cmdline(pid: Pid) -> Vec<u8> {
     if let Some(p) = allproc_find(pid) {

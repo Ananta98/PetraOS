@@ -34,7 +34,12 @@ use crate::{
         errno::{Errno, Result},
         signal::{SigHandler, SigInfo, SigSet, Signal},
     },
-    proc::{Proc, ProcState, job_control, thread::Thread},
+    proc::{
+        Proc, ProcState,
+        job::{continue_thread, stop_thread},
+        lifecycle::exit1,
+        thread::Thread,
+    },
 };
 use alloc::vec::Vec;
 use ostd::sync::SpinLock;
@@ -157,7 +162,7 @@ impl Proc {
         let _ = sender_pid;
         if let Some(sig) = Signal::from_u32(info.si_signo as u32) {
             if sig == Signal::SIGCONT {
-                job_control::continue_thread(self);
+                continue_thread(self);
             }
         }
         self.sigqueue.post(QueuedSignal { info });
@@ -198,11 +203,11 @@ pub fn run_default_action(td: &Thread, sig: Signal) -> bool {
         return false;
     }
     if sig.default_is_stop() {
-        job_control::stop_thread(td, sig);
+        stop_thread(td, sig);
         return false;
     }
 
-    super::exit::exit1(
+    exit1(
         td,
         crate::proc::ExitStatus::Signaled {
             signal: sig,

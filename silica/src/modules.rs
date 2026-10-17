@@ -335,7 +335,7 @@ pub fn load_module_from_initramfs(path: &str, cmdline: &str) -> Result<String> {
 
 /// Loads a kernel module from a filesystem path (supporting both rootfs VFS and initramfs).
 pub fn load_module_from_file(path: &str, cmdline: &str) -> Result<String> {
-    let elf_data = crate::proc::exec::read_binary_data(path)?;
+    let elf_data = crate::proc::lifecycle::read_binary_data(path)?;
     let mut mod_name = load_module(&elf_data, cmdline)?;
     // If the module didn't specify an explicit name, infer from file stem
     if mod_name.starts_with("module_") {

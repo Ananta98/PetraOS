@@ -9,7 +9,7 @@ use ostd::sync::SpinLock;
 
 use crate::{
     api::{ipc::IpcPerm, shm::ShmIdDs},
-    proc::tree::Pid,
+    proc::Pid,
     vm::shm::SharedPages,
 };
 

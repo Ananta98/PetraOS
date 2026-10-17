@@ -21,7 +21,7 @@ use crate::{
         },
     },
     ipc::perm::{check_admin_permission, check_read_permission, check_write_permission},
-    proc::{Proc, tree::Pid},
+    proc::{Pid, Proc},
     utils::userspace::user_ptr::UserPtr,
     vm::{
         backing::Backing,

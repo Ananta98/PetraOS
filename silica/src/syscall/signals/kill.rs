@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
 
-//! `kill(2)` and `tgkill(2)` system calls (Syscalls #62 and #234 on x86_64).
+//! Signal transmission system calls (`kill`, `tgkill`).
 
 use alloc::vec::Vec;
 use ostd::arch::cpu::context::UserContext;
@@ -11,8 +11,8 @@ use crate::{
         signal::{SigInfo, Signal},
     },
     proc::{
-        Proc,
-        thread::Thread,
+        Pid, Proc, allproc_find, pgrp_members,
+        thread::{Thread, Tid},
     },
 };
 
@@ -22,10 +22,8 @@ pub fn sys_kill(pid: i32, sig: i32, _ctx: &mut UserContext) -> Result<usize> {
     let probe_only = sig.as_u32() == 0;
 
     if pid > 0 {
-        let proc = crate::proc::tree::allproc_find(
-            crate::proc::tree::Pid::from_u32(pid as u32).ok_or(Errno::EINVAL)?,
-        )
-        .ok_or(Errno::ESRCH)?;
+        let proc = allproc_find(Pid::from_u32(pid as u32).ok_or(Errno::EINVAL)?)
+            .ok_or(Errno::ESRCH)?;
         if probe_only {
             return Ok(0);
         }
@@ -37,12 +35,10 @@ pub fn sys_kill(pid: i32, sig: i32, _ctx: &mut UserContext) -> Result<usize> {
     let wanted_group = if pid == 0 {
         caller.pgid()
     } else {
-        crate::proc::tree::Pid::from_u32(pid.unsigned_abs()).ok_or(Errno::ESRCH)?
+        Pid::from_u32(pid.unsigned_abs()).ok_or(Errno::ESRCH)?
     };
 
-    let targets: Vec<_> = crate::proc::tree::allproc_iter()
-        .filter(|p| p.pgid() == wanted_group)
-        .collect();
+    let targets: Vec<_> = pgrp_members(wanted_group);
 
     let mut found = false;
     for proc in targets.iter() {
@@ -64,12 +60,10 @@ fn send_to(proc: &Proc, sig: Signal, sender: u32) -> Result<()> {
 /// `tgkill(2)` (Syscall #234 on x86_64): signal one thread of a process.
 pub fn sys_tgkill(tgid: i32, tid: i32, sig: i32, _ctx: &mut UserContext) -> Result<usize> {
     let sig = Signal::from_u32(sig as u32).ok_or(Errno::EINVAL)?;
-    let proc = crate::proc::tree::allproc_find(
-        crate::proc::tree::Pid::from_u32(tgid as u32).ok_or(Errno::EINVAL)?,
-    )
-    .ok_or(Errno::ESRCH)?;
+    let proc = allproc_find(Pid::from_u32(tgid as u32).ok_or(Errno::EINVAL)?)
+        .ok_or(Errno::ESRCH)?;
 
-    let tid = crate::proc::thread::Tid::from_u32(tid as u32).ok_or(Errno::EINVAL)?;
+    let tid = Tid::from_u32(tid as u32).ok_or(Errno::EINVAL)?;
     let target = proc
         .inner
         .lock()

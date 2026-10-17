@@ -7,8 +7,8 @@ use ostd::arch::cpu::context::UserContext;
 use crate::{
     api::errno::{Errno, Result},
     proc::{
+        Pid, allproc_find,
         thread::Thread,
-        tree::{Pid, allproc_find},
     },
 };
 
@@ -79,5 +79,5 @@ pub fn sys_getsid(pid: i32, _ctx: &mut UserContext) -> Result<usize> {
         allproc_find(target_pid).ok_or(Errno::ESRCH)?
     };
 
-    Ok(target.pgid().as_u32() as usize)
+    Ok(target.sid().as_u32() as usize)
 }

@@ -7,7 +7,7 @@ use alloc::{format, string::String};
 use crate::{
     api::errno::{Errno, Result},
     fs::procfs::template::ProcSymOps,
-    proc::tree::{allproc_find, Pid},
+    proc::{allproc_find, Pid},
 };
 
 pub struct ProcPidExeSymlinkOps {

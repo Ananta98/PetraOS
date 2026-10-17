@@ -1,20 +1,21 @@
 // SPDX-License-Identifier: GPL-2.0
 
-//! Process waiting and status notification
+//! Process wait and status observation.
 //!
-//! Implements `kern_wait6` for observing child process state changes (termination,
+//! Implements `kernel_wait` for observing child process state changes (termination,
 //! stopping, continuation) and reaping zombies.
 
 use alloc::{sync::Arc, vec::Vec};
 use bitflags::bitflags;
-use ostd::sync::WaitQueue;
 
-use super::{
-    ExitStatus, Proc, ProcState,
-    exit::proc_reap,
-    tree::{Pid, allproc_find},
+use crate::{
+    api::errno::Result,
+    proc::{
+        ExitStatus, Proc, ProcState,
+        lifecycle::exit::proc_reap,
+        types::{pid::Pid, table::allproc_find},
+    },
 };
-use crate::api::errno::Result;
 
 bitflags! {
     /// Options for `wait6(2)`.
@@ -53,12 +54,10 @@ pub struct WaitResult {
     pub uid: u32,
 }
 
-/// Global wait queue for process waiting.
-static WAIT_QUEUE: WaitQueue = WaitQueue::new();
-
-/// Wakes up any tasks waiting for a child of any process to change state.
+/// Compatibility hook for child state change notification.
+#[inline]
 pub fn notify_child_events() {
-    WAIT_QUEUE.wake_all();
+    // Child status events wake the parent's specific `child_waitq` directly.
 }
 
 /// Collects the children of `parent` that `idtype` selects.

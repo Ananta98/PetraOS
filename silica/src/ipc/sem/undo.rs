@@ -7,7 +7,7 @@ use ostd::sync::SpinLock;
 
 use crate::{
     api::sem::{SEMAEM, SEMVMX},
-    proc::{tree::Pid, Proc},
+    proc::{Pid, Proc},
 };
 
 use super::set::SemSet;

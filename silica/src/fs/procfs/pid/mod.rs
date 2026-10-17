@@ -17,7 +17,7 @@ use crate::{
         procfs::template::{CallbackProcFileOps, ProcFileNodeOps, ProcSymNodeOps, ProcSymOps},
         vfs::{FileOps, INode, INodeAttr, Mode, NodeOps, OpenFlags},
     },
-    proc::tree::{allproc_find, Pid},
+    proc::{allproc_find, Pid},
 };
 
 pub use cmdline::generate_proc_cmdline;
