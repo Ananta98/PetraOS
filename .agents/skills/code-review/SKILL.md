@@ -30,6 +30,7 @@ Run `git status` and `git diff` to inspect all staged and unstaged modifications
 - [ ] **Readability**: Are identifiers explicit and self-explanatory? Is control flow easy to follow without convoluted nesting? From logic perspectives including variable name, should be easier to understand. it's fine little longer variable name at least user when read understand proper logic
 - [ ] **Cleanliness**:
   - No leftover debugging statements (`println!`, temporary logs).
+  - Prefer keeping import paths to at most three levels deep (e.g., crate::drivers::register_chrdev) rather than referencing deeply nested modules directly (e.g., crate::drivers::char::tty::console::register_chrdev). Consider re-exporting this item at a higher module level. Put all imports at the top of code.
   - No commented-out dead code.
   - No unused imports or compiler warnings introduced.
 - [ ] **Meaningful Comments**: Doc comments focus on design rationale and safety invariants (`# Safety`), not repeating obvious function signatures.
