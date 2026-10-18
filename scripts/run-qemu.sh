@@ -2,7 +2,7 @@
 # ==============================================================================
 # PetraOS Silica Kernel - QEMU x86_64 Runner
 # ==============================================================================
-# Boots PetraOS Silica kernel with Alpine Linux userspace in QEMU.
+# Boots the PetraOS Silica kernel with its PetraOS userspace in QEMU.
 # Supports both direct kernel/initrd loading and bootable ISO execution,
 # with configurable QMP socket for screen capture and headless automation.
 # ==============================================================================
@@ -15,6 +15,8 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 KERNEL_BIN="${REPO_ROOT}/target/osdk/silica-osdk-bin"
 INITRAMFS_CPIO="${REPO_ROOT}/build/initramfs.cpio"
 ISO_IMAGE="${REPO_ROOT}/build/petraos-x86_64.iso"
+EXT2_IMAGE="${REPO_ROOT}/build/ext2.img"
+EXFAT_IMAGE="${REPO_ROOT}/build/exfat.img"
 QMP_SOCKET="/tmp/qmp-petra.sock"
 
 BOOT_MODE="direct" # "direct" or "iso"
@@ -104,7 +106,7 @@ done
 if [ "${BOOT_MODE}" = "direct" ]; then
     if [ ! -f "${INITRAMFS_CPIO}" ]; then
         echo "[runner] Building initramfs..."
-        "${REPO_ROOT}/tools/build_initramfs.sh"
+        "${REPO_ROOT}/scripts/build-userland/build-userland-amd64.sh"
     fi
     if [ ! -f "${KERNEL_BIN}" ]; then
         echo "[runner] Building kernel..."
@@ -113,7 +115,7 @@ if [ "${BOOT_MODE}" = "direct" ]; then
 else
     if [ ! -f "${ISO_IMAGE}" ]; then
         echo "[runner] Building bootable ISO..."
-        "${REPO_ROOT}/tools/build_iso.sh"
+        "${REPO_ROOT}/scripts/build-iso.sh"
     fi
 fi
 
@@ -149,6 +151,24 @@ if [ -f "/usr/share/OVMF/OVMF_CODE_4M.fd" ] && [ -f "/usr/share/OVMF/OVMF_VARS_4
     )
 fi
 
+# Attach the ext2/exFAT test images as AHCI drives when they have been built.
+DISK_FLAGS=()
+if [ -f "${EXT2_IMAGE}" ] || [ -f "${EXFAT_IMAGE}" ]; then
+    DISK_FLAGS+=(-device ich9-ahci,id=ahci)
+    if [ -f "${EXT2_IMAGE}" ]; then
+        DISK_FLAGS+=(
+            -drive id=ext2,file="${EXT2_IMAGE}",format=raw,if=none
+            -device ide-hd,drive=ext2,bus=ahci.0
+        )
+    fi
+    if [ -f "${EXFAT_IMAGE}" ]; then
+        DISK_FLAGS+=(
+            -drive id=exfat,file="${EXFAT_IMAGE}",format=raw,if=none
+            -device ide-hd,drive=exfat,bus=ahci.1
+        )
+    fi
+fi
+
 echo "============================================================"
 echo " Starting PetraOS Silica in QEMU"
 echo " Mode:       ${BOOT_MODE}"
@@ -169,6 +189,7 @@ QEMU_CMD=(
     -device isa-debug-exit,iobase=0xf4,iosize=0x04
     "${DISPLAY_FLAGS[@]}"
     "${QMP_FLAGS[@]}"
+    "${DISK_FLAGS[@]}"
     "${OVMF_FLAGS[@]}"
 )
 

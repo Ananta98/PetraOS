@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 xmas-elf = { version = "0.10.0", default-features = false }
-os-terminal = "0.7"
+os-terminal = { version = "0.7", features = ["swash", "woff2"] }
 ps2-mouse = { git = "https://github.com/rust-osdev/ps2-mouse" }
 pc-keyboard = "0.9.0"
 

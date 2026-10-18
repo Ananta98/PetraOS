@@ -19,14 +19,19 @@ initramfs = "build/initramfs.cpio"
 [qemu]
 args = """\
     -machine q35,kernel-irqchip=split \
-    -cpu Icelake-Server,+x2apic \
+    -cpu host \
     --no-reboot \
-    -enable-kvm -cpu host
+    -enable-kvm \
     -m 8G \
     -smp 4 \
     -vga std \
     -serial stdio \
     -device isa-debug-exit,iobase=0xf4,iosize=0x04 \
+    -device ich9-ahci,id=ahci \
+    -drive id=ext2,file=build/ext2.img,format=raw,if=none \
+    -device ide-hd,drive=ext2,bus=ahci.0 \
+    -drive id=exfat,file=build/exfat.img,format=raw,if=none \
+    -device ide-hd,drive=exfat,bus=ahci.1 \
     -drive if=pflash,format=raw,unit=0,readonly=on,file=/usr/share/OVMF/OVMF_CODE_4M.fd \
     -drive if=pflash,format=raw,unit=1,file=/usr/share/OVMF/OVMF_VARS_4M.fd \
 """

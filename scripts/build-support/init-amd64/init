@@ -1,0 +1,50 @@
+#!/bin/sh
+# PetraOS Silica kernel userspace init (PID 1).
+#
+# Runs from the initramfs as /init. Mounts the pseudo-filesystems the
+# userspace expects, prepares a few convenience paths, then either executes the
+# command requested on the kernel command line or drops into a login shell.
+
+export PATH=/bin:/sbin:/usr/bin:/usr/sbin
+export HOME=/root
+export USER=root
+export TERM=linux
+export SHELL=/bin/bash
+export XDG_CONFIG_HOME=/root/.config
+export CHARSET=UTF-8
+export LANG=C.UTF-8
+export LC_ALL=C.UTF-8
+
+mount -t proc proc /proc 2>/dev/null || true
+mount -t sysfs sysfs /sys 2>/dev/null || true
+mount -t tmpfs tmpfs /tmp 2>/dev/null || true
+mount -t tmpfs tmpfs /run 2>/dev/null || true
+mkdir -p /dev/pts /dev/shm 2>/dev/null || true
+mount -t devpts devpts /dev/pts 2>/dev/null || true
+mount -t tmpfs tmpfs /dev/shm 2>/dev/null || true
+
+ln -sf /proc/self/fd /dev/fd 2>/dev/null || true
+ln -sf /proc/self/fd/0 /dev/stdin 2>/dev/null || true
+ln -sf /proc/self/fd/1 /dev/stdout 2>/dev/null || true
+ln -sf /proc/self/fd/2 /dev/stderr 2>/dev/null || true
+
+mkdir -p /root/.config/fastfetch /etc/fastfetch 2>/dev/null || true
+
+echo ""
+echo "============================================================"
+echo "    Welcome to PetraOS Silica                              "
+echo "============================================================"
+echo "Kernel:       $(cat /proc/version 2>/dev/null || echo 'PetraOS Silica x86_64')"
+echo "Release:      PetraOS $(cat /etc/petraos-release 2>/dev/null || echo 'unknown')"
+echo "Uptime:       $(cut -d' ' -f1 /proc/uptime 2>/dev/null || echo 0)s"
+echo "Architecture: $(uname -m 2>/dev/null || echo x86_64)"
+echo "============================================================"
+echo ""
+
+if [ $# -gt 0 ] && [ "$1" != "sh" ]; then
+    echo "[init] Executing requested command: $*"
+    exec "$@"
+fi
+
+echo "[init] Spawning interactive login shell (/bin/bash -l)..."
+exec /bin/bash -l

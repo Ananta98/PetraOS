@@ -3,7 +3,7 @@
 # PetraOS Silica Kernel - Bootable x86_64 ISO Generator
 # ==============================================================================
 # This script builds a bootable x86_64 hybrid ISO image (BIOS + UEFI)
-# containing the PetraOS Silica kernel, Alpine Linux initramfs, and GRUB.
+# containing the PetraOS Silica kernel, PetraOS initramfs, and GRUB.
 # ==============================================================================
 
 set -euo pipefail
@@ -69,8 +69,8 @@ mkdir -p "$(dirname "${ISO_OUTPUT}")"
 
 # Ensure initramfs exists
 if [ ! -f "${INITRAMFS_CPIO}" ]; then
-    echo "Initramfs not found at ${INITRAMFS_CPIO}. Building with tools/build_initramfs.sh..."
-    "${REPO_ROOT}/tools/build_initramfs.sh"
+    echo "Initramfs not found at ${INITRAMFS_CPIO}. Building the userland..."
+    "${REPO_ROOT}/scripts/build-userland/build-userland-amd64.sh"
 fi
 
 # Ensure kernel is built
@@ -105,7 +105,7 @@ insmod all_video
 terminal_input console
 terminal_output console
 
-menuentry "PetraOS Silica Kernel (Alpine Linux Userspace)" {
+menuentry "PetraOS Silica Kernel (PetraOS Userspace)" {
     echo "Loading PetraOS Silica Kernel..."
     linux /boot/vmlinuz-petraos SHELL=/bin/sh LOGNAME=root HOME=/root USER=root PATH=/bin:/sbin:/usr/bin:/usr/sbin init=/init -- sh -l
     echo "Loading Alpine Initramfs..."
