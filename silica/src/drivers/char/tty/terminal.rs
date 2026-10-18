@@ -55,7 +55,8 @@ impl DrawTarget for FramebufferDisplay {
         let offset = x * self.bpp + y * self.line_size;
         match self.pixel_format {
             PixelFormat::BgrReserved => {
-                let _ = self.fb.write_bytes_at(offset, &[rgb.2, rgb.1, rgb.0, 0]);
+                let pixel = (rgb.2 as u32) | ((rgb.1 as u32) << 8) | ((rgb.0 as u32) << 16);
+                let _ = self.fb.write_pixel_u32(offset, pixel);
             }
             PixelFormat::Rgb888 => {
                 let _ = self.fb.write_bytes_at(offset, &[rgb.0, rgb.1, rgb.2]);
@@ -65,7 +66,7 @@ impl DrawTarget for FramebufferDisplay {
                 let g = (rgb.1 >> 2) as u16;
                 let b = (rgb.2 >> 3) as u16;
                 let rgb565 = (r << 11) | (g << 5) | b;
-                let _ = self.fb.write_bytes_at(offset, &rgb565.to_be_bytes());
+                let _ = self.fb.write_pixel_u16(offset, rgb565);
             }
             PixelFormat::Grayscale8 => {
                 let gray =

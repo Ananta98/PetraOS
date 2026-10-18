@@ -171,6 +171,24 @@ impl FrameBuffer {
             .map_err(|_| Errno::EIO)
     }
 
+    /// Writes a 32-bit pixel value directly at the specified offset.
+    #[inline(always)]
+    pub fn write_pixel_u32(&self, offset: usize, pixel: u32) -> Result<()> {
+        if offset + 4 > self.total_size {
+            return Err(Errno::EINVAL);
+        }
+        self.io_mem.write_val(offset, &pixel).map_err(|_| Errno::EIO)
+    }
+
+    /// Writes a 16-bit pixel value directly at the specified offset.
+    #[inline(always)]
+    pub fn write_pixel_u16(&self, offset: usize, pixel: u16) -> Result<()> {
+        if offset + 2 > self.total_size {
+            return Err(Errno::EINVAL);
+        }
+        self.io_mem.write_val(offset, &pixel).map_err(|_| Errno::EIO)
+    }
+
     /// Writes raw bytes at the specified offset (alias for write_bytes_at).
     pub fn write_bytes(&self, offset: usize, bytes: &[u8]) -> Result<()> {
         self.write_bytes_at(offset, bytes)

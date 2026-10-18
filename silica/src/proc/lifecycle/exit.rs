@@ -53,6 +53,7 @@ pub fn exit1(td: &Thread, status: ExitStatus) {
     crate::ipc::sem::on_proc_exit(&proc);
     crate::ipc::msg::on_proc_exit(&proc);
     crate::sched::on_proc_exit(proc.pid);
+    crate::drivers::char::tty::on_proc_exit(&proc);
 
     // 3. Reparent orphan children to reaper
     if !children_to_reparent.is_empty() {

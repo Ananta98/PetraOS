@@ -612,6 +612,39 @@ pub fn handle_keyboard_char(ch: u8) {
     }
 }
 
+/// Called when a process terminates.
+/// If the process left the active console TTY in raw mode or with disabled ONLCR,
+/// restores canonical termios, exits alternate screen, and unhides cursor,
+/// ensuring the parent shell or next command is not left in a staircase/corrupted state.
+pub fn on_proc_exit(proc: &crate::proc::Proc) {
+    if let Ok(tty) = Console::get_active() {
+        let is_fg = tty
+            .foreground_pgrp
+            .lock()
+            .map_or(false, |pgid| pgid == proc.pgid() || pgid == proc.pid());
+        let is_child_of_init = proc.ppid() == Some(PID_INIT);
+        let is_session_member = proc.sid() == PID_INIT;
+
+        if is_fg || is_child_of_init || is_session_member {
+            let mut ldisc = tty.ldisc.lock();
+            let needs_reset = !ldisc.is_canon() || !ldisc.is_onlcr() || !ldisc.is_echo();
+            if needs_reset {
+                ldisc.termios = Termios::default();
+                ldisc.read_buf.clear();
+                ldisc.canon_buf.clear();
+                flush_input_queue();
+                drop(ldisc);
+
+                // Exit alternate screen, reset text attributes, make cursor visible, and set steady block cursor
+                terminal::write_output(b"\x1b[?1049l\x1b[0m\x1b[?25h\x1b[2 q");
+            }
+            if is_fg {
+                *tty.foreground_pgrp.lock() = Some(PID_INIT);
+            }
+        }
+    }
+}
+
 /// Initialize the TTY and PTY subsystem and register /dev/console, /dev/tty0, and /dev/ptmx.
 pub fn init() -> Result<()> {
     terminal::init();
