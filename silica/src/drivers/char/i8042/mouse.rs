@@ -1,12 +1,11 @@
 // SPDX-License-Identifier: GPL-2.0
 
-//! PS/2 Mouse Driver.
+//! PS/2 Mouse Driver using `ps2-mouse`.
 //!
-//! Provides mouse packet assembly (3-byte standard, 4-byte IntelliMouse, and 5-button IntelliMouse Explorer),
-//! relative motion tracking, button state decoding, ISA IRQ 12 interrupt handler,
-//! and DevFS character device integration (`/dev/psaux`, `/dev/mouse`).
+//! Provides PS/2 mouse packet decoding via the `ps2-mouse` crate, relative motion tracking,
+//! button state handling, ISA IRQ 12 interrupt processing, and DevFS character device
+//! integration (`/dev/mouse`).
 
-use crate::drivers::CharacterDevice;
 use alloc::{string::String, sync::Arc};
 use ostd::{
     arch::{
@@ -15,158 +14,67 @@ use ostd::{
     },
     irq::IrqLine,
 };
+pub use ps2_mouse::{Mouse, MouseFlags, MouseState};
 use spin::{Mutex, Once};
 
-use super::{
-    controller::{I8042_CONTROLLER, I8042Controller, StatusFlags},
-    ps2::{
-        CMD_ENABLE_SCANNING, CMD_GET_DEVICE_ID, CMD_SET_SAMPLE_RATE,
-        DEV_ID_MOUSE_5BUTTON, DEV_ID_MOUSE_INTELLIMOUSE,
-        reset_mouse, send_mouse_cmd, send_mouse_cmd_arg,
-    },
+use super::controller::{I8042_CONTROLLER, I8042Controller, StatusFlags};
+use crate::{
+    api::errno::Result,
+    drivers::CharacterDevice,
+    utils::ring_buffer::RingBuffer,
 };
-use crate::{api::errno::Result, utils::ring_buffer::RingBuffer};
 
 const ISA_MOUSE_IRQ: u8 = 12;
 
 /// Mapped hardware interrupt line for mouse.
 static MOUSE_IRQ_LINE: Once<MappedIrqLine> = Once::new();
 
-/// Global lock-free ring buffer storing raw mouse packets for `/dev/psaux` and `/dev/mouse`.
+/// Global lock-free ring buffer storing raw mouse packets for `/dev/mouse`.
 static MOUSE_BUFFER: RingBuffer<2048> = RingBuffer::new();
 
-/// Global mouse packet parser state.
-static MOUSE_PARSER: Mutex<MousePacketParser> = Mutex::new(MousePacketParser::new());
+/// Global mouse driver instance from ps2-mouse.
+static MOUSE: Mutex<Mouse> = Mutex::new(Mouse::new());
+
+/// Collector for 3-byte PS/2 mouse packets to feed `/dev/mouse`.
+static PACKET_COLLECTOR: Mutex<PacketCollector> = Mutex::new(PacketCollector::new());
 
 // ----------------------------------------------------------------------------
-// PS/2 Mouse Packet Decoder
+// Packet Collector for /dev/mouse
 // ----------------------------------------------------------------------------
 
-/// Represents a parsed PS/2 mouse motion and button event.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct MousePacket {
-    pub left_button: bool,
-    pub right_button: bool,
-    pub middle_button: bool,
-    pub side1_button: bool,
-    pub side2_button: bool,
-    pub dx: i16,
-    pub dy: i16,
-    pub dz: i8,
-}
-
-/// State machine to assemble multi-byte PS/2 mouse packets.
-pub struct MousePacketParser {
-    raw: [u8; 4],
+struct PacketCollector {
+    raw: [u8; 3],
     idx: usize,
-    has_wheel: bool,
-    has_five_buttons: bool,
 }
 
-impl MousePacketParser {
-    pub const fn new() -> Self {
+impl PacketCollector {
+    const fn new() -> Self {
         Self {
-            raw: [0; 4],
+            raw: [0; 3],
             idx: 0,
-            has_wheel: false,
-            has_five_buttons: false,
         }
     }
 
-    pub fn set_features(&mut self, has_wheel: bool, has_five_buttons: bool) {
-        self.has_wheel = has_wheel;
-        self.has_five_buttons = has_five_buttons;
-    }
-
-    /// Feeds a single byte from port 0x60 into the parser.
-    ///
-    /// Returns `Some(MousePacket)` when a complete, synchronized packet is assembled.
-    pub fn feed(&mut self, byte: u8) -> Option<MousePacket> {
+    /// Feeds a byte and returns true when a complete 3-byte packet has been assembled.
+    fn feed(&mut self, byte: u8) -> bool {
         // First byte must have bit 3 set to 1. If not, discard to resynchronize stream.
         if self.idx == 0 && (byte & 0x08) == 0 {
-            return None;
+            return false;
         }
 
         self.raw[self.idx] = byte;
         self.idx += 1;
 
-        let packet_len = if self.has_wheel || self.has_five_buttons { 4 } else { 3 };
-
-        if self.idx >= packet_len {
+        if self.idx >= 3 {
             self.idx = 0;
-            let b0 = self.raw[0];
-            let b1 = self.raw[1];
-            let b2 = self.raw[2];
-
-            // Re-verify synchronization framing bit (bit 3 must always be 1)
-            if (b0 & 0x08) == 0 {
-                return None;
-            }
-
-            let left = (b0 & 0x01) != 0;
-            let right = (b0 & 0x02) != 0;
-            let middle = (b0 & 0x04) != 0;
-
-            let x_ovf = (b0 & 0x40) != 0;
-            let y_ovf = (b0 & 0x80) != 0;
-
-            // X and Y sign extension and overflow clamping
-            let dx = if x_ovf {
-                if (b0 & 0x10) != 0 { -255 } else { 255 }
-            } else {
-                let mut d = b1 as i16;
-                if (b0 & 0x10) != 0 {
-                    d |= !0xFF;
-                }
-                d
-            };
-
-            let dy = if y_ovf {
-                if (b0 & 0x20) != 0 { -255 } else { 255 }
-            } else {
-                let mut d = b2 as i16;
-                if (b0 & 0x20) != 0 {
-                    d |= !0xFF;
-                }
-                d
-            };
-
-            // Parse 4th byte for IntelliMouse or IntelliMouse Explorer
-            let (dz, side1, side2) = if self.has_five_buttons {
-                let b3 = self.raw[3];
-                // Sign-extend 4-bit signed integer
-                let z = if (b3 & 0x08) != 0 {
-                    ((b3 & 0x0F) | 0xF0) as i8
-                } else {
-                    (b3 & 0x0F) as i8
-                };
-                let s1 = (b3 & 0x10) != 0;
-                let s2 = (b3 & 0x20) != 0;
-                (z, s1, s2)
-            } else if self.has_wheel {
-                (self.raw[3] as i8, false, false)
-            } else {
-                (0, false, false)
-            };
-
-            Some(MousePacket {
-                left_button: left,
-                right_button: right,
-                middle_button: middle,
-                side1_button: side1,
-                side2_button: side2,
-                dx,
-                dy,
-                dz,
-            })
+            true
         } else {
-            None
+            false
         }
     }
 
-    pub fn current_raw_packet(&self) -> &[u8] {
-        let len = if self.has_wheel || self.has_five_buttons { 4 } else { 3 };
-        &self.raw[..len]
+    fn raw_packet(&self) -> &[u8; 3] {
+        &self.raw
     }
 }
 
@@ -184,33 +92,23 @@ fn handle_mouse_irq(_frame: &TrapFrame) {
             let byte = ctrl.read_data();
             drop(ctrl); // release controller lock
 
-            let maybe_packet = {
-                let mut parser = MOUSE_PARSER.lock();
-                let res = parser.feed(byte);
-                if res.is_some() {
-                    // Push raw packet bytes to lock-free queue for /dev/psaux / /dev/mouse
-                    for &b in parser.current_raw_packet() {
-                        MOUSE_BUFFER.push_overwrite(b);
-                    }
+            let mut mouse = MOUSE.lock();
+            let mut collector = PACKET_COLLECTOR.lock();
+            if collector.feed(byte) {
+                for &b in collector.raw_packet() {
+                    MOUSE_BUFFER.push_overwrite(b);
                 }
-                res
-            };
-
-            if let Some(pkt) = maybe_packet {
-                // If button clicked or major movement occurred, log info
-                if pkt.left_button || pkt.right_button || pkt.middle_button || pkt.side1_button || pkt.side2_button {
-                    ostd::debug!(
-                        "[MOUSE] Click: L={}, R={}, M={}, S1={}, S2={}, dx={}, dy={}, dz={}",
-                        pkt.left_button,
-                        pkt.right_button,
-                        pkt.middle_button,
-                        pkt.side1_button,
-                        pkt.side2_button,
-                        pkt.dx,
-                        pkt.dy,
-                        pkt.dz
-                    );
-                }
+            }
+            mouse.process_packet(byte);
+            let state = mouse.get_state();
+            if state.left_button_down() || state.right_button_down() || state.moved() {
+                ostd::debug!(
+                    "[MOUSE] L={}, R={}, dx={}, dy={}",
+                    state.left_button_down(),
+                    state.right_button_down(),
+                    state.get_x(),
+                    state.get_y()
+                );
             }
         }
     }
@@ -252,76 +150,19 @@ impl CharacterDevice for MouseDevice {
 /// Probes and initializes the PS/2 mouse, binds ISA IRQ 12,
 /// and registers the driver.
 pub fn init(controller: &I8042Controller) -> Result<()> {
-    ostd::info!("PS/2 Mouse: Initializing...");
+    ostd::info!("PS/2 Mouse: Initializing (ps2-mouse)...");
 
-    // 1. Reset mouse and query initial device ID
-    let _initial_id = match reset_mouse(controller) {
-        Ok(id) => {
-            ostd::info!(
-                "PS/2 Mouse: Reset successful, initial device ID: 0x{:02X}",
-                id
-            );
-            id
-        }
-        Err(err) => {
-            ostd::warn!(
-                "PS/2 Mouse: Reset error (proceeding with standard): {:?}",
-                err
-            );
-            0x00
-        }
-    };
-    controller.flush_buffer();
-
-    // 2. Attempt IntelliMouse detection sequence (sample rates: 200, 100, 80)
-    let mut has_wheel = false;
-    let mut has_five_buttons = false;
-
-    let _ = send_mouse_cmd_arg(controller, CMD_SET_SAMPLE_RATE, 200);
-    let _ = send_mouse_cmd_arg(controller, CMD_SET_SAMPLE_RATE, 100);
-    let _ = send_mouse_cmd_arg(controller, CMD_SET_SAMPLE_RATE, 80);
-
-    if send_mouse_cmd(controller, CMD_GET_DEVICE_ID).is_ok() {
-        if let Ok(new_id) = controller.wait_and_read_data() {
-            if new_id == DEV_ID_MOUSE_INTELLIMOUSE {
-                has_wheel = true;
-                ostd::info!("PS/2 Mouse: IntelliMouse detected with scroll wheel (ID: 0x03)");
-
-                // Attempt IntelliMouse Explorer 5-button sequence: 200, 200, 80
-                let _ = send_mouse_cmd_arg(controller, CMD_SET_SAMPLE_RATE, 200);
-                let _ = send_mouse_cmd_arg(controller, CMD_SET_SAMPLE_RATE, 200);
-                let _ = send_mouse_cmd_arg(controller, CMD_SET_SAMPLE_RATE, 80);
-
-                if send_mouse_cmd(controller, CMD_GET_DEVICE_ID).is_ok() {
-                    if let Ok(id_5b) = controller.wait_and_read_data() {
-                        if id_5b == DEV_ID_MOUSE_5BUTTON {
-                            has_five_buttons = true;
-                            ostd::info!("PS/2 Mouse: IntelliMouse Explorer 5-button detected (ID: 0x04)");
-                        }
-                    }
-                }
-            } else {
-                ostd::info!(
-                    "PS/2 Mouse: Standard 3-button mouse detected (ID: 0x{:02X})",
-                    new_id
-                );
-            }
-        }
+    // Initialize mouse using ps2-mouse crate
+    let mut mouse = MOUSE.lock();
+    if let Err(err) = mouse.init() {
+        ostd::warn!("PS/2 Mouse: ps2-mouse init returned: {:?}", err);
+    } else {
+        ostd::info!("PS/2 Mouse: ps2-mouse initialized successfully");
     }
+    drop(mouse);
     controller.flush_buffer();
 
-    let mut parser = MOUSE_PARSER.lock();
-    parser.set_features(has_wheel, has_five_buttons);
-    drop(parser);
-
-    // 3. Set default sample rate (100 Hz) and enable data streaming
-    let _ = send_mouse_cmd_arg(controller, CMD_SET_SAMPLE_RATE, 100);
-    if let Err(err) = send_mouse_cmd(controller, CMD_ENABLE_SCANNING) {
-        ostd::warn!("PS/2 Mouse: Failed to enable data reporting: {:?}", err);
-    }
-    controller.flush_buffer();
-
-    // 4. Allocate and map ISA IRQ 12
+    // Allocate and map ISA IRQ 12
     if let Some(chip) = IRQ_CHIP.get() {
         if let Ok(irq_line) = IrqLine::alloc() {
             match chip.map_isa_pin_to(irq_line, ISA_MOUSE_IRQ) {
@@ -341,7 +182,7 @@ pub fn init(controller: &I8042Controller) -> Result<()> {
         }
     }
 
-    // 5. Register into unified driver registry
+    // Register into unified driver registry
     crate::drivers::register_chrdev(Arc::new(MouseDevice));
 
     ostd::info!("PS/2 Mouse: Driver registered successfully.");

@@ -8,12 +8,12 @@
 
 use alloc::{collections::VecDeque, vec::Vec};
 
+use super::Tty;
 use crate::api::signal::Signal;
 use crate::api::termios::{
-    Termios, ECHO, ECHOE, ECHOK, ICANON, ICRNL, IGNCR, INLCR, ISIG, ISTRIP, NOFLSH, ONLCR, OPOST,
+    ECHO, ECHOE, ECHOK, ICANON, ICRNL, IGNCR, INLCR, ISIG, ISTRIP, NOFLSH, ONLCR, OPOST, Termios,
     VEOF, VEOL, VERASE, VINTR, VKILL, VQUIT, VSUSP, VWERASE,
 };
-use super::Tty;
 
 pub const CANON_BUF_SIZE: usize = 4096;
 

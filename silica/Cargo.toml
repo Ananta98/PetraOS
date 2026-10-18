@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 xmas-elf = { version = "0.10.0", default-features = false }
+os-terminal = "0.7"
 
 [dependencies.ostd]
 version = "0.18.1"

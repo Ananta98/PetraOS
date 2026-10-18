@@ -390,12 +390,11 @@ pub fn handle_usb_keyboard_report(report: &[u8; 8]) {
 }
 
 fn keycode_to_escape_seq(key: KeyCode) -> Option<&'static str> {
-    let app_cursor = crate::drivers::char::tty::is_application_cursor_keys();
     match key {
-        KeyCode::UpArrow => Some(if app_cursor { "\x1BOA" } else { "\x1B[A" }),
-        KeyCode::DownArrow => Some(if app_cursor { "\x1BOB" } else { "\x1B[B" }),
-        KeyCode::RightArrow => Some(if app_cursor { "\x1BOC" } else { "\x1B[C" }),
-        KeyCode::LeftArrow => Some(if app_cursor { "\x1BOD" } else { "\x1B[D" }),
+        KeyCode::UpArrow => Some("\x1B[A"),
+        KeyCode::DownArrow => Some("\x1B[B"),
+        KeyCode::RightArrow => Some("\x1B[C"),
+        KeyCode::LeftArrow => Some("\x1B[D"),
         KeyCode::Home => Some("\x1B[H"),
         KeyCode::End => Some("\x1B[F"),
         KeyCode::PageUp => Some("\x1B[5~"),

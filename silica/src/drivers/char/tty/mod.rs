@@ -8,9 +8,10 @@
 
 pub mod ldisc;
 pub mod pty;
+pub mod terminal;
 
-use alloc::{boxed::Box, collections::btree_map::BTreeMap, string::String, sync::Arc, vec::Vec};
-use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use alloc::{boxed::Box, string::String, sync::Arc, vec::Vec};
+use core::sync::atomic::{AtomicBool, Ordering};
 use spin::Mutex;
 
 use ostd::sync::{LocalIrqDisabled, SpinLock, WaitQueue};
@@ -18,11 +19,7 @@ use ostd::sync::{LocalIrqDisabled, SpinLock, WaitQueue};
 use crate::api::errno::{Errno, Result};
 use crate::api::ioctl;
 use crate::api::signal::Signal;
-use crate::api::termios::{
-    CREAD, CS8, ECHO, ECHOE, ECHOK, ECHONL, ICANON, ICRNL, IEXTEN, ISIG, IXON, ONLCR, OPOST,
-    Termios, VDISCARD, VEOF, VEOL, VEOL2, VERASE, VINTR, VKILL, VLNEXT, VMIN, VQUIT, VREPRINT,
-    VSTART, VSTOP, VSUSP, VTIME, VWERASE, winsize,
-};
+use crate::api::termios::{Termios, VMIN, VTIME, winsize};
 use crate::drivers::{CharacterDevice, register_chrdev};
 use crate::fs::poll::PollEvents;
 use crate::fs::vfs::{File, FileOps, INode, Mode, OpenFlags};
@@ -60,40 +57,9 @@ pub trait TtyDriver: Send + Sync {
     }
 }
 
-/// Generates the standard default termios configuration matching Zinnia / Linux.
-pub fn default_termios() -> Termios {
-    let mut t = Termios::default();
-    t.c_iflag = ICRNL | IXON;
-    t.c_oflag = OPOST | ONLCR;
-    t.c_cflag = CS8 | CREAD;
-    t.c_lflag = ISIG | ICANON | ECHO | ECHOE | ECHOK | ECHONL | IEXTEN;
-
-    t.c_cc[VINTR] = 0x03; // ^C
-    t.c_cc[VQUIT] = 0x1C; // ^\
-    t.c_cc[VERASE] = 0x7F; // DEL
-    t.c_cc[VKILL] = 0x15; // ^U
-    t.c_cc[VEOF] = 0x04; // ^D
-    t.c_cc[VTIME] = 0;
-    t.c_cc[VMIN] = 1;
-    t.c_cc[VSTART] = 0x11; // ^Q
-    t.c_cc[VSTOP] = 0x13; // ^S
-    t.c_cc[VSUSP] = 0x1A; // ^Z
-    t.c_cc[VEOL] = 0;
-    t.c_cc[VREPRINT] = 0x12; // ^R
-    t.c_cc[VDISCARD] = 0x0F; // ^O
-    t.c_cc[VWERASE] = 0x17; // ^W
-    t.c_cc[VLNEXT] = 0x16; // ^V
-    t.c_cc[VEOL2] = 0;
-    t
-}
-
-static TTY_INDEX: AtomicU32 = AtomicU32::new(0);
-static TTYS: Mutex<BTreeMap<u32, Arc<Tty>>> = Mutex::new(BTreeMap::new());
-
 /// High-level TTY instance managing line discipline, job control, and hardware driver.
 pub struct Tty {
     pub name: String,
-    pub index: u32,
     pub ldisc: Mutex<LineDiscipline>,
     pub driver: Arc<dyn TtyDriver>,
     pub winsize: Mutex<winsize>,
@@ -105,13 +71,11 @@ pub struct Tty {
 }
 
 impl Tty {
-    /// Constructs a new TTY backed by the specified driver and registers it in the global table.
+    /// Constructs a new TTY backed by the specified driver.
     pub fn new(name: String, driver: Arc<dyn TtyDriver>) -> Arc<Self> {
         let ws = driver.get_winsize();
-        let index = TTY_INDEX.fetch_add(1, Ordering::Relaxed);
-        let tty = Arc::new(Self {
+        Arc::new(Self {
             name,
-            index,
             ldisc: Mutex::new(LineDiscipline::new()),
             driver,
             winsize: Mutex::new(ws),
@@ -120,9 +84,7 @@ impl Tty {
             session: Mutex::new(None),
             wq: WaitQueue::new(),
             hangup: AtomicBool::new(false),
-        });
-        TTYS.lock().insert(index, Arc::clone(&tty));
-        tty
+        })
     }
 
     /// Marks the TTY as hung up and wakes all pending waiters.
@@ -136,12 +98,6 @@ impl Tty {
         self.hangup.load(Ordering::Acquire)
     }
 
-    /// Detaches this TTY from its controlling session.
-    pub fn detach_session(self: &Arc<Self>) {
-        let _ = self.session.lock().take();
-        *self.foreground_pgrp.lock() = None;
-    }
-
     /// Sends a signal to the foreground process group.
     pub fn signal_foreground(&self, sig: Signal) {
         let target_pgrp = *self.foreground_pgrp.lock();
@@ -151,29 +107,6 @@ impl Tty {
                 proc.post_signal(sig);
             });
         }
-    }
-
-    /// POSIX job control gate checking background reads/writes.
-    pub fn job_control_gate(self: &Arc<Self>, is_read: bool) -> Result<()> {
-        let Some(proc) = Thread::current_proc() else {
-            return Ok(());
-        };
-
-        let pgrp = proc.pgid();
-        let fg_opt = *self.foreground_pgrp.lock();
-
-        if let Some(fg) = fg_opt {
-            if fg != pgrp {
-                let sig = if is_read {
-                    Signal::SIGTTIN
-                } else {
-                    Signal::SIGTTOU
-                };
-                proc.post_signal(sig);
-                return Err(Errno::EINTR);
-            }
-        }
-        Ok(())
     }
 
     /// Wakes up threads waiting for input data.
@@ -405,92 +338,6 @@ impl Tty {
         }
     }
 
-    fn handle_keyboard_display_ioctl(
-        &self,
-        cmd: u32,
-        arg: usize,
-        vmar: &Arc<Vmar>,
-    ) -> Result<usize> {
-        match cmd {
-            ioctl::KDGKBTYPE => {
-                let kb_type = [ioctl::KB_101];
-                UserPtr::new(arg).write_bytes(vmar, &kb_type)?;
-                Ok(0)
-            }
-            ioctl::KDGETMODE => {
-                let mode: i32 = ioctl::KD_TEXT;
-                UserPtr::new(arg).write_bytes(vmar, &mode.to_ne_bytes())?;
-                Ok(0)
-            }
-            ioctl::KDSETMODE => Ok(0),
-            ioctl::KDGKBMODE => {
-                let k_mode: u32 = ioctl::K_XLATE;
-                UserPtr::new(arg).write_bytes(vmar, &k_mode.to_ne_bytes())?;
-                Ok(0)
-            }
-            ioctl::KDSKBMODE => Ok(0),
-            ioctl::KDGETLED | ioctl::KDGKBLED => {
-                let leds: u8 = 0;
-                UserPtr::new(arg).write_bytes(vmar, &[leds])?;
-                Ok(0)
-            }
-            ioctl::KDSETLED | ioctl::KDSKBLED => Ok(0),
-            ioctl::KDGKBMETA => {
-                let meta: u32 = ioctl::K_METABIT;
-                UserPtr::new(arg).write_bytes(vmar, &meta.to_ne_bytes())?;
-                Ok(0)
-            }
-            ioctl::KDSKBMETA => Ok(0),
-            ioctl::KDGKBENT => {
-                let mut entry_bytes = [0u8; 4];
-                UserPtr::new(arg).read_bytes(vmar, &mut entry_bytes)?;
-                let table = entry_bytes[0];
-                let index = entry_bytes[1];
-                let val: u16 = if table == 0 { index as u16 } else { 0 };
-                entry_bytes[2..4].copy_from_slice(&val.to_ne_bytes());
-                UserPtr::new(arg).write_bytes(vmar, &entry_bytes)?;
-                Ok(0)
-            }
-            ioctl::KDSKBENT
-            | ioctl::KDKBDREP
-            | ioctl::KDGKBDIACR
-            | ioctl::KDGETKEYCODE
-            | ioctl::KDSETKEYCODE => Ok(0),
-            ioctl::GIO_FONT | ioctl::PIO_FONT | ioctl::GIO_CMAP | ioctl::PIO_CMAP => Ok(0),
-            _ => crate::return_errno!(ENOTTY, "unsupported keyboard display ioctl"),
-        }
-    }
-
-    fn handle_vt_ioctl(&self, cmd: u32, arg: usize, vmar: &Arc<Vmar>) -> Result<usize> {
-        match cmd {
-            ioctl::VT_OPENQRY => {
-                let free_vt: i32 = 1;
-                UserPtr::new(arg).write_bytes(vmar, &free_vt.to_ne_bytes())?;
-                Ok(0)
-            }
-            ioctl::VT_GETSTATE => {
-                let state: [u16; 3] = [1, 0, 1];
-                let mut bytes = [0u8; 6];
-                bytes[0..2].copy_from_slice(&state[0].to_ne_bytes());
-                bytes[2..4].copy_from_slice(&state[1].to_ne_bytes());
-                bytes[4..6].copy_from_slice(&state[2].to_ne_bytes());
-                UserPtr::new(arg).write_bytes(vmar, &bytes)?;
-                Ok(0)
-            }
-            ioctl::VT_GETMODE => {
-                let bytes = [0u8; 8];
-                UserPtr::new(arg).write_bytes(vmar, &bytes)?;
-                Ok(0)
-            }
-            ioctl::VT_SETMODE
-            | ioctl::VT_ACTIVATE
-            | ioctl::VT_WAITACTIVE
-            | ioctl::VT_DISALLOCATE => Ok(0),
-            ioctl::TIOCLINUX => Ok(0),
-            _ => crate::return_errno!(ENOTTY, "unsupported VT ioctl"),
-        }
-    }
-
     /// Internal ioctl handler resolving against a supplied VMAR.
     pub fn ioctl_with_vmar(
         &self,
@@ -530,37 +377,6 @@ impl Tty {
             | ioctl::TIOCSCTTY
             | ioctl::TIOCNOTTY
             | ioctl::TIOCGSID => self.handle_job_control_ioctl(cmd, arg, vmar, proc_opt),
-
-            ioctl::KDGKBTYPE
-            | ioctl::KDGETMODE
-            | ioctl::KDSETMODE
-            | ioctl::KDGKBMODE
-            | ioctl::KDSKBMODE
-            | ioctl::KDGETLED
-            | ioctl::KDSETLED
-            | ioctl::KDGKBLED
-            | ioctl::KDSKBLED
-            | ioctl::KDGKBMETA
-            | ioctl::KDSKBMETA
-            | ioctl::KDGKBENT
-            | ioctl::KDSKBENT
-            | ioctl::KDKBDREP
-            | ioctl::KDGKBDIACR
-            | ioctl::KDGETKEYCODE
-            | ioctl::KDSETKEYCODE
-            | ioctl::GIO_FONT
-            | ioctl::PIO_FONT
-            | ioctl::GIO_CMAP
-            | ioctl::PIO_CMAP => self.handle_keyboard_display_ioctl(cmd, arg, vmar),
-
-            ioctl::VT_OPENQRY
-            | ioctl::VT_GETSTATE
-            | ioctl::VT_GETMODE
-            | ioctl::VT_SETMODE
-            | ioctl::VT_ACTIVATE
-            | ioctl::VT_WAITACTIVE
-            | ioctl::VT_DISALLOCATE
-            | ioctl::TIOCLINUX => self.handle_vt_ioctl(cmd, arg, vmar),
 
             _ => crate::return_errno!(ENOTTY, "inappropriate ioctl for device"),
         }
@@ -631,32 +447,12 @@ pub struct FramebufferConsoleDriver;
 
 impl TtyDriver for FramebufferConsoleDriver {
     fn write_output(&self, data: &[u8]) -> Result<()> {
-        if let Some(cons_lock) = crate::drivers::drm::get_console() {
-            let mut cons = cons_lock.lock();
-            cons.send(data);
-        }
+        terminal::write_output(data);
         Ok(())
     }
 
     fn get_winsize(&self) -> winsize {
-        if let Some(cons_lock) = crate::drivers::drm::get_console() {
-            let cons = cons_lock.lock();
-            let fb = crate::drivers::drm::get_framebuffer();
-            let (w, h) = fb.map(|f| (f.width as u16, f.height as u16)).unwrap_or((1280, 800));
-            winsize {
-                ws_row: cons.rows() as u16,
-                ws_col: cons.cols() as u16,
-                ws_xpixel: w,
-                ws_ypixel: h,
-            }
-        } else {
-            winsize {
-                ws_row: 25,
-                ws_col: 80,
-                ws_xpixel: 1280,
-                ws_ypixel: 800,
-            }
-        }
+        terminal::get_winsize()
     }
 }
 
@@ -753,29 +549,9 @@ pub fn create_console_file(flags: OpenFlags) -> Arc<File> {
     Arc::new(File::new(Box::new(ConsoleFileOps), inode, flags, false))
 }
 
-pub fn get_tty(index: u32) -> Option<Arc<Tty>> {
-    TTYS.lock().get(&index).cloned()
-}
-
-pub fn get_tty_by_name(name: &str) -> Option<Arc<Tty>> {
-    TTYS.lock().values().find(|t| t.name == name).cloned()
-}
-
 /// Returns the primary system console device.
 pub fn get_console() -> Option<Arc<Tty>> {
     ACTIVE_CONSOLE.lock().clone()
-}
-
-static DECCKM: AtomicBool = AtomicBool::new(false);
-
-/// Returns whether DEC Application Cursor Keys mode (DECCKM) is enabled.
-pub fn is_application_cursor_keys() -> bool {
-    DECCKM.load(Ordering::Relaxed)
-}
-
-/// Sets DEC Application Cursor Keys mode (DECCKM).
-pub fn set_application_cursor_keys(enabled: bool) {
-    DECCKM.store(enabled, Ordering::Relaxed);
 }
 
 /// Updates the console winsize to match the underlying hardware driver dimensions.
@@ -838,6 +614,8 @@ pub fn handle_keyboard_char(ch: u8) {
 
 /// Initialize the TTY and PTY subsystem and register /dev/console, /dev/tty0, and /dev/ptmx.
 pub fn init() -> Result<()> {
+    terminal::init();
+
     let driver = Arc::new(FramebufferConsoleDriver);
     let console_tty = Tty::new(String::from("tty0"), driver);
     Console::set_active(Arc::clone(&console_tty));
@@ -846,6 +624,8 @@ pub fn init() -> Result<()> {
     register_chrdev(Arc::clone(&console_tty) as Arc<dyn CharacterDevice>);
 
     pty::init()?;
+
+    update_console_winsize();
 
     ostd::info!("TTY and PTY subsystem initialized successfully");
     Ok(())

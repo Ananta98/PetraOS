@@ -246,8 +246,7 @@ pub fn init() -> Result<()> {
     let fb = FrameBuffer::probe()?;
     let fb_arc = Arc::new(fb);
     let _ = FRAMEBUFFER.call_once(|| Arc::clone(&fb_arc));
-    super::console::init(Arc::clone(&fb_arc));
-    ostd::info!("Framebuffer: Physical framebuffer and console successfully initialized");
+    ostd::info!("Framebuffer: Physical framebuffer successfully initialized");
     Ok(())
 }
 
