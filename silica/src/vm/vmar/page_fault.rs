@@ -166,15 +166,16 @@ pub(crate) fn handle_mapping_fault(
                 cursor.unmap(PAGE_SIZE);
                 cursor.jump(page).expect("page-aligned");
                 cursor.map(copy, prop);
+                cursor.flusher().sync_tlb_flush();
             } else {
                 prop.flags |= PageFlags::W | PageFlags::ACCESSED | PageFlags::DIRTY;
                 cursor.protect_next(PAGE_SIZE, |flags, _| *flags = prop.flags);
+                cursor
+                    .flusher()
+                    .issue_tlb_flush(TlbFlushOp::for_range(range.clone()));
+                cursor.flusher().dispatch_tlb_flush();
+                cursor.flusher().sync_tlb_flush();
             }
-            cursor
-                .flusher()
-                .issue_tlb_flush(TlbFlushOp::for_range(range.clone()));
-            cursor.flusher().dispatch_tlb_flush();
-            cursor.flusher().sync_tlb_flush();
         }
         Some(VmQueriedItem::MappedIoMem { .. }) => {
             unreachable!("device mappings are not supported")
@@ -186,11 +187,8 @@ pub(crate) fn handle_mapping_fault(
             let must_copy = mapping.is_cow() && (frame.reference_count() > 1 || is_shared_zero);
             let property = mapping.fault_property(!must_copy, is_write);
             cursor.map(frame, property);
-            cursor
-                .flusher()
-                .issue_tlb_flush(TlbFlushOp::for_range(range.clone()));
-            cursor.flusher().dispatch_tlb_flush();
-            cursor.flusher().sync_tlb_flush();
+            // Non-present pages are never cached in TLB. Only invalidate local prefetch.
+            TlbFlushOp::for_range(range).perform_on_current();
         }
     }
     Ok(())
