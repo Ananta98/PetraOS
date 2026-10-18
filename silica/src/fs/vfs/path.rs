@@ -32,6 +32,9 @@ pub fn lookup(
     path: &str,
     flags: LookupFlags,
 ) -> Result<PathNode> {
+    if path.is_empty() {
+        return Err(Errno::ENOENT);
+    }
     let mut depth = 0;
     let node = lookup_inner(&root, start, path, flags, &mut depth)?;
     if flags.contains(LookupFlags::DIRECTORY) {
@@ -82,16 +85,11 @@ fn lookup_inner(
                 }
             }
             name => {
-                // Searching a directory requires execute permission on it.
-                let dir_inode = current.dentry.get_inode().ok_or(Errno::ENOENT)?;
-                if !dir_inode.is_dir() {
-                    return Err(Errno::ENOTDIR);
-                }
-                let dir_attr = *dir_inode.attr.read();
-                check_permission(&dir_attr, &current_cred(), AccessFlags::EXEC)?;
-
                 // Fast path: cached child dentry
                 let resolved_dentry = if let Some(entry) = current.dentry.lookup_child(name) {
+                    if entry.get_inode().is_none() {
+                        return Err(Errno::ENOENT);
+                    }
                     entry
                 } else {
                     // Slow path: query inode NodeOps
@@ -106,9 +104,14 @@ fn lookup_inner(
                     new_dentry
                 };
 
-                // Follow symlinks (except a terminal one under NO_FOLLOW)
+                // Follow symlinks (except a terminal one under NO_FOLLOW unless ending with '/')
                 if let Some(inode) = resolved_dentry.get_inode() {
-                    if inode.is_symlink() && !(is_last && flags.contains(LookupFlags::NO_FOLLOW)) {
+                    let follow = if is_last && flags.contains(LookupFlags::NO_FOLLOW) {
+                        path.ends_with('/')
+                    } else {
+                        true
+                    };
+                    if inode.is_symlink() && follow {
                         *depth += 1;
                         if *depth > MAX_SYMLINK_DEPTH {
                             return Err(Errno::ELOOP);
@@ -134,6 +137,13 @@ fn lookup_inner(
                     current.dentry = resolved_dentry;
                 }
             }
+        }
+    }
+
+    if path.ends_with('/') {
+        let inode = current.dentry.get_inode().ok_or(Errno::ENOENT)?;
+        if !inode.is_dir() {
+            return Err(Errno::ENOTDIR);
         }
     }
 
@@ -179,7 +189,7 @@ pub fn open_at(
     if flags.contains(OpenFlags::WRITE) || flags.contains(OpenFlags::TRUNC) {
         access |= AccessFlags::WRITE;
     }
-    let attr = *inode.attr.read();
+    let attr = inode.node_ops.getattr().unwrap_or_else(|_| *inode.attr.read());
     check_permission(&attr, &current_cred(), access)?;
 
     let ops = inode.node_ops.open(flags)?;
@@ -194,14 +204,21 @@ pub fn open_at(
     }
 
     let mut file = File::new(ops, inode, flags, seekable);
-    file.abs_path = Some(path_node.dentry.abs_path().into_bytes());
+    file.abs_path = Some(path_node.abs_path().into_bytes());
     file.path_node = Some(path_node);
 
     Ok(Arc::new(file))
 }
 
-/// Opens a file by path starting from the global VFS root.
+/// Opens a file by path starting from the current process CWD or global VFS root.
 pub fn open(path: &str, flags: OpenFlags) -> Result<Arc<File>> {
     let root = super::mount::root()?;
-    open_at(root, path, flags, super::inode::Mode::from_bits_truncate(0o666))
+    let start = if path.starts_with('/') {
+        root.clone()
+    } else if let Some(proc) = crate::proc::thread::Thread::current_proc() {
+        proc.cwd().unwrap_or_else(|_| root.clone())
+    } else {
+        root.clone()
+    };
+    open_at(start, path, flags, super::inode::Mode::from_bits_truncate(0o666))
 }

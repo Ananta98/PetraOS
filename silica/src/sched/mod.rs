@@ -29,7 +29,7 @@ use ostd::timer::{Jiffies, TIMER_FREQ};
 
 pub use self::{
     adapter::{
-        build, entity_of, init, init_on_cpu, nr_running_on, set_task_sched_params,
+        build, cpu_stats_on, entity_of, init, init_on_cpu, nr_running_on, set_task_sched_params,
     },
     sched_class::{
         RunQueue, SchedEntity, SchedEntry,

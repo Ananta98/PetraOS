@@ -89,8 +89,8 @@ fn ensure_terminal(term_guard: &mut Option<Terminal<FramebufferDisplay>>) {
                     crate::drivers::char::tty::queue_input(b);
                 }
             }));
-            // Default to steady underline cursor (DECSCUSR 4)
-            terminal.process(b"\x1b[4 q");
+            // Default to steady block cursor (DECSCUSR 2)
+            terminal.process(b"\x1b[2 q");
             *term_guard = Some(terminal);
             ostd::info!("TTY Terminal: Initialized with os-terminal and BitmapFont");
         }

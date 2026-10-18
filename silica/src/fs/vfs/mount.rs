@@ -5,9 +5,9 @@
 use alloc::sync::Arc;
 use spin::RwLock;
 
-use crate::api::errno::{Errno, Result};
 use super::dcache::DEntry;
 use super::fs::FileSystem;
+use crate::api::errno::{Errno, Result};
 
 /// Represents a mounted filesystem instance.
 pub struct Mount {
@@ -74,6 +74,50 @@ impl PathNode {
         self.mount.root.children.write().clear();
         Ok(())
     }
+
+    /// Reconstructs the absolute path of this PathNode, walking up across mount boundaries.
+    pub fn abs_path(&self) -> alloc::string::String {
+        let mut components = alloc::vec::Vec::new();
+        let mut curr_node = self.clone();
+
+        loop {
+            if !curr_node.dentry.name.is_empty() {
+                components.push(curr_node.dentry.name.clone());
+            }
+
+            // If at the root of a mounted filesystem, step up to mount point in parent filesystem
+            if Arc::ptr_eq(&curr_node.dentry, &curr_node.mount.root) {
+                let mp = curr_node.mount.mount_point.read().clone();
+                if let Some(parent_node) = mp {
+                    curr_node = parent_node;
+                    continue;
+                }
+            }
+
+            // Move up the dentry tree
+            let parent_weak = curr_node.dentry.parent.clone();
+            if let Some(parent_weak) = parent_weak {
+                if let Some(parent_dentry) = parent_weak.upgrade() {
+                    curr_node.dentry = parent_dentry;
+                    continue;
+                }
+            }
+
+            break;
+        }
+
+        if components.is_empty() {
+            alloc::string::String::from("/")
+        } else {
+            components.reverse();
+            let mut path = alloc::string::String::new();
+            for comp in components {
+                path.push('/');
+                path.push_str(&comp);
+            }
+            path
+        }
+    }
 }
 
 /// Returns whether any cached dentry beneath `dentry` has a filesystem mounted on it.
@@ -107,7 +151,8 @@ pub struct MountRecord {
 }
 
 /// Global registry of active mounts.
-pub static ACTIVE_MOUNTS: RwLock<alloc::vec::Vec<MountRecord>> = RwLock::new(alloc::vec::Vec::new());
+pub static ACTIVE_MOUNTS: RwLock<alloc::vec::Vec<MountRecord>> =
+    RwLock::new(alloc::vec::Vec::new());
 
 /// Registers an active mount.
 pub fn register_mount(source: &str, target: &str, fstype: &str, options: &str) {
@@ -171,4 +216,3 @@ pub fn sync_all() -> Result<()> {
     }
     Ok(())
 }
-

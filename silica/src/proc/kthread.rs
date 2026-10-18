@@ -18,7 +18,7 @@ use crate::{
     },
     proc::{
         Proc,
-        thread::{Thread, ThreadFlags, ThreadInner, ThreadState, alloc_tid},
+        thread::{Thread, ThreadFlags, ThreadInner, ThreadState, Tid, alloc_tid},
         types::{PID_ALLOCATOR, allproc_insert},
     },
     vm::vmar::Vmar,
@@ -52,7 +52,11 @@ pub fn kproc_create(name: &str, entry: fn(), nice: i8) -> Result<Arc<Proc>> {
 
 /// Adds and starts a kernel thread belonging to a kernel process.
 pub fn kthread_add(proc: &Arc<Proc>, name: &str, entry: fn(), nice: i8) -> Result<Arc<Thread>> {
-    let tid = alloc_tid();
+    let tid = if proc.inner.lock().threads.is_empty() {
+        Tid::from_u32(proc.pid.as_u32()).unwrap_or_else(alloc_tid)
+    } else {
+        alloc_tid()
+    };
     let vmar = proc.vmspace();
     let proc_weak = Arc::downgrade(proc);
 

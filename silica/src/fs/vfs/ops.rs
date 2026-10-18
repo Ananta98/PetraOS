@@ -129,6 +129,20 @@ fn with_type(ty: Mode, perm: Mode) -> Mode {
 
 /// Creates a regular file starting from `start`.
 pub fn create_at(start: &PathNode, path: &str, mode: Mode) -> Result<Arc<INode>> {
+    let trimmed = path.trim_end_matches('/');
+    if path.is_empty() {
+        return Err(Errno::ENOENT);
+    }
+    if trimmed.is_empty() {
+        return Err(Errno::EISDIR);
+    }
+    let last = match trimmed.rfind('/') {
+        Some(i) => &trimmed[i + 1..],
+        None => trimmed,
+    };
+    if last == "." || last == ".." {
+        return Err(Errno::EISDIR);
+    }
     let (parent, dir, name) = parent_for_modify_at(start, path)?;
     if exists_in(&parent, &dir, &name)? {
         return Err(Errno::EEXIST);
@@ -147,6 +161,24 @@ pub fn create(path: &str, mode: Mode) -> Result<Arc<INode>> {
 
 /// Creates a directory starting from `start`.
 pub fn mkdir_at(start: &PathNode, path: &str, mode: Mode) -> Result<Arc<INode>> {
+    let trimmed = path.trim_end_matches('/');
+    if path.is_empty() {
+        return Err(Errno::ENOENT);
+    }
+    if trimmed.is_empty() {
+        // Path is "/" or "///": the root directory already exists.
+        return Err(Errno::EEXIST);
+    }
+    let last = match trimmed.rfind('/') {
+        Some(i) => &trimmed[i + 1..],
+        None => trimmed,
+    };
+    if last == "." || last == ".." {
+        return match lookup_at(start, path, LookupFlags::DIRECTORY) {
+            Ok(_) => Err(Errno::EEXIST),
+            Err(e) => Err(e),
+        };
+    }
     let (parent, dir, name) = parent_for_modify_at(start, path)?;
     if exists_in(&parent, &dir, &name)? {
         return Err(Errno::EEXIST);
@@ -240,6 +272,20 @@ pub fn readlink(path: &str) -> Result<String> {
 
 /// Removes a non-directory entry starting from `start`.
 pub fn unlink_at(start: &PathNode, path: &str) -> Result<()> {
+    let trimmed = path.trim_end_matches('/');
+    if path.is_empty() {
+        return Err(Errno::ENOENT);
+    }
+    if trimmed.is_empty() {
+        return Err(Errno::EISDIR);
+    }
+    let last = match trimmed.rfind('/') {
+        Some(i) => &trimmed[i + 1..],
+        None => trimmed,
+    };
+    if last == "." || last == ".." {
+        return Err(Errno::EISDIR);
+    }
     let (parent, dir, name) = parent_for_modify_at(start, path)?;
     let target = lookup_nofollow_at(start, path)?;
     let inode = target.dentry.get_inode().ok_or(Errno::ENOENT)?;

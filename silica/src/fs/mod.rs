@@ -28,8 +28,9 @@ pub use registry::*;
 pub use sysfs::SysFs;
 pub use tmpfs::TmpFs;
 pub use vfs::{
-    File, FileOps, FileSystem, INode, Mode, OpenFlags, PathNode, dcache::DEntry, lookup,
-    mount::Mount, open, open_at, perms, root, set_root, sync_all,
+    dcache::DEntry, lookup, mount::Mount, open, open_at, perms, root, set_root, sync_all,
+    AccessFlags, File, FileOps, FileSystem, INode, LookupFlags, Mode, OpenFlags, PathNode,
+    SeekAnchor, check_permission,
 };
 
 use crate::fs::initramfs::{InitramfsDirNodeOps, InitramfsFs};

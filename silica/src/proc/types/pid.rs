@@ -62,14 +62,14 @@ impl core::fmt::Display for Tid {
     }
 }
 
-static NEXT_TID: AtomicU32 = AtomicU32::new(1);
+static NEXT_TID: AtomicU32 = AtomicU32::new(10000);
 
 /// Allocates a new thread identifier monotonically.
 pub fn alloc_tid() -> Tid {
     let raw = NEXT_TID.fetch_add(1, Ordering::Relaxed);
     let raw = if raw > TID_MAX {
-        NEXT_TID.store(2, Ordering::Relaxed);
-        1
+        NEXT_TID.store(10000, Ordering::Relaxed);
+        10000
     } else {
         raw
     };

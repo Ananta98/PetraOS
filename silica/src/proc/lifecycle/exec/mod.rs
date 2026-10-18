@@ -36,60 +36,131 @@ use crate::{
     vm::Vmar,
 };
 
+/// Linux constant for AT_FDCWD.
+pub const AT_FDCWD: i32 = -100;
+/// Linux constant for AT_SYMLINK_NOFOLLOW.
+pub const AT_SYMLINK_NOFOLLOW: i32 = 0x100;
+/// Linux constant for AT_EMPTY_PATH.
+pub const AT_EMPTY_PATH: i32 = 0x1000;
+
+/// Reads an executable binary by path or directory fd, resolving relative paths against
+/// the current process's CWD or `dirfd`, checking execute permissions, and returning
+/// the binary data and canonical absolute path.
+pub fn read_executable_file(dirfd: i32, path: &str, flags: i32) -> Result<(Vec<u8>, String)> {
+    if path.is_empty() {
+        if (flags & AT_EMPTY_PATH) != 0 {
+            // Executing via file descriptor directly (fexecve)
+            let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+            let file = proc.fd_table.lock().get(dirfd)?;
+            let inode = file.inode.clone();
+            if inode.is_dir() {
+                return Err(Errno::EACCES);
+            }
+            let attr = inode
+                .node_ops
+                .getattr()
+                .unwrap_or_else(|_| *inode.attr.read());
+            crate::fs::check_permission(&attr, &proc.cred(), crate::fs::AccessFlags::EXEC)?;
+
+            let mut data = Vec::new();
+            let mut buf = [0u8; 8192];
+            let _ = file.seek(crate::fs::SeekAnchor::Start(0));
+            loop {
+                let n = file.read(&mut buf)?;
+                if n == 0 {
+                    break;
+                }
+                data.extend_from_slice(&buf[..n]);
+            }
+            let canon = file
+                .path_node
+                .as_ref()
+                .map(|pn| pn.abs_path())
+                .unwrap_or_else(|| {
+                    file.abs_path
+                        .as_ref()
+                        .map(|b| String::from_utf8_lossy(b).into_owned())
+                        .unwrap_or_else(|| alloc::format!("/proc/self/fd/{}", dirfd))
+                });
+            return Ok((data, canon));
+        } else {
+            return Err(Errno::ENOENT);
+        }
+    }
+
+    let root = crate::fs::root()?;
+    let start = if path.starts_with('/') {
+        root.clone()
+    } else if dirfd == AT_FDCWD {
+        if let Some(proc) = Thread::current_proc() {
+            proc.cwd().unwrap_or_else(|_| root.clone())
+        } else {
+            root.clone()
+        }
+    } else {
+        let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+        let dir_file = proc.fd_table.lock().get(dirfd)?;
+        let node = dir_file.path_node.clone().ok_or(Errno::ENOTDIR)?;
+        let inode = node.dentry.get_inode().ok_or(Errno::ENOENT)?;
+        if !inode.is_dir() {
+            return Err(Errno::ENOTDIR);
+        }
+        node
+    };
+
+    let mut lookup_flags = crate::fs::LookupFlags::empty();
+    if (flags & AT_SYMLINK_NOFOLLOW) != 0 {
+        lookup_flags |= crate::fs::LookupFlags::NO_FOLLOW;
+    }
+
+    match crate::fs::lookup(root, start, path, lookup_flags) {
+        Ok(path_node) => {
+            let inode = path_node.dentry.get_inode().ok_or(Errno::ENOENT)?;
+            if inode.is_dir() {
+                return Err(Errno::EACCES);
+            }
+            let attr = inode
+                .node_ops
+                .getattr()
+                .unwrap_or_else(|_| *inode.attr.read());
+            if let Some(proc) = Thread::current_proc() {
+                crate::fs::check_permission(&attr, &proc.cred(), crate::fs::AccessFlags::EXEC)?;
+            }
+            let file_ops = inode.node_ops.open(crate::fs::OpenFlags::READ)?;
+            let file = crate::fs::File::new(file_ops, inode, crate::fs::OpenFlags::READ, true);
+            let mut data = Vec::new();
+            let mut buf = [0u8; 8192];
+            loop {
+                let n = file.read(&mut buf)?;
+                if n == 0 {
+                    break;
+                }
+                data.extend_from_slice(&buf[..n]);
+            }
+            let canon = path_node.abs_path();
+            Ok((data, canon))
+        }
+        Err(err) => {
+            if err != Errno::ENOENT {
+                return Err(err);
+            }
+            // Fallback to raw initramfs archive lookup for early boot /init
+            if let Some(data) = crate::fs::read_file_from_initramfs(path) {
+                return Ok((Vec::from(data), String::from(path)));
+            }
+            let trimmed = path.trim_start_matches('/');
+            if let Some(data) = crate::fs::read_file_from_initramfs(trimmed) {
+                return Ok((Vec::from(data), String::from(path)));
+            }
+            Err(Errno::ENOENT)
+        }
+    }
+}
+
 /// Reads an executable or interpreter binary by path.
 pub fn read_binary_data(path: &str) -> Result<Vec<u8>> {
-    // 1. Try VFS open
-    if let Ok(file) = crate::fs::open(path, crate::fs::OpenFlags::READ) {
-        let mut data = Vec::new();
-        let mut buf = [0u8; 8192];
-        loop {
-            let n = file.read(&mut buf)?;
-            if n == 0 {
-                break;
-            }
-            data.extend_from_slice(&buf[..n]);
-        }
-        return Ok(data);
-    }
-
-    // 2. Try raw initramfs lookup
-    if let Some(data) = crate::fs::read_file_from_initramfs(path) {
-        if data.starts_with(b"\x7fELF") || data.starts_with(b"#!") {
-            return Ok(Vec::from(data));
-        }
-        if let Ok(target) = core::str::from_utf8(data) {
-            let target = target.trim();
-            if let Some(target_data) = crate::fs::read_file_from_initramfs(target) {
-                return Ok(Vec::from(target_data));
-            }
-            let trimmed_target = target.trim_start_matches('/');
-            if let Some(target_data) = crate::fs::read_file_from_initramfs(trimmed_target) {
-                return Ok(Vec::from(target_data));
-            }
-        }
-        return Ok(Vec::from(data));
-    }
-
-    // 3. Try stripped leading slash for initramfs
-    let trimmed = path.trim_start_matches('/');
-    if let Some(data) = crate::fs::read_file_from_initramfs(trimmed) {
-        if data.starts_with(b"\x7fELF") || data.starts_with(b"#!") {
-            return Ok(Vec::from(data));
-        }
-        if let Ok(target) = core::str::from_utf8(data) {
-            let target = target.trim();
-            if let Some(target_data) = crate::fs::read_file_from_initramfs(target) {
-                return Ok(Vec::from(target_data));
-            }
-            let trimmed_target = target.trim_start_matches('/');
-            if let Some(target_data) = crate::fs::read_file_from_initramfs(trimmed_target) {
-                return Ok(Vec::from(target_data));
-            }
-        }
-        return Ok(Vec::from(data));
-    }
-
-    Err(Errno::ENOENT)
+    let (data, _) = read_executable_file(AT_FDCWD, path, 0)?;
+    Ok(data)
 }
 
 /// Loads ELF binary, dynamically resolves any `PT_INTERP` interpreter, initializes heap `brk`,
@@ -158,14 +229,29 @@ pub fn execve(
     envp: &[&str],
     ctx: &mut UserContext,
 ) -> Result<()> {
-    execve_depth(td, path, argv, envp, ctx, 0)
+    execve_at(td, AT_FDCWD, path, argv, envp, 0, ctx)
+}
+
+/// Loads a new program relative to `dirfd`, replacing process address space.
+pub fn execve_at(
+    td: &Thread,
+    dirfd: i32,
+    path: &str,
+    argv: &[&str],
+    envp: &[&str],
+    flags: i32,
+    ctx: &mut UserContext,
+) -> Result<()> {
+    execve_depth(td, dirfd, path, argv, envp, flags, ctx, 0)
 }
 
 fn execve_depth(
     td: &Thread,
+    dirfd: i32,
     path: &str,
     argv: &[&str],
     envp: &[&str],
+    flags: i32,
     ctx: &mut UserContext,
     depth: usize,
 ) -> Result<()> {
@@ -174,18 +260,28 @@ fn execve_depth(
     }
 
     let proc = td.proc().ok_or(Errno::ESRCH)?;
-    let elf_data = read_binary_data(path)?;
+    let (elf_data, canonical_path) = read_executable_file(dirfd, path, flags)?;
 
     // Check if the binary is a Shebang script
     if Shebang::is_shebang(&elf_data) {
         let shebang = Shebang::parse(&elf_data)?.ok_or(Errno::ENOEXEC)?;
         let new_argv = shebang.build_argv(path, argv);
-        return execve_depth(td, shebang.interpreter(), &new_argv, envp, ctx, depth + 1);
+        return execve_depth(
+            td,
+            AT_FDCWD,
+            shebang.interpreter(),
+            &new_argv,
+            envp,
+            0,
+            ctx,
+            depth + 1,
+        );
     }
 
     let cred = proc.cred();
     // Load ELF, interpreter, and build new address space
-    let (new_vmar, entry_point, sp) = load_and_setup_full(&elf_data, argv, envp, path, &cred)?;
+    let (new_vmar, entry_point, sp) =
+        load_and_setup_full(&elf_data, argv, envp, &canonical_path, &cred)?;
 
     // FIX Bug 3: Terminate all sibling threads prior to address space swap
     let siblings: Vec<Arc<Thread>> = {
@@ -236,11 +332,10 @@ fn execve_depth(
     td.set_fs_base(0);
 
     // Update command name and exe_path
-    {
-        let mut inner = proc.inner.lock();
-        inner.comm = comm_from_name(path);
-        inner.exe_path = Some(String::from(path));
-    }
+    let mut inner = proc.inner.lock();
+    inner.comm = comm_from_name(path);
+    inner.exe_path = Some(canonical_path);
+    drop(inner);
 
     // Reset user context and prepare execution from the entry point
     *ctx = UserContext::default();

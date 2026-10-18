@@ -185,12 +185,29 @@ impl FileOps for InitramfsRamFileOps {
 
 pub struct InitramfsRamFileNodeOps {
     data: Arc<RwLock<Vec<u8>>>,
+    attr: Arc<RwLock<INodeAttr>>,
 }
 
 impl InitramfsRamFileNodeOps {
     pub fn new(data: Vec<u8>) -> Self {
+        let size = data.len();
         Self {
             data: Arc::new(RwLock::new(data)),
+            attr: Arc::new(RwLock::new(INodeAttr {
+                size,
+                mode: Mode::FILE | Mode::RUSR | Mode::WUSR | Mode::RGRP | Mode::ROTH,
+                nlink: 1,
+                uid: 0,
+                gid: 0,
+                rdev: 0,
+            })),
+        }
+    }
+
+    pub fn new_with_attr(data: Arc<RwLock<Vec<u8>>>, attr: INodeAttr) -> Self {
+        Self {
+            data,
+            attr: Arc::new(RwLock::new(attr)),
         }
     }
 }
@@ -203,18 +220,14 @@ impl NodeOps for InitramfsRamFileNodeOps {
     }
 
     fn getattr(&self) -> Result<INodeAttr> {
-        Ok(INodeAttr {
-            size: self.data.read().len(),
-            mode: Mode::FILE | Mode::RUSR | Mode::WUSR | Mode::RGRP | Mode::ROTH,
-            nlink: 1,
-            uid: 0,
-            gid: 0,
-            rdev: 0,
-        })
+        let mut attr = *self.attr.read();
+        attr.size = self.data.read().len();
+        Ok(attr)
     }
 
     fn setattr(&self, attr: &INodeAttr) -> Result<()> {
         self.data.write().resize(attr.size, 0);
+        *self.attr.write() = *attr;
         Ok(())
     }
 }
@@ -258,17 +271,18 @@ impl NodeOps for InitramfsDirNodeOps {
         static NEXT_INO: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(200_000);
         let ino = NEXT_INO.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
         let data = Arc::new(RwLock::new(Vec::new()));
+        let attr = INodeAttr {
+            size: 0,
+            mode,
+            nlink: 1,
+            uid: 0,
+            gid: 0,
+            rdev: 0,
+        };
         let node = Arc::new(INode::new_with_attr(
-            Box::new(InitramfsRamFileNodeOps { data }),
+            Box::new(InitramfsRamFileNodeOps::new_with_attr(data, attr)),
             ino,
-            INodeAttr {
-                size: 0,
-                mode,
-                nlink: 1,
-                uid: 0,
-                gid: 0,
-                rdev: 0,
-            },
+            attr,
         ));
         self.entries.write().insert(String::from(name), node.clone());
         Ok(node)
@@ -282,7 +296,7 @@ impl NodeOps for InitramfsDirNodeOps {
             Box::new(InitramfsDirNodeOps {
                 entries: dir_entries,
             }),
-            mode,
+            mode | Mode::DIR,
             ino,
         ));
         self.entries.write().insert(String::from(name), node.clone());
@@ -480,17 +494,18 @@ impl InitramfsFs {
                     }
                     _ => {
                         let ram_data = Arc::new(RwLock::new(Vec::from(entry.data)));
+                        let attr = INodeAttr {
+                            size: entry.data.len(),
+                            mode: Mode::FILE | Mode::RUSR | Mode::WUSR | Mode::XUSR | Mode::RGRP | Mode::XGRP | Mode::ROTH | Mode::XOTH,
+                            nlink: 1,
+                            uid: entry.uid,
+                            gid: entry.gid,
+                            rdev: 0,
+                        };
                         let file_node = Arc::new(INode::new_with_attr(
-                            Box::new(InitramfsRamFileNodeOps { data: ram_data }),
+                            Box::new(InitramfsRamFileNodeOps::new_with_attr(ram_data, attr)),
                             ino,
-                            INodeAttr {
-                                size: entry.data.len(),
-                                mode: Mode::FILE | Mode::RUSR | Mode::WUSR | Mode::XUSR | Mode::RGRP | Mode::XGRP | Mode::ROTH | Mode::XOTH,
-                                nlink: 1,
-                                uid: entry.uid,
-                                gid: entry.gid,
-                                rdev: 0,
-                            },
+                            attr,
                         ));
                         ino += 1;
                         count += 1;

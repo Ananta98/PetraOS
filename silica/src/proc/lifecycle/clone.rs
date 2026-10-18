@@ -18,7 +18,7 @@ use crate::{
         Proc,
         thread::{Thread, ThreadFlags, ThreadHooks, ThreadInner, ThreadState, build_task},
         types::{
-            pid::{Pid, alloc_tid},
+            pid::{Pid, Tid, alloc_tid},
             proc::ProcState,
             table::{PID_ALLOCATOR, allproc_insert},
         },
@@ -130,7 +130,7 @@ pub fn clone_proc(
     };
 
     // 8. Create child main thread and backing task
-    let child_tid = alloc_tid();
+    let child_tid = Tid::from_u32(child_pid.as_u32()).unwrap_or_else(alloc_tid);
     let child_proc_weak = Arc::downgrade(&child_proc);
     let child_vmar_clone = Arc::clone(&child_vmar);
 
@@ -284,7 +284,11 @@ pub fn create_user_thread(
     user_ctx: UserContext,
     nice: i8,
 ) -> Result<Arc<Thread>> {
-    let tid = alloc_tid();
+    let tid = if proc.inner.lock().threads.is_empty() {
+        Tid::from_u32(proc.pid.as_u32()).unwrap_or_else(alloc_tid)
+    } else {
+        alloc_tid()
+    };
     let vmar = proc.vmspace();
     let proc_weak = Arc::downgrade(proc);
     let name_buf = crate::proc::types::proc::comm_from_name(name);
