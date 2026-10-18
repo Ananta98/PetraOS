@@ -201,6 +201,7 @@ crate::impl_syscall_nums_and_dispatch_fn! {
     SYS_RENAMEAT2 = 316 => fs::sys_renameat2(i32, usize, i32, usize, u32);
     SYS_GETRANDOM = 318 => platform::sys_getrandom(usize, usize, u32);
     SYS_EXECVEAT = 322 => proc::sys_execveat(i32, usize, usize, usize, i32);
+    SYS_MEMBARRIER = 324 => sched::sys_membarrier(i32, u32, i32);
     SYS_COPY_FILE_RANGE = 326 => fs::sys_copy_file_range(i32, usize, i32, usize, usize, u32);
     SYS_PREADV2 = 327 => fs::sys_preadv2(i32, usize, usize, usize, usize, i32);
     SYS_PWRITEV2 = 328 => fs::sys_pwritev2(i32, usize, usize, usize, usize, i32);
