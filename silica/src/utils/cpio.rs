@@ -23,9 +23,11 @@ pub enum FileType {
 pub struct CpioEntry<'a> {
     pub name: &'a str,
     pub data: &'a [u8],
+    pub ino: u32,
     pub mode: u32,
     pub uid: u32,
     pub gid: u32,
+    pub nlink: u32,
     pub mtime: u32,
     pub filesize: u32,
     pub file_type: FileType,
@@ -61,6 +63,10 @@ impl<'a> Iterator for CpioArchive<'a> {
             return Some(Err(CpioError::InvalidMagic));
         }
 
+        let ino = match Self::parse_hex(&header[6..14]) {
+            Ok(v) => v,
+            Err(e) => return Some(Err(e)),
+        };
         let mode = match Self::parse_hex(&header[14..22]) {
             Ok(v) => v,
             Err(e) => return Some(Err(e)),
@@ -70,6 +76,10 @@ impl<'a> Iterator for CpioArchive<'a> {
             Err(e) => return Some(Err(e)),
         };
         let gid = match Self::parse_hex(&header[30..38]) {
+            Ok(v) => v,
+            Err(e) => return Some(Err(e)),
+        };
+        let nlink = match Self::parse_hex(&header[38..46]) {
             Ok(v) => v,
             Err(e) => return Some(Err(e)),
         };
@@ -124,9 +134,11 @@ impl<'a> Iterator for CpioArchive<'a> {
         let entry = CpioEntry {
             name,
             data: &self.data[data_start..data_end],
+            ino,
             mode,
             uid,
             gid,
+            nlink,
             mtime,
             filesize,
             file_type,

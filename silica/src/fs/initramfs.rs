@@ -401,6 +401,12 @@ impl InitramfsFs {
             let mut dir_map: BTreeMap<String, Arc<RwLock<BTreeMap<String, Arc<INode>>>>> = BTreeMap::new();
             dir_map.insert(String::new(), Arc::clone(&root_entries));
 
+            // Maps a CPIO inode number to the shared data buffer of a hard-linked
+            // regular file. newc archives store the payload on only one of the
+            // links and emit the other links as zero-length references, so all
+            // links must share (and be back-filled through) a single buffer.
+            let mut hardlinks: BTreeMap<u32, Arc<RwLock<Vec<u8>>>> = BTreeMap::new();
+
             for entry in archive.flatten() {
                 let clean = entry.name.trim_start_matches('.').trim_start_matches('/');
                 if clean.is_empty() {
@@ -493,20 +499,39 @@ impl InitramfsFs {
                         }
                     }
                     _ => {
-                        let ram_data = Arc::new(RwLock::new(Vec::from(entry.data)));
                         let attr = INodeAttr {
                             size: entry.data.len(),
                             mode: Mode::FILE | Mode::RUSR | Mode::WUSR | Mode::XUSR | Mode::RGRP | Mode::XGRP | Mode::ROTH | Mode::XOTH,
-                            nlink: 1,
+                            nlink: (entry.nlink.max(1)) as usize,
                             uid: entry.uid,
                             gid: entry.gid,
                             rdev: 0,
                         };
-                        let file_node = Arc::new(INode::new_with_attr(
-                            Box::new(InitramfsRamFileNodeOps::new_with_attr(ram_data, attr)),
-                            ino,
-                            attr,
-                        ));
+
+                        let file_node = if entry.file_type == FileType::File && entry.nlink > 1 {
+                            // Share one buffer between every link with this inode
+                            // number so a payload carried by any link becomes
+                            // visible through all of them.
+                            let shared = hardlinks
+                                .entry(entry.ino)
+                                .or_insert_with(|| Arc::new(RwLock::new(Vec::new())))
+                                .clone();
+                            if !entry.data.is_empty() {
+                                *shared.write() = Vec::from(entry.data);
+                            }
+                            Arc::new(INode::new_with_attr(
+                                Box::new(InitramfsRamFileNodeOps::new_with_attr(shared, attr)),
+                                ino,
+                                attr,
+                            ))
+                        } else {
+                            let ram_data = Arc::new(RwLock::new(Vec::from(entry.data)));
+                            Arc::new(INode::new_with_attr(
+                                Box::new(InitramfsRamFileNodeOps::new_with_attr(ram_data, attr)),
+                                ino,
+                                attr,
+                            ))
+                        };
                         ino += 1;
                         count += 1;
 

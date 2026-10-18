@@ -184,6 +184,7 @@ crate::impl_syscall_nums_and_dispatch_fn! {
     SYS_PPOLL = 271 => fs::sys_ppoll(usize, usize, usize, usize, usize);
     SYS_UTIMENSAT = 280 => fs::sys_utimensat(i32, usize, usize, i32);
     SYS_EPOLL_PWAIT = 281 => fs::sys_epoll_pwait(i32, usize, i32, i32, usize, usize);
+    SYS_FALLOCATE = 285 => fs::sys_fallocate(i32, i32, i64, i64);
     SYS_ACCEPT4 = 288 => net::sys_accept4(i32, usize, usize, i32);
     SYS_EPOLL_CREATE1 = 291 => fs::sys_epoll_create1(i32);
     SYS_DUP3 = 292 => fs::sys_dup3(i32, i32, i32);

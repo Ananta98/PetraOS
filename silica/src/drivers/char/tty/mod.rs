@@ -2,10 +2,11 @@
 
 //! TTY Subsystem.
 //!
-//! Based on Zinnia TTY subsystem design and POSIX/Linux TTY standards.
+//! Based on TTY subsystem design and POSIX/Linux TTY standards.
 //! Integrates line discipline, termios, session job control, pseudo-terminals,
 //! and hardware display drivers.
 
+pub mod font;
 pub mod ldisc;
 pub mod pty;
 pub mod terminal;

@@ -6,8 +6,10 @@
 //! rendering directly to the physical linear framebuffer.
 
 use alloc::{boxed::Box, sync::Arc};
-use os_terminal::{font::BitmapFont, DrawTarget, Rgb, Terminal};
+use os_terminal::{DrawTarget, Rgb, Terminal};
 use spin::Mutex;
+
+use super::font::ConsoleFont;
 
 use crate::{
     api::termios::winsize,
@@ -84,7 +86,7 @@ fn ensure_terminal(term_guard: &mut Option<Terminal<FramebufferDisplay>>) {
     if term_guard.is_none() {
         if let Some(fb) = get_framebuffer() {
             let display = FramebufferDisplay::new(fb);
-            let mut terminal = Terminal::new(display, Box::new(BitmapFont));
+            let mut terminal = Terminal::new(display, Box::new(ConsoleFont::new()));
             terminal.set_pty_writer(Box::new(|resp: &str| {
                 for b in resp.bytes() {
                     crate::drivers::char::tty::queue_input(b);
@@ -93,7 +95,7 @@ fn ensure_terminal(term_guard: &mut Option<Terminal<FramebufferDisplay>>) {
             // Default to steady block cursor (DECSCUSR 2)
             terminal.process(b"\x1b[2 q");
             *term_guard = Some(terminal);
-            ostd::info!("TTY Terminal: Initialized with os-terminal and BitmapFont");
+            ostd::info!("TTY Terminal: Initialized with os-terminal and ConsoleFont");
         }
     }
 }
@@ -163,7 +165,7 @@ mod tests {
             width: 1280,
             height: 800,
         };
-        let mut term = Terminal::new(display, Box::new(BitmapFont));
+        let mut term = Terminal::new(display, Box::new(ConsoleFont::new()));
         let reply_sink = Arc::clone(&last_reply);
         term.set_pty_writer(Box::new(move |s: &str| {
             *reply_sink.lock() = Some(String::from(s));
