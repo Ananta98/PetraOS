@@ -195,6 +195,25 @@ pub static STATIC_PROC_ENTRIES: &[StaticDirEntry] = &[
             ))
         },
     },
+    StaticDirEntry {
+        name: "loadavg",
+        ino: 109,
+        is_dir: false,
+        constructor: || {
+            Arc::new(INode::new_with_attr(
+                Box::new(ProcFileNodeOps::new_ro(CallbackProcFileOps::new(generate_loadavg))),
+                109,
+                INodeAttr {
+                    size: 0,
+                    mode: Mode::FILE | Mode::RUSR | Mode::RGRP | Mode::ROTH,
+                    nlink: 1,
+                    uid: 0,
+                    gid: 0,
+                    rdev: 0,
+                },
+            ))
+        },
+    },
 ];
 
 /// `/proc` root directory node operations.

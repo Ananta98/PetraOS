@@ -4,6 +4,7 @@
 
 pub mod cmdline;
 pub mod cpuinfo;
+pub mod loadavg;
 pub mod meminfo;
 pub mod mounts;
 pub mod stat;
@@ -12,6 +13,7 @@ pub mod version;
 
 pub use cmdline::generate_cmdline;
 pub use cpuinfo::generate_cpuinfo;
+pub use loadavg::generate_loadavg;
 pub use meminfo::generate_meminfo;
 pub use mounts::generate_mounts;
 pub use stat::generate_stat;

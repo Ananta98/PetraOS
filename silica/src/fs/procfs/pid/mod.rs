@@ -3,11 +3,14 @@
 //! Per-process (`/proc/<pid>/`) dynamic hierarchy.
 
 pub mod cmdline;
+pub mod comm;
 pub mod cwd;
 pub mod exe;
 pub mod fd;
 pub mod stat;
+pub mod statm;
 pub mod status;
+pub mod task;
 
 use alloc::{boxed::Box, string::String, sync::Arc, vec::Vec};
 
@@ -21,11 +24,14 @@ use crate::{
 };
 
 pub use cmdline::generate_proc_cmdline;
+pub use comm::generate_proc_comm;
 pub use cwd::ProcPidCwdSymlinkOps;
 pub use exe::ProcPidExeSymlinkOps;
 pub use fd::{ProcFdSymlinkOps, ProcPidFdDirFileOps, ProcPidFdDirOps};
-pub use stat::generate_proc_stat;
+pub use stat::{generate_proc_stat, generate_proc_stat_for_task};
+pub use statm::generate_proc_statm;
 pub use status::generate_proc_status;
+pub use task::ProcPidTaskDirOps;
 
 // Tags for deterministic per-process inode addressing: ((pid << 16) | tag)
 pub const TAG_DIR: u16 = 0x0000;
@@ -35,6 +41,9 @@ pub const TAG_MOUNTS: u16 = 0x0003;
 pub const TAG_CMDLINE: u16 = 0x0004;
 pub const TAG_STATUS: u16 = 0x0005;
 pub const TAG_STAT: u16 = 0x0006;
+pub const TAG_STATM: u16 = 0x0007;
+pub const TAG_COMM: u16 = 0x0008;
+pub const TAG_TASK_DIR: u16 = 0x0009;
 pub const TAG_FD_DIR: u16 = 0x0010;
 
 #[inline]
@@ -161,6 +170,59 @@ impl NodeOps for ProcPidDirOps {
                     },
                 )))
             }
+            "statm" => {
+                let pid = self.pid;
+                Ok(Arc::new(INode::new_with_attr(
+                    Box::new(ProcFileNodeOps::new_ro(CallbackProcFileOps::new(move || {
+                        if let Some(p) = allproc_find(pid) {
+                            generate_proc_statm(&p)
+                        } else {
+                            Vec::new()
+                        }
+                    }))),
+                    pid_ino(self.pid, TAG_STATM),
+                    INodeAttr {
+                        size: 0,
+                        mode: Mode::FILE | Mode::RUSR | Mode::RGRP | Mode::ROTH,
+                        nlink: 1,
+                        uid: 0,
+                        gid: 0,
+                        rdev: 0,
+                    },
+                )))
+            }
+            "comm" => {
+                let pid = self.pid;
+                Ok(Arc::new(INode::new_with_attr(
+                    Box::new(ProcFileNodeOps::new_ro(CallbackProcFileOps::new(move || {
+                        if let Some(p) = allproc_find(pid) {
+                            generate_proc_comm(&p)
+                        } else {
+                            Vec::new()
+                        }
+                    }))),
+                    pid_ino(self.pid, TAG_COMM),
+                    INodeAttr {
+                        size: 0,
+                        mode: Mode::FILE | Mode::RUSR | Mode::RGRP | Mode::ROTH,
+                        nlink: 1,
+                        uid: 0,
+                        gid: 0,
+                        rdev: 0,
+                    },
+                )))
+            }
+            "task" => Ok(Arc::new(INode::new(
+                Box::new(ProcPidTaskDirOps { pid: self.pid }),
+                Mode::DIR
+                    | Mode::RUSR
+                    | Mode::XUSR
+                    | Mode::RGRP
+                    | Mode::XGRP
+                    | Mode::ROTH
+                    | Mode::XOTH,
+                pid_ino(self.pid, TAG_TASK_DIR),
+            ))),
             "fd" => Ok(Arc::new(INode::new(
                 Box::new(ProcPidFdDirOps { pid: self.pid }),
                 Mode::DIR
@@ -213,6 +275,6 @@ impl FileOps for ProcPidDirFileOps {
     }
 
     fn readdir(&self) -> Result<Vec<u8>> {
-        Ok(b".\n..\nexe\ncwd\ncmdline\nstatus\nstat\nmounts\nfd\n".to_vec())
+        Ok(b".\n..\nexe\ncwd\ncmdline\nstatus\nstat\nstatm\ncomm\ntask\nmounts\nfd\n".to_vec())
     }
 }

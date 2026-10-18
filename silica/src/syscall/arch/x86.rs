@@ -148,6 +148,7 @@ crate::impl_syscall_nums_and_dispatch_fn! {
     SYS_INIT_MODULE = 175 => platform::sys_init_module(usize, usize, usize);
     SYS_DELETE_MODULE = 176 => platform::sys_delete_module(usize, i32);
     SYS_GETTID = 186 => proc::sys_gettid();
+    SYS_TKILL = 200 => signals::sys_tkill(i32, i32);
     SYS_TIME = 201 => time::sys_time(usize);
     SYS_FUTEX = 202 => sync::sys_futex(usize, i32, u32, usize, usize, u32);
     SYS_SCHED_SETAFFINITY = 203 => sched::sys_sched_setaffinity(i32, usize, usize);
