@@ -52,12 +52,22 @@ impl SocketAddress {
     }
 }
 
-/// Allocates a randomized ephemeral port in the dynamic range [49152, 65535] per RFC 6056.
+static NEXT_EPHEMERAL_PORT: core::sync::atomic::AtomicU16 =
+    core::sync::atomic::AtomicU16::new(49152);
+
+/// Allocates an ephemeral port in the dynamic range [49152, 65535] per RFC 6056.
+///
+/// Uses an atomic monotonic counter to prevent port collisions between consecutive connections.
 pub fn alloc_ephemeral_port() -> u16 {
-    let mut bytes = [0u8; 2];
-    crate::crypto::get_random_bytes(&mut bytes);
-    let offset = u16::from_ne_bytes(bytes) % 16384;
-    49152 + offset
+    let port = NEXT_EPHEMERAL_PORT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+    if port >= 65530 {
+        NEXT_EPHEMERAL_PORT.store(49152, core::sync::atomic::Ordering::Relaxed);
+    }
+    if port < 49152 {
+        49152
+    } else {
+        port
+    }
 }
 
 /// Unidirectional byte channel used for Unix socket pairs.
@@ -608,9 +618,7 @@ impl KernelSocket {
 
                 if socket.can_send() {
                     let sent = socket.send_slice(data).map_err(|_| Errno::ENOBUFS)?;
-                    let state = socket.state();
                     net.poll();
-                    ostd::info!("send: TCP sent {} bytes (state={:?})", sent, state);
                     return Ok(sent);
                 }
 
@@ -742,7 +750,6 @@ impl KernelSocket {
 
                 if socket.can_recv() {
                     let n = socket.recv_slice(buf).map_err(|_| Errno::EIO)?;
-                    ostd::info!("recv: TCP recv {} bytes (state={:?})", n, socket.state());
                     return Ok(n);
                 }
 
@@ -1040,12 +1047,14 @@ impl KernelSocket {
                 let mut net = NET_MANAGER.lock();
                 let socket = net.get_sockets().get_mut::<TcpSocket>(handle);
                 socket.abort();
+                net.poll();
                 net.remove_socket(handle);
             }
             SocketKind::Udp(handle) => {
                 let mut net = NET_MANAGER.lock();
                 let socket = net.get_sockets().get_mut::<UdpSocket>(handle);
                 socket.close();
+                net.poll();
                 net.remove_socket(handle);
             }
             SocketKind::Unix(ref end) => {

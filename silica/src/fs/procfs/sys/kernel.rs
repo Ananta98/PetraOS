@@ -20,7 +20,7 @@ pub fn get_hostname() -> String {
     HOSTNAME
         .read()
         .clone()
-        .unwrap_or_else(|| String::from("silica"))
+        .unwrap_or_else(|| String::from("petraos"))
 }
 
 /// Sets the system hostname.

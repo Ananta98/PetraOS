@@ -62,11 +62,15 @@ impl Device for SmolNetDevice {
     type TxToken<'a> = SmolTxToken where Self: 'a;
 
     fn receive(&mut self, _timestamp: Instant) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
-        let mut buf = vec![0u8; self.dev.mtu() + 18];
+        if !self.dev.can_receive() {
+            return None;
+        }
+        let mut buf = [0u8; 2048];
         match self.dev.receive(&mut buf) {
             Ok(n) if n > 0 => {
-                buf.truncate(n);
-                let rx = SmolRxToken { buffer: buf };
+                let rx = SmolRxToken {
+                    buffer: buf[..n].to_vec(),
+                };
                 let tx = SmolTxToken {
                     dev: Arc::clone(&self.dev),
                 };

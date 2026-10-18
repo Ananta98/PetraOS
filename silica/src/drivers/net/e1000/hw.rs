@@ -2,8 +2,8 @@
 
 //! Intel e1000 Hardware Descriptors and Memory Structures.
 
-pub const NUM_RX_DESCRIPTORS: usize = 64;
-pub const NUM_TX_DESCRIPTORS: usize = 64;
+pub const NUM_RX_DESCRIPTORS: usize = 128;
+pub const NUM_TX_DESCRIPTORS: usize = 128;
 pub const RX_BUFFER_SIZE: usize = 2048;
 pub const TX_BUFFER_SIZE: usize = 2048;
 

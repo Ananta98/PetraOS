@@ -24,6 +24,11 @@ pub trait NetDevice: Send + Sync {
     /// Transmit an Ethernet frame.
     fn transmit(&self, packet: &[u8]) -> Result<()>;
 
+    /// Whether the device currently has at least one packet waiting to be received.
+    fn can_receive(&self) -> bool {
+        true
+    }
+
     /// Receive an Ethernet frame into the buffer, returning the number of bytes read.
     /// Returns Ok(0) if no packet is currently available.
     fn receive(&self, buf: &mut [u8]) -> Result<usize>;

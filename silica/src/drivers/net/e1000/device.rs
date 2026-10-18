@@ -235,6 +235,20 @@ impl NetDevice for E1000Device {
         Ok(())
     }
 
+    fn can_receive(&self) -> bool {
+        let rings = self.rings.lock();
+        let cur = rings.rx_cur;
+        let desc_offset = cur * size_of::<RxDesc>();
+        let mut desc_reader = rings.rx_dma.reader();
+        desc_reader.skip(desc_offset);
+        if let Ok(desc_bytes) = desc_reader.read_val::<[u8; 16]>() {
+            let desc = RxDesc::from_bytes(desc_bytes);
+            (desc.status & RDESC_STAT_DD) != 0
+        } else {
+            false
+        }
+    }
+
     fn receive(&self, buf: &mut [u8]) -> Result<usize> {
         let mut rings = self.rings.lock();
         let cur = rings.rx_cur;
