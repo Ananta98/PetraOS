@@ -2,7 +2,10 @@
 # Assemble the PetraOS amd64 userland from an official Alpine minirootfs and
 # prebuilt package layers, then hand the staging root to the initramfs packer.
 #
-# Usage: build-userland-amd64.sh
+# Usage: build-userland-amd64.sh [--fresh] [--purge-cache]
+#
+#   --fresh        remove existing userland artifacts before rebuilding
+#   --purge-cache  with --fresh, also drop the download cache and re-fetch Alpine
 #
 # Environment:
 #   PETRAOS_USERLAND_PACKAGES  space separated prebuild-package layer names
@@ -30,6 +33,30 @@ PACKAGES="${PETRAOS_USERLAND_PACKAGES:-bash gawk grep sed btop fastfetch htop op
 PETRAOS_VERSION="${PETRAOS_VERSION:-0.1.0}"
 SUPPORT_DIR="${REPO_ROOT}/scripts/build-support"
 PREBUILD_DIR="${REPO_ROOT}/scripts/prebuild-package"
+
+FRESH=0
+PURGE_CACHE=0
+
+for arg in "$@"; do
+    case "$arg" in
+        --fresh) FRESH=1 ;;
+        --purge-cache) PURGE_CACHE=1 ;;
+        -h|--help)
+            sed -n '2,/^set -/s/^# \{0,1\}//p' "$0"
+            exit 0
+            ;;
+        *)
+            echo "ERROR: unknown option: $arg" >&2
+            exit 1
+            ;;
+    esac
+done
+
+if [ "${FRESH}" -eq 1 ]; then
+    clean_args=(--userland)
+    [ "${PURGE_CACHE}" -eq 1 ] && clean_args+=(--cache)
+    "${SCRIPT_DIR}/../clean.sh" "${clean_args[@]}"
+fi
 
 for tool in curl tar file; do
     command -v "$tool" >/dev/null 2>&1 || {
