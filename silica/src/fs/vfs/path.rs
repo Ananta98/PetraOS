@@ -5,11 +5,11 @@
 use alloc::sync::Arc;
 use bitflags::bitflags;
 
-use crate::api::errno::{Errno, Result};
 use super::dcache::DEntry;
 use super::file::{File, OpenFlags};
 use super::mount::PathNode;
-use super::perms::{check_permission, current_cred, AccessFlags};
+use super::perms::{AccessFlags, check_permission, current_cred};
+use crate::api::errno::{Errno, Result};
 
 bitflags! {
     /// Flags for path lookup operations.
@@ -26,12 +26,7 @@ bitflags! {
 pub const MAX_SYMLINK_DEPTH: usize = 40;
 
 /// Resolves a path string starting from a base directory or root.
-pub fn lookup(
-    root: PathNode,
-    start: PathNode,
-    path: &str,
-    flags: LookupFlags,
-) -> Result<PathNode> {
+pub fn lookup(root: PathNode, start: PathNode, path: &str, flags: LookupFlags) -> Result<PathNode> {
     if path.is_empty() {
         return Err(Errno::ENOENT);
     }
@@ -121,7 +116,8 @@ fn lookup_inner(
                             return Err(Errno::ENOENT);
                         }
                         // Relative targets resolve against the symlink's parent directory.
-                        current = lookup_inner(root, current, &target, LookupFlags::empty(), depth)?;
+                        current =
+                            lookup_inner(root, current, &target, LookupFlags::empty(), depth)?;
                         continue;
                     }
                 }
@@ -189,7 +185,10 @@ pub fn open_at(
     if flags.contains(OpenFlags::WRITE) || flags.contains(OpenFlags::TRUNC) {
         access |= AccessFlags::WRITE;
     }
-    let attr = inode.node_ops.getattr().unwrap_or_else(|_| *inode.attr.read());
+    let attr = inode
+        .node_ops
+        .getattr()
+        .unwrap_or_else(|_| *inode.attr.read());
     check_permission(&attr, &current_cred(), access)?;
 
     let ops = inode.node_ops.open(flags)?;
@@ -220,5 +219,10 @@ pub fn open(path: &str, flags: OpenFlags) -> Result<Arc<File>> {
     } else {
         root.clone()
     };
-    open_at(start, path, flags, super::inode::Mode::from_bits_truncate(0o666))
+    open_at(
+        start,
+        path,
+        flags,
+        super::inode::Mode::from_bits_truncate(0o666),
+    )
 }

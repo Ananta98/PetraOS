@@ -2,25 +2,19 @@
 
 //! ExFAT Filesystem driver and VFS integration.
 
-use alloc::{
-    boxed::Box,
-    sync::Arc,
-    vec,
-    vec::Vec,
-};
+use alloc::{boxed::Box, sync::Arc, vec, vec::Vec};
 
 use crate::{
-    drivers::block::BlockDevice,
     api::errno::{Errno, Result},
+    drivers::block::BlockDevice,
     fs::{
         exfat::{
             boot_sector::ExFatBootSector,
             cluster::ClusterManager,
-            entry::{parse_directory, ExFatFileEntry},
+            entry::{ExFatFileEntry, parse_directory},
         },
         vfs::{
-            FileOps, FileSystem, INode, INodeAttr, Mode, NodeOps, OpenFlags, SeekAnchor,
-            StatFs,
+            FileOps, FileSystem, INode, INodeAttr, Mode, NodeOps, OpenFlags, SeekAnchor, StatFs,
         },
     },
 };
@@ -76,7 +70,8 @@ impl ExFatFs {
         let mut visited = 0;
 
         while visited < 1024 {
-            self.cluster_mgr.read_cluster(curr_cluster, &mut cluster_buf)?;
+            self.cluster_mgr
+                .read_cluster(curr_cluster, &mut cluster_buf)?;
             dir_bytes.extend_from_slice(&cluster_buf);
 
             // Check if end of directory marker exists in this cluster

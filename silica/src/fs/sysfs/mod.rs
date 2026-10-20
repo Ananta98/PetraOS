@@ -2,102 +2,57 @@
 
 //! System Filesystem (`/sys`).
 //!
-//! Provides the sysfs pseudo-filesystem exporting device, driver, and kernel subsystem
-//! information to userspace according to standard Linux hierarchy.
+//! Exports device, driver, and kernel-subsystem information to user space
+//! in the standard Linux hierarchy. Layout — matching the Asterinas sysfs
+//! reference (`kernel/core/src/fs/fs_impls/sysfs`):
+//!
+//! - [`fs`] — the `FileSystem` instance mounted at `/sys`,
+//! - [`kobject`] — the kernel object tree backing registrations,
+//! - [`inode`] — the VFS projection of the tree,
+//! - [`kernel`] — fixed `/sys/kernel` attributes,
+//! - [`block`] — the `/sys/block` and `/sys/class/block` subsystem.
+//!
+//! Content registration is boot-time work ([`init`]); mounting never
+//! mutates the tree.
 
+pub mod block;
+pub mod fs;
 pub mod inode;
 pub mod kernel;
 pub mod kobject;
 
-use alloc::{boxed::Box, sync::Arc};
-
-use crate::{
-    api::errno::Result,
-    fs::vfs::{FileSystem, INode, INodeAttr, Mode, StatFs},
-};
-
-pub use inode::{
-    SysFsAttrFileOps, SysFsAttrNodeOps, SysFsDirFileOps, SysFsDirNodeOps, SysFsSymlinkNodeOps,
-};
-pub use kernel::init_kernel_subsystem;
+pub use fs::SysFs;
+pub use inode::{SysFsAttrNodeOps, SysFsDirFileOps, SysFsDirNodeOps, SysFsSymlinkNodeOps};
 pub use kobject::{
-    sys_tree, SysAttrNode, SysAttrRwNode, SysDirNode, SysNode, SysStaticAttrNode, SysSymlinkNode,
-    SysTree,
+    SysAttrNode, SysAttrRwNode, SysDirNode, SysNode, SysStaticAttrNode, SysSymlinkNode, SysTree,
+    sys_tree,
 };
 
-/// The SysFS pseudo-filesystem.
-pub struct SysFs {
-    root: Arc<INode>,
-}
-
-impl SysFs {
-    /// Constructs a populated SysFs hierarchy based on the global `SysTree`.
-    pub fn new() -> Self {
-        init_kernel_subsystem();
-        let tree = sys_tree();
-        let root_inode = Arc::new(INode::new_with_attr(
-            Box::new(SysFsDirNodeOps::new(Arc::clone(&tree.root_dir) as Arc<dyn SysNode>)),
-            tree.root_dir.ino(),
-            INodeAttr {
-                size: 0,
-                mode: Mode::DIR
-                    | Mode::RUSR
-                    | Mode::XUSR
-                    | Mode::RGRP
-                    | Mode::XGRP
-                    | Mode::ROTH
-                    | Mode::XOTH,
-                nlink: 2,
-                uid: 0,
-                gid: 0,
-                rdev: 0,
-            },
-        ));
-
-        Self { root: root_inode }
-    }
-}
-
-impl Default for SysFs {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl FileSystem for SysFs {
-    fn name(&self) -> &'static str {
-        "sysfs"
-    }
-
-    fn root(&self) -> Result<Arc<INode>> {
-        Ok(Arc::clone(&self.root))
-    }
-
-    fn statfs(&self) -> Result<StatFs> {
-        Ok(StatFs {
-            bsize: 4096,
-            blocks: 0,
-            bfree: 0,
-            bavail: 0,
-            files: 0,
-            ffree: 0,
-            namelen: 255,
-        })
-    }
+/// Registers the fixed sysfs content; called once from `fs::init`.
+///
+/// Idempotent by design — subsystems may be mounted before or after
+/// user-space mounts, and repeated calls only re-seed static attributes.
+pub fn init() {
+    kernel::init();
 }
 
 #[cfg(ktest)]
 mod tests {
     use super::*;
-    use crate::fs::vfs::OpenFlags;
-    use alloc::vec::Vec;
+    use crate::fs::vfs::fs::FileSystem;
+    use crate::fs::vfs::{INode, OpenFlags};
+    use alloc::{sync::Arc, vec::Vec};
     use ostd::prelude::ktest;
     use spin::RwLock;
 
+    fn root() -> Arc<INode> {
+        init();
+        SysFs::new().root().expect("sysfs root")
+    }
+
     #[ktest]
     fn sysfs_hierarchy_and_synthetic_files() {
-        let sysfs = SysFs::new();
-        let root = sysfs.root().expect("sysfs root");
+        let root = root();
 
         // Verify /sys/class, /sys/devices, /sys/kernel exist
         let class = root.node_ops.lookup("class").expect("lookup class");
@@ -109,7 +64,10 @@ mod tests {
         assert!(kernel.is_dir());
 
         // Verify /sys/kernel/uevent_seqnum content
-        let uevent = kernel.node_ops.lookup("uevent_seqnum").expect("lookup uevent");
+        let uevent = kernel
+            .node_ops
+            .lookup("uevent_seqnum")
+            .expect("lookup uevent");
         let file_ops = uevent.node_ops.open(OpenFlags::READ).expect("open uevent");
         let mut buf = [0u8; 16];
         let n = file_ops.read(0, &mut buf).expect("read uevent");
@@ -142,7 +100,9 @@ mod tests {
         let _ = eth.add_symlink("device", "../../../devices/virtual");
 
         // Register via SysTree::register_device_class
-        SysTree::register_device_class("net", "eth_test", eth).expect("register eth_test");
+        SysTree::register_device_class("net", "eth_test", Arc::clone(&eth) as Arc<dyn SysNode>)
+            .expect("register eth_test");
+        let _ = &eth;
 
         // Now lookup through VFS
         let sysfs = SysFs::new();
@@ -154,13 +114,19 @@ mod tests {
 
         // Read address attribute
         let addr_node = eth_test.node_ops.lookup("address").expect("lookup address");
-        let addr_file = addr_node.node_ops.open(OpenFlags::READ).expect("open address");
+        let addr_file = addr_node
+            .node_ops
+            .open(OpenFlags::READ)
+            .expect("open address");
         let mut buf = [0u8; 32];
         let n = addr_file.read(0, &mut buf).expect("read address");
         assert_eq!(&buf[..n], b"02:00:00:12:34:56\n");
 
         // Read initial operstate
-        let state_node = eth_test.node_ops.lookup("operstate").expect("lookup operstate");
+        let state_node = eth_test
+            .node_ops
+            .lookup("operstate")
+            .expect("lookup operstate");
         let state_file = state_node
             .node_ops
             .open(OpenFlags::READ | OpenFlags::WRITE)
@@ -173,12 +139,18 @@ mod tests {
         state_file.write(0, b"up\n").expect("write operstate");
 
         // Re-read operstate to verify it updated
-        let state_file2 = state_node.node_ops.open(OpenFlags::READ).expect("open operstate 2");
+        let state_file2 = state_node
+            .node_ops
+            .open(OpenFlags::READ)
+            .expect("open operstate 2");
         let sn2 = state_file2.read(0, &mut sbuf).expect("read operstate 2");
         assert_eq!(&sbuf[..sn2], b"up\n");
 
         // Verify symlink
-        let dev_link = eth_test.node_ops.lookup("device").expect("lookup device symlink");
+        let dev_link = eth_test
+            .node_ops
+            .lookup("device")
+            .expect("lookup device symlink");
         assert!(dev_link.is_symlink());
         let target = dev_link.node_ops.readlink().expect("readlink");
         assert_eq!(target, "../../../devices/virtual");

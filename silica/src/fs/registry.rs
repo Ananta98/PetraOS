@@ -5,23 +5,17 @@
 //! Provides registration for filesystem drivers (e.g. `ext2`, `exfat`) loaded
 //! via kernel modules and helpers to mount block devices into the VFS namespace.
 
-use alloc::{
-    collections::btree_map::BTreeMap,
-    format,
-    string::String,
-    sync::Arc,
-    vec::Vec,
-};
+use alloc::{collections::btree_map::BTreeMap, string::String, sync::Arc, vec::Vec};
 use spin::Mutex;
 
 use crate::{
-    drivers::block::{get_block_device, list_block_devices, BlockDevice},
     api::errno::{Errno, Result},
+    drivers::block::{BlockDevice, get_block_device},
     fs::vfs::{
+        FileSystem, LookupFlags,
         dcache::DEntry,
         lookup,
-        mount::{root, Mount, PathNode},
-        FileSystem, LookupFlags,
+        mount::{Mount, PathNode, register_mount, root},
     },
 };
 
@@ -74,7 +68,12 @@ pub fn mount_device(target_path: &str, dev_name: &str, fstype: &str) -> Result<P
     let root_inode = fs_instance.root()?;
 
     let root_node = root()?;
-    let target_node = lookup(root_node.clone(), root_node, target_path, LookupFlags::DIRECTORY)?;
+    let target_node = lookup(
+        root_node.clone(),
+        root_node,
+        target_path,
+        LookupFlags::DIRECTORY,
+    )?;
 
     let mount_dentry = Arc::new(DEntry::new(
         String::from(target_path.trim_end_matches('/')),
@@ -84,6 +83,8 @@ pub fn mount_device(target_path: &str, dev_name: &str, fstype: &str) -> Result<P
 
     let new_mount = Arc::new(Mount::new(Arc::clone(&mount_dentry), fs_instance));
     target_node.mount(new_mount.clone())?;
+
+    register_mount(dev_name, target_path, fstype, "ro,relatime");
 
     ostd::info!(
         "VFS: Successfully mounted {} ({}) at \"{}\"",
@@ -96,61 +97,4 @@ pub fn mount_device(target_path: &str, dev_name: &str, fstype: &str) -> Result<P
         mount: new_mount,
         dentry: mount_dentry,
     })
-}
-
-/// Automatically attempts to probe and mount any discovered block devices.
-pub fn auto_probe_and_mount() {
-    let devices = list_block_devices();
-    if devices.is_empty() {
-        return;
-    }
-
-    let drivers = {
-        let reg = FS_REGISTRY.lock();
-        reg.values().cloned().collect::<Vec<_>>()
-    };
-
-    for dev_name in devices {
-        if let Some(dev) = get_block_device(&dev_name) {
-            for driver in &drivers {
-                match driver.mount(Arc::clone(&dev)) {
-                    Ok(fs_instance) => {
-                        let mount_point = format!("/mnt/{}", dev_name);
-                        ostd::info!(
-                            "VFS: Detected \"{}\" on {} ({} MB)",
-                            driver.name(),
-                            dev_name,
-                            dev.capacity() / (1024 * 1024)
-                        );
-
-                        // Attempt to mount on /mnt if directory exists or at /data
-                        if let Ok(root_node) = root() {
-                            if let Ok(target_node) = lookup(
-                                root_node.clone(),
-                                root_node,
-                                &mount_point,
-                                LookupFlags::DIRECTORY,
-                            ) {
-                                if let Ok(root_inode) = fs_instance.root() {
-                                    let mount_dentry = Arc::new(DEntry::new(
-                                        mount_point.clone(),
-                                        Some(root_inode),
-                                        Some(Arc::downgrade(&target_node.dentry)),
-                                    ));
-                                    let new_mount =
-                                        Arc::new(Mount::new(Arc::clone(&mount_dentry), fs_instance));
-                                    let _ = target_node.mount(new_mount);
-                                    ostd::info!("VFS: Auto-mounted {} on {}", dev_name, mount_point);
-                                }
-                            }
-                        }
-                        break;
-                    }
-                    Err(_) => {
-                        // Driver could not mount this device, try next driver
-                    }
-                }
-            }
-        }
-    }
 }

@@ -1,39 +1,43 @@
 // SPDX-License-Identifier: GPL-2.0
 
-//! Per-process (`/proc/<pid>/`) dynamic hierarchy.
+//! Per-process `/proc/<pid>/` hierarchy.
+//!
+//! One directory per live process with a fixed set of entries; the same
+//! layout is exposed a second time under `task/<tid>/` (see [`task`]), so a
+//! shared builder ([`shared_pid_entry`]) constructs every common entry.
+//! Enumeration follows the single `PID_ENTRIES` table so lookup and
+//! `readdir` cannot disagree, mirroring the Asterinas entry-table pattern.
 
 pub mod cmdline;
 pub mod comm;
 pub mod cwd;
 pub mod exe;
 pub mod fd;
+pub mod io;
 pub mod stat;
 pub mod statm;
 pub mod status;
 pub mod task;
 
-use alloc::{boxed::Box, string::String, sync::Arc, vec::Vec};
+use alloc::{string::String, sync::Arc, vec::Vec};
 
 use crate::{
     api::errno::{Errno, Result},
-    fs::{
-        procfs::template::{CallbackProcFileOps, ProcFileNodeOps, ProcSymNodeOps, ProcSymOps},
-        vfs::{FileOps, INode, INodeAttr, Mode, NodeOps, OpenFlags},
-    },
-    proc::{allproc_find, Pid},
+    fs::procfs::template::{ProcDirOps, ProcSymOps, dir_node, file_node, sym_node},
+    fs::vfs::INode,
+    proc::{Pid, allproc_find},
 };
 
-pub use cmdline::generate_proc_cmdline;
-pub use comm::generate_proc_comm;
 pub use cwd::ProcPidCwdSymlinkOps;
 pub use exe::ProcPidExeSymlinkOps;
-pub use fd::{ProcFdSymlinkOps, ProcPidFdDirFileOps, ProcPidFdDirOps};
-pub use stat::{generate_proc_stat, generate_proc_stat_for_task};
-pub use statm::generate_proc_statm;
-pub use status::generate_proc_status;
+pub use fd::{ProcFdSymlinkOps, ProcPidFdDirOps};
 pub use task::ProcPidTaskDirOps;
 
-// Tags for deterministic per-process inode addressing: ((pid << 16) | tag)
+/// Tags composing per-process inode numbers via [`pid_ino`].
+///
+/// Each entry needs a stable inode number that also communicates its role:
+/// `(pid << 16) | tag` keeps directories, files and symlinks from colliding
+/// while sharing the address space within one process.
 pub const TAG_DIR: u16 = 0x0000;
 pub const TAG_EXE: u16 = 0x0001;
 pub const TAG_CWD: u16 = 0x0002;
@@ -44,18 +48,68 @@ pub const TAG_STAT: u16 = 0x0006;
 pub const TAG_STATM: u16 = 0x0007;
 pub const TAG_COMM: u16 = 0x0008;
 pub const TAG_TASK_DIR: u16 = 0x0009;
-pub const TAG_FD_DIR: u16 = 0x0010;
+pub const TAG_IO: u16 = 0x0011;
 
-#[inline]
-pub fn pid_ino(pid: Pid, tag: u16) -> usize {
+/// Composes the per-entry inode number for `pid` from `tag`.
+pub const fn pid_ino(pid: Pid, tag: u16) -> usize {
     ((pid.as_u32() as usize) << 16) | (tag as usize)
 }
 
+/// Entry names exposed under both `/proc/<pid>/` and `task/<tid>`.
+///
+/// The single source of truth for `readdir`; lookup handles exactly these
+/// names plus the per-hierarchy extras (`task` under `/proc/<pid>/`).
+const SHARED_ENTRIES: &[&str] = &[
+    "exe", "cwd", "cmdline", "status", "stat", "statm", "comm", "mounts", "fd", "io",
+];
+
+/// Symlink `/proc/<pid>/mounts` -> `/proc/mounts`, matching Linux.
 pub struct ProcPidMountsSymlinkOps;
 
 impl ProcSymOps for ProcPidMountsSymlinkOps {
     fn readlink(&self) -> Result<String> {
         Ok(String::from("/proc/mounts"))
+    }
+}
+
+/// Builds the absolute `/proc/<pid>/<name>` node when shared with `task/`.
+///
+/// Returns `None` if the name is not part of the shared set (task
+/// directories supply their own extras).
+pub(super) fn shared_pid_entry(pid: Pid, name: &str) -> Option<Arc<INode>> {
+    match name {
+        "exe" => Some(sym_node(
+            ProcPidExeSymlinkOps { pid },
+            pid_ino(pid, TAG_EXE),
+        )),
+        "cwd" => Some(sym_node(ProcPidCwdSymlinkOps, pid_ino(pid, TAG_CWD))),
+        "mounts" => Some(sym_node(ProcPidMountsSymlinkOps, pid_ino(pid, TAG_MOUNTS))),
+        "cmdline" => Some(file_node(
+            cmdline::PidCmdLineFileOps { pid },
+            pid_ino(pid, TAG_CMDLINE),
+        )),
+        "status" => Some(file_node(
+            status::PidStatusFileOps { pid },
+            pid_ino(pid, TAG_STATUS),
+        )),
+        "stat" => Some(file_node(
+            stat::PidStatFileOps { pid },
+            pid_ino(pid, TAG_STAT),
+        )),
+        "statm" => Some(file_node(
+            statm::PidStatmFileOps { pid },
+            pid_ino(pid, TAG_STATM),
+        )),
+        "comm" => Some(file_node(
+            comm::PidCommFileOps { pid },
+            pid_ino(pid, TAG_COMM),
+        )),
+        "fd" => Some(dir_node(
+            fd::ProcPidFdDirOps::new(pid),
+            pid_ino(pid, fd::TAG_FD_DIR),
+        )),
+        "io" => Some(file_node(io::PidIoFileOps { pid }, pid_ino(pid, TAG_IO))),
+        _ => None,
     }
 }
 
@@ -65,216 +119,34 @@ pub struct ProcPidDirOps {
 }
 
 impl ProcPidDirOps {
-    pub fn new(pid: Pid) -> Self {
+    /// Creates a directory handler for `pid`.
+    pub const fn new(pid: Pid) -> Self {
         Self { pid }
     }
 }
 
-impl NodeOps for ProcPidDirOps {
-    fn lookup(&self, name: &str) -> Result<Arc<INode>> {
-        let _proc = allproc_find(self.pid).ok_or(Errno::ENOENT)?;
+impl ProcDirOps for ProcPidDirOps {
+    fn lookup_child(&self, name: &str) -> Result<Arc<INode>> {
+        // The process may exit between path resolution steps; treat missing
+        // table entries as ENOENT, consistent with Linux.
+        allproc_find(self.pid).ok_or(Errno::ENOENT)?;
 
-        match name {
-            "exe" => Ok(Arc::new(INode::new_with_attr(
-                Box::new(ProcSymNodeOps::new(ProcPidExeSymlinkOps { pid: self.pid })),
-                pid_ino(self.pid, TAG_EXE),
-                INodeAttr {
-                    size: 16,
-                    mode: Mode::LINK | Mode::from_bits_truncate(0o777),
-                    nlink: 1,
-                    uid: 0,
-                    gid: 0,
-                    rdev: 0,
-                },
-            ))),
-            "cwd" => Ok(Arc::new(INode::new_with_attr(
-                Box::new(ProcSymNodeOps::new(ProcPidCwdSymlinkOps)),
-                pid_ino(self.pid, TAG_CWD),
-                INodeAttr {
-                    size: 1,
-                    mode: Mode::LINK | Mode::from_bits_truncate(0o777),
-                    nlink: 1,
-                    uid: 0,
-                    gid: 0,
-                    rdev: 0,
-                },
-            ))),
-            "mounts" => Ok(Arc::new(INode::new_with_attr(
-                Box::new(ProcSymNodeOps::new(ProcPidMountsSymlinkOps)),
-                pid_ino(self.pid, TAG_MOUNTS),
-                INodeAttr {
-                    size: 12,
-                    mode: Mode::LINK | Mode::from_bits_truncate(0o777),
-                    nlink: 1,
-                    uid: 0,
-                    gid: 0,
-                    rdev: 0,
-                },
-            ))),
-            "cmdline" => {
-                let pid = self.pid;
-                Ok(Arc::new(INode::new_with_attr(
-                    Box::new(ProcFileNodeOps::new_ro(CallbackProcFileOps::new(move || {
-                        generate_proc_cmdline(pid)
-                    }))),
-                    pid_ino(self.pid, TAG_CMDLINE),
-                    INodeAttr {
-                        size: 0,
-                        mode: Mode::FILE | Mode::RUSR | Mode::RGRP | Mode::ROTH,
-                        nlink: 1,
-                        uid: 0,
-                        gid: 0,
-                        rdev: 0,
-                    },
-                )))
-            }
-            "status" => {
-                let pid = self.pid;
-                Ok(Arc::new(INode::new_with_attr(
-                    Box::new(ProcFileNodeOps::new_ro(CallbackProcFileOps::new(move || {
-                        if let Some(p) = allproc_find(pid) {
-                            generate_proc_status(&p)
-                        } else {
-                            Vec::new()
-                        }
-                    }))),
-                    pid_ino(self.pid, TAG_STATUS),
-                    INodeAttr {
-                        size: 0,
-                        mode: Mode::FILE | Mode::RUSR | Mode::RGRP | Mode::ROTH,
-                        nlink: 1,
-                        uid: 0,
-                        gid: 0,
-                        rdev: 0,
-                    },
-                )))
-            }
-            "stat" => {
-                let pid = self.pid;
-                Ok(Arc::new(INode::new_with_attr(
-                    Box::new(ProcFileNodeOps::new_ro(CallbackProcFileOps::new(move || {
-                        if let Some(p) = allproc_find(pid) {
-                            generate_proc_stat(&p)
-                        } else {
-                            Vec::new()
-                        }
-                    }))),
-                    pid_ino(self.pid, TAG_STAT),
-                    INodeAttr {
-                        size: 0,
-                        mode: Mode::FILE | Mode::RUSR | Mode::RGRP | Mode::ROTH,
-                        nlink: 1,
-                        uid: 0,
-                        gid: 0,
-                        rdev: 0,
-                    },
-                )))
-            }
-            "statm" => {
-                let pid = self.pid;
-                Ok(Arc::new(INode::new_with_attr(
-                    Box::new(ProcFileNodeOps::new_ro(CallbackProcFileOps::new(move || {
-                        if let Some(p) = allproc_find(pid) {
-                            generate_proc_statm(&p)
-                        } else {
-                            Vec::new()
-                        }
-                    }))),
-                    pid_ino(self.pid, TAG_STATM),
-                    INodeAttr {
-                        size: 0,
-                        mode: Mode::FILE | Mode::RUSR | Mode::RGRP | Mode::ROTH,
-                        nlink: 1,
-                        uid: 0,
-                        gid: 0,
-                        rdev: 0,
-                    },
-                )))
-            }
-            "comm" => {
-                let pid = self.pid;
-                Ok(Arc::new(INode::new_with_attr(
-                    Box::new(ProcFileNodeOps::new_ro(CallbackProcFileOps::new(move || {
-                        if let Some(p) = allproc_find(pid) {
-                            generate_proc_comm(&p)
-                        } else {
-                            Vec::new()
-                        }
-                    }))),
-                    pid_ino(self.pid, TAG_COMM),
-                    INodeAttr {
-                        size: 0,
-                        mode: Mode::FILE | Mode::RUSR | Mode::RGRP | Mode::ROTH,
-                        nlink: 1,
-                        uid: 0,
-                        gid: 0,
-                        rdev: 0,
-                    },
-                )))
-            }
-            "task" => Ok(Arc::new(INode::new(
-                Box::new(ProcPidTaskDirOps { pid: self.pid }),
-                Mode::DIR
-                    | Mode::RUSR
-                    | Mode::XUSR
-                    | Mode::RGRP
-                    | Mode::XGRP
-                    | Mode::ROTH
-                    | Mode::XOTH,
+        // The per-process-only subdirectory.
+        if name == "task" {
+            return Ok(dir_node(
+                task::ProcPidTaskDirOps::new(self.pid),
                 pid_ino(self.pid, TAG_TASK_DIR),
-            ))),
-            "fd" => Ok(Arc::new(INode::new(
-                Box::new(ProcPidFdDirOps { pid: self.pid }),
-                Mode::DIR
-                    | Mode::RUSR
-                    | Mode::XUSR
-                    | Mode::RGRP
-                    | Mode::XGRP
-                    | Mode::ROTH
-                    | Mode::XOTH,
-                pid_ino(self.pid, TAG_FD_DIR),
-            ))),
-            _ => crate::return_errno!(ENOENT, "unknown entry in /proc/[pid]"),
+            ));
         }
+
+        shared_pid_entry(self.pid, name).ok_or(Errno::ENOENT)
     }
 
-    fn open(&self, flags: OpenFlags) -> Result<Box<dyn FileOps>> {
-        if flags.contains(OpenFlags::WRITE) {
-            crate::return_errno!(EISDIR, "cannot write to directory");
-        }
-        Ok(Box::new(ProcPidDirFileOps))
-    }
-
-    fn getattr(&self) -> Result<INodeAttr> {
-        Ok(INodeAttr {
-            size: 0,
-            mode: Mode::DIR
-                | Mode::RUSR
-                | Mode::XUSR
-                | Mode::RGRP
-                | Mode::XGRP
-                | Mode::ROTH
-                | Mode::XOTH,
-            nlink: 2,
-            uid: 0,
-            gid: 0,
-            rdev: 0,
-        })
-    }
-}
-
-pub struct ProcPidDirFileOps;
-
-impl FileOps for ProcPidDirFileOps {
-    fn read(&self, _offset: u64, _buf: &mut [u8]) -> Result<usize> {
-        crate::return_errno!(EISDIR, "cannot read raw bytes from directory");
-    }
-
-    fn write(&self, _offset: u64, _buf: &[u8]) -> Result<usize> {
-        crate::return_errno!(EISDIR, "cannot write to directory");
-    }
-
-    fn readdir(&self) -> Result<Vec<u8>> {
-        Ok(b".\n..\nexe\ncwd\ncmdline\nstatus\nstat\nstatm\ncomm\ntask\nmounts\nfd\n".to_vec())
+    fn list_entries(&self) -> Vec<String> {
+        SHARED_ENTRIES
+            .iter()
+            .chain(&["task"])
+            .map(|s| String::from(*s))
+            .collect()
     }
 }

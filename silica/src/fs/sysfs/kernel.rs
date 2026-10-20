@@ -1,12 +1,20 @@
 // SPDX-License-Identifier: GPL-2.0
 
-//! `/sys/kernel` kernel subsystem nodes.
+//! `/sys/kernel` — static kernel attributes.
+//!
+//! Registers the synthetic kernel-level parameters every Linux-style sysfs
+//! carries. Device and class subsystems register elsewhere; this module only
+//! seeds fixed content and is invoked once at boot via [`crate::fs::sysfs::
+//! init`].
 
-use crate::fs::sysfs::kobject::sys_tree;
+use super::kobject::sys_tree;
 
-/// Initializes `/sys/kernel` synthetic attributes.
-pub fn init_kernel_subsystem() {
+/// Seeds `/sys/kernel` synthetic attributes.
+///
+/// Idempotent: re-registration replaces the fixed content, so calling this
+/// more than once is harmless.
+pub(crate) fn init() {
     let tree = sys_tree();
-    let _ = tree.kernel_dir.add_static_attr("uevent_seqnum", b"1\n");
-    let _ = tree.kernel_dir.add_static_attr("profiling", b"0\n");
+    tree.kernel_dir().add_static_attr("uevent_seqnum", b"1\n");
+    tree.kernel_dir().add_static_attr("profiling", b"0\n");
 }

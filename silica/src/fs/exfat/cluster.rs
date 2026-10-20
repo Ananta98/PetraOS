@@ -7,8 +7,8 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use crate::{
-    drivers::block::BlockDevice,
     api::errno::{Errno, Result},
+    drivers::block::BlockDevice,
     fs::exfat::boot_sector::ExFatBootSector,
 };
 
@@ -53,7 +53,8 @@ impl ClusterManager {
         let offset_in_sector = (byte_offset % (dev_bs as u64)) as usize;
 
         let mut sector_buf = vec![0u8; dev_bs];
-        self.dev.read_blocks(fat_start_sector + sector_offset, &mut sector_buf)?;
+        self.dev
+            .read_blocks(fat_start_sector + sector_offset, &mut sector_buf)?;
 
         let val = u32::from_le_bytes(
             sector_buf[offset_in_sector..offset_in_sector + 4]
@@ -79,7 +80,8 @@ impl ClusterManager {
         let dev_bs = self.dev.block_size();
         let sectors_to_read = cluster_size / dev_bs;
 
-        self.dev.read_blocks(start_sector, &mut buf[..sectors_to_read * dev_bs])?;
+        self.dev
+            .read_blocks(start_sector, &mut buf[..sectors_to_read * dev_bs])?;
         Ok(())
     }
 

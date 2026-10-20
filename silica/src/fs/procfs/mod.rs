@@ -2,295 +2,44 @@
 
 //! Process Filesystem (`/proc`).
 //!
-//! Exposes kernel process state, system statistics, and hardware metadata
-//! as a virtual in-memory filesystem.
+//! A virtual filesystem exposing kernel process state, system statistics and
+//! hardware metadata as synthetic files. Files here are ephemeral views: the
+//! content is generated at each open from live kernel state through the
+//! [`template`] module.
+//!
+//! Layout — mirroring both the Linux `fs/proc` tree and the Asterinas
+//! procfs reference (`kernel/core/src/fs/fs_impls/procfs`):
+//!
+//! - root (this module): `/proc/*` static files,
+//! - [`pid`]: per-process `/proc/<pid>/*` subdirectories,
+//! - [`self_`]: `/proc/self` symlink to the caller,
+//! - [`sys`]: kernel parameters (sysctl) hierarchy,
+//! - one flat module per root file, matching upstream names
+//!   (`meminfo.rs`, `loadavg.rs`, ...).
 
+pub mod cmdline;
+pub mod cpuinfo;
+pub mod diskstats;
+pub mod filesystems;
+pub mod loadavg;
+pub mod meminfo;
+pub mod mounts;
+pub mod partitions;
 pub mod pid;
 pub mod self_;
+pub mod stat;
 pub mod sys;
-pub mod system;
 pub mod template;
+pub mod uptime;
+pub mod version;
 
-use alloc::{boxed::Box, format, sync::Arc, vec::Vec};
+use alloc::{format, string::String, sync::Arc, vec::Vec};
 
 use crate::{
     api::errno::Result,
-    fs::vfs::{FileOps, FileSystem, INode, INodeAttr, Mode, NodeOps, OpenFlags, StatFs},
-    proc::{allproc_find, allproc_iter, Pid},
+    fs::vfs::{FileSystem, INode, StatFs},
+    proc::{Pid, allproc_find, allproc_iter},
 };
-
-pub use pid::ProcPidDirOps;
-pub use self_::ProcSelfSymlinkOps;
-pub use sys::ProcSysDirOps;
-pub use system::*;
-pub use template::{
-    CallbackProcFileOps, DynamicProcFileNodeOps, DynamicProcFileOps, ProcDir, ProcDirFileOps,
-    ProcDirNodeOps, ProcDirOps, ProcFile, ProcFileNodeOps, ProcFileOps, ProcSym, ProcSymNodeOps,
-    ProcSymOps, StaticDirEntry,
-};
-
-/// Declarative static directory table for root `/proc` entries.
-pub static STATIC_PROC_ENTRIES: &[StaticDirEntry] = &[
-    StaticDirEntry {
-        name: "self",
-        ino: 100,
-        is_dir: false,
-        constructor: || {
-            Arc::new(INode::new_with_attr(
-                Box::new(ProcSymNodeOps::new(ProcSelfSymlinkOps)),
-                100,
-                INodeAttr {
-                    size: 1,
-                    mode: Mode::LINK | Mode::from_bits_truncate(0o777),
-                    nlink: 1,
-                    uid: 0,
-                    gid: 0,
-                    rdev: 0,
-                },
-            ))
-        },
-    },
-    StaticDirEntry {
-        name: "mounts",
-        ino: 101,
-        is_dir: false,
-        constructor: || {
-            Arc::new(INode::new_with_attr(
-                Box::new(ProcFileNodeOps::new_ro(CallbackProcFileOps::new(generate_mounts))),
-                101,
-                INodeAttr {
-                    size: 0,
-                    mode: Mode::FILE | Mode::RUSR | Mode::RGRP | Mode::ROTH,
-                    nlink: 1,
-                    uid: 0,
-                    gid: 0,
-                    rdev: 0,
-                },
-            ))
-        },
-    },
-    StaticDirEntry {
-        name: "meminfo",
-        ino: 102,
-        is_dir: false,
-        constructor: || {
-            Arc::new(INode::new_with_attr(
-                Box::new(ProcFileNodeOps::new_ro(CallbackProcFileOps::new(generate_meminfo))),
-                102,
-                INodeAttr {
-                    size: 0,
-                    mode: Mode::FILE | Mode::RUSR | Mode::RGRP | Mode::ROTH,
-                    nlink: 1,
-                    uid: 0,
-                    gid: 0,
-                    rdev: 0,
-                },
-            ))
-        },
-    },
-    StaticDirEntry {
-        name: "cpuinfo",
-        ino: 103,
-        is_dir: false,
-        constructor: || {
-            Arc::new(INode::new_with_attr(
-                Box::new(ProcFileNodeOps::new_ro(CallbackProcFileOps::new(generate_cpuinfo))),
-                103,
-                INodeAttr {
-                    size: 0,
-                    mode: Mode::FILE | Mode::RUSR | Mode::RGRP | Mode::ROTH,
-                    nlink: 1,
-                    uid: 0,
-                    gid: 0,
-                    rdev: 0,
-                },
-            ))
-        },
-    },
-    StaticDirEntry {
-        name: "version",
-        ino: 104,
-        is_dir: false,
-        constructor: || {
-            Arc::new(INode::new_with_attr(
-                Box::new(ProcFileNodeOps::new_ro(CallbackProcFileOps::new(generate_version))),
-                104,
-                INodeAttr {
-                    size: 0,
-                    mode: Mode::FILE | Mode::RUSR | Mode::RGRP | Mode::ROTH,
-                    nlink: 1,
-                    uid: 0,
-                    gid: 0,
-                    rdev: 0,
-                },
-            ))
-        },
-    },
-    StaticDirEntry {
-        name: "stat",
-        ino: 105,
-        is_dir: false,
-        constructor: || {
-            Arc::new(INode::new_with_attr(
-                Box::new(ProcFileNodeOps::new_ro(CallbackProcFileOps::new(generate_stat))),
-                105,
-                INodeAttr {
-                    size: 0,
-                    mode: Mode::FILE | Mode::RUSR | Mode::RGRP | Mode::ROTH,
-                    nlink: 1,
-                    uid: 0,
-                    gid: 0,
-                    rdev: 0,
-                },
-            ))
-        },
-    },
-    StaticDirEntry {
-        name: "uptime",
-        ino: 106,
-        is_dir: false,
-        constructor: || {
-            Arc::new(INode::new_with_attr(
-                Box::new(ProcFileNodeOps::new_ro(CallbackProcFileOps::new(generate_uptime))),
-                106,
-                INodeAttr {
-                    size: 0,
-                    mode: Mode::FILE | Mode::RUSR | Mode::RGRP | Mode::ROTH,
-                    nlink: 1,
-                    uid: 0,
-                    gid: 0,
-                    rdev: 0,
-                },
-            ))
-        },
-    },
-    StaticDirEntry {
-        name: "cmdline",
-        ino: 107,
-        is_dir: false,
-        constructor: || {
-            Arc::new(INode::new_with_attr(
-                Box::new(ProcFileNodeOps::new_ro(CallbackProcFileOps::new(generate_cmdline))),
-                107,
-                INodeAttr {
-                    size: 0,
-                    mode: Mode::FILE | Mode::RUSR | Mode::RGRP | Mode::ROTH,
-                    nlink: 1,
-                    uid: 0,
-                    gid: 0,
-                    rdev: 0,
-                },
-            ))
-        },
-    },
-    StaticDirEntry {
-        name: "sys",
-        ino: 108,
-        is_dir: true,
-        constructor: || {
-            Arc::new(INode::new(
-                Box::new(ProcSysDirOps),
-                Mode::DIR | Mode::RUSR | Mode::XUSR | Mode::RGRP | Mode::XGRP | Mode::ROTH | Mode::XOTH,
-                108,
-            ))
-        },
-    },
-    StaticDirEntry {
-        name: "loadavg",
-        ino: 109,
-        is_dir: false,
-        constructor: || {
-            Arc::new(INode::new_with_attr(
-                Box::new(ProcFileNodeOps::new_ro(CallbackProcFileOps::new(generate_loadavg))),
-                109,
-                INodeAttr {
-                    size: 0,
-                    mode: Mode::FILE | Mode::RUSR | Mode::RGRP | Mode::ROTH,
-                    nlink: 1,
-                    uid: 0,
-                    gid: 0,
-                    rdev: 0,
-                },
-            ))
-        },
-    },
-];
-
-/// `/proc` root directory node operations.
-pub struct ProcRootDirOps;
-
-impl NodeOps for ProcRootDirOps {
-    fn lookup(&self, name: &str) -> Result<Arc<INode>> {
-        for entry in STATIC_PROC_ENTRIES {
-            if entry.name == name {
-                return Ok((entry.constructor)());
-            }
-        }
-
-        if let Some(pid) = name
-            .parse::<u32>()
-            .ok()
-            .and_then(Pid::from_u32)
-            .filter(|&pid| allproc_find(pid).is_some())
-        {
-            return Ok(Arc::new(INode::new(
-                Box::new(ProcPidDirOps::new(pid)),
-                Mode::DIR
-                    | Mode::RUSR
-                    | Mode::XUSR
-                    | Mode::RGRP
-                    | Mode::XGRP
-                    | Mode::ROTH
-                    | Mode::XOTH,
-                (pid.as_u32() as usize) << 16,
-            )));
-        }
-
-        crate::return_errno!(ENOENT, "unknown entry in /proc")
-    }
-
-    fn open(&self, flags: OpenFlags) -> Result<Box<dyn FileOps>> {
-        if flags.contains(OpenFlags::WRITE) {
-            crate::return_errno!(EISDIR, "cannot write to directory");
-        }
-        Ok(Box::new(ProcRootDirFileOps))
-    }
-
-    fn getattr(&self) -> Result<INodeAttr> {
-        Ok(INodeAttr {
-            size: 0,
-            mode: Mode::DIR | Mode::RUSR | Mode::XUSR | Mode::RGRP | Mode::XGRP | Mode::ROTH | Mode::XOTH,
-            nlink: 2,
-            uid: 0,
-            gid: 0,
-            rdev: 0,
-        })
-    }
-}
-
-pub struct ProcRootDirFileOps;
-
-impl FileOps for ProcRootDirFileOps {
-    fn read(&self, _offset: u64, _buf: &mut [u8]) -> Result<usize> {
-        crate::return_errno!(EISDIR, "cannot read raw bytes from directory");
-    }
-
-    fn write(&self, _offset: u64, _buf: &[u8]) -> Result<usize> {
-        crate::return_errno!(EISDIR, "cannot write to directory");
-    }
-
-    fn readdir(&self) -> Result<Vec<u8>> {
-        let mut out = Vec::new();
-        out.extend_from_slice(b".\n..\n");
-        for entry in STATIC_PROC_ENTRIES {
-            out.extend_from_slice(format!("{}\n", entry.name).as_bytes());
-        }
-        for proc in allproc_iter() {
-            out.extend_from_slice(format!("{}\n", proc.pid.as_u32()).as_bytes());
-        }
-        Ok(out)
-    }
-}
 
 /// The ProcFS filesystem representation.
 pub struct ProcFs {
@@ -298,13 +47,10 @@ pub struct ProcFs {
 }
 
 impl ProcFs {
+    /// Creates a procfs instance with a fresh root directory.
     pub fn new() -> Self {
         Self {
-            root: Arc::new(INode::new(
-                Box::new(ProcRootDirOps),
-                Mode::DIR | Mode::RUSR | Mode::XUSR | Mode::RGRP | Mode::XGRP | Mode::ROTH | Mode::XOTH,
-                1,
-            )),
+            root: template::dir_node(ProcRootDirOps, PROC_ROOT_INO),
         }
     }
 }
@@ -337,68 +83,229 @@ impl FileSystem for ProcFs {
     }
 }
 
+/// Inode number allocation for `/proc` (consumed by the root files, `sys`
+/// and `pid` modules).
+///
+/// The root directory itself is inode 1. Static root entries claim 100..,
+/// `/proc/sys` hierarchies 2000.., and per-process inodes are composed as
+/// `((pid << 16) | tag)` (see `pid::pid_ino`). Keeping the ranges in one
+/// documented block makes collisions visible at a glance.
+///
+/// Inode numbers are identifiers, not stable content addresses: they only
+/// need to be unique within the mounted procfs instance.
+const PROC_ROOT_INO: usize = 1;
+
+/// Reserved root entry inode numbers (the 100.. block). Each root file
+/// module consumes its own through `new_inode`.
+pub(crate) const PROC_ROOT_INO_MOUNTS: usize = 101;
+pub(crate) const PROC_ROOT_INO_MEMINFO: usize = 102;
+pub(crate) const PROC_ROOT_INO_CPUINFO: usize = 103;
+pub(crate) const PROC_ROOT_INO_VERSION: usize = 104;
+pub(crate) const PROC_ROOT_INO_STAT: usize = 105;
+pub(crate) const PROC_ROOT_INO_UPTIME: usize = 106;
+pub(crate) const PROC_ROOT_INO_CMDLINE: usize = 107;
+pub(crate) const PROC_ROOT_INO_LOADAVG: usize = 109;
+pub(crate) const PROC_ROOT_INO_DISKSTATS: usize = 110;
+pub(crate) const PROC_ROOT_INO_FILESYSTEMS: usize = 111;
+pub(crate) const PROC_ROOT_INO_PARTITIONS: usize = 112;
+
+/// Declarative static table of root `/proc` entries.
+///
+/// The same table drives both [`ProcRootDirOps::lookup_child`] and entry
+/// enumeration, following the `("name", ctor)` tuple layout of the Asterinas
+/// reference.
+static PROC_ROOT_ENTRIES: &[template::StaticDirEntry] = &[
+    template::StaticDirEntry {
+        name: "self",
+        ctor: self_::new_self_inode,
+    },
+    template::StaticDirEntry {
+        name: "mounts",
+        ctor: mounts::MountsFileOps::new_inode,
+    },
+    template::StaticDirEntry {
+        name: "meminfo",
+        ctor: meminfo::MemInfoFileOps::new_inode,
+    },
+    template::StaticDirEntry {
+        name: "cpuinfo",
+        ctor: cpuinfo::CpuInfoFileOps::new_inode,
+    },
+    template::StaticDirEntry {
+        name: "version",
+        ctor: version::VersionFileOps::new_inode,
+    },
+    template::StaticDirEntry {
+        name: "stat",
+        ctor: stat::StatFileOps::new_inode,
+    },
+    template::StaticDirEntry {
+        name: "uptime",
+        ctor: uptime::UptimeFileOps::new_inode,
+    },
+    template::StaticDirEntry {
+        name: "cmdline",
+        ctor: cmdline::CmdLineFileOps::new_inode,
+    },
+    template::StaticDirEntry {
+        name: "sys",
+        ctor: sys::new_sys_inode,
+    },
+    template::StaticDirEntry {
+        name: "loadavg",
+        ctor: loadavg::LoadAvgFileOps::new_inode,
+    },
+    template::StaticDirEntry {
+        name: "diskstats",
+        ctor: diskstats::DiskStatsFileOps::new_inode,
+    },
+    template::StaticDirEntry {
+        name: "filesystems",
+        ctor: filesystems::FileSystemsFileOps::new_inode,
+    },
+    template::StaticDirEntry {
+        name: "partitions",
+        ctor: partitions::PartitionsFileOps::new_inode,
+    },
+];
+
+/// `/proc` root directory: static synthetic files plus one `<pid>` directory
+/// per live process.
+struct ProcRootDirOps;
+
+impl template::ProcDirOps for ProcRootDirOps {
+    fn lookup_child(&self, name: &str) -> Result<Arc<INode>> {
+        // Static entries first: numeric names can never collide with them.
+        if let Some(child) = template::lookup_static_entry(PROC_ROOT_ENTRIES, name) {
+            return Ok(child);
+        }
+
+        // Then the dynamic `/proc/<pid>` directories of live processes.
+        if let Some(pid) = name
+            .parse::<u32>()
+            .ok()
+            .and_then(Pid::from_u32)
+            .filter(|&pid| allproc_find(pid).is_some())
+        {
+            return Ok(template::dir_node(
+                pid::ProcPidDirOps::new(pid),
+                pid::pid_ino(pid, pid::TAG_DIR),
+            ));
+        }
+
+        crate::return_errno!(ENOENT, "unknown entry in /proc");
+    }
+
+    fn list_entries(&self) -> Vec<String> {
+        let mut entries = template::list_static_entries(PROC_ROOT_ENTRIES);
+        entries.extend(
+            allproc_iter()
+                .into_iter()
+                .map(|p| format!("{}", p.pid.as_u32())),
+        );
+        entries
+    }
+}
+
 #[cfg(ktest)]
 mod tests {
     use super::*;
+    use crate::fs::{procfs::ProcFs, vfs::OpenFlags};
     use ostd::prelude::ktest;
-    use crate::fs::vfs::OpenFlags;
+
+    fn root() -> Arc<INode> {
+        ProcFs::new().root().expect("procfs root")
+    }
+
+    fn read_to_string(node: &Arc<INode>) -> String {
+        let ops = node.node_ops.open(OpenFlags::READ).expect("open");
+        let mut buf = [0u8; 256];
+        let n = ops.read(0, &mut buf).expect("read");
+        String::from_utf8_lossy(&buf[..n]).into_owned()
+    }
+
+    fn lookup(root: &Arc<INode>, path: &[&str]) -> Arc<INode> {
+        let mut cur = root.clone();
+        for name in path {
+            cur = cur.node_ops.lookup(name).expect("lookup");
+        }
+        cur
+    }
 
     #[ktest]
-    fn procfs_system_files() {
-        let procfs = ProcFs::new();
-        let root = procfs.root().expect("procfs root");
+    fn root_table_lookup_and_readdir() {
+        let root_node = root();
 
-        // 1. /proc/version
-        let version_node = root.node_ops.lookup("version").expect("lookup version");
-        let version_ops = version_node.node_ops.open(OpenFlags::READ).expect("open version");
-        let mut buf = [0u8; 128];
-        let n = version_ops.read(0, &mut buf).expect("read version");
-        let s = core::str::from_utf8(&buf[..n]).expect("utf8 version");
-        assert!(s.starts_with("Linux version 6.6.0-silica"));
+        for entry in PROC_ROOT_ENTRIES {
+            let name = entry.name;
+            let child = root_node
+                .node_ops
+                .lookup(name)
+                .unwrap_or_else(|_| panic!("lookup {name}"));
+            assert!(child.node_ops.getattr().is_ok());
+        }
 
-        // 2. /proc/cmdline
-        let cmdline_node = root.node_ops.lookup("cmdline").expect("lookup cmdline");
-        let cmdline_ops = cmdline_node.node_ops.open(OpenFlags::READ).expect("open cmdline");
-        let mut buf = [0u8; 128];
-        let n = cmdline_ops.read(0, &mut buf).expect("read cmdline");
-        let s = core::str::from_utf8(&buf[..n]).expect("utf8 cmdline");
-        assert!(s.contains("init=/bin/sh"));
+        let file_ops = root_node.node_ops.open(OpenFlags::READ).expect("open root");
+        let listing_buf = file_ops.readdir().expect("readdir root");
+        let listing = String::from_utf8_lossy(&listing_buf);
+        for entry in PROC_ROOT_ENTRIES {
+            assert!(
+                listing.split('\n').any(|l| l == entry.name),
+                "readdir lists {name}",
+                name = entry.name
+            );
+        }
+    }
 
-        // 3. /proc/meminfo
-        let meminfo_node = root.node_ops.lookup("meminfo").expect("lookup meminfo");
-        let meminfo_ops = meminfo_node.node_ops.open(OpenFlags::READ).expect("open meminfo");
-        let mut buf = [0u8; 256];
-        let n = meminfo_ops.read(0, &mut buf).expect("read meminfo");
-        let s = core::str::from_utf8(&buf[..n]).expect("utf8 meminfo");
-        assert!(s.contains("MemTotal:"));
-        assert!(s.contains("MemFree:"));
+    #[ktest]
+    fn version_file() {
+        let node = lookup(&root(), &["version"]);
+        assert!(read_to_string(&node).starts_with("Linux version 6.6.0-silica"));
+    }
 
-        // 4. /proc/mounts
-        let mounts_node = root.node_ops.lookup("mounts").expect("lookup mounts");
-        let mounts_ops = mounts_node.node_ops.open(OpenFlags::READ).expect("open mounts");
-        let mut buf = [0u8; 256];
-        let n = mounts_ops.read(0, &mut buf).expect("read mounts");
-        let s = core::str::from_utf8(&buf[..n]).expect("utf8 mounts");
-        assert!(s.contains("rootfs"));
+    #[ktest]
+    fn cmdline_file() {
+        let node = lookup(&root(), &["cmdline"]);
+        assert!(read_to_string(&node).contains("init=/bin/sh"));
+    }
 
-        // 5. /proc/sys/kernel/osrelease
-        let sys_node = root.node_ops.lookup("sys").expect("lookup sys");
-        let kernel_node = sys_node.node_ops.lookup("kernel").expect("lookup kernel");
-        let osrelease_node = kernel_node.node_ops.lookup("osrelease").expect("lookup osrelease");
-        let osrelease_ops = osrelease_node.node_ops.open(OpenFlags::READ).expect("open osrelease");
+    #[ktest]
+    fn meminfo_file() {
+        let node = lookup(&root(), &["meminfo"]);
+        let content = read_to_string(&node);
+        assert!(content.contains("MemTotal:"));
+        assert!(content.contains("MemFree:"));
+    }
+
+    #[ktest]
+    fn mounts_file() {
+        let node = lookup(&root(), &["mounts"]);
+        assert!(read_to_string(&node).contains("rootfs"));
+    }
+
+    #[ktest]
+    fn sys_kernel_osrelease() {
+        let node = lookup(&root(), &["sys", "kernel", "osrelease"]);
+        let ops = node.node_ops.open(OpenFlags::READ).expect("open osrelease");
         let mut buf = [0u8; 32];
-        let n = osrelease_ops.read(0, &mut buf).expect("read osrelease");
+        let n = ops.read(0, &mut buf).expect("read osrelease");
         assert_eq!(&buf[..n], b"6.6.0-silica\n");
     }
 
     #[ktest]
-    fn procfs_self_symlink() {
-        let procfs = ProcFs::new();
-        let root = procfs.root().expect("procfs root");
-
-        let self_node = root.node_ops.lookup("self").expect("lookup self");
-        assert!(self_node.is_symlink());
-        let target = self_node.node_ops.readlink().expect("readlink self");
+    fn self_symlink() {
+        let node = lookup(&root(), &["self"]);
+        assert!(node.is_symlink());
+        let target = node.node_ops.readlink().expect("readlink self");
         assert!(!target.is_empty());
+    }
+
+    #[ktest]
+    fn root_entries_carry_file_modes() {
+        // Spot-check that per-file ops structs really follow the shared
+        // ProcFileOps trait rather than ad-hoc node implementations.
+        let node = lookup(&root(), &["uptime"]);
+        let attr = node.node_ops.getattr().expect("getattr uptime");
+        assert!(attr.mode.contains(crate::fs::vfs::Mode::FILE));
     }
 }

@@ -13,8 +13,8 @@ use alloc::sync::Arc;
 use bitflags::bitflags;
 use ostd::sync::WaitQueue;
 
-use crate::api::errno::Result;
 use super::vfs::File;
+use crate::api::errno::Result;
 
 bitflags! {
     /// Event bits, with the Linux x86-64 values so they can cross the ABI.

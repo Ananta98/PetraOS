@@ -37,11 +37,7 @@ impl NodeOps for GenericNetNodeOps {
     fn getattr(&self) -> Result<INodeAttr> {
         Ok(INodeAttr {
             size: 0,
-            mode: Mode::CHAR
-                | Mode::RUSR
-                | Mode::WUSR
-                | Mode::RGRP
-                | Mode::ROTH,
+            mode: Mode::CHAR | Mode::RUSR | Mode::WUSR | Mode::RGRP | Mode::ROTH,
             nlink: 1,
             uid: 0,
             gid: 0,
@@ -79,7 +75,9 @@ impl FileOps for GenericNetFileOps {
                 let vmar = proc.vmspace();
                 let mut writer = vmar.vm_space().writer(arg, 6).map_err(|_| Errno::EFAULT)?;
                 let mut reader = ostd::mm::VmReader::from(&mac[..]);
-                writer.write_fallible(&mut reader).map_err(|_| Errno::EFAULT)?;
+                writer
+                    .write_fallible(&mut reader)
+                    .map_err(|_| Errno::EFAULT)?;
                 Ok(0)
             }
             _ => crate::return_errno!(ENOTTY, "unsupported netdev ioctl"),

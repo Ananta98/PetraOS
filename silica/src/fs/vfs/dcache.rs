@@ -130,8 +130,6 @@ impl DEntry {
 
 impl Debug for DEntry {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("DEntry")
-            .field("name", &self.name)
-            .finish()
+        f.debug_struct("DEntry").field("name", &self.name).finish()
     }
 }

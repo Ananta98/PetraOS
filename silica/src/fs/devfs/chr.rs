@@ -2,8 +2,8 @@ use alloc::boxed::Box;
 use alloc::sync::Arc;
 
 use crate::{
-    drivers::CharacterDevice,
     api::errno::Result,
+    drivers::CharacterDevice,
     fs::vfs::{FileOps, INodeAttr, Mode, NodeOps, OpenFlags},
 };
 
@@ -28,7 +28,13 @@ impl NodeOps for GenericChrNodeOps {
     fn getattr(&self) -> Result<INodeAttr> {
         Ok(INodeAttr {
             size: 0,
-            mode: Mode::CHAR | Mode::RUSR | Mode::WUSR | Mode::RGRP | Mode::WGRP | Mode::ROTH | Mode::WOTH,
+            mode: Mode::CHAR
+                | Mode::RUSR
+                | Mode::WUSR
+                | Mode::RGRP
+                | Mode::WGRP
+                | Mode::ROTH
+                | Mode::WOTH,
             nlink: 1,
             uid: 0,
             gid: 0,

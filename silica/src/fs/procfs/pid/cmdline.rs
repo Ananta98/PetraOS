@@ -1,18 +1,28 @@
 // SPDX-License-Identifier: GPL-2.0
 
-//! `/proc/<pid>/cmdline` file generator.
+//! `/proc/<pid>/cmdline` — argv as a NUL-separated list.
 
 use alloc::vec::Vec;
 
-use crate::proc::{allproc_find, Pid};
+use crate::{
+    fs::procfs::template::ProcFileOps,
+    proc::{Pid, allproc_find},
+};
 
-pub fn generate_proc_cmdline(pid: Pid) -> Vec<u8> {
-    if let Some(p) = allproc_find(pid) {
-        let mut buf = Vec::new();
-        buf.extend_from_slice(p.comm_name().as_bytes());
+/// Content operations of the per-process command-line file.
+pub struct PidCmdLineFileOps {
+    pub pid: Pid,
+}
+
+impl ProcFileOps for PidCmdLineFileOps {
+    fn generate_content(&self) -> Vec<u8> {
+        // The process may exit between directory lookup and open; report an
+        // empty file rather than failing the read.
+        let Some(proc) = allproc_find(self.pid) else {
+            return Vec::new();
+        };
+        let mut buf = proc.comm_name().into_bytes();
         buf.push(0);
         buf
-    } else {
-        Vec::new()
     }
 }

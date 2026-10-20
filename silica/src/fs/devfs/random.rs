@@ -6,11 +6,11 @@
 //! multi-source entropy harvester. Reads output cryptographically secure
 //! random bytes; writes feed external entropy back into the pool.
 
-use alloc::boxed::Box;
 use crate::{
     api::errno::Result,
     fs::vfs::{FileOps, INodeAttr, Mode, NodeOps, OpenFlags},
 };
+use alloc::boxed::Box;
 
 /// `/dev/random` file operations.
 pub struct RandomFile;

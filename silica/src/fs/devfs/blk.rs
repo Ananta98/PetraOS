@@ -2,8 +2,8 @@ use alloc::boxed::Box;
 use alloc::sync::Arc;
 
 use crate::{
-    drivers::BlockDevice,
     api::errno::Result,
+    drivers::BlockDevice,
     fs::vfs::{FileOps, INodeAttr, Mode, NodeOps, OpenFlags},
 };
 
@@ -53,8 +53,8 @@ impl FileOps for GenericBlkFileOps {
         }
 
         // Handle unaligned read via bounce buffer
-        let total_blocks = ((block_offset + buf.len() + (block_size as usize) - 1)
-            / (block_size as usize)) as u64;
+        let total_blocks =
+            ((block_offset + buf.len() + (block_size as usize) - 1) / (block_size as usize)) as u64;
         let mut bounce = alloc::vec![0u8; (total_blocks * block_size) as usize];
         self.dev.read_blocks(start_block, &mut bounce)?;
         let to_copy = buf.len().min(bounce.len().saturating_sub(block_offset));
@@ -71,8 +71,8 @@ impl FileOps for GenericBlkFileOps {
             return self.dev.write_blocks(start_block, buf);
         }
 
-        let total_blocks = ((block_offset + buf.len() + (block_size as usize) - 1)
-            / (block_size as usize)) as u64;
+        let total_blocks =
+            ((block_offset + buf.len() + (block_size as usize) - 1) / (block_size as usize)) as u64;
         let mut bounce = alloc::vec![0u8; (total_blocks * block_size) as usize];
         self.dev.read_blocks(start_block, &mut bounce)?;
         let to_copy = buf.len().min(bounce.len().saturating_sub(block_offset));

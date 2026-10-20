@@ -8,8 +8,8 @@ use alloc::sync::Arc;
 use bitflags::bitflags;
 use spin::RwLock;
 
-use crate::api::errno::Result;
 use super::file::{FileOps, OpenFlags};
+use crate::api::errno::Result;
 
 bitflags! {
     /// File types and permission bits mirroring standard POSIX modes.
@@ -146,6 +146,13 @@ pub trait NodeOps: Send + Sync {
     /// Updates metadata attributes.
     fn setattr(&self, _attr: &INodeAttr) -> Result<()> {
         crate::return_errno!(ENOSYS, "setattr not implemented");
+    }
+
+    /// Identity of the filesystem instance backing this node, used to reject
+    /// cross-filesystem link/rename attempts. `None` for virtual filesystems
+    /// or when the notion does not apply.
+    fn fsid(&self) -> Option<u64> {
+        None
     }
 }
 

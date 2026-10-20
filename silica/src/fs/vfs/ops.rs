@@ -11,14 +11,14 @@ use alloc::string::String;
 use alloc::sync::Arc;
 use spin::Mutex;
 
-use crate::api::errno::{Errno, Result};
-use crate::proc::thread::Thread;
 use super::dcache::DEntry;
 use super::fs::StatFs;
 use super::inode::{INode, INodeAttr, Mode, S_IFMT};
-use super::mount::{root, PathNode};
-use super::path::{lookup, LookupFlags};
-use super::perms::{apply_umask, check_permission, check_sticky, current_cred, AccessFlags};
+use super::mount::{PathNode, root};
+use super::path::{LookupFlags, lookup};
+use super::perms::{AccessFlags, apply_umask, check_permission, check_sticky, current_cred};
+use crate::api::errno::{Errno, Result};
+use crate::proc::thread::Thread;
 
 /// Longest single path component.
 pub const NAME_MAX: usize = 255;
@@ -37,7 +37,11 @@ fn split_parent(path: &str) -> Result<(&str, &str)> {
     let trimmed = path.trim_end_matches('/');
     if trimmed.is_empty() {
         // "/" or "": there is no final component to operate on.
-        return Err(if path.is_empty() { Errno::ENOENT } else { Errno::EBUSY });
+        return Err(if path.is_empty() {
+            Errno::ENOENT
+        } else {
+            Errno::EBUSY
+        });
     }
     let (dir, name) = match trimmed.rfind('/') {
         Some(0) => ("/", &trimmed[1..]),
@@ -55,7 +59,10 @@ fn split_parent(path: &str) -> Result<(&str, &str)> {
 
 /// Resolves the parent directory of `path`, checking it is writable and
 /// searchable by the caller. Returns the directory, its inode, and the name.
-pub fn parent_for_modify_at(start: &PathNode, path: &str) -> Result<(PathNode, Arc<INode>, String)> {
+pub fn parent_for_modify_at(
+    start: &PathNode,
+    path: &str,
+) -> Result<(PathNode, Arc<INode>, String)> {
     let (dir, name) = split_parent(path)?;
     let r = root()?;
     let parent = if dir.is_empty() {
@@ -65,7 +72,11 @@ pub fn parent_for_modify_at(start: &PathNode, path: &str) -> Result<(PathNode, A
     };
     let inode = parent.dentry.get_inode().ok_or(Errno::ENOENT)?;
     let attr = *inode.attr.read();
-    check_permission(&attr, &current_cred(), AccessFlags::WRITE | AccessFlags::EXEC)?;
+    check_permission(
+        &attr,
+        &current_cred(),
+        AccessFlags::WRITE | AccessFlags::EXEC,
+    )?;
     Ok((parent, inode, name.into()))
 }
 
@@ -96,7 +107,11 @@ pub fn lookup_at(start: &PathNode, path: &str, flags: LookupFlags) -> Result<Pat
 /// Whether `name` already exists in `parent` (checked through the filesystem,
 /// so a stale dcache cannot hide an entry).
 fn exists_in(parent: &PathNode, inode: &Arc<INode>, name: &str) -> Result<bool> {
-    if parent.dentry.lookup_child(name).is_some_and(|d| d.get_inode().is_some()) {
+    if parent
+        .dentry
+        .lookup_child(name)
+        .is_some_and(|d| d.get_inode().is_some())
+    {
         return Ok(true);
     }
     match inode.node_ops.lookup(name) {
@@ -123,7 +138,10 @@ fn publish(parent: &PathNode, name: &str, node: &Arc<INode>) {
 }
 
 fn with_type(ty: Mode, perm: Mode) -> Mode {
-    let masked = apply_umask(Mode::from_bits_truncate(perm.bits() & 0o7777), current_umask());
+    let masked = apply_umask(
+        Mode::from_bits_truncate(perm.bits() & 0o7777),
+        current_umask(),
+    );
     Mode::from_bits_truncate(ty.bits() | masked.bits())
 }
 
@@ -344,7 +362,13 @@ pub fn rmdir(path: &str) -> Result<()> {
 }
 
 /// Creates a hard link `new` to the existing non-directory `old`.
-pub fn link_at(old_start: &PathNode, old: &str, new_start: &PathNode, new: &str, flags: i32) -> Result<()> {
+pub fn link_at(
+    old_start: &PathNode,
+    old: &str,
+    new_start: &PathNode,
+    new: &str,
+    flags: i32,
+) -> Result<()> {
     const AT_SYMLINK_FOLLOW: i32 = 0x400;
     let lookup_flags = if (flags & AT_SYMLINK_FOLLOW) != 0 {
         LookupFlags::empty()

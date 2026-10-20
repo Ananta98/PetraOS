@@ -1,100 +1,68 @@
 // SPDX-License-Identifier: GPL-2.0
 
-//! `/proc/<pid>/fd/` directory and symlink operations.
+//! `/proc/<pid>/fd/` — open file descriptors.
+//!
+//! Each numeric child resolves to a symlink describing the open file: the
+//! absolute path when known, otherwise a Linux-style synthetic name
+//! (`/dev/console`, `pipe:[ino]`, `socket:[ino]`).
 
-use alloc::{boxed::Box, format, string::String, sync::Arc, vec::Vec};
+use alloc::{format, string::String, sync::Arc, vec::Vec};
 
 use crate::{
     api::errno::{Errno, Result},
-    fs::{
-        procfs::template::{ProcSymNodeOps, ProcSymOps},
-        vfs::{FileOps, INode, INodeAttr, Mode, NodeOps, OpenFlags},
-    },
-    proc::{allproc_find, Pid},
+    fs::procfs::template::{ProcDirOps, ProcSymOps, sym_node},
+    fs::vfs::INode,
+    proc::{Pid, allproc_find},
 };
 
-use super::pid_ino;
+/// Tag selecting the `fd` subdirectory of a pid (into [`super::pid_ino`]).
+pub const TAG_FD_DIR: u16 = 0x0010;
 
-pub const TAG_FD_BASE: u16 = 0x1000;
+/// Base tag of descriptor-entry inodes; the low 12 bits carry the fd number
+/// itself.
+const TAG_FD_BASE: u16 = 0x1000;
 
+/// `/proc/<pid>/fd` directory node operations.
 pub struct ProcPidFdDirOps {
-    pub pid: Pid,
+    pid: Pid,
 }
 
-impl NodeOps for ProcPidFdDirOps {
-    fn lookup(&self, name: &str) -> Result<Arc<INode>> {
+impl ProcPidFdDirOps {
+    /// Creates a directory handler for `pid`.
+    pub const fn new(pid: Pid) -> Self {
+        Self { pid }
+    }
+}
+
+impl ProcDirOps for ProcPidFdDirOps {
+    fn lookup_child(&self, name: &str) -> Result<Arc<INode>> {
         let fd: i32 = name.parse().map_err(|_| Errno::ENOENT)?;
         let proc = allproc_find(self.pid).ok_or(Errno::ENOENT)?;
         let _ = proc.fd_table.lock().get(fd)?;
 
         let fd_tag = TAG_FD_BASE | (fd as u16 & 0x0FFF);
-        Ok(Arc::new(INode::new_with_attr(
-            Box::new(ProcSymNodeOps::new(ProcFdSymlinkOps { pid: self.pid, fd })),
-            pid_ino(self.pid, fd_tag),
-            INodeAttr {
-                size: 16,
-                mode: Mode::LINK | Mode::from_bits_truncate(0o777),
-                nlink: 1,
-                uid: 0,
-                gid: 0,
-                rdev: 0,
-            },
-        )))
+        Ok(sym_node(
+            ProcFdSymlinkOps { pid: self.pid, fd },
+            super::pid_ino(self.pid, fd_tag),
+        ))
     }
 
-    fn open(&self, flags: OpenFlags) -> Result<Box<dyn FileOps>> {
-        if flags.contains(OpenFlags::WRITE) {
-            crate::return_errno!(EISDIR, "cannot write to directory");
-        }
-        Ok(Box::new(ProcPidFdDirFileOps { pid: self.pid }))
-    }
-
-    fn getattr(&self) -> Result<INodeAttr> {
-        Ok(INodeAttr {
-            size: 0,
-            mode: Mode::DIR
-                | Mode::RUSR
-                | Mode::XUSR
-                | Mode::RGRP
-                | Mode::XGRP
-                | Mode::ROTH
-                | Mode::XOTH,
-            nlink: 2,
-            uid: 0,
-            gid: 0,
-            rdev: 0,
-        })
+    fn list_entries(&self) -> Vec<String> {
+        let Some(proc) = allproc_find(self.pid) else {
+            return Vec::new();
+        };
+        let fd_table = proc.fd_table.lock();
+        fd_table
+            .files
+            .iter()
+            .enumerate()
+            .filter(|(_, slot)| slot.is_some())
+            .map(|(idx, _)| alloc::format!("{}", idx))
+            .collect()
     }
 }
 
-pub struct ProcPidFdDirFileOps {
-    pub pid: Pid,
-}
-
-impl FileOps for ProcPidFdDirFileOps {
-    fn read(&self, _offset: u64, _buf: &mut [u8]) -> Result<usize> {
-        crate::return_errno!(EISDIR, "cannot read raw bytes from directory");
-    }
-
-    fn write(&self, _offset: u64, _buf: &[u8]) -> Result<usize> {
-        crate::return_errno!(EISDIR, "cannot write to directory");
-    }
-
-    fn readdir(&self) -> Result<Vec<u8>> {
-        let mut out = Vec::new();
-        out.extend_from_slice(b".\n..\n");
-        if let Some(proc) = allproc_find(self.pid) {
-            let fd_table = proc.fd_table.lock();
-            for (idx, slot) in fd_table.files.iter().enumerate() {
-                if slot.is_some() {
-                    out.extend_from_slice(format!("{}\n", idx).as_bytes());
-                }
-            }
-        }
-        Ok(out)
-    }
-}
-
+/// Symlink operations describing an open descriptor of `pid`.
 pub struct ProcFdSymlinkOps {
     pub pid: Pid,
     pub fd: i32,

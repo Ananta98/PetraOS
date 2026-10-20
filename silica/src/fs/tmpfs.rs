@@ -66,8 +66,8 @@ impl FileSystem for TmpFs {
 #[cfg(ktest)]
 mod tests {
     use super::*;
-    use ostd::prelude::ktest;
     use crate::fs::vfs::OpenFlags;
+    use ostd::prelude::ktest;
 
     #[ktest]
     fn tmpfs_create_write_read_and_stat() {
@@ -95,9 +95,11 @@ mod tests {
         assert_eq!(&read_buf[..bytes_read], test_data);
 
         // Verify lookup in root
-        let lookup_node = root.node_ops.lookup("alpine_test.txt").expect("lookup file");
+        let lookup_node = root
+            .node_ops
+            .lookup("alpine_test.txt")
+            .expect("lookup file");
         let attr = lookup_node.node_ops.getattr().expect("getattr");
         assert_eq!(attr.size, test_data.len());
     }
 }
-

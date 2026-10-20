@@ -64,7 +64,12 @@ impl FileOps for SocketFileOps {
                 if s.state() == TcpState::CloseWait {
                     events |= PollEvents::IN | PollEvents::RDNORM | PollEvents::HUP;
                 } else if s.state() == TcpState::Closed {
-                    events |= PollEvents::IN | PollEvents::OUT | PollEvents::RDNORM | PollEvents::WRNORM | PollEvents::HUP | PollEvents::ERR;
+                    events |= PollEvents::IN
+                        | PollEvents::OUT
+                        | PollEvents::RDNORM
+                        | PollEvents::WRNORM
+                        | PollEvents::HUP
+                        | PollEvents::ERR;
                 }
             }
             SocketKind::Udp(handle) => {

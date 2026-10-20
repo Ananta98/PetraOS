@@ -263,8 +263,8 @@ pub fn create_epoll_file() -> Arc<File> {
 #[cfg(ktest)]
 mod tests {
     use super::*;
-    use ostd::prelude::ktest;
     use crate::fs::pipe::create_pipe;
+    use ostd::prelude::ktest;
 
     #[ktest]
     fn epoll_basic_add_wait_and_del() {
@@ -328,4 +328,3 @@ mod tests {
         assert_eq!(ep.scan_ready(&mut events), 0);
     }
 }
-

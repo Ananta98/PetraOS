@@ -1,14 +1,26 @@
 // SPDX-License-Identifier: GPL-2.0
 
-//! SysFS Inode and File Operations Adapters.
+//! SysFS VFS projection layer.
 //!
-//! Projects `SysNode`, `SysDirNode`, `SysAttrNode`, and `SysSymlinkNode` into VFS `NodeOps` and `FileOps`.
+//! The kernel object tree ([`super::kobject`]) holds registration state;
+//! the adapters in this file project it into VFS nodes for a mount:
+//!
+//! - [`SysFsDirNodeOps`] — directories, recursing into the tree on lookup,
+//! - [`SysFsAttrNodeOps`] — attribute files (content snapshotted at open;
+//!   writes pass through to the owning subsystem),
+//! - [`SysFsSymlinkNodeOps`] — tree symlinks.
+//!
+//! Every node resolves its attribute set from the underlying `SysNode`, so
+//! mode and inode numbers always agree with the tree state.
 
-use alloc::{boxed::Box, format, string::String, sync::Arc, vec::Vec};
+use alloc::{boxed::Box, string::String, sync::Arc, vec::Vec};
 
 use crate::{
     api::errno::{Errno, Result},
-    fs::vfs::{FileOps, INode, INodeAttr, Mode, NodeOps, OpenFlags, SeekAnchor},
+    fs::{
+        template::{BufFileOps, WriteHook, dir_mode, ro_file_mode, rw_file_mode, symlink_mode},
+        vfs::{FileOps, INode, INodeAttr, Mode, NodeOps, OpenFlags},
+    },
 };
 
 use super::kobject::SysNode;
@@ -19,6 +31,7 @@ pub struct SysFsDirNodeOps {
 }
 
 impl SysFsDirNodeOps {
+    /// Wraps the tree node into directory node operations.
     pub fn new(node: Arc<dyn SysNode>) -> Self {
         Self { node }
     }
@@ -27,59 +40,7 @@ impl SysFsDirNodeOps {
 impl NodeOps for SysFsDirNodeOps {
     fn lookup(&self, name: &str) -> Result<Arc<INode>> {
         let child = self.node.get_child(name).ok_or(Errno::ENOENT)?;
-        let ino = child.ino();
-        if child.is_dir() {
-            Ok(Arc::new(INode::new_with_attr(
-                Box::new(SysFsDirNodeOps::new(child)),
-                ino,
-                INodeAttr {
-                    size: 0,
-                    mode: Mode::DIR
-                        | Mode::RUSR
-                        | Mode::XUSR
-                        | Mode::RGRP
-                        | Mode::XGRP
-                        | Mode::ROTH
-                        | Mode::XOTH,
-                    nlink: 2,
-                    uid: 0,
-                    gid: 0,
-                    rdev: 0,
-                },
-            )))
-        } else if child.is_symlink() {
-            let target_len = child.readlink().map(|s| s.len()).unwrap_or(1);
-            Ok(Arc::new(INode::new_with_attr(
-                Box::new(SysFsSymlinkNodeOps::new(child)),
-                ino,
-                INodeAttr {
-                    size: target_len,
-                    mode: Mode::LINK | Mode::from_bits_truncate(0o777),
-                    nlink: 1,
-                    uid: 0,
-                    gid: 0,
-                    rdev: 0,
-                },
-            )))
-        } else {
-            let mode = if child.is_writable() {
-                Mode::FILE | Mode::RUSR | Mode::WUSR | Mode::RGRP | Mode::ROTH
-            } else {
-                Mode::FILE | Mode::RUSR | Mode::RGRP | Mode::ROTH
-            };
-            Ok(Arc::new(INode::new_with_attr(
-                Box::new(SysFsAttrNodeOps::new(child)),
-                ino,
-                INodeAttr {
-                    size: 0,
-                    mode,
-                    nlink: 1,
-                    uid: 0,
-                    gid: 0,
-                    rdev: 0,
-                },
-            )))
-        }
+        Ok(child_to_inode(&child))
     }
 
     fn open(&self, flags: OpenFlags) -> Result<Box<dyn FileOps>> {
@@ -87,31 +48,70 @@ impl NodeOps for SysFsDirNodeOps {
             crate::return_errno!(EISDIR, "cannot write to directory");
         }
         Ok(Box::new(SysFsDirFileOps {
-            node: Arc::clone(&self.node),
+            children: self.node.list_children(),
         }))
     }
 
     fn getattr(&self) -> Result<INodeAttr> {
         Ok(INodeAttr {
-            size: 0,
-            mode: Mode::DIR
-                | Mode::RUSR
-                | Mode::XUSR
-                | Mode::RGRP
-                | Mode::XGRP
-                | Mode::ROTH
-                | Mode::XOTH,
+            mode: dir_mode(),
             nlink: 2,
-            uid: 0,
-            gid: 0,
-            rdev: 0,
+            ..Default::default()
         })
     }
 }
 
-/// Directory file operations iterating over SysFS children.
+/// Projects one tree node onto the matching VFS inode shape.
+fn child_to_inode(child: &Arc<dyn SysNode>) -> Arc<INode> {
+    let ino = child.ino();
+    if child.is_dir() {
+        Arc::new(INode::new_with_attr(
+            Box::new(SysFsDirNodeOps::new(Arc::clone(child))),
+            ino,
+            INodeAttr {
+                mode: dir_mode(),
+                nlink: 2,
+                ..Default::default()
+            },
+        ))
+    } else if child.is_symlink() {
+        let size = child.readlink().map(|s| s.len()).unwrap_or(0);
+        Arc::new(INode::new_with_attr(
+            Box::new(SysFsSymlinkNodeOps::new(Arc::clone(child))),
+            ino,
+            INodeAttr {
+                size,
+                mode: symlink_mode(),
+                nlink: 1,
+                ..Default::default()
+            },
+        ))
+    } else {
+        Arc::new(INode::new_with_attr(
+            Box::new(SysFsAttrNodeOps::new(Arc::clone(child))),
+            ino,
+            INodeAttr {
+                size: 0,
+                mode: Mode::FILE | attr_mode(child.is_writable()),
+                nlink: 1,
+                ..Default::default()
+            },
+        ))
+    }
+}
+
+/// Mode bits of an attribute file depending on writability.
+fn attr_mode(writable: bool) -> Mode {
+    if writable {
+        rw_file_mode()
+    } else {
+        ro_file_mode()
+    }
+}
+
+/// Directory file operations enumerating tree children.
 pub struct SysFsDirFileOps {
-    node: Arc<dyn SysNode>,
+    children: Vec<(String, bool)>,
 }
 
 impl FileOps for SysFsDirFileOps {
@@ -124,10 +124,10 @@ impl FileOps for SysFsDirFileOps {
     }
 
     fn readdir(&self) -> Result<Vec<u8>> {
-        let mut out = Vec::new();
-        out.extend_from_slice(b".\n..\n");
-        for (name, _is_dir) in self.node.list_children() {
-            out.extend_from_slice(format!("{}\n", name).as_bytes());
+        let mut out = Vec::from(b".\n..\n");
+        for (name, _is_dir) in &self.children {
+            out.extend_from_slice(name.as_bytes());
+            out.push(b'\n');
         }
         Ok(out)
     }
@@ -139,6 +139,7 @@ pub struct SysFsAttrNodeOps {
 }
 
 impl SysFsAttrNodeOps {
+    /// Wraps an attribute node into file node operations.
     pub fn new(node: Arc<dyn SysNode>) -> Self {
         Self { node }
     }
@@ -150,62 +151,23 @@ impl NodeOps for SysFsAttrNodeOps {
             crate::return_errno!(EPERM, "attribute is read-only");
         }
         let data = self.node.read_attr()?;
-        Ok(Box::new(SysFsAttrFileOps {
-            data,
-            node: Arc::clone(&self.node),
-        }))
+        let ops = if self.node.is_writable() {
+            let node = Arc::clone(&self.node);
+            let hook = Box::new(move |buf: &[u8]| node.write_attr(buf)) as WriteHook;
+            BufFileOps::with_write_hook(data, hook)
+        } else {
+            BufFileOps::new(data)
+        };
+        Ok(Box::new(ops))
     }
 
     fn getattr(&self) -> Result<INodeAttr> {
-        let mode = if self.node.is_writable() {
-            Mode::FILE | Mode::RUSR | Mode::WUSR | Mode::RGRP | Mode::ROTH
-        } else {
-            Mode::FILE | Mode::RUSR | Mode::RGRP | Mode::ROTH
-        };
         Ok(INodeAttr {
             size: 0,
-            mode,
+            mode: Mode::FILE | attr_mode(self.node.is_writable()),
             nlink: 1,
-            uid: 0,
-            gid: 0,
-            rdev: 0,
+            ..Default::default()
         })
-    }
-}
-
-/// File operations for reading/writing a SysFS attribute.
-pub struct SysFsAttrFileOps {
-    data: Vec<u8>,
-    node: Arc<dyn SysNode>,
-}
-
-impl FileOps for SysFsAttrFileOps {
-    fn read(&self, offset: u64, buf: &mut [u8]) -> Result<usize> {
-        let offset = offset as usize;
-        if offset >= self.data.len() {
-            return Ok(0);
-        }
-        let available = &self.data[offset..];
-        let copy_len = buf.len().min(available.len());
-        buf[..copy_len].copy_from_slice(&available[..copy_len]);
-        Ok(copy_len)
-    }
-
-    fn write(&self, _offset: u64, buf: &[u8]) -> Result<usize> {
-        self.node.write_attr(buf)
-    }
-
-    fn seek(&self, curr_offset: u64, anchor: SeekAnchor) -> Result<u64> {
-        let len = self.data.len() as i64;
-        let new_offset = match anchor {
-            SeekAnchor::Start(pos) => pos as i64,
-            SeekAnchor::Current(delta) => curr_offset as i64 + delta,
-            SeekAnchor::End(delta) => len + delta,
-        };
-        if new_offset < 0 {
-            return Err(Errno::EINVAL);
-        }
-        Ok(new_offset as u64)
     }
 }
 
@@ -215,6 +177,7 @@ pub struct SysFsSymlinkNodeOps {
 }
 
 impl SysFsSymlinkNodeOps {
+    /// Wraps a symlink node into symlink node operations.
     pub fn new(node: Arc<dyn SysNode>) -> Self {
         Self { node }
     }
@@ -226,14 +189,12 @@ impl NodeOps for SysFsSymlinkNodeOps {
     }
 
     fn getattr(&self) -> Result<INodeAttr> {
-        let target_len = self.node.readlink().map(|s| s.len()).unwrap_or(1);
+        let size = self.node.readlink().map(|s| s.len()).unwrap_or(0);
         Ok(INodeAttr {
-            size: target_len,
-            mode: Mode::LINK | Mode::from_bits_truncate(0o777),
+            size,
+            mode: symlink_mode(),
             nlink: 1,
-            uid: 0,
-            gid: 0,
-            rdev: 0,
+            ..Default::default()
         })
     }
 }

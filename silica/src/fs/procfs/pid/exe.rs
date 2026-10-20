@@ -1,15 +1,17 @@
 // SPDX-License-Identifier: GPL-2.0
 
-//! `/proc/<pid>/exe` symlink operations.
+//! `/proc/<pid>/exe` — symlink to the executed binary.
 
 use alloc::{format, string::String};
 
 use crate::{
-    api::errno::{Errno, Result},
+    api::errno::Errno,
+    api::errno::Result,
     fs::procfs::template::ProcSymOps,
-    proc::{allproc_find, Pid},
+    proc::{Pid, allproc_find},
 };
 
+/// Symlink operations resolving to the executable path.
 pub struct ProcPidExeSymlinkOps {
     pub pid: Pid,
 }

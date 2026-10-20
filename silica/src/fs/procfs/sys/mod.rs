@@ -1,76 +1,45 @@
 // SPDX-License-Identifier: GPL-2.0
 
-//! `/proc/sys` kernel parameters hierarchy.
+//! `/proc/sys` — kernel parameter hierarchy.
+//!
+//! The sysctl surface exposed to user space. Currently only `kernel/` is
+//! populated; the directory layer is table-driven so further subtrees can be
+//! added declaratively. Values follow Linux `/proc/sys` semantics (readable
+//! by everyone, tunables writable by the owner).
 
 pub mod kernel;
 
-use alloc::{boxed::Box, sync::Arc, vec::Vec};
+use alloc::{string::String, sync::Arc, vec::Vec};
 
 use crate::{
     api::errno::Result,
-    fs::vfs::{FileOps, INode, INodeAttr, Mode, NodeOps, OpenFlags},
+    fs::procfs::template::{ProcDirOps, dir_node},
+    fs::vfs::INode,
 };
 
-pub use kernel::{get_hostname, set_hostname, ProcSysKernelDirOps};
+pub use kernel::get_hostname;
 
-/// `/proc/sys` directory node operations.
-pub struct ProcSysDirOps;
+/// `/proc/sys` directory node operations: a pure table over subtrees.
+struct ProcSysDirOps;
 
-impl NodeOps for ProcSysDirOps {
-    fn lookup(&self, name: &str) -> Result<Arc<INode>> {
+/// Inode number allocation for `/proc/sys`.
+const PROC_SYS_INO: usize = 2000;
+const PROC_SYS_KERNEL_INO: usize = 2001;
+
+impl ProcDirOps for ProcSysDirOps {
+    fn lookup_child(&self, name: &str) -> Result<Arc<INode>> {
         match name {
-            "kernel" => Ok(Arc::new(INode::new(
-                Box::new(ProcSysKernelDirOps),
-                Mode::DIR
-                    | Mode::RUSR
-                    | Mode::XUSR
-                    | Mode::RGRP
-                    | Mode::XGRP
-                    | Mode::ROTH
-                    | Mode::XOTH,
-                2001,
-            ))),
+            "kernel" => Ok(dir_node(kernel::ProcSysKernelDirOps, PROC_SYS_KERNEL_INO)),
             _ => crate::return_errno!(ENOENT, "unknown entry in /proc/sys"),
         }
     }
 
-    fn open(&self, flags: OpenFlags) -> Result<Box<dyn FileOps>> {
-        if flags.contains(OpenFlags::WRITE) {
-            crate::return_errno!(EISDIR, "cannot write to directory");
-        }
-        Ok(Box::new(ProcSysDirFileOps))
-    }
-
-    fn getattr(&self) -> Result<INodeAttr> {
-        Ok(INodeAttr {
-            size: 0,
-            mode: Mode::DIR
-                | Mode::RUSR
-                | Mode::XUSR
-                | Mode::RGRP
-                | Mode::XGRP
-                | Mode::ROTH
-                | Mode::XOTH,
-            nlink: 2,
-            uid: 0,
-            gid: 0,
-            rdev: 0,
-        })
+    fn list_entries(&self) -> Vec<String> {
+        alloc::vec![String::from("kernel")]
     }
 }
 
-pub struct ProcSysDirFileOps;
-
-impl FileOps for ProcSysDirFileOps {
-    fn read(&self, _offset: u64, _buf: &mut [u8]) -> Result<usize> {
-        crate::return_errno!(EISDIR, "cannot read raw bytes from directory");
-    }
-
-    fn write(&self, _offset: u64, _buf: &[u8]) -> Result<usize> {
-        crate::return_errno!(EISDIR, "cannot write to directory");
-    }
-
-    fn readdir(&self) -> Result<Vec<u8>> {
-        Ok(b".\n..\nkernel\n".to_vec())
-    }
+/// Creates the `/proc/sys` VFS inode.
+pub(crate) fn new_sys_inode() -> Arc<INode> {
+    dir_node(ProcSysDirOps, PROC_SYS_INO)
 }

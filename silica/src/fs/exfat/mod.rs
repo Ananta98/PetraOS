@@ -17,8 +17,8 @@ pub use entry::ExFatFileEntry;
 pub use fs::ExFatFs;
 
 use crate::{
-    drivers::block::BlockDevice,
     api::errno::Result,
+    drivers::block::BlockDevice,
     fs::{
         registry::{FileSystemType, register_filesystem_type},
         vfs::FileSystem,

@@ -68,7 +68,13 @@ impl NodeOps for InitramfsFileNodeOps {
     fn getattr(&self) -> Result<INodeAttr> {
         Ok(INodeAttr {
             size: self.data.len(),
-            mode: Mode::FILE | Mode::RUSR | Mode::RGRP | Mode::ROTH | Mode::XUSR | Mode::XGRP | Mode::XOTH,
+            mode: Mode::FILE
+                | Mode::RUSR
+                | Mode::RGRP
+                | Mode::ROTH
+                | Mode::XUSR
+                | Mode::XGRP
+                | Mode::XOTH,
             nlink: 1,
             uid: 0,
             gid: 0,
@@ -89,7 +95,13 @@ impl NodeOps for InitramfsSymlinkNodeOps {
     fn getattr(&self) -> Result<INodeAttr> {
         Ok(INodeAttr {
             size: self.target.len(),
-            mode: Mode::LINK | Mode::RUSR | Mode::RGRP | Mode::ROTH | Mode::XUSR | Mode::XGRP | Mode::XOTH,
+            mode: Mode::LINK
+                | Mode::RUSR
+                | Mode::RGRP
+                | Mode::ROTH
+                | Mode::XUSR
+                | Mode::XGRP
+                | Mode::XOTH,
             nlink: 1,
             uid: 0,
             gid: 0,
@@ -244,7 +256,13 @@ impl NodeOps for InitramfsHeapSymlinkNodeOps {
     fn getattr(&self) -> Result<INodeAttr> {
         Ok(INodeAttr {
             size: self.target.len(),
-            mode: Mode::LINK | Mode::RUSR | Mode::RGRP | Mode::ROTH | Mode::XUSR | Mode::XGRP | Mode::XOTH,
+            mode: Mode::LINK
+                | Mode::RUSR
+                | Mode::RGRP
+                | Mode::ROTH
+                | Mode::XUSR
+                | Mode::XGRP
+                | Mode::XOTH,
             nlink: 1,
             uid: 0,
             gid: 0,
@@ -268,7 +286,8 @@ impl NodeOps for InitramfsDirNodeOps {
     }
 
     fn create(&self, name: &str, mode: Mode) -> Result<Arc<INode>> {
-        static NEXT_INO: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(200_000);
+        static NEXT_INO: core::sync::atomic::AtomicUsize =
+            core::sync::atomic::AtomicUsize::new(200_000);
         let ino = NEXT_INO.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
         let data = Arc::new(RwLock::new(Vec::new()));
         let attr = INodeAttr {
@@ -284,12 +303,15 @@ impl NodeOps for InitramfsDirNodeOps {
             ino,
             attr,
         ));
-        self.entries.write().insert(String::from(name), node.clone());
+        self.entries
+            .write()
+            .insert(String::from(name), node.clone());
         Ok(node)
     }
 
     fn mkdir(&self, name: &str, mode: Mode) -> Result<Arc<INode>> {
-        static NEXT_INO: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(200_000);
+        static NEXT_INO: core::sync::atomic::AtomicUsize =
+            core::sync::atomic::AtomicUsize::new(200_000);
         let ino = NEXT_INO.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
         let dir_entries = Arc::new(RwLock::new(BTreeMap::new()));
         let node = Arc::new(INode::new(
@@ -299,7 +321,9 @@ impl NodeOps for InitramfsDirNodeOps {
             mode | Mode::DIR,
             ino,
         ));
-        self.entries.write().insert(String::from(name), node.clone());
+        self.entries
+            .write()
+            .insert(String::from(name), node.clone());
         Ok(node)
     }
 
@@ -319,7 +343,8 @@ impl NodeOps for InitramfsDirNodeOps {
     }
 
     fn symlink(&self, name: &str, target: &str) -> Result<Arc<INode>> {
-        static NEXT_INO: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(200_000);
+        static NEXT_INO: core::sync::atomic::AtomicUsize =
+            core::sync::atomic::AtomicUsize::new(200_000);
         let ino = NEXT_INO.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
         let node = Arc::new(INode::new_with_attr(
             Box::new(InitramfsHeapSymlinkNodeOps {
@@ -335,7 +360,9 @@ impl NodeOps for InitramfsDirNodeOps {
                 rdev: 0,
             },
         ));
-        self.entries.write().insert(String::from(name), node.clone());
+        self.entries
+            .write()
+            .insert(String::from(name), node.clone());
         Ok(node)
     }
 
@@ -354,7 +381,8 @@ impl NodeOps for InitramfsDirNodeOps {
     }
 
     fn mknod(&self, name: &str, mode: Mode, rdev: u64) -> Result<Arc<INode>> {
-        static NEXT_INO: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(200_000);
+        static NEXT_INO: core::sync::atomic::AtomicUsize =
+            core::sync::atomic::AtomicUsize::new(200_000);
         let ino = NEXT_INO.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
         let node = Arc::new(INode::new_with_attr(
             Box::new(InitramfsFileNodeOps { data: &[] }),
@@ -368,7 +396,9 @@ impl NodeOps for InitramfsDirNodeOps {
                 rdev,
             },
         ));
-        self.entries.write().insert(String::from(name), node.clone());
+        self.entries
+            .write()
+            .insert(String::from(name), node.clone());
         Ok(node)
     }
 }
@@ -386,19 +416,30 @@ impl InitramfsFs {
             Box::new(InitramfsDirNodeOps {
                 entries: Arc::clone(&root_entries),
             }),
-            Mode::DIR | Mode::RUSR | Mode::WUSR | Mode::XUSR | Mode::RGRP | Mode::XGRP | Mode::ROTH | Mode::XOTH,
+            Mode::DIR
+                | Mode::RUSR
+                | Mode::WUSR
+                | Mode::XUSR
+                | Mode::RGRP
+                | Mode::XGRP
+                | Mode::ROTH
+                | Mode::XOTH,
             1,
         ));
 
         let boot_info = ostd::boot::boot_info();
         if let Some(initramfs_buf) = boot_info.initramfs {
-            ostd::info!("Building VFS tree from initramfs ({} bytes)...", initramfs_buf.len());
+            ostd::info!(
+                "Building VFS tree from initramfs ({} bytes)...",
+                initramfs_buf.len()
+            );
             let archive = CpioArchive::new(initramfs_buf);
             let mut ino = 2;
             let mut count = 0;
 
             // Maps directory path -> directory entries map
-            let mut dir_map: BTreeMap<String, Arc<RwLock<BTreeMap<String, Arc<INode>>>>> = BTreeMap::new();
+            let mut dir_map: BTreeMap<String, Arc<RwLock<BTreeMap<String, Arc<INode>>>>> =
+                BTreeMap::new();
             dir_map.insert(String::new(), Arc::clone(&root_entries));
 
             // Maps a CPIO inode number to the shared data buffer of a hard-linked
@@ -433,7 +474,14 @@ impl InitramfsFs {
                             Box::new(InitramfsDirNodeOps {
                                 entries: Arc::clone(&new_dir_entries),
                             }),
-                            Mode::DIR | Mode::RUSR | Mode::WUSR | Mode::XUSR | Mode::RGRP | Mode::XGRP | Mode::ROTH | Mode::XOTH,
+                            Mode::DIR
+                                | Mode::RUSR
+                                | Mode::WUSR
+                                | Mode::XUSR
+                                | Mode::RGRP
+                                | Mode::XGRP
+                                | Mode::ROTH
+                                | Mode::XOTH,
                             ino,
                         ));
                         ino += 1;
@@ -466,13 +514,22 @@ impl InitramfsFs {
                                 Box::new(InitramfsDirNodeOps {
                                     entries: Arc::clone(&new_dir_entries),
                                 }),
-                                Mode::DIR | Mode::RUSR | Mode::WUSR | Mode::XUSR | Mode::RGRP | Mode::XGRP | Mode::ROTH | Mode::XOTH,
+                                Mode::DIR
+                                    | Mode::RUSR
+                                    | Mode::WUSR
+                                    | Mode::XUSR
+                                    | Mode::RGRP
+                                    | Mode::XGRP
+                                    | Mode::ROTH
+                                    | Mode::XOTH,
                                 ino,
                             ));
                             ino += 1;
 
                             if let Some(parent_entries) = dir_map.get(&parent_path) {
-                                parent_entries.write().insert((*leaf_name).into(), new_dir_node);
+                                parent_entries
+                                    .write()
+                                    .insert((*leaf_name).into(), new_dir_node);
                             }
                             dir_map.insert(full_dir_path, new_dir_entries);
                         }
@@ -484,7 +541,13 @@ impl InitramfsFs {
                             ino,
                             INodeAttr {
                                 size: target_str.len(),
-                                mode: Mode::LINK | Mode::RUSR | Mode::RGRP | Mode::ROTH | Mode::XUSR | Mode::XGRP | Mode::XOTH,
+                                mode: Mode::LINK
+                                    | Mode::RUSR
+                                    | Mode::RGRP
+                                    | Mode::ROTH
+                                    | Mode::XUSR
+                                    | Mode::XGRP
+                                    | Mode::XOTH,
                                 nlink: 1,
                                 uid: entry.uid,
                                 gid: entry.gid,
@@ -495,13 +558,22 @@ impl InitramfsFs {
                         count += 1;
 
                         if let Some(parent_entries) = dir_map.get(&parent_path) {
-                            parent_entries.write().insert((*leaf_name).into(), symlink_node);
+                            parent_entries
+                                .write()
+                                .insert((*leaf_name).into(), symlink_node);
                         }
                     }
                     _ => {
                         let attr = INodeAttr {
                             size: entry.data.len(),
-                            mode: Mode::FILE | Mode::RUSR | Mode::WUSR | Mode::XUSR | Mode::RGRP | Mode::XGRP | Mode::ROTH | Mode::XOTH,
+                            mode: Mode::FILE
+                                | Mode::RUSR
+                                | Mode::WUSR
+                                | Mode::XUSR
+                                | Mode::RGRP
+                                | Mode::XGRP
+                                | Mode::ROTH
+                                | Mode::XOTH,
                             nlink: (entry.nlink.max(1)) as usize,
                             uid: entry.uid,
                             gid: entry.gid,
@@ -536,7 +608,9 @@ impl InitramfsFs {
                         count += 1;
 
                         if let Some(parent_entries) = dir_map.get(&parent_path) {
-                            parent_entries.write().insert((*leaf_name).into(), file_node);
+                            parent_entries
+                                .write()
+                                .insert((*leaf_name).into(), file_node);
                         }
                     }
                 }

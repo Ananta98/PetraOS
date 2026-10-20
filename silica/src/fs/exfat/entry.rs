@@ -2,8 +2,8 @@
 
 //! ExFAT Directory Entry structures and set parsing.
 
-use alloc::{string::String, vec::Vec};
 use crate::api::errno::Result;
+use alloc::{string::String, vec::Vec};
 
 pub const EXFAT_ENTRY_EOD: u8 = 0x00;
 pub const EXFAT_ENTRY_FILE: u8 = 0x85;
@@ -40,7 +40,9 @@ pub fn parse_directory(dir_data: &[u8]) -> Result<Vec<ExFatFileEntry>> {
         if entry_type == EXFAT_ENTRY_FILE {
             let secondary_count = dir_data[offset + 1] as usize;
             let file_attrs = u16::from_le_bytes(
-                dir_data[offset + 4..offset + 6].try_into().unwrap_or([0; 2]),
+                dir_data[offset + 4..offset + 6]
+                    .try_into()
+                    .unwrap_or([0; 2]),
             );
             let is_dir = (file_attrs & EXFAT_ATTR_DIRECTORY) != 0;
 

@@ -8,10 +8,10 @@ use alloc::vec::Vec;
 use bitflags::bitflags;
 use spin::Mutex;
 
-use crate::api::errno::{Errno, Result};
-use crate::fs::poll::PollEvents;
 use super::inode::INode;
 use super::mount::PathNode;
+use crate::api::errno::{Errno, Result};
+use crate::fs::poll::PollEvents;
 
 bitflags! {
     /// File open flags.
