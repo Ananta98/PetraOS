@@ -8,9 +8,9 @@ use super::{
     address::PciAddress,
     bar::probe_bar,
     config::{
-        PCI_CLASS_CODE, PCI_DEVICE_ID, PCI_HEADER_TYPE, PCI_INTERRUPT_LINE,
-        PCI_INTERRUPT_PIN, PCI_PROG_IF, PCI_REVISION_ID, PCI_SUBCLASS, PCI_VENDOR_ID,
-        pci_read_config_u16, pci_read_config_u8,
+        PCI_CLASS_CODE, PCI_DEVICE_ID, PCI_HEADER_TYPE, PCI_INTERRUPT_LINE, PCI_INTERRUPT_PIN,
+        PCI_PROG_IF, PCI_REVISION_ID, PCI_SUBCLASS, PCI_VENDOR_ID, pci_read_config_u8,
+        pci_read_config_u16,
     },
     device::PciDevice,
 };

@@ -107,7 +107,8 @@ impl Vmar {
             if new_size > old_size {
                 let grow = old_addr + old_size..old_addr + new_size;
                 let usable = is_mappable_range(&grow) && inner.mappings.count_overlap(&grow) == 0;
-                if usable && let Some(key) = inner.mappings.get(old_range.end - 1).map(VmMapping::start)
+                if usable
+                    && let Some(key) = inner.mappings.get(old_range.end - 1).map(VmMapping::start)
                 {
                     inner.check_total_fits(self, before - old_size + new_size)?;
                     let mapping = inner

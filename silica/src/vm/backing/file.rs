@@ -2,21 +2,18 @@
 
 //! File-backed virtual memory implementation (`mmap(2)`).
 
-use alloc::{
-    collections::BTreeMap,
-    sync::Arc,
+use alloc::{collections::BTreeMap, sync::Arc};
+use core::{
+    fmt::{self, Debug, Formatter},
+    ops::Range,
 };
-use core::{fmt::{self, Debug, Formatter}, ops::Range};
 use ostd::{
     mm::{PAGE_SIZE, UFrame, io::util::HasVmReaderWriter},
     sync::SpinLock,
 };
 
-use crate::{
-    api::errno::Result,
-    fs::File,
-};
 use super::{Backing, alloc_zeroed_frame};
+use crate::{api::errno::Result, fs::File};
 
 /// A backing object for file-mapped virtual memory (`mmap(2)`).
 ///

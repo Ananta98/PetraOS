@@ -63,11 +63,7 @@ pub fn alloc_ephemeral_port() -> u16 {
     if port >= 65530 {
         NEXT_EPHEMERAL_PORT.store(49152, core::sync::atomic::Ordering::Relaxed);
     }
-    if port < 49152 {
-        49152
-    } else {
-        port
-    }
+    if port < 49152 { 49152 } else { port }
 }
 
 /// Unidirectional byte channel used for Unix socket pairs.
@@ -175,9 +171,7 @@ impl KernelSocket {
     pub fn new_unix(sock_type: i32) -> Result<Arc<Self>> {
         let kind = match sock_type {
             SOCK_STREAM => SocketKind::UnixUnconnected { sock_type },
-            SOCK_DGRAM => {
-                SocketKind::UnixDgram(Arc::new(crate::net::unix::UnixDgramState::new()))
-            }
+            SOCK_DGRAM => SocketKind::UnixDgram(Arc::new(crate::net::unix::UnixDgramState::new())),
             _ => crate::return_errno!(ESOCKTNOSUPPORT, "unsupported unix socket type"),
         };
         Ok(Arc::new(Self {
@@ -245,10 +239,7 @@ impl KernelSocket {
             nonblocking: Mutex::new(false),
             local_endpoint: Mutex::new(None),
             remote_endpoint: Mutex::new(None),
-            local_addr: Mutex::new(Some(SocketAddress::Netlink {
-                pid: 0,
-                groups: 0,
-            })),
+            local_addr: Mutex::new(Some(SocketAddress::Netlink { pid: 0, groups: 0 })),
             remote_addr: Mutex::new(None),
         }))
     }
@@ -292,7 +283,10 @@ impl KernelSocket {
                 let bind_ep = if ep.addr.is_unspecified() {
                     IpListenEndpoint { addr: None, port }
                 } else {
-                    IpListenEndpoint { addr: Some(ep.addr), port }
+                    IpListenEndpoint {
+                        addr: Some(ep.addr),
+                        port,
+                    }
                 };
                 let mut net = NET_MANAGER.lock();
                 let socket = net.get_sockets().get_mut::<UdpSocket>(handle);
@@ -339,7 +333,7 @@ impl KernelSocket {
             }
             SocketKind::UnixUnconnected { .. } => {
                 let listener = Arc::new(crate::net::unix::UnixListenerState::new(
-                    backlog.max(1) as usize,
+                    backlog.max(1) as usize
                 ));
                 *self.kind.lock() = SocketKind::UnixListener(listener);
                 Ok(())
@@ -410,7 +404,8 @@ impl KernelSocket {
                 if !socket.is_open() {
                     let port = alloc_ephemeral_port();
                     socket.bind(port).map_err(|_| Errno::EADDRINUSE)?;
-                    let effective_ep = IpEndpoint::new(IpAddress::Ipv4(Ipv4Address::UNSPECIFIED), port);
+                    let effective_ep =
+                        IpEndpoint::new(IpAddress::Ipv4(Ipv4Address::UNSPECIFIED), port);
                     *self.local_endpoint.lock() = Some(effective_ep);
                     *self.local_addr.lock() = Some(SocketAddress::Inet(effective_ep));
                 }
@@ -420,8 +415,8 @@ impl KernelSocket {
             }
             (SocketKind::UnixUnconnected { .. }, SocketAddress::Unix(ref path))
             | (SocketKind::UnixDgram(_), SocketAddress::Unix(ref path)) => {
-                let target_sock = crate::net::unix::lookup_unix_socket(path)
-                    .ok_or(Errno::ECONNREFUSED)?;
+                let target_sock =
+                    crate::net::unix::lookup_unix_socket(path).ok_or(Errno::ECONNREFUSED)?;
                 let target_kind = target_sock.kind.lock().clone();
                 match target_kind {
                     SocketKind::UnixListener(ref listener) => {
@@ -448,12 +443,17 @@ impl KernelSocket {
                             local_endpoint: Mutex::new(None),
                             remote_endpoint: Mutex::new(None),
                             local_addr: Mutex::new(Some(SocketAddress::Unix(path.clone()))),
-                            remote_addr: Mutex::new(my_path.as_ref().map(|p| SocketAddress::Unix(p.clone()))),
+                            remote_addr: Mutex::new(
+                                my_path.as_ref().map(|p| SocketAddress::Unix(p.clone())),
+                            ),
                         });
                         *self.kind.lock() = SocketKind::Unix(client_end);
                         *self.remote_addr.lock() = Some(SocketAddress::Unix(path.clone()));
 
-                        listener.accept_queue.lock().push_back((server_sock, my_path));
+                        listener
+                            .accept_queue
+                            .lock()
+                            .push_back((server_sock, my_path));
                         listener.wq.wake_all();
                         crate::fs::poll::notify();
                         Ok(())
@@ -515,24 +515,24 @@ impl KernelSocket {
                     Task::yield_now();
                 }
             }
-            SocketKind::UnixListener(ref listener) => {
-                loop {
-                    if let Some((client_sock, remote_path)) = listener.accept_queue.lock().pop_front() {
-                        let addr = SocketAddress::Unix(remote_path.unwrap_or_default());
-                        return Ok((client_sock, addr));
-                    }
-
-                    if *self.nonblocking.lock() {
-                        return Err(Errno::EWOULDBLOCK);
-                    }
-
-                    let step = || listener.accept_queue.lock().pop_front();
-                    let (client_sock, remote_path) = listener.wq.wait_until(step);
+            SocketKind::UnixListener(ref listener) => loop {
+                if let Some((client_sock, remote_path)) = listener.accept_queue.lock().pop_front() {
                     let addr = SocketAddress::Unix(remote_path.unwrap_or_default());
                     return Ok((client_sock, addr));
                 }
+
+                if *self.nonblocking.lock() {
+                    return Err(Errno::EWOULDBLOCK);
+                }
+
+                let step = || listener.accept_queue.lock().pop_front();
+                let (client_sock, remote_path) = listener.wq.wait_until(step);
+                let addr = SocketAddress::Unix(remote_path.unwrap_or_default());
+                return Ok((client_sock, addr));
+            },
+            SocketKind::Udp(_) => {
+                crate::return_errno!(EOPNOTSUPP, "accept not supported on UDP socket")
             }
-            SocketKind::Udp(_) => crate::return_errno!(EOPNOTSUPP, "accept not supported on UDP socket"),
             _ => crate::return_errno!(EINVAL, "accept not supported on this socket"),
         }
     }
@@ -636,7 +636,8 @@ impl KernelSocket {
                 if !socket.is_open() {
                     let port = alloc_ephemeral_port();
                     socket.bind(port).map_err(|_| Errno::EADDRINUSE)?;
-                    let effective_ep = IpEndpoint::new(IpAddress::Ipv4(Ipv4Address::UNSPECIFIED), port);
+                    let effective_ep =
+                        IpEndpoint::new(IpAddress::Ipv4(Ipv4Address::UNSPECIFIED), port);
                     *self.local_endpoint.lock() = Some(effective_ep);
                     *self.local_addr.lock() = Some(SocketAddress::Inet(effective_ep));
                 }
@@ -773,7 +774,8 @@ impl KernelSocket {
                 if !socket.is_open() {
                     let port = alloc_ephemeral_port();
                     socket.bind(port).map_err(|_| Errno::EADDRINUSE)?;
-                    let effective_ep = IpEndpoint::new(IpAddress::Ipv4(Ipv4Address::UNSPECIFIED), port);
+                    let effective_ep =
+                        IpEndpoint::new(IpAddress::Ipv4(Ipv4Address::UNSPECIFIED), port);
                     *self.local_endpoint.lock() = Some(effective_ep);
                     *self.local_addr.lock() = Some(SocketAddress::Inet(effective_ep));
                 }
@@ -843,11 +845,7 @@ impl KernelSocket {
                 drop(rx);
                 state.wq.wait_until(|| {
                     let rx = state.rx_buf.lock();
-                    if !rx.is_empty() {
-                        Some(())
-                    } else {
-                        None
-                    }
+                    if !rx.is_empty() { Some(()) } else { None }
                 });
             },
             _ => Err(Errno::ENOTCONN),
@@ -869,7 +867,8 @@ impl KernelSocket {
                 if !socket.is_open() {
                     let port = alloc_ephemeral_port();
                     socket.bind(port).map_err(|_| Errno::EADDRINUSE)?;
-                    let effective_ep = IpEndpoint::new(IpAddress::Ipv4(Ipv4Address::UNSPECIFIED), port);
+                    let effective_ep =
+                        IpEndpoint::new(IpAddress::Ipv4(Ipv4Address::UNSPECIFIED), port);
                     *self.local_endpoint.lock() = Some(effective_ep);
                     *self.local_addr.lock() = Some(SocketAddress::Inet(effective_ep));
                 }
@@ -890,8 +889,8 @@ impl KernelSocket {
                     .or_else(|| self.remote_addr.lock().clone())
                     .ok_or(Errno::EDESTADDRREQ)?;
                 if let SocketAddress::Unix(ref path) = target {
-                    let target_sock = crate::net::unix::lookup_unix_socket(path)
-                        .ok_or(Errno::ECONNREFUSED)?;
+                    let target_sock =
+                        crate::net::unix::lookup_unix_socket(path).ok_or(Errno::ECONNREFUSED)?;
                     let my_path = self.local_addr.lock().clone().and_then(|a| match a {
                         SocketAddress::Unix(p) => Some(p),
                         _ => None,
@@ -928,7 +927,8 @@ impl KernelSocket {
                 if !socket.is_open() {
                     let port = alloc_ephemeral_port();
                     socket.bind(port).map_err(|_| Errno::EADDRINUSE)?;
-                    let effective_ep = IpEndpoint::new(IpAddress::Ipv4(Ipv4Address::UNSPECIFIED), port);
+                    let effective_ep =
+                        IpEndpoint::new(IpAddress::Ipv4(Ipv4Address::UNSPECIFIED), port);
                     *self.local_endpoint.lock() = Some(effective_ep);
                     *self.local_addr.lock() = Some(SocketAddress::Inet(effective_ep));
                 }
@@ -963,11 +963,7 @@ impl KernelSocket {
                 drop(rx);
                 dgram.wq.wait_until(|| {
                     let rx = dgram.rx_queue.lock();
-                    if !rx.is_empty() {
-                        Some(())
-                    } else {
-                        None
-                    }
+                    if !rx.is_empty() { Some(()) } else { None }
                 });
             },
             SocketKind::Netlink(ref state) => {
@@ -1038,7 +1034,9 @@ impl KernelSocket {
             let mut guard = self.kind.lock();
             let old = guard.clone();
             if matches!(old, SocketKind::Tcp(_) | SocketKind::Udp(_)) {
-                *guard = SocketKind::UnixUnconnected { sock_type: self.sock_type };
+                *guard = SocketKind::UnixUnconnected {
+                    sock_type: self.sock_type,
+                };
             }
             old
         };

@@ -25,11 +25,7 @@ pub fn resolve_target_proc(caller: &Arc<Proc>, pid_val: i32) -> Result<Arc<Proc>
 }
 
 /// Handles `sched_setparam(2)` system call (`SYS_SCHED_SETPARAM = 142`).
-pub fn sys_sched_setparam(
-    pid: i32,
-    param_ptr: usize,
-    _ctx: &mut UserContext,
-) -> Result<usize> {
+pub fn sys_sched_setparam(pid: i32, param_ptr: usize, _ctx: &mut UserContext) -> Result<usize> {
     if param_ptr == 0 {
         return Err(Errno::EFAULT);
     }
@@ -68,11 +64,7 @@ pub fn sys_sched_setparam(
 }
 
 /// Handles `sched_getparam(2)` system call (`SYS_SCHED_GETPARAM = 143`).
-pub fn sys_sched_getparam(
-    pid: i32,
-    param_ptr: usize,
-    _ctx: &mut UserContext,
-) -> Result<usize> {
+pub fn sys_sched_getparam(pid: i32, param_ptr: usize, _ctx: &mut UserContext) -> Result<usize> {
     if param_ptr == 0 {
         return Err(Errno::EFAULT);
     }

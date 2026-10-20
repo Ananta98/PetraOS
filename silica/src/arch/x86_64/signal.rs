@@ -796,8 +796,15 @@ fn align_frame_below(limit: usize) -> Option<usize> {
         block = block.checked_sub(16)?;
     }
     let addr = block.checked_sub(SigFrame::LEN)?.checked_add(8)?;
-    debug_assert_eq!(addr & 0xf, 8, "a signal frame must start eight bytes into a block");
-    debug_assert!(addr + SigFrame::LEN <= limit, "the frame must fit below the limit");
+    debug_assert_eq!(
+        addr & 0xf,
+        8,
+        "a signal frame must start eight bytes into a block"
+    );
+    debug_assert!(
+        addr + SigFrame::LEN <= limit,
+        "the frame must fit below the limit"
+    );
     Some(addr)
 }
 

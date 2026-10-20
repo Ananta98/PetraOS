@@ -10,10 +10,7 @@ use crate::{
         errno::{Errno, Result},
         limit::{RLimit, Resource},
     },
-    proc::{
-        Pid, allproc_find,
-        thread::Thread,
-    },
+    proc::{Pid, allproc_find, thread::Thread},
     utils::userspace::user_ptr::UserPtr,
 };
 

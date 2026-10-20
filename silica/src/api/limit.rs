@@ -225,4 +225,3 @@ impl Rusage {
         bytes
     }
 }
-

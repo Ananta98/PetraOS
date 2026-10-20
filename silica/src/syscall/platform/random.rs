@@ -2,11 +2,11 @@
 
 //! Random number generation system calls.
 
-use ostd::arch::cpu::context::UserContext;
 use crate::api::errno::{Errno, Result};
 use crate::api::random::*;
 use crate::proc::thread::Thread;
 use crate::utils::userspace::UserPtr;
+use ostd::arch::cpu::context::UserContext;
 
 /// Maximum bytes allowed in a single `getrandom(2)` invocation (32MB - 1).
 const MAX_RANDOM_BYTES: usize = 33554431;

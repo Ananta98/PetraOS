@@ -50,4 +50,3 @@ pub fn sys_syncfs(fd: i32, _ctx: &mut UserContext) -> Result<usize> {
     }
     Ok(0)
 }
-

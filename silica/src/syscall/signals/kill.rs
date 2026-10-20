@@ -29,8 +29,8 @@ pub fn sys_kill(pid: i32, sig: i32, _ctx: &mut UserContext) -> Result<usize> {
     };
 
     if pid > 0 {
-        let proc = allproc_find(Pid::from_u32(pid as u32).ok_or(Errno::EINVAL)?)
-            .ok_or(Errno::ESRCH)?;
+        let proc =
+            allproc_find(Pid::from_u32(pid as u32).ok_or(Errno::EINVAL)?).ok_or(Errno::ESRCH)?;
         if let Some(sig) = sig_opt {
             send_to(&proc, sig, 0)?;
         }
@@ -118,8 +118,8 @@ pub fn sys_tgkill(tgid: i32, tid: i32, sig: i32, _ctx: &mut UserContext) -> Resu
     if sig < 0 || sig > 64 {
         return Err(Errno::EINVAL);
     }
-    let proc = allproc_find(Pid::from_u32(tgid as u32).ok_or(Errno::EINVAL)?)
-        .ok_or(Errno::ESRCH)?;
+    let proc =
+        allproc_find(Pid::from_u32(tgid as u32).ok_or(Errno::EINVAL)?).ok_or(Errno::ESRCH)?;
 
     let tid = Tid::from_u32(tid as u32).ok_or(Errno::EINVAL)?;
     let target = proc

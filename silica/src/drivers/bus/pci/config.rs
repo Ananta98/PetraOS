@@ -52,7 +52,10 @@ fn ensure_pci_ports() {
                 .expect("failed to acquire PCI config address port 0xCF8");
             let data = IoPort::acquire_overlapping(PCI_CONFIG_DATA_PORT)
                 .expect("failed to acquire PCI config data port 0xCFC");
-            *guard = Some(PciPorts { addr_port: addr, data_port: data });
+            *guard = Some(PciPorts {
+                addr_port: addr,
+                data_port: data,
+            });
         }
     }
 }

@@ -12,7 +12,7 @@ use crate::{
     api::errno::{Errno, Result},
     net::socket::SOCK_DGRAM,
     proc::thread::Thread,
-    syscall::fs::utils::{read_user_iovecs, UserPtr},
+    syscall::fs::utils::{UserPtr, read_user_iovecs},
 };
 
 /// Linux `struct msghdr` layout on x86-64 (56 bytes).
@@ -56,12 +56,7 @@ impl MsgHdr {
 }
 
 /// System call `sendmsg(int sockfd, const struct msghdr *msg, int flags)` (Syscall #46).
-pub fn sys_sendmsg(
-    fd: i32,
-    msg_ptr: usize,
-    flags: i32,
-    _ctx: &mut UserContext,
-) -> Result<usize> {
+pub fn sys_sendmsg(fd: i32, msg_ptr: usize, flags: i32, _ctx: &mut UserContext) -> Result<usize> {
     if msg_ptr == 0 {
         return Err(Errno::EFAULT);
     }
@@ -98,7 +93,9 @@ pub fn sys_sendmsg(
                 .reader(iov.iov_base, to_read)
                 .map_err(|_| Errno::EFAULT)?;
             let mut writer = ostd::mm::VmWriter::from(&mut kbuf[offset..offset + to_read]);
-            reader.read_fallible(&mut writer).map_err(|_| Errno::EFAULT)?;
+            reader
+                .read_fallible(&mut writer)
+                .map_err(|_| Errno::EFAULT)?;
             offset += to_read;
         }
 
@@ -121,7 +118,9 @@ pub fn sys_sendmsg(
                 .reader(iov.iov_base, chunk_len)
                 .map_err(|_| Errno::EFAULT)?;
             let mut writer = ostd::mm::VmWriter::from(&mut chunk[..]);
-            reader.read_fallible(&mut writer).map_err(|_| Errno::EFAULT)?;
+            reader
+                .read_fallible(&mut writer)
+                .map_err(|_| Errno::EFAULT)?;
 
             let n = socket.send(&chunk[..chunk_len], flags)?;
             total_sent += n;
@@ -134,12 +133,7 @@ pub fn sys_sendmsg(
 }
 
 /// System call `recvmsg(int sockfd, struct msghdr *msg, int flags)` (Syscall #47).
-pub fn sys_recvmsg(
-    fd: i32,
-    msg_ptr: usize,
-    flags: i32,
-    _ctx: &mut UserContext,
-) -> Result<usize> {
+pub fn sys_recvmsg(fd: i32, msg_ptr: usize, flags: i32, _ctx: &mut UserContext) -> Result<usize> {
     if msg_ptr == 0 {
         return Err(Errno::EFAULT);
     }
@@ -172,12 +166,15 @@ pub fn sys_recvmsg(
                     .writer(iov.iov_base, to_write)
                     .map_err(|_| Errno::EFAULT)?;
                 let mut reader = ostd::mm::VmReader::from(&kbuf[offset..offset + to_write]);
-                writer.write_fallible(&mut reader).map_err(|_| Errno::EFAULT)?;
+                writer
+                    .write_fallible(&mut reader)
+                    .map_err(|_| Errno::EFAULT)?;
                 offset += to_write;
             }
         }
 
-        if msghdr.msg_name != 0 && msghdr.msg_namelen > 0
+        if msghdr.msg_name != 0
+            && msghdr.msg_namelen > 0
             && let Some(endpoint) = endpoint_opt
         {
             let _ = write_sockaddr(&proc, endpoint, msghdr.msg_name, msg_ptr + 8);
@@ -202,7 +199,9 @@ pub fn sys_recvmsg(
                     .writer(iov.iov_base, n)
                     .map_err(|_| Errno::EFAULT)?;
                 let mut reader = ostd::mm::VmReader::from(&chunk[..n]);
-                writer.write_fallible(&mut reader).map_err(|_| Errno::EFAULT)?;
+                writer
+                    .write_fallible(&mut reader)
+                    .map_err(|_| Errno::EFAULT)?;
                 total_recv += n;
             }
             if n < chunk.len() {
@@ -210,7 +209,8 @@ pub fn sys_recvmsg(
             }
         }
 
-        if msghdr.msg_name != 0 && msghdr.msg_namelen > 0
+        if msghdr.msg_name != 0
+            && msghdr.msg_namelen > 0
             && let Ok(peer) = socket.getpeername()
         {
             let _ = write_sockaddr(&proc, peer, msghdr.msg_name, msg_ptr + 8);

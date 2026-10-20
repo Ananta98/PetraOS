@@ -5,8 +5,8 @@
 use core::ops::Range;
 use ostd::mm::{PAGE_SIZE, Vaddr};
 
-use crate::api::errno::Errno;
 use super::{VMAR_LOWEST_ADDR, mappings::Mappings};
+use crate::api::errno::Errno;
 
 /// The address space has no room for a mapping of the requested size.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -21,7 +21,11 @@ impl From<NoRoom> for Errno {
 /// Returns a region of `size` bytes inside `hole`, aligned down from its
 /// end so that it sits as high in the hole as `align` allows.
 fn take_from_hole(hole: &Range<Vaddr>, size: usize, align: usize) -> Option<Range<Vaddr>> {
-    let start = hole.end.checked_sub(size)?.checked_div(align)?.checked_mul(align)?;
+    let start = hole
+        .end
+        .checked_sub(size)?
+        .checked_div(align)?
+        .checked_mul(align)?;
     (start >= hole.start).then_some(start..start + size)
 }
 
@@ -66,10 +70,10 @@ pub fn find_free_region(
 
 #[cfg(ktest)]
 mod tests {
-    use ostd::prelude::ktest;
     use super::*;
-    use crate::vm::vmar::Vmar;
     use crate::vm::abi::{flags::MmapFlags, perms::VmPerms};
+    use crate::vm::vmar::Vmar;
+    use ostd::prelude::ktest;
 
     #[ktest]
     fn repro_find_free_region_with_mapping_above_ceiling() {
@@ -87,7 +91,14 @@ mod tests {
 
         let inner = vmar.inner.read();
         let res = find_free_region(&inner.mappings, PAGE_SIZE, high);
-        assert!(res.is_ok(), "find_free_region must succeed below high limit: {:?}", res);
-        assert!(res.unwrap().end <= high, "region must not exceed high_limit");
+        assert!(
+            res.is_ok(),
+            "find_free_region must succeed below high limit: {:?}",
+            res
+        );
+        assert!(
+            res.unwrap().end <= high,
+            "region must not exceed high_limit"
+        );
     }
 }

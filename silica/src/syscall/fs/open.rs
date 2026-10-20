@@ -8,7 +8,7 @@ use crate::{
     api::errno::{Errno, Result},
     fs::vfs::Mode,
     proc::thread::Thread,
-    syscall::fs::utils::{AT_FDCWD, parse_open_flags, resolve_at_start, UserCStr},
+    syscall::fs::utils::{AT_FDCWD, UserCStr, parse_open_flags, resolve_at_start},
 };
 
 /// System call `openat(int dirfd, const char *pathname, int flags, mode_t mode)` (Syscall #257).
@@ -33,11 +33,6 @@ pub fn sys_openat(
 }
 
 /// System call `open(const char *pathname, int flags, mode_t mode)` (Syscall #2).
-pub fn sys_open(
-    path_ptr: usize,
-    flags: i32,
-    mode: u32,
-    ctx: &mut UserContext,
-) -> Result<usize> {
+pub fn sys_open(path_ptr: usize, flags: i32, mode: u32, ctx: &mut UserContext) -> Result<usize> {
     sys_openat(AT_FDCWD, path_ptr, flags, mode, ctx)
 }

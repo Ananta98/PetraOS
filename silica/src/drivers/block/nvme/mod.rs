@@ -12,6 +12,7 @@ pub mod queue;
 pub mod regs;
 
 use alloc::{format, sync::Arc, vec::Vec};
+use core::sync::atomic::AtomicU64;
 use spin::Mutex;
 
 use ostd::{
@@ -26,11 +27,11 @@ use self::{
     regs::*,
 };
 use crate::{
+    api::errno::{Errno, Result},
     drivers::{
         block::register_block_device,
         bus::pci::{self, PciDevice, PciDeviceId, PciDriver, pci_register_driver},
     },
-    api::errno::{Errno, Result},
 };
 
 /// High-level NVMe Controller handle.
@@ -193,6 +194,10 @@ pub fn probe_controller(dev: &PciDevice) -> Result<Arc<NvmeController>> {
                     block_count,
                     io_queue: Arc::clone(&io_queue),
                     mmio: mmio.clone(),
+                    reads_completed: AtomicU64::new(0),
+                    sectors_read: AtomicU64::new(0),
+                    writes_completed: AtomicU64::new(0),
+                    sectors_written: AtomicU64::new(0),
                 });
 
                 register_block_device(&name, Arc::clone(&ns) as _);
@@ -215,13 +220,11 @@ pub fn probe_controller(dev: &PciDevice) -> Result<Arc<NvmeController>> {
 
 pub struct NvmePciDriver;
 
-static NVME_PCI_IDS: [PciDeviceId; 1] = [
-    PciDeviceId::match_class(
-        pci::ids::class::MASS_STORAGE,
-        pci::ids::mass_storage::NON_VOLATILE_MEMORY,
-        pci::ids::mass_storage::nvm::NVME,
-    ),
-];
+static NVME_PCI_IDS: [PciDeviceId; 1] = [PciDeviceId::match_class(
+    pci::ids::class::MASS_STORAGE,
+    pci::ids::mass_storage::NON_VOLATILE_MEMORY,
+    pci::ids::mass_storage::nvm::NVME,
+)];
 
 impl PciDriver for NvmePciDriver {
     fn name(&self) -> &'static str {

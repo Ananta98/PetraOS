@@ -2,9 +2,9 @@
 
 //! Reboot and power management system calls.
 
-use ostd::arch::cpu::context::UserContext;
 use crate::api::errno::{Errno, Result};
 use crate::api::reboot::*;
+use ostd::arch::cpu::context::UserContext;
 
 use crate::proc::thread::Thread;
 
@@ -39,9 +39,7 @@ pub fn sys_reboot(
             // Acknowledge CAD configuration request successfully.
             Ok(0)
         }
-        LINUX_REBOOT_CMD_SW_SUSPEND | LINUX_REBOOT_CMD_KEXEC => {
-            Err(Errno::ENOTSUP)
-        }
+        LINUX_REBOOT_CMD_SW_SUSPEND | LINUX_REBOOT_CMD_KEXEC => Err(Errno::ENOTSUP),
         _ => Err(Errno::EINVAL),
     }
 }

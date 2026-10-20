@@ -8,8 +8,8 @@ use crate::{
     api::errno::{Errno, Result},
     fs::{fd::FdFlags, socket::create_socket_file},
     net::socket::{
-        KernelSocket, AF_INET, AF_INET6, AF_NETLINK, AF_UNIX, IPPROTO_IP, IPPROTO_TCP,
-        IPPROTO_UDP, SOCK_DGRAM, SOCK_RAW, SOCK_STREAM,
+        AF_INET, AF_INET6, AF_NETLINK, AF_UNIX, IPPROTO_IP, IPPROTO_TCP, IPPROTO_UDP, KernelSocket,
+        SOCK_DGRAM, SOCK_RAW, SOCK_STREAM,
     },
     proc::thread::Thread,
     syscall::fs::utils::UserPtr,

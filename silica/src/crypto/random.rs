@@ -147,4 +147,3 @@ pub fn init() {
     rng.reseed(initial_entropy);
     ensure_initialized();
 }
-

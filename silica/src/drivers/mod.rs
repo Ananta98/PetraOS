@@ -55,6 +55,33 @@ pub trait CharacterDevice: Send + Sync {
     }
 }
 
+/// Statistics for a block device, matching Linux `/proc/diskstats`.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct BlockDeviceStats {
+    /// Number of read operations completed successfully.
+    pub reads_completed: u64,
+    /// Number of read operations merged.
+    pub reads_merged: u64,
+    /// Number of sectors read (in 512-byte units).
+    pub sectors_read: u64,
+    /// Time spent reading (milliseconds).
+    pub read_ms: u64,
+    /// Number of write operations completed successfully.
+    pub writes_completed: u64,
+    /// Number of write operations merged.
+    pub writes_merged: u64,
+    /// Number of sectors written (in 512-byte units).
+    pub sectors_written: u64,
+    /// Time spent writing (milliseconds).
+    pub write_ms: u64,
+    /// Number of I/Os currently in progress.
+    pub io_in_progress: u64,
+    /// Time spent doing I/Os (milliseconds).
+    pub io_ms: u64,
+    /// Weighted time spent doing I/Os (milliseconds).
+    pub weighted_io_ms: u64,
+}
+
 /// A block device that provides structured read/write operations for blocks.
 pub trait BlockDevice: Send + Sync {
     /// The unique name of the block device (e.g. "nvme0n1").
@@ -80,6 +107,27 @@ pub trait BlockDevice: Send + Sync {
     /// Optional: Flush written blocks.
     fn flush(&self) -> Result<()> {
         Ok(())
+    }
+
+    /// Return device major and minor numbers.
+    fn device_number(&self) -> (u32, u32) {
+        let name = self.name();
+        if name.starts_with("sd") {
+            let letter = name.as_bytes().get(2).copied().unwrap_or(b'a');
+            let idx = (letter.saturating_sub(b'a')) as u32;
+            (8, idx * 16)
+        } else if name.starts_with("nvme") {
+            (259, 0)
+        } else if name.starts_with("vd") {
+            (254, 0)
+        } else {
+            (252, 0)
+        }
+    }
+
+    /// Return I/O statistics for this block device.
+    fn stats(&self) -> BlockDeviceStats {
+        BlockDeviceStats::default()
     }
 }
 

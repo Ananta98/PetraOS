@@ -189,18 +189,30 @@ impl CpuInformation {
     }
 
     fn fill_brand_info(&mut self) {
-        let Some(CpuidResult { eax: a1, ebx: b1, ecx: c1, edx: d1 }) =
-            cpuid(CpuidLeaf::ExtBrand1 as u32, 0)
+        let Some(CpuidResult {
+            eax: a1,
+            ebx: b1,
+            ecx: c1,
+            edx: d1,
+        }) = cpuid(CpuidLeaf::ExtBrand1 as u32, 0)
         else {
             return;
         };
-        let Some(CpuidResult { eax: a2, ebx: b2, ecx: c2, edx: d2 }) =
-            cpuid(CpuidLeaf::ExtBrand2 as u32, 0)
+        let Some(CpuidResult {
+            eax: a2,
+            ebx: b2,
+            ecx: c2,
+            edx: d2,
+        }) = cpuid(CpuidLeaf::ExtBrand2 as u32, 0)
         else {
             return;
         };
-        let Some(CpuidResult { eax: a3, ebx: b3, ecx: c3, edx: d3 }) =
-            cpuid(CpuidLeaf::ExtBrand3 as u32, 0)
+        let Some(CpuidResult {
+            eax: a3,
+            ebx: b3,
+            ecx: c3,
+            edx: d3,
+        }) = cpuid(CpuidLeaf::ExtBrand3 as u32, 0)
         else {
             return;
         };
@@ -286,7 +298,11 @@ impl CpuInformation {
         if let Some(CpuidResult { eax, edx, .. }) = cpuid(CpuidLeaf::Topology as u32, 0) {
             self.apicid = edx;
             let shift = eax & 0x1F;
-            self.core_id = if shift > 0 { self.apicid >> shift } else { self.apicid };
+            self.core_id = if shift > 0 {
+                self.apicid >> shift
+            } else {
+                self.apicid
+            };
         }
     }
 
@@ -505,7 +521,11 @@ impl fmt::Display for CpuInformation {
         writeln!(f, "apicid\t\t: {}", self.apicid)?;
         writeln!(f, "initial apicid\t: {}", self.initial_apicid)?;
         writeln!(f, "fpu\t\t: {}", if self.fpu { "yes" } else { "no" })?;
-        writeln!(f, "fpu_exception\t: {}", if self.fpu_exception { "yes" } else { "no" })?;
+        writeln!(
+            f,
+            "fpu_exception\t: {}",
+            if self.fpu_exception { "yes" } else { "no" }
+        )?;
         writeln!(f, "cpuid level\t: {}", self.cpuid_level)?;
         writeln!(f, "wp\t\t: {}", if self.wp { "yes" } else { "no" })?;
 

@@ -15,7 +15,7 @@ use alloc::{boxed::Box, string::String, sync::Arc, vec::Vec};
 use core::sync::atomic::{AtomicBool, Ordering};
 use spin::Mutex;
 
-use ostd::sync::{LocalIrqDisabled, SpinLock, WaitQueue};
+use ostd::sync::{LocalIrqDisabled, SpinLock, WaitQueue, Waiter};
 
 use crate::api::errno::{Errno, Result};
 use crate::api::ioctl;
@@ -24,7 +24,7 @@ use crate::api::termios::{Termios, VMIN, VTIME, winsize};
 use crate::drivers::{CharacterDevice, register_chrdev};
 use crate::fs::poll::PollEvents;
 use crate::fs::vfs::{File, FileOps, INode, Mode, OpenFlags};
-use crate::proc::thread::Thread;
+use crate::proc::thread::{Thread, ThreadFlags};
 use crate::proc::{PID_INIT, Pid, pgrp_for_each};
 use crate::utils::ring_buffer::RingBuffer;
 use crate::utils::userspace::user_ptr::UserPtr;
@@ -131,12 +131,14 @@ impl Tty {
     }
 
     /// Reads data from the TTY buffer into `buf`.
+    ///
+    /// A blocking canonical read stays interruptible: a signal delivered to the
+    /// calling thread wakes it and the read returns `EINTR`, so `Ctrl+C` can
+    /// break out of a terminal read at the shell prompt.
     pub fn read(&self, buf: &mut [u8]) -> Result<usize> {
         if buf.is_empty() {
             return Ok(0);
         }
-
-        drain_input();
 
         let (canon, vmin, vtime) = {
             let ldisc = self.ldisc.lock();
@@ -147,41 +149,57 @@ impl Tty {
             )
         };
 
-        let try_read = || -> Option<usize> {
+        let (waiter, _) = Waiter::new_pair();
+
+        let cond = || -> Option<usize> {
             drain_input();
             let mut ldisc = self.ldisc.lock();
             let avail = ldisc.read_available();
 
-            if canon {
+            let ready = if canon {
                 if avail > 0 {
-                    return Some(ldisc.read_into(buf));
-                }
-                if ldisc.eof_received {
+                    Some(ldisc.read_into(buf))
+                } else if ldisc.eof_received {
                     ldisc.eof_received = false;
-                    return Some(0);
-                }
-                if self.is_hung_up() {
-                    return Some(0);
-                }
-                None
-            } else {
-                if vmin == 0 {
-                    if avail > 0 {
-                        Some(ldisc.read_into(buf))
-                    } else {
-                        Some(0)
-                    }
-                } else if avail > 0 && (avail >= vmin.min(buf.len()) || vtime > 0) {
-                    Some(ldisc.read_into(buf))
+                    Some(0)
                 } else if self.is_hung_up() {
-                    Some(ldisc.read_into(buf))
+                    Some(0)
                 } else {
                     None
                 }
+            } else if vmin == 0 {
+                if avail > 0 {
+                    Some(ldisc.read_into(buf))
+                } else {
+                    Some(0)
+                }
+            } else if avail > 0 && (avail >= vmin.min(buf.len()) || vtime > 0) {
+                Some(ldisc.read_into(buf))
+            } else if self.is_hung_up() {
+                Some(ldisc.read_into(buf))
+            } else {
+                None
+            };
+
+            // Publish the waker while the line discipline is still locked: a
+            // producer fills the buffer under this same lock and wakes only
+            // after releasing it, so enqueueing here cannot miss a wakeup.
+            if ready.is_none() {
+                self.wq.enqueue(waiter.waker());
             }
+            ready
         };
 
-        Ok(self.wq.wait_until(try_read))
+        let cancel = || {
+            if let Some(td) = Thread::current()
+                && td.inner.lock().flags.contains(ThreadFlags::TDF_ASTPENDING)
+            {
+                return Err(Errno::EINTR);
+            }
+            Ok(())
+        };
+
+        waiter.wait_until_or_cancelled(cond, cancel)
     }
 
     /// Writes data through the line discipline to the backing driver.
@@ -316,7 +334,7 @@ impl Tty {
             }
             ioctl::TIOCSCTTY => {
                 let proc = proc_opt.ok_or(Errno::EPERM)?;
-                *self.session.lock() = Some(proc.pid());
+                *self.session.lock() = Some(proc.pid);
                 *self.foreground_pgrp.lock() = Some(proc.pgid());
                 Ok(0)
             }
@@ -329,7 +347,7 @@ impl Tty {
                 let sid = self
                     .session
                     .lock()
-                    .or_else(|| proc_opt.map(|p| p.pid()))
+                    .or_else(|| proc_opt.map(|p| p.pid))
                     .unwrap_or(PID_INIT);
                 let bytes = sid.as_u32().to_ne_bytes();
                 UserPtr::new(arg).write_bytes(vmar, &bytes)?;
@@ -577,9 +595,17 @@ static INPUT_QUEUE: RingBuffer<1024> = RingBuffer::new();
 /// Serializes consumers of INPUT_QUEUE. Never taken from interrupt context.
 static DRAIN_LOCK: Mutex<()> = Mutex::new(());
 
+/// Set when `INPUT_QUEUE` holds bytes the input daemon has not drained yet.
+static INPUT_PENDING: AtomicBool = AtomicBool::new(false);
+
+/// Parks the input daemon until a keystroke is queued.
+static INPUT_WAIT_QUEUE: WaitQueue = WaitQueue::new();
+
 /// Queues an input byte. Lock-free; safe to call from interrupt handlers.
 pub fn queue_input(ch: u8) {
     INPUT_QUEUE.push_overwrite(ch);
+    INPUT_PENDING.store(true, Ordering::Release);
+    INPUT_WAIT_QUEUE.wake_one();
     if let Some(console) = get_console() {
         console.wake_readers();
     }
@@ -613,6 +639,40 @@ pub fn handle_keyboard_char(ch: u8) {
     }
 }
 
+/// Feeds queued keystrokes to the line discipline in thread context.
+///
+/// The line discipline cannot run from the keyboard interrupt: it takes the TTY
+/// and process locks, which are not interrupt-safe. Running it here gives queued
+/// bytes an execution context even when no process is reading the console, so a
+/// control character such as Ctrl+C still signals the foreground process group
+/// while a command that does not read stdin (e.g. `sleep`) is running.
+fn keyboard_input_daemon() {
+    loop {
+        // `drain_input` returns early when another thread holds the drain lock,
+        // so retry until the queue is observed empty rather than stranding input.
+        while !INPUT_QUEUE.is_empty() {
+            drain_input();
+            if !INPUT_QUEUE.is_empty() {
+                ostd::task::Task::yield_now();
+            }
+        }
+
+        INPUT_WAIT_QUEUE.wait_until(|| INPUT_PENDING.swap(false, Ordering::Acquire).then_some(()));
+    }
+}
+
+fn spawn_keyboard_input_daemon() -> Result<()> {
+    crate::proc::kthread::kproc_create("tty_input", keyboard_input_daemon, 0)?;
+    Ok(())
+}
+
+crate::module!(
+    "TTY Input Daemon",
+    "Ananta98",
+    crate::modules::InitcallLevel::Late,
+    spawn_keyboard_input_daemon
+);
+
 /// Called when a process terminates.
 /// If the process left the active console TTY in raw mode or with disabled ONLCR,
 /// restores canonical termios, exits alternate screen, and unhides cursor,
@@ -622,7 +682,7 @@ pub fn on_proc_exit(proc: &crate::proc::Proc) {
         let is_fg = tty
             .foreground_pgrp
             .lock()
-            .map_or(false, |pgid| pgid == proc.pgid() || pgid == proc.pid());
+            .map_or(false, |pgid| pgid == proc.pgid() || pgid == proc.pid);
         let is_child_of_init = proc.ppid() == Some(PID_INIT);
         let is_session_member = proc.sid() == PID_INIT;
 

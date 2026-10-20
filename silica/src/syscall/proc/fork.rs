@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: GPL-2.0
 
-use ostd::arch::cpu::context::UserContext;
 use crate::{
     api::errno::{Errno, Result},
     proc::{
-        lifecycle::{clone_proc, fork1, CLONE_VFORK, CLONE_VM},
+        lifecycle::{CLONE_VFORK, CLONE_VM, clone_proc, fork1},
         thread::Thread,
     },
 };
+use ostd::arch::cpu::context::UserContext;
 
 pub fn sys_fork(ctx: &mut UserContext) -> Result<usize> {
     let td = Thread::current().ok_or(Errno::ESRCH)?;

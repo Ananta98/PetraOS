@@ -10,9 +10,7 @@ use crate::{
     api::errno::{Errno, Result},
     fs::vfs::{Mode, OpenFlags},
     proc::thread::Thread,
-    syscall::fs::utils::{
-        resolve_at_start, UserCStr, UserPtr, AT_FDCWD, AT_REMOVEDIR,
-    },
+    syscall::fs::utils::{AT_FDCWD, AT_REMOVEDIR, UserCStr, UserPtr, resolve_at_start},
 };
 
 /// System call `truncate(const char *path, off_t length)` (Syscall #76).
@@ -90,7 +88,12 @@ pub fn sys_readlink(
 }
 
 /// System call `mkdirat(int dirfd, const char *pathname, mode_t mode)` (Syscall #258).
-pub fn sys_mkdirat(dirfd: i32, path_ptr: usize, mode: u32, _ctx: &mut UserContext) -> Result<usize> {
+pub fn sys_mkdirat(
+    dirfd: i32,
+    path_ptr: usize,
+    mode: u32,
+    _ctx: &mut UserContext,
+) -> Result<usize> {
     let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
     let vmar = proc.vmspace();
     let path = UserCStr::new(path_ptr).read_string(&vmar, 4096)?;
@@ -118,7 +121,12 @@ pub fn sys_mknodat(
 }
 
 /// System call `unlinkat(int dirfd, const char *pathname, int flags)` (Syscall #263).
-pub fn sys_unlinkat(dirfd: i32, path_ptr: usize, flags: i32, _ctx: &mut UserContext) -> Result<usize> {
+pub fn sys_unlinkat(
+    dirfd: i32,
+    path_ptr: usize,
+    flags: i32,
+    _ctx: &mut UserContext,
+) -> Result<usize> {
     let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
     let vmar = proc.vmspace();
     let path = UserCStr::new(path_ptr).read_string(&vmar, 4096)?;

@@ -6,10 +6,7 @@ use ostd::arch::cpu::context::UserContext;
 
 use crate::{
     api::errno::{Errno, Result},
-    fs::{
-        fd::FdFlags,
-        vfs::OpenFlags,
-    },
+    fs::{fd::FdFlags, vfs::OpenFlags},
     proc::thread::Thread,
 };
 
@@ -57,13 +54,21 @@ pub fn sys_fcntl(fd: i32, cmd: i32, arg: usize, _ctx: &mut UserContext) -> Resul
         F_GETFD => {
             let table = proc.fd_table.lock();
             let flags = table.get_flags(fd)?;
-            let res = if flags.contains(FdFlags::FD_CLOEXEC) { 1 } else { 0 };
+            let res = if flags.contains(FdFlags::FD_CLOEXEC) {
+                1
+            } else {
+                0
+            };
             Ok(res)
         }
         F_SETFD => {
             let mut table = proc.fd_table.lock();
             let cloexec = (arg & 1) != 0;
-            let flags = if cloexec { FdFlags::FD_CLOEXEC } else { FdFlags::empty() };
+            let flags = if cloexec {
+                FdFlags::FD_CLOEXEC
+            } else {
+                FdFlags::empty()
+            };
             table.set_flags(fd, flags)?;
             Ok(0)
         }

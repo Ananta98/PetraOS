@@ -9,7 +9,7 @@ use crate::{
     fs::vfs::{AccessFlags, LookupFlags},
     proc::thread::Thread,
     syscall::fs::utils::{
-        AT_EMPTY_PATH, AT_FDCWD, AT_SYMLINK_NOFOLLOW, resolve_at_start, UserCStr,
+        AT_EMPTY_PATH, AT_FDCWD, AT_SYMLINK_NOFOLLOW, UserCStr, resolve_at_start,
     },
 };
 
@@ -87,7 +87,10 @@ pub fn sys_faccessat2(
         access |= AccessFlags::EXEC;
     }
 
-    let attr = inode.node_ops.getattr().unwrap_or_else(|_| *inode.attr.read());
+    let attr = inode
+        .node_ops
+        .getattr()
+        .unwrap_or_else(|_| *inode.attr.read());
     crate::fs::perms::check_permission(&attr, &proc.cred(), access)?;
 
     Ok(0)

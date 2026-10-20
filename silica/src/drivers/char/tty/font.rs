@@ -20,76 +20,65 @@ static R_SHADE_D1: &[u8] = &[255, 255, 255, 0, 255, 255, 255, 0, 255];
 static R_SHADE_D2: &[u8] = &[255, 0, 255, 255, 255, 0, 255, 255, 255];
 
 static GLYPH_HLINE: [&[u8]; 20] = [
-    R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY,
-    R_FULL, R_FULL,
-    R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY,
+    R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_FULL,
+    R_FULL, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY,
 ];
 
 static GLYPH_VLINE: [&[u8]; 20] = [
-    R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT,
-    R_VERT, R_VERT,
-    R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT,
+    R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT,
+    R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT,
 ];
 
 static GLYPH_TOP_LEFT: [&[u8]; 20] = [
-    R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY,
-    R_RIGHT, R_RIGHT,
-    R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT,
+    R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_RIGHT,
+    R_RIGHT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT,
 ];
 
 static GLYPH_TOP_RIGHT: [&[u8]; 20] = [
-    R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY,
-    R_LEFT, R_LEFT,
-    R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT,
+    R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_LEFT,
+    R_LEFT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT,
 ];
 
 static GLYPH_BOTTOM_LEFT: [&[u8]; 20] = [
-    R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT,
-    R_RIGHT, R_RIGHT,
+    R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_RIGHT, R_RIGHT,
     R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY,
 ];
 
 static GLYPH_BOTTOM_RIGHT: [&[u8]; 20] = [
-    R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT,
-    R_LEFT, R_LEFT,
+    R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_LEFT, R_LEFT,
     R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY,
 ];
 
 static GLYPH_T_LEFT: [&[u8]; 20] = [
-    R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT,
-    R_RIGHT, R_RIGHT,
+    R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_RIGHT, R_RIGHT,
     R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT,
 ];
 
 static GLYPH_T_RIGHT: [&[u8]; 20] = [
-    R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT,
-    R_LEFT, R_LEFT,
-    R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT,
+    R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_LEFT, R_LEFT, R_VERT,
+    R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT,
 ];
 
 static GLYPH_T_TOP: [&[u8]; 20] = [
-    R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY,
-    R_FULL, R_FULL,
-    R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT,
+    R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_FULL,
+    R_FULL, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT,
 ];
 
 static GLYPH_T_BOTTOM: [&[u8]; 20] = [
-    R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT,
-    R_FULL, R_FULL,
+    R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_FULL, R_FULL,
     R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY,
 ];
 
 static GLYPH_CROSS: [&[u8]; 20] = [
-    R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT,
-    R_FULL, R_FULL,
-    R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT,
+    R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_FULL, R_FULL, R_VERT,
+    R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT, R_VERT,
 ];
 
 static GLYPH_BLOCK_FULL: [&[u8]; 20] = [R_FULL; 20];
 
 static GLYPH_BLOCK_UPPER: [&[u8]; 20] = [
-    R_FULL, R_FULL, R_FULL, R_FULL, R_FULL, R_FULL, R_FULL, R_FULL, R_FULL, R_FULL,
-    R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY,
+    R_FULL, R_FULL, R_FULL, R_FULL, R_FULL, R_FULL, R_FULL, R_FULL, R_FULL, R_FULL, R_EMPTY,
+    R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY,
 ];
 
 static GLYPH_BLOCK_LOWER: [&[u8]; 20] = [
@@ -113,37 +102,34 @@ static GLYPH_BAR_3: [&[u8]; 20] = [
     R_EMPTY, R_EMPTY, R_FULL, R_FULL, R_FULL, R_FULL, R_FULL, R_FULL, R_FULL, R_FULL,
 ];
 static GLYPH_BAR_5: [&[u8]; 20] = [
-    R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_FULL, R_FULL, R_FULL,
-    R_FULL, R_FULL, R_FULL, R_FULL, R_FULL, R_FULL, R_FULL, R_FULL, R_FULL, R_FULL,
+    R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_FULL, R_FULL, R_FULL, R_FULL,
+    R_FULL, R_FULL, R_FULL, R_FULL, R_FULL, R_FULL, R_FULL, R_FULL, R_FULL,
 ];
 static GLYPH_BAR_6: [&[u8]; 20] = [
-    R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_FULL, R_FULL, R_FULL, R_FULL, R_FULL,
-    R_FULL, R_FULL, R_FULL, R_FULL, R_FULL, R_FULL, R_FULL, R_FULL, R_FULL, R_FULL,
+    R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_EMPTY, R_FULL, R_FULL, R_FULL, R_FULL, R_FULL, R_FULL,
+    R_FULL, R_FULL, R_FULL, R_FULL, R_FULL, R_FULL, R_FULL, R_FULL, R_FULL,
 ];
 static GLYPH_BAR_7: [&[u8]; 20] = [
-    R_EMPTY, R_EMPTY, R_FULL, R_FULL, R_FULL, R_FULL, R_FULL, R_FULL, R_FULL, R_FULL,
-    R_FULL, R_FULL, R_FULL, R_FULL, R_FULL, R_FULL, R_FULL, R_FULL, R_FULL, R_FULL,
+    R_EMPTY, R_EMPTY, R_FULL, R_FULL, R_FULL, R_FULL, R_FULL, R_FULL, R_FULL, R_FULL, R_FULL,
+    R_FULL, R_FULL, R_FULL, R_FULL, R_FULL, R_FULL, R_FULL, R_FULL, R_FULL,
 ];
 
 static GLYPH_SHADE_LIGHT: [&[u8]; 20] = [
-    R_SHADE_L1, R_SHADE_L2, R_SHADE_L1, R_SHADE_L2, R_SHADE_L1,
-    R_SHADE_L2, R_SHADE_L1, R_SHADE_L2, R_SHADE_L1, R_SHADE_L2,
-    R_SHADE_L1, R_SHADE_L2, R_SHADE_L1, R_SHADE_L2, R_SHADE_L1,
-    R_SHADE_L2, R_SHADE_L1, R_SHADE_L2, R_SHADE_L1, R_SHADE_L2,
+    R_SHADE_L1, R_SHADE_L2, R_SHADE_L1, R_SHADE_L2, R_SHADE_L1, R_SHADE_L2, R_SHADE_L1, R_SHADE_L2,
+    R_SHADE_L1, R_SHADE_L2, R_SHADE_L1, R_SHADE_L2, R_SHADE_L1, R_SHADE_L2, R_SHADE_L1, R_SHADE_L2,
+    R_SHADE_L1, R_SHADE_L2, R_SHADE_L1, R_SHADE_L2,
 ];
 
 static GLYPH_SHADE_MEDIUM: [&[u8]; 20] = [
-    R_SHADE_M1, R_SHADE_M2, R_SHADE_M1, R_SHADE_M2, R_SHADE_M1,
-    R_SHADE_M2, R_SHADE_M1, R_SHADE_M2, R_SHADE_M1, R_SHADE_M2,
-    R_SHADE_M1, R_SHADE_M2, R_SHADE_M1, R_SHADE_M2, R_SHADE_M1,
-    R_SHADE_M2, R_SHADE_M1, R_SHADE_M2, R_SHADE_M1, R_SHADE_M2,
+    R_SHADE_M1, R_SHADE_M2, R_SHADE_M1, R_SHADE_M2, R_SHADE_M1, R_SHADE_M2, R_SHADE_M1, R_SHADE_M2,
+    R_SHADE_M1, R_SHADE_M2, R_SHADE_M1, R_SHADE_M2, R_SHADE_M1, R_SHADE_M2, R_SHADE_M1, R_SHADE_M2,
+    R_SHADE_M1, R_SHADE_M2, R_SHADE_M1, R_SHADE_M2,
 ];
 
 static GLYPH_SHADE_DARK: [&[u8]; 20] = [
-    R_SHADE_D1, R_SHADE_D2, R_SHADE_D1, R_SHADE_D2, R_SHADE_D1,
-    R_SHADE_D2, R_SHADE_D1, R_SHADE_D2, R_SHADE_D1, R_SHADE_D2,
-    R_SHADE_D1, R_SHADE_D2, R_SHADE_D1, R_SHADE_D2, R_SHADE_D1,
-    R_SHADE_D2, R_SHADE_D1, R_SHADE_D2, R_SHADE_D1, R_SHADE_D2,
+    R_SHADE_D1, R_SHADE_D2, R_SHADE_D1, R_SHADE_D2, R_SHADE_D1, R_SHADE_D2, R_SHADE_D1, R_SHADE_D2,
+    R_SHADE_D1, R_SHADE_D2, R_SHADE_D1, R_SHADE_D2, R_SHADE_D1, R_SHADE_D2, R_SHADE_D1, R_SHADE_D2,
+    R_SHADE_D1, R_SHADE_D2, R_SHADE_D1, R_SHADE_D2,
 ];
 
 fn get_custom_glyph(c: char) -> Option<&'static [&'static [u8]]> {
@@ -154,12 +140,20 @@ fn get_custom_glyph(c: char) -> Option<&'static [&'static [u8]]> {
         '┐' | '┑' | '┒' | '┓' | '╗' | '╕' | '╖' | '╮' => Some(&GLYPH_TOP_RIGHT),
         '└' | '┕' | '┖' | '┗' | '╚' | '╘' | '╙' | '╰' => Some(&GLYPH_BOTTOM_LEFT),
         '┘' | '┙' | '┚' | '┛' | '╝' | '╛' | '╜' | '╯' => Some(&GLYPH_BOTTOM_RIGHT),
-        '├' | '┝' | '┞' | '┟' | '┠' | '┡' | '┢' | '┣' | '╠' | '╞' | '╟' => Some(&GLYPH_T_LEFT),
-        '┤' | '┥' | '┦' | '┧' | '┨' | '┩' | '┪' | '┫' | '╣' | '╡' | '╢' => Some(&GLYPH_T_RIGHT),
-        '┬' | '┭' | '┮' | '┯' | '┰' | '┱' | '┲' | '┳' | '╦' | '╤' | '╥' => Some(&GLYPH_T_TOP),
-        '┴' | '┵' | '┶' | '┷' | '┸' | '┹' | '┺' | '┻' | '╩' | '╧' | '╨' => Some(&GLYPH_T_BOTTOM),
-        '┼' | '┽' | '┾' | '┿' | '╀' | '╁' | '╂' | '╃' | '╄' | '╅' | '╆' | '╇' | '╈' | '╉' | '╊' | '╋'
-        | '╬' | '╪' | '╫' => Some(&GLYPH_CROSS),
+        '├' | '┝' | '┞' | '┟' | '┠' | '┡' | '┢' | '┣' | '╠' | '╞' | '╟' => {
+            Some(&GLYPH_T_LEFT)
+        }
+        '┤' | '┥' | '┦' | '┧' | '┨' | '┩' | '┪' | '┫' | '╣' | '╡' | '╢' => {
+            Some(&GLYPH_T_RIGHT)
+        }
+        '┬' | '┭' | '┮' | '┯' | '┰' | '┱' | '┲' | '┳' | '╦' | '╤' | '╥' => {
+            Some(&GLYPH_T_TOP)
+        }
+        '┴' | '┵' | '┶' | '┷' | '┸' | '┹' | '┺' | '┻' | '╩' | '╧' | '╨' => {
+            Some(&GLYPH_T_BOTTOM)
+        }
+        '┼' | '┽' | '┾' | '┿' | '╀' | '╁' | '╂' | '╃' | '╄' | '╅' | '╆' | '╇' | '╈' | '╉' | '╊'
+        | '╋' | '╬' | '╪' | '╫' => Some(&GLYPH_CROSS),
         '█' => Some(&GLYPH_BLOCK_FULL),
         '▀' => Some(&GLYPH_BLOCK_UPPER),
         '▄' => Some(&GLYPH_BLOCK_LOWER),
@@ -205,7 +199,9 @@ fn map_unicode_to_ascii(c: char) -> char {
         '₇' => '7',
         '₈' => '8',
         '₉' => '9',
-        '•' | '●' | '○' | '■' | '□' | '▪' | '▫' | '◆' | '◇' | '◈' | '♦' => '*',
+        '•' | '●' | '○' | '■' | '□' | '▪' | '▫' | '◆' | '◇' | '◈' | '♦' => {
+            '*'
+        }
         '–' | '—' | '−' | '―' => '-',
         '…' | '·' => '.',
         '‘' | '’' | '‚' | '‛' => '\'',

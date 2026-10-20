@@ -251,11 +251,7 @@ impl MsyncFlags {
         }
         let recognized = Self::ASYNC | Self::SYNC | Self::INVALIDATE;
         if !recognized.contains(self) {
-            crate::return_errno!(
-                EINVAL,
-                "unknown msync flags {:#x}",
-                self.bits()
-            );
+            crate::return_errno!(EINVAL, "unknown msync flags {:#x}", self.bits());
         }
         Ok(())
     }

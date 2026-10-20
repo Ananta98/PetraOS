@@ -20,8 +20,7 @@ use crate::{
 };
 
 /// Global registry of bound UNIX domain sockets keyed by filesystem path or abstract name.
-pub static UNIX_REGISTRY: Mutex<BTreeMap<String, Arc<KernelSocket>>> =
-    Mutex::new(BTreeMap::new());
+pub static UNIX_REGISTRY: Mutex<BTreeMap<String, Arc<KernelSocket>>> = Mutex::new(BTreeMap::new());
 
 /// State for a listening UNIX stream socket (`SOCK_STREAM`).
 pub struct UnixListenerState {
@@ -94,8 +93,8 @@ pub fn lookup_unix_socket(path: &str) -> Option<Arc<KernelSocket>> {
 #[cfg(ktest)]
 mod tests {
     use super::*;
+    use crate::net::socket::{SOCK_DGRAM, SOCK_STREAM, SocketAddress};
     use ostd::prelude::ktest;
-    use crate::net::socket::{SOCK_STREAM, SOCK_DGRAM, SocketAddress};
 
     #[ktest]
     fn unix_stream_socket_listen_connect_and_exchange() {
@@ -169,4 +168,3 @@ mod tests {
         assert!(lookup_unix_socket(cli_path).is_none());
     }
 }
-

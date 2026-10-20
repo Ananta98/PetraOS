@@ -40,4 +40,3 @@ pub fn harvest_entropy_u64() -> u64 {
         jitter
     }
 }
-

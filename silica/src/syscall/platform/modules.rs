@@ -86,11 +86,7 @@ pub fn sys_finit_module(
 /// Handles `delete_module(2)` system call (`SYS_DELETE_MODULE = 176`).
 ///
 /// Unloads a kernel module by name.
-pub fn sys_delete_module(
-    name_ptr: usize,
-    _flags: i32,
-    _ctx: &mut UserContext,
-) -> Result<usize> {
+pub fn sys_delete_module(name_ptr: usize, _flags: i32, _ctx: &mut UserContext) -> Result<usize> {
     let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
     if !proc.cred().is_superuser() {
         return Err(Errno::EPERM);

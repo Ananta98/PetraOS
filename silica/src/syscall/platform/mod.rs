@@ -2,10 +2,10 @@
 
 //! Platform services system calls.
 
-pub mod reboot;
-pub mod random;
 pub mod modules;
+pub mod random;
+pub mod reboot;
 
-pub use reboot::sys_reboot;
+pub use modules::{sys_delete_module, sys_finit_module, sys_init_module};
 pub use random::sys_getrandom;
-pub use modules::{sys_init_module, sys_finit_module, sys_delete_module};
+pub use reboot::sys_reboot;

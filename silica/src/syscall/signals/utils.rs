@@ -34,7 +34,11 @@ pub fn decode_sigaction(buf: &[u8]) -> SigAction {
         *slot = u64::from_le_bytes(buf[at..at + 8].try_into().expect("eight bytes"));
     }
     let handler = u64::from_le_bytes(buf[0..8].try_into().expect("eight bytes")) as usize;
-    let flags = u32::from_le_bytes(buf[8 + SIGSET_WORDS * 8..][..4].try_into().expect("four bytes"));
+    let flags = u32::from_le_bytes(
+        buf[8 + SIGSET_WORDS * 8..][..4]
+            .try_into()
+            .expect("four bytes"),
+    );
     let restorer_at = 8 + SIGSET_WORDS * 8 + 8;
     let restorer =
         u64::from_le_bytes(buf[restorer_at..][..8].try_into().expect("eight bytes")) as usize;
@@ -89,19 +93,37 @@ pub fn all_signals() -> impl Iterator<Item = Signal> {
     (1..=crate::api::signal::SIGNAL_MAX).filter_map(Signal::from_u32)
 }
 
-pub fn read_bytes(vmar: &crate::vm::vmar::Vmar, uaddr: usize, len: usize) -> crate::api::errno::Result<alloc::vec::Vec<u8>> {
+pub fn read_bytes(
+    vmar: &crate::vm::vmar::Vmar,
+    uaddr: usize,
+    len: usize,
+) -> crate::api::errno::Result<alloc::vec::Vec<u8>> {
     use ostd::mm::FallibleVmRead;
     let mut buf = alloc::vec![0u8; len];
-    let mut reader = vmar.vm_space().reader(uaddr, len).map_err(|_| crate::api::errno::Errno::EFAULT)?;
+    let mut reader = vmar
+        .vm_space()
+        .reader(uaddr, len)
+        .map_err(|_| crate::api::errno::Errno::EFAULT)?;
     let mut writer = ostd::mm::VmWriter::from(&mut buf[..]);
-    reader.read_fallible(&mut writer).map_err(|_| crate::api::errno::Errno::EFAULT)?;
+    reader
+        .read_fallible(&mut writer)
+        .map_err(|_| crate::api::errno::Errno::EFAULT)?;
     Ok(buf)
 }
 
-pub fn write_bytes(vmar: &crate::vm::vmar::Vmar, uaddr: usize, bytes: &[u8]) -> crate::api::errno::Result<()> {
+pub fn write_bytes(
+    vmar: &crate::vm::vmar::Vmar,
+    uaddr: usize,
+    bytes: &[u8],
+) -> crate::api::errno::Result<()> {
     use ostd::mm::FallibleVmWrite;
-    let mut writer = vmar.vm_space().writer(uaddr, bytes.len()).map_err(|_| crate::api::errno::Errno::EFAULT)?;
+    let mut writer = vmar
+        .vm_space()
+        .writer(uaddr, bytes.len())
+        .map_err(|_| crate::api::errno::Errno::EFAULT)?;
     let mut reader = ostd::mm::VmReader::from(bytes);
-    writer.write_fallible(&mut reader).map_err(|_| crate::api::errno::Errno::EFAULT)?;
+    writer
+        .write_fallible(&mut reader)
+        .map_err(|_| crate::api::errno::Errno::EFAULT)?;
     Ok(())
 }

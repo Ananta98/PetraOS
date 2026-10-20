@@ -38,7 +38,9 @@ pub fn sys_sendto(
         .reader(buf_ptr, copy_len)
         .map_err(|_| Errno::EFAULT)?;
     let mut writer = ostd::mm::VmWriter::from(&mut kbuf[..]);
-    reader.read_fallible(&mut writer).map_err(|_| Errno::EFAULT)?;
+    reader
+        .read_fallible(&mut writer)
+        .map_err(|_| Errno::EFAULT)?;
 
     let endpoint = if dest_ptr != 0 && addrlen > 0 {
         Some(read_sockaddr(&proc, dest_ptr, addrlen)?)
@@ -84,10 +86,13 @@ pub fn sys_recvfrom(
             .writer(buf_ptr, nrecv)
             .map_err(|_| Errno::EFAULT)?;
         let mut reader = ostd::mm::VmReader::from(&kbuf[..nrecv]);
-        writer.write_fallible(&mut reader).map_err(|_| Errno::EFAULT)?;
+        writer
+            .write_fallible(&mut reader)
+            .map_err(|_| Errno::EFAULT)?;
     }
 
-    if src_ptr != 0 && addrlen_ptr != 0
+    if src_ptr != 0
+        && addrlen_ptr != 0
         && let Some(endpoint) = endpoint_opt
     {
         let _ = write_sockaddr(&proc, endpoint, src_ptr, addrlen_ptr);

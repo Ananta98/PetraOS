@@ -5,8 +5,8 @@
 use core::ops::Range;
 use ostd::mm::{PAGE_SIZE, Vaddr};
 
-use crate::{api::errno::Result, vm::flags::MsyncFlags};
 use super::super::{Vmar, is_mappable_range, mappings::VmMapping};
+use crate::{api::errno::Result, vm::flags::MsyncFlags};
 
 impl Vmar {
     /// Brings the mapping of `range` in line with the object behind it.
@@ -85,13 +85,17 @@ fn object_range(
 
 #[cfg(ktest)]
 mod tests {
-    use ostd::prelude::ktest;
     use super::*;
+    use ostd::prelude::ktest;
 
     #[ktest]
     fn repro_msync_flags_sync_plus_invalidate() {
         let raw = (MsyncFlags::SYNC | MsyncFlags::INVALIDATE).bits();
         let parsed = MsyncFlags::from_raw(raw);
-        assert!(parsed.is_ok(), "MS_SYNC | MS_INVALIDATE must be valid per POSIX, got {:?}", parsed);
+        assert!(
+            parsed.is_ok(),
+            "MS_SYNC | MS_INVALIDATE must be valid per POSIX, got {:?}",
+            parsed
+        );
     }
 }

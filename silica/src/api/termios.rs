@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
 #![allow(non_camel_case_types)]
 
-
 pub type tcflag_t = u32;
 pub type cc_t = u8;
 pub type speed_t = u32;
@@ -120,33 +119,33 @@ pub const IGNBRK: tcflag_t = 0o000001;
 pub const BRKINT: tcflag_t = 0o000002;
 pub const IGNPAR: tcflag_t = 0o000004;
 pub const PARMRK: tcflag_t = 0o000010;
-pub const INPCK: tcflag_t  = 0o000020;
+pub const INPCK: tcflag_t = 0o000020;
 pub const ISTRIP: tcflag_t = 0o000040;
-pub const INLCR: tcflag_t  = 0o000100;
-pub const IGNCR: tcflag_t  = 0o000200;
-pub const ICRNL: tcflag_t  = 0o000400;
-pub const IXON: tcflag_t   = 0o002000;
-pub const IXANY: tcflag_t  = 0o004000;
-pub const IXOFF: tcflag_t  = 0o010000;
+pub const INLCR: tcflag_t = 0o000100;
+pub const IGNCR: tcflag_t = 0o000200;
+pub const ICRNL: tcflag_t = 0o000400;
+pub const IXON: tcflag_t = 0o002000;
+pub const IXANY: tcflag_t = 0o004000;
+pub const IXOFF: tcflag_t = 0o010000;
 
 // c_oflag bits
-pub const OPOST: tcflag_t  = 0o000001;
-pub const ONLCR: tcflag_t  = 0o000004;
-pub const OCRNL: tcflag_t  = 0o000010;
-pub const ONOCR: tcflag_t  = 0o000020;
+pub const OPOST: tcflag_t = 0o000001;
+pub const ONLCR: tcflag_t = 0o000004;
+pub const OCRNL: tcflag_t = 0o000010;
+pub const ONOCR: tcflag_t = 0o000020;
 pub const ONLRET: tcflag_t = 0o000040;
 
 // c_cflag bits
-pub const CSIZE: tcflag_t  = 0o000060;
-pub const CS5: tcflag_t    = 0o000000;
-pub const CS6: tcflag_t    = 0o000020;
-pub const CS7: tcflag_t    = 0o000040;
-pub const CS8: tcflag_t    = 0o000060;
+pub const CSIZE: tcflag_t = 0o000060;
+pub const CS5: tcflag_t = 0o000000;
+pub const CS6: tcflag_t = 0o000020;
+pub const CS7: tcflag_t = 0o000040;
+pub const CS8: tcflag_t = 0o000060;
 pub const CSTOPB: tcflag_t = 0o000100;
-pub const CREAD: tcflag_t  = 0o000200;
+pub const CREAD: tcflag_t = 0o000200;
 pub const PARENB: tcflag_t = 0o000400;
 pub const PARODD: tcflag_t = 0o001000;
-pub const HUPCL: tcflag_t  = 0o002000;
+pub const HUPCL: tcflag_t = 0o002000;
 pub const CLOCAL: tcflag_t = 0o004000;
 
 pub type Termios = termios;
@@ -154,22 +153,22 @@ pub type Termios = termios;
 impl Default for termios {
     fn default() -> Self {
         let mut cc = [0; NCCS];
-        cc[VINTR] = 3;    // ^C
-        cc[VQUIT] = 28;   // ^\
+        cc[VINTR] = 3; // ^C
+        cc[VQUIT] = 28; // ^\
         cc[VERASE] = 127; // DEL
-        cc[VKILL] = 21;   // ^U
-        cc[VEOF] = 4;     // ^D
+        cc[VKILL] = 21; // ^U
+        cc[VEOF] = 4; // ^D
         cc[VTIME] = 0;
         cc[VMIN] = 1;
         cc[VSWTC] = 0;
-        cc[VSTART] = 17;  // ^Q
-        cc[VSTOP] = 19;   // ^S
-        cc[VSUSP] = 26;   // ^Z
+        cc[VSTART] = 17; // ^Q
+        cc[VSTOP] = 19; // ^S
+        cc[VSUSP] = 26; // ^Z
         cc[VEOL] = 0;
-        cc[VREPRINT] = 18;// ^R
-        cc[VDISCARD] = 15;// ^O
+        cc[VREPRINT] = 18; // ^R
+        cc[VDISCARD] = 15; // ^O
         cc[VWERASE] = 23; // ^W (Ctrl+W)
-        cc[VLNEXT] = 22;  // ^V
+        cc[VLNEXT] = 22; // ^V
         cc[VEOL2] = 0;
 
         Self {

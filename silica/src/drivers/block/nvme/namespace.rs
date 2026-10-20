@@ -3,15 +3,12 @@
 //! NVMe Active Namespace representing a block storage device.
 
 use alloc::{string::String, sync::Arc};
+use core::sync::atomic::{AtomicU64, Ordering};
 use spin::Mutex;
 
 use ostd::{
     io::IoMem,
-    mm::{
-        HasPaddr, VmReader, VmWriter,
-        dma::DmaCoherent,
-        io::util::HasVmReaderWriter,
-    },
+    mm::{HasPaddr, VmReader, VmWriter, dma::DmaCoherent, io::util::HasVmReaderWriter},
 };
 
 use super::{
@@ -19,8 +16,8 @@ use super::{
     queue::NvmeQueuePair,
 };
 use crate::{
-    drivers::{Device, DeviceType, block::BlockDevice},
     api::errno::{Errno, Result},
+    drivers::{BlockDeviceStats, Device, DeviceType, block::BlockDevice},
 };
 
 /// Represents an active NVMe Namespace that provides block-level I/O.
@@ -31,6 +28,10 @@ pub struct NvmeNamespace {
     pub block_count: u64,
     pub io_queue: Arc<Mutex<NvmeQueuePair>>,
     pub mmio: IoMem,
+    pub reads_completed: AtomicU64,
+    pub sectors_read: AtomicU64,
+    pub writes_completed: AtomicU64,
+    pub sectors_written: AtomicU64,
 }
 
 impl Device for NvmeNamespace {
@@ -79,6 +80,10 @@ impl BlockDevice for NvmeNamespace {
         let mut writer = VmWriter::from(buf);
         let bytes_copied = reader.read(&mut writer);
 
+        let sectors = (num_blocks as u64) * (self.block_size as u64 / 512);
+        self.reads_completed.fetch_add(1, Ordering::Relaxed);
+        self.sectors_read.fetch_add(sectors, Ordering::Relaxed);
+
         Ok(bytes_copied)
     }
 
@@ -105,6 +110,10 @@ impl BlockDevice for NvmeNamespace {
         let mut queue = self.io_queue.lock();
         queue.submit_and_wait(sqe, &self.mmio)?;
 
+        let sectors = (num_blocks as u64) * (self.block_size as u64 / 512);
+        self.writes_completed.fetch_add(1, Ordering::Relaxed);
+        self.sectors_written.fetch_add(sectors, Ordering::Relaxed);
+
         Ok(buf.len())
     }
 
@@ -116,5 +125,25 @@ impl BlockDevice for NvmeNamespace {
         let mut queue = self.io_queue.lock();
         queue.submit_and_wait(sqe, &self.mmio)?;
         Ok(())
+    }
+
+    fn device_number(&self) -> (u32, u32) {
+        (259, self.nsid.saturating_sub(1))
+    }
+
+    fn stats(&self) -> BlockDeviceStats {
+        BlockDeviceStats {
+            reads_completed: self.reads_completed.load(Ordering::Relaxed),
+            reads_merged: 0,
+            sectors_read: self.sectors_read.load(Ordering::Relaxed),
+            read_ms: 0,
+            writes_completed: self.writes_completed.load(Ordering::Relaxed),
+            writes_merged: 0,
+            sectors_written: self.sectors_written.load(Ordering::Relaxed),
+            write_ms: 0,
+            io_in_progress: 0,
+            io_ms: 0,
+            weighted_io_ms: 0,
+        }
     }
 }

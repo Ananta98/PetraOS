@@ -70,7 +70,8 @@ impl NetlinkSocketState {
         match nlmsg_type {
             RTM_GETLINK => {
                 // 1. Loopback interface "lo" (index 1)
-                let start = push_nlmsghdr(&mut reply, RTM_NEWLINK, NLM_F_MULTI, nlmsg_seq, nlmsg_pid);
+                let start =
+                    push_nlmsghdr(&mut reply, RTM_NEWLINK, NLM_F_MULTI, nlmsg_seq, nlmsg_pid);
                 // ifinfomsg (16 bytes): family=0, pad=0, type=ARPHRD_LOOPBACK(772), index=1, flags=0x49, change=0
                 reply.push(0); // ifi_family = AF_UNSPEC
                 reply.push(0); // __ifi_pad
@@ -84,7 +85,8 @@ impl NetlinkSocketState {
                 finalize_nlmsg(&mut reply, start);
 
                 // 2. Ethernet interface "eth0" (index 2)
-                let start = push_nlmsghdr(&mut reply, RTM_NEWLINK, NLM_F_MULTI, nlmsg_seq, nlmsg_pid);
+                let start =
+                    push_nlmsghdr(&mut reply, RTM_NEWLINK, NLM_F_MULTI, nlmsg_seq, nlmsg_pid);
                 reply.push(0); // ifi_family = AF_UNSPEC
                 reply.push(0); // __ifi_pad
                 reply.extend_from_slice(&1u16.to_ne_bytes()); // ARPHRD_ETHER
@@ -97,13 +99,15 @@ impl NetlinkSocketState {
                 finalize_nlmsg(&mut reply, start);
 
                 // 3. NLMSG_DONE terminator
-                let start = push_nlmsghdr(&mut reply, NLMSG_DONE, NLM_F_MULTI, nlmsg_seq, nlmsg_pid);
+                let start =
+                    push_nlmsghdr(&mut reply, NLMSG_DONE, NLM_F_MULTI, nlmsg_seq, nlmsg_pid);
                 reply.extend_from_slice(&0i32.to_ne_bytes());
                 finalize_nlmsg(&mut reply, start);
             }
             RTM_GETADDR => {
                 // 1. Loopback IPv4: 127.0.0.1/8
-                let start = push_nlmsghdr(&mut reply, RTM_NEWADDR, NLM_F_MULTI, nlmsg_seq, nlmsg_pid);
+                let start =
+                    push_nlmsghdr(&mut reply, RTM_NEWADDR, NLM_F_MULTI, nlmsg_seq, nlmsg_pid);
                 // ifaddrmsg (8 bytes): family=AF_INET(2), prefixlen=8, flags=IFA_F_PERMANENT(0x80), scope=254(HOST), index=1
                 reply.push(2); // ifa_family = AF_INET
                 reply.push(8); // ifa_prefixlen
@@ -116,7 +120,8 @@ impl NetlinkSocketState {
                 finalize_nlmsg(&mut reply, start);
 
                 // 2. eth0 IPv4: 10.0.2.15/24
-                let start = push_nlmsghdr(&mut reply, RTM_NEWADDR, NLM_F_MULTI, nlmsg_seq, nlmsg_pid);
+                let start =
+                    push_nlmsghdr(&mut reply, RTM_NEWADDR, NLM_F_MULTI, nlmsg_seq, nlmsg_pid);
                 reply.push(2); // ifa_family = AF_INET
                 reply.push(24); // ifa_prefixlen
                 reply.push(0x80); // ifa_flags = IFA_F_PERMANENT
@@ -128,13 +133,15 @@ impl NetlinkSocketState {
                 finalize_nlmsg(&mut reply, start);
 
                 // 3. NLMSG_DONE terminator
-                let start = push_nlmsghdr(&mut reply, NLMSG_DONE, NLM_F_MULTI, nlmsg_seq, nlmsg_pid);
+                let start =
+                    push_nlmsghdr(&mut reply, NLMSG_DONE, NLM_F_MULTI, nlmsg_seq, nlmsg_pid);
                 reply.extend_from_slice(&0i32.to_ne_bytes());
                 finalize_nlmsg(&mut reply, start);
             }
             _ => {
                 // Default: terminate with NLMSG_DONE
-                let start = push_nlmsghdr(&mut reply, NLMSG_DONE, NLM_F_MULTI, nlmsg_seq, nlmsg_pid);
+                let start =
+                    push_nlmsghdr(&mut reply, NLMSG_DONE, NLM_F_MULTI, nlmsg_seq, nlmsg_pid);
                 reply.extend_from_slice(&0i32.to_ne_bytes());
                 finalize_nlmsg(&mut reply, start);
             }
@@ -187,8 +194,8 @@ fn push_rtattr(buf: &mut Vec<u8>, rta_type: u16, data: &[u8]) {
 #[cfg(ktest)]
 mod tests {
     use super::*;
-    use ostd::prelude::ktest;
     use crate::net::socket::{KernelSocket, NETLINK_ROUTE};
+    use ostd::prelude::ktest;
 
     #[ktest]
     fn netlink_route_getlink_query_and_response() {
@@ -211,7 +218,8 @@ mod tests {
         let mut found_done = false;
 
         while offset + 16 <= n {
-            let msg_len = u32::from_ne_bytes(rx_buf[offset..offset + 4].try_into().unwrap()) as usize;
+            let msg_len =
+                u32::from_ne_bytes(rx_buf[offset..offset + 4].try_into().unwrap()) as usize;
             let msg_type = u16::from_ne_bytes(rx_buf[offset + 4..offset + 6].try_into().unwrap());
             if msg_type == RTM_NEWLINK {
                 found_link = true;
@@ -249,7 +257,8 @@ mod tests {
         let mut found_done = false;
 
         while offset + 16 <= n {
-            let msg_len = u32::from_ne_bytes(rx_buf[offset..offset + 4].try_into().unwrap()) as usize;
+            let msg_len =
+                u32::from_ne_bytes(rx_buf[offset..offset + 4].try_into().unwrap()) as usize;
             let msg_type = u16::from_ne_bytes(rx_buf[offset + 4..offset + 6].try_into().unwrap());
             if msg_type == RTM_NEWADDR {
                 found_addr = true;
@@ -267,4 +276,3 @@ mod tests {
         assert!(found_done, "NLMSG_DONE message should terminate the dump");
     }
 }
-

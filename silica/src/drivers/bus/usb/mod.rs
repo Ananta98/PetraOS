@@ -159,10 +159,10 @@ pub struct UsbDevice {
 /// USB Port speed indicator.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UsbSpeed {
-    FullSpeed, // 12 Mbps (USB 1.1 / 2.0)
-    LowSpeed,  // 1.5 Mbps (USB 1.0)
-    HighSpeed, // 480 Mbps (USB 2.0)
-    SuperSpeed,// 5 Gbps (USB 3.0)
+    FullSpeed,      // 12 Mbps (USB 1.1 / 2.0)
+    LowSpeed,       // 1.5 Mbps (USB 1.0)
+    HighSpeed,      // 480 Mbps (USB 2.0)
+    SuperSpeed,     // 5 Gbps (USB 3.0)
     SuperSpeedPlus, // 10 Gbps (USB 3.1)
     Unknown,
 }

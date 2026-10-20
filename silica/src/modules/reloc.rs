@@ -7,9 +7,9 @@
 
 use alloc::collections::btree_map::BTreeMap;
 use xmas_elf::{
-    sections::{Rela, SectionData, ShType, SHN_ABS, SHN_COMMON, SHN_UNDEF},
-    symbol_table::{DynEntry64, Entry, Entry64},
     ElfFile, P64,
+    sections::{Rela, SHN_ABS, SHN_COMMON, SHN_UNDEF, SectionData, ShType},
+    symbol_table::{DynEntry64, Entry, Entry64},
 };
 
 use crate::api::errno::{Errno, Result};
@@ -68,7 +68,9 @@ fn symtab_at<'a>(elf: &'a ElfFile<'a>, index: usize) -> Result<Option<Symtab<'a>
     if index == 0 {
         return Ok(None);
     }
-    let header = elf.section_header(index as u16).map_err(|_| Errno::ENOEXEC)?;
+    let header = elf
+        .section_header(index as u16)
+        .map_err(|_| Errno::ENOEXEC)?;
     match header.get_data(elf).map_err(|_| Errno::ENOEXEC)? {
         SectionData::SymbolTable64(entries) => Ok(Some(Symtab::Static(entries))),
         SectionData::DynSymbolTable64(entries) => Ok(Some(Symtab::Dynamic(entries))),
@@ -77,19 +79,21 @@ fn symtab_at<'a>(elf: &'a ElfFile<'a>, index: usize) -> Result<Option<Symtab<'a>
 }
 
 /// Resolves the address `S` of a symbol entry against the loaded layout.
-pub(crate) fn symbol_address<E: Entry>(elf: &ElfFile, sym: &E, layout: &ImageLayout) -> Result<u64> {
+pub(crate) fn symbol_address<E: Entry>(
+    elf: &ElfFile,
+    sym: &E,
+    layout: &ImageLayout,
+) -> Result<u64> {
     let shndx = sym.shndx();
     if shndx == SHN_UNDEF {
         let name = sym.get_name(elf).map_err(|_| {
             ostd::error!("Module relocation references an unnamed undefined symbol");
             Errno::ENOENT
         })?;
-        return lookup_symbol(name)
-            .map(|addr| addr as u64)
-            .ok_or_else(|| {
-                ostd::error!("Unknown symbol \"{}\" in module relocation", name);
-                Errno::ENOENT
-            });
+        return lookup_symbol(name).map(|addr| addr as u64).ok_or_else(|| {
+            ostd::error!("Unknown symbol \"{}\" in module relocation", name);
+            Errno::ENOENT
+        });
     }
     if shndx == SHN_ABS {
         return Ok(sym.value());
@@ -134,7 +138,9 @@ pub(crate) fn apply_relocations(
 ) -> Result<()> {
     let section_count = elf.header.pt2.sh_count() as usize;
     for index in 1..section_count {
-        let section = elf.section_header(index as u16).map_err(|_| Errno::ENOEXEC)?;
+        let section = elf
+            .section_header(index as u16)
+            .map_err(|_| Errno::ENOEXEC)?;
         if section.get_type() != Ok(ShType::Rela) {
             continue;
         }
@@ -176,7 +182,10 @@ pub(crate) fn apply_relocations(
             let (value, width) = match reloc_type {
                 R_X86_64_RELATIVE => {
                     // Implicit addend: value = load bias + addend.
-                    let bias = layout.base.checked_sub(layout.vaddr_min).ok_or(Errno::ENOEXEC)? as u64;
+                    let bias = layout
+                        .base
+                        .checked_sub(layout.vaddr_min)
+                        .ok_or(Errno::ENOEXEC)? as u64;
                     (bias.wrapping_add(addend), 8)
                 }
                 R_X86_64_64 => (value_of(symtab.as_ref(), elf, rela, layout)? + addend, 8),
@@ -217,7 +226,10 @@ fn value_of(
     layout: &ImageLayout,
 ) -> Result<u64> {
     let Some(symtab) = symtab else {
-        return_errno!(ENOEXEC, "relocation requires symbols without a symbol table");
+        return_errno!(
+            ENOEXEC,
+            "relocation requires symbols without a symbol table"
+        );
     };
     let index = rela.get_symbol_table_index() as usize;
     if index >= symtab.len() {

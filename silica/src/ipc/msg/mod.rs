@@ -20,8 +20,8 @@ use crate::api::errno::{Errno, Result};
 use crate::api::ipc::*;
 use crate::api::msg::*;
 use crate::ipc::perm::{check_admin_permission, check_read_permission, check_write_permission};
-use crate::proc::{Proc, ProcState};
 use crate::proc::thread::{Thread, ThreadFlags, ThreadState};
+use crate::proc::{Proc, ProcState};
 use crate::utils::userspace::user_ptr::UserPtr;
 
 /// Global registry of message queues by `msqid`.
@@ -30,7 +30,6 @@ static MSG_REGISTRY: SpinLock<BTreeMap<i32, Arc<SpinLock<MsgQueue>>>> =
 
 /// Mapping from IPC key to `msqid`.
 static KEY_MAP: SpinLock<BTreeMap<Key, i32>> = SpinLock::new(BTreeMap::new());
-
 
 /// Returns current system timestamp in seconds using the active clocksource.
 fn current_time_secs() -> i64 {

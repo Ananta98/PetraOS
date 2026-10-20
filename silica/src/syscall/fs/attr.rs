@@ -14,7 +14,7 @@ use crate::{
     fs::vfs::{INode, LookupFlags, Mode, S_IFMT},
     proc::thread::Thread,
     syscall::fs::utils::{
-        AT_EMPTY_PATH, AT_FDCWD, AT_SYMLINK_NOFOLLOW, resolve_at_start, UserCStr, UserPtr,
+        AT_EMPTY_PATH, AT_FDCWD, AT_SYMLINK_NOFOLLOW, UserCStr, UserPtr, resolve_at_start,
     },
 };
 

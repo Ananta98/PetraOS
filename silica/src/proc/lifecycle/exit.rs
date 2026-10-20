@@ -98,7 +98,9 @@ pub fn exit1(td: &Thread, status: ExitStatus) {
     // Wake any threads parked on stop_queue and any parent sleeping in vfork
     proc.stop_queue.wake_all();
     proc.wake_vfork();
-    if let Some(parent_pid) = ppid && let Some(parent) = allproc_find(parent_pid) {
+    if let Some(parent_pid) = ppid
+        && let Some(parent) = allproc_find(parent_pid)
+    {
         parent.wake_vfork();
     }
 
@@ -180,7 +182,9 @@ pub fn proc_reap(parent: &Arc<Proc>, child_pid: Pid) -> Result<(Pid, ExitStatus)
     {
         let child_inner = child.inner.lock();
         let mut p_inner = parent.inner.lock();
-        p_inner.children_rusage.accumulate(&child_inner.children_rusage);
+        p_inner
+            .children_rusage
+            .accumulate(&child_inner.children_rusage);
         let child_rss_kb = (child.vmspace().total_mapped_size() / 1024) as i64;
         if child_rss_kb > p_inner.children_rusage.ru_maxrss {
             p_inner.children_rusage.ru_maxrss = child_rss_kb;
@@ -198,7 +202,6 @@ pub fn proc_reap(parent: &Arc<Proc>, child_pid: Pid) -> Result<(Pid, ExitStatus)
 #[cfg(ktest)]
 mod tests {
     use super::*;
-    use ostd::{prelude::ktest, sync::SpinLock, task::TaskOptions};
     use crate::{
         api::{
             cred::Ucred,
@@ -212,6 +215,7 @@ mod tests {
         },
         vm::{flags::MmapFlags, perms::VmPerms, vmar::Vmar},
     };
+    use ostd::{prelude::ktest, sync::SpinLock, task::TaskOptions};
 
     fn create_test_proc() -> Arc<Proc> {
         let pid = PID_ALLOCATOR.lock().allocate().expect("allocate pid");
@@ -220,16 +224,7 @@ mod tests {
         let cred = Arc::new(Ucred::root());
         let limit = Arc::new(Plimit::default_limits());
         let sigacts = Arc::new(SpinLock::new(SigActs::new()));
-        let proc = Proc::new(
-            pid,
-            None,
-            vmar,
-            fd_table,
-            cred,
-            limit,
-            sigacts,
-            "test_proc",
-        );
+        let proc = Proc::new(pid, None, vmar, fd_table, cred, limit, sigacts, "test_proc");
         allproc_insert(Arc::clone(&proc));
         proc
     }

@@ -259,7 +259,9 @@ pub fn nr_running_on(cpu: CpuId) -> usize {
 
 /// Returns a snapshot of CPU scheduling statistics for `cpu`.
 pub fn cpu_stats_on(cpu: CpuId) -> Option<stats::CpuStatsSnapshot> {
-    SCHEDULER.get().map(|s| s.rq(cpu).disable_irq().lock().stats().snapshot())
+    SCHEDULER
+        .get()
+        .map(|s| s.rq(cpu).disable_irq().lock().stats().snapshot())
 }
 
 fn scheduler() -> &'static EevdfScheduler {

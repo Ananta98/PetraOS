@@ -42,7 +42,7 @@ impl<'a> CpioArchive<'a> {
     pub fn new(data: &'a [u8]) -> Self {
         Self { data, offset: 0 }
     }
-    
+
     fn parse_hex(bytes: &[u8]) -> Result<u32, CpioError> {
         let s = str::from_utf8(bytes).map_err(|_| CpioError::InvalidHeader)?;
         u32::from_str_radix(s, 16).map_err(|_| CpioError::InvalidHeader)
@@ -114,12 +114,12 @@ impl<'a> Iterator for CpioArchive<'a> {
         // align to 4 bytes
         let padding = (4 - (data_offset % 4)) % 4;
         let data_start = data_offset + padding;
-        
+
         let data_end = data_start + filesize as usize;
         if data_end > self.data.len() {
             return Some(Err(CpioError::TruncatedData));
         }
-        
+
         let file_type = match (mode & 0o170000) >> 12 {
             0o14 => FileType::Socket,
             0o12 => FileType::Symlink,

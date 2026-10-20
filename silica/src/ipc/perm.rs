@@ -2,12 +2,10 @@
 
 //! System V IPC permission checks and validation.
 
-use crate::{
-    api::{
-        cred::Ucred,
-        errno::{Errno, Result},
-        ipc::IpcPerm,
-    },
+use crate::api::{
+    cred::Ucred,
+    errno::{Errno, Result},
+    ipc::IpcPerm,
 };
 
 /// Required mode bits for SysV IPC operations.

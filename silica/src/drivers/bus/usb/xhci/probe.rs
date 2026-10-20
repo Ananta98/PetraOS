@@ -13,9 +13,8 @@ use spin::Mutex;
 use super::{
     controller::XhciController,
     ring::{
-        TRB_TYPE_ADDRESS_DEVICE, TRB_TYPE_ENABLE_SLOT,
-        TRB_TYPE_SETUP_STAGE, TRB_TYPE_DATA_STAGE, TRB_TYPE_STATUS_STAGE,
-        TransferRing,
+        TRB_TYPE_ADDRESS_DEVICE, TRB_TYPE_DATA_STAGE, TRB_TYPE_ENABLE_SLOT, TRB_TYPE_SETUP_STAGE,
+        TRB_TYPE_STATUS_STAGE, TransferRing,
     },
 };
 use crate::{
@@ -23,10 +22,9 @@ use crate::{
     drivers::{
         BlockDevice,
         bus::usb::{
-            DeviceDescriptor, InterfaceDescriptor,
-            USB_CLASS_HID, USB_CLASS_MASS_STORAGE,
-            USB_DESC_TYPE_CONFIGURATION, USB_DESC_TYPE_INTERFACE,
-            USB_REQ_GET_DESCRIPTOR, USB_REQ_SET_CONFIGURATION,
+            DeviceDescriptor, InterfaceDescriptor, USB_CLASS_HID, USB_CLASS_MASS_STORAGE,
+            USB_DESC_TYPE_CONFIGURATION, USB_DESC_TYPE_INTERFACE, USB_REQ_GET_DESCRIPTOR,
+            USB_REQ_SET_CONFIGURATION,
             hid::{HidDeviceType, probe_hid_interface},
             storage::probe_storage_interface,
         },
@@ -48,11 +46,17 @@ pub static XHCI_DEVICES: Mutex<Vec<Arc<XhciUsbDevice>>> = Mutex::new(Vec::new())
 /// Scans all root hub ports, detects connected devices, and performs USB device initialization.
 pub fn probe_root_hub(controller: &mut XhciController) -> Result<()> {
     let num_ports = controller.num_ports;
-    ostd::info!("xHCI: Scanning {} Root Hub ports for USB devices...", num_ports);
+    ostd::info!(
+        "xHCI: Scanning {} Root Hub ports for USB devices...",
+        num_ports
+    );
 
     for port_idx in 0..(num_ports as usize) {
         if controller.is_port_connected(port_idx) {
-            ostd::info!("xHCI: Detected USB device connected on Root Hub Port {}", port_idx + 1);
+            ostd::info!(
+                "xHCI: Detected USB device connected on Root Hub Port {}",
+                port_idx + 1
+            );
 
             // 1. Reset port to transition device into Default State
             if let Err(err) = controller.reset_port(port_idx) {
@@ -72,7 +76,11 @@ pub fn probe_root_hub(controller: &mut XhciController) -> Result<()> {
             let slot_trb = match controller.send_command(0, 0, TRB_TYPE_ENABLE_SLOT << 10) {
                 Ok(trb) => trb,
                 Err(err) => {
-                    ostd::warn!("xHCI: Enable Slot failed on port {}: {:?}", port_idx + 1, err);
+                    ostd::warn!(
+                        "xHCI: Enable Slot failed on port {}: {:?}",
+                        port_idx + 1,
+                        err
+                    );
                     continue;
                 }
             };
@@ -82,7 +90,11 @@ pub fn probe_root_hub(controller: &mut XhciController) -> Result<()> {
                 ostd::warn!("xHCI: Controller returned invalid slot ID 0");
                 continue;
             }
-            ostd::info!("xHCI: Assigned Slot ID {} for device on Port {}", slot_id, port_idx + 1);
+            ostd::info!(
+                "xHCI: Assigned Slot ID {} for device on Port {}",
+                slot_id,
+                port_idx + 1
+            );
 
             // 3. Allocate Output Context and register in DCBAA
             let out_ctx_dma = match DmaCoherent::alloc(1, true) {
@@ -144,10 +156,17 @@ pub fn probe_root_hub(controller: &mut XhciController) -> Result<()> {
             // 5. Address Device Command
             let addr_ctrl = (TRB_TYPE_ADDRESS_DEVICE << 10) | ((slot_id as u32) << 24);
             if let Err(err) = controller.send_command(in_ctx_paddr, 0, addr_ctrl) {
-                ostd::warn!("xHCI: Address Device command failed on slot {}: {:?}", slot_id, err);
+                ostd::warn!(
+                    "xHCI: Address Device command failed on slot {}: {:?}",
+                    slot_id,
+                    err
+                );
                 continue;
             }
-            ostd::info!("xHCI: Device on Slot {} transitioned to Addressed State", slot_id);
+            ostd::info!(
+                "xHCI: Device on Slot {} transitioned to Addressed State",
+                slot_id
+            );
 
             // 6. Enumerate Device & Probe Descriptors
             let mut dev = XhciUsbDevice {
@@ -236,7 +255,10 @@ pub fn probe_root_hub(controller: &mut XhciController) -> Result<()> {
 }
 
 /// Issues a USB Control Transfer on Endpoint 0 to query the Device Descriptor.
-fn read_device_descriptor(controller: &XhciController, dev: &mut XhciUsbDevice) -> Result<DeviceDescriptor> {
+fn read_device_descriptor(
+    controller: &XhciController,
+    dev: &mut XhciUsbDevice,
+) -> Result<DeviceDescriptor> {
     let dma = DmaCoherent::alloc(1, true).map_err(|_| Errno::ENOMEM)?;
     let paddr = dma.paddr() as u64;
 
@@ -301,17 +323,26 @@ fn read_device_descriptor(controller: &XhciController, dev: &mut XhciUsbDevice) 
 }
 
 /// Issues a USB Control Transfer on Endpoint 0 to query the Configuration and Interface Descriptors.
-fn read_device_interfaces(controller: &XhciController, dev: &mut XhciUsbDevice) -> Result<Vec<InterfaceDescriptor>> {
+fn read_device_interfaces(
+    controller: &XhciController,
+    dev: &mut XhciUsbDevice,
+) -> Result<Vec<InterfaceDescriptor>> {
     let dma = DmaCoherent::alloc(1, true).map_err(|_| Errno::ENOMEM)?;
     let paddr = dma.paddr() as u64;
 
     // First request: read 9-byte Configuration Descriptor header to know total_length
-    let setup_low: u32 = 0x80 | ((USB_REQ_GET_DESCRIPTOR as u32) << 8) | ((USB_DESC_TYPE_CONFIGURATION as u32) << 24);
+    let setup_low: u32 = 0x80
+        | ((USB_REQ_GET_DESCRIPTOR as u32) << 8)
+        | ((USB_DESC_TYPE_CONFIGURATION as u32) << 24);
     let setup_high: u32 = 9 << 16;
     let setup_param = (setup_low as u64) | ((setup_high as u64) << 32);
 
     let mut ring = dev.ep0_ring.lock();
-    ring.enqueue(setup_param, 8, (TRB_TYPE_SETUP_STAGE << 10) | (3 << 6) | (1 << 5))?;
+    ring.enqueue(
+        setup_param,
+        8,
+        (TRB_TYPE_SETUP_STAGE << 10) | (3 << 6) | (1 << 5),
+    )?;
     ring.enqueue(paddr, 9, (TRB_TYPE_DATA_STAGE << 10) | (1 << 16))?;
     let status_trb_paddr = ring.enqueue(0, 0, (TRB_TYPE_STATUS_STAGE << 10) | (1 << 5))?;
     drop(ring);
@@ -333,8 +364,16 @@ fn read_device_interfaces(controller: &XhciController, dev: &mut XhciUsbDevice) 
     let full_setup_param = (setup_low as u64) | ((full_setup_high as u64) << 32);
 
     let mut ring = dev.ep0_ring.lock();
-    ring.enqueue(full_setup_param, 8, (TRB_TYPE_SETUP_STAGE << 10) | (3 << 6) | (1 << 5))?;
-    ring.enqueue(paddr, read_len as u32, (TRB_TYPE_DATA_STAGE << 10) | (1 << 16))?;
+    ring.enqueue(
+        full_setup_param,
+        8,
+        (TRB_TYPE_SETUP_STAGE << 10) | (3 << 6) | (1 << 5),
+    )?;
+    ring.enqueue(
+        paddr,
+        read_len as u32,
+        (TRB_TYPE_DATA_STAGE << 10) | (1 << 16),
+    )?;
     let full_status_paddr = ring.enqueue(0, 0, (TRB_TYPE_STATUS_STAGE << 10) | (1 << 5))?;
     drop(ring);
 
@@ -377,36 +416,63 @@ fn read_device_interfaces(controller: &XhciController, dev: &mut XhciUsbDevice) 
 }
 
 /// Issues a USB Control Transfer on Endpoint 0 to set the active device configuration.
-pub fn set_device_configuration(controller: &XhciController, dev: &XhciUsbDevice, config_val: u8) -> Result<()> {
-    let setup_low: u32 = 0x00 | ((USB_REQ_SET_CONFIGURATION as u32) << 8) | ((config_val as u32) << 16);
+pub fn set_device_configuration(
+    controller: &XhciController,
+    dev: &XhciUsbDevice,
+    config_val: u8,
+) -> Result<()> {
+    let setup_low: u32 =
+        0x00 | ((USB_REQ_SET_CONFIGURATION as u32) << 8) | ((config_val as u32) << 16);
     let setup_param = setup_low as u64;
 
     let mut ring = dev.ep0_ring.lock();
-    ring.enqueue(setup_param, 8, (TRB_TYPE_SETUP_STAGE << 10) | (0 << 6) | (1 << 5))?;
-    let status_trb_paddr = ring.enqueue(0, 0, (TRB_TYPE_STATUS_STAGE << 10) | (1 << 16) | (1 << 5))?;
+    ring.enqueue(
+        setup_param,
+        8,
+        (TRB_TYPE_SETUP_STAGE << 10) | (0 << 6) | (1 << 5),
+    )?;
+    let status_trb_paddr =
+        ring.enqueue(0, 0, (TRB_TYPE_STATUS_STAGE << 10) | (1 << 16) | (1 << 5))?;
     drop(ring);
 
     controller.ring_doorbell(dev.slot_id, 1);
     controller.wait_transfer(dev.slot_id, status_trb_paddr)?;
-    ostd::info!("xHCI: Device on slot {} activated with Configuration {}", dev.slot_id, config_val);
+    ostd::info!(
+        "xHCI: Device on slot {} activated with Configuration {}",
+        dev.slot_id,
+        config_val
+    );
     Ok(())
 }
 
 /// Issues a USB HID Class Control Transfer to select the Boot Protocol (protocol = 0).
-pub fn set_hid_boot_protocol(controller: &XhciController, dev: &XhciUsbDevice, iface_num: u8) -> Result<()> {
+pub fn set_hid_boot_protocol(
+    controller: &XhciController,
+    dev: &XhciUsbDevice,
+    iface_num: u8,
+) -> Result<()> {
     // SET_PROTOCOL (0x0B), wValue = 0 (Boot Protocol), wIndex = iface_num
     let setup_low: u32 = 0x21 | (0x0B << 8); // bmRequestType=0x21 (Class, Interface), bRequest=0x0B
     let setup_high: u32 = (iface_num as u32) << 16;
     let setup_param = (setup_low as u64) | ((setup_high as u64) << 32);
 
     let mut ring = dev.ep0_ring.lock();
-    ring.enqueue(setup_param, 8, (TRB_TYPE_SETUP_STAGE << 10) | (0 << 6) | (1 << 5))?;
-    let status_trb_paddr = ring.enqueue(0, 0, (TRB_TYPE_STATUS_STAGE << 10) | (1 << 16) | (1 << 5))?;
+    ring.enqueue(
+        setup_param,
+        8,
+        (TRB_TYPE_SETUP_STAGE << 10) | (0 << 6) | (1 << 5),
+    )?;
+    let status_trb_paddr =
+        ring.enqueue(0, 0, (TRB_TYPE_STATUS_STAGE << 10) | (1 << 16) | (1 << 5))?;
     drop(ring);
 
     controller.ring_doorbell(dev.slot_id, 1);
     controller.wait_transfer(dev.slot_id, status_trb_paddr)?;
-    ostd::info!("xHCI: Selected HID Boot Protocol on slot {} (interface {})", dev.slot_id, iface_num);
+    ostd::info!(
+        "xHCI: Selected HID Boot Protocol on slot {} (interface {})",
+        dev.slot_id,
+        iface_num
+    );
     Ok(())
 }
 
@@ -418,12 +484,16 @@ pub fn set_hid_idle(controller: &XhciController, dev: &XhciUsbDevice, iface_num:
     let setup_param = (setup_low as u64) | ((setup_high as u64) << 32);
 
     let mut ring = dev.ep0_ring.lock();
-    ring.enqueue(setup_param, 8, (TRB_TYPE_SETUP_STAGE << 10) | (0 << 6) | (1 << 5))?;
-    let status_trb_paddr = ring.enqueue(0, 0, (TRB_TYPE_STATUS_STAGE << 10) | (1 << 16) | (1 << 5))?;
+    ring.enqueue(
+        setup_param,
+        8,
+        (TRB_TYPE_SETUP_STAGE << 10) | (0 << 6) | (1 << 5),
+    )?;
+    let status_trb_paddr =
+        ring.enqueue(0, 0, (TRB_TYPE_STATUS_STAGE << 10) | (1 << 16) | (1 << 5))?;
     drop(ring);
 
     controller.ring_doorbell(dev.slot_id, 1);
     controller.wait_transfer(dev.slot_id, status_trb_paddr)?;
     Ok(())
 }
-

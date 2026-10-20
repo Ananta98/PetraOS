@@ -7,20 +7,23 @@
 //! and either resolves it from the shared Zero Page, demand-pages from a backing object,
 //! or handles Copy-on-Write (CoW).
 
+use crate::{
+    api::errno::Result,
+    vm::{
+        backing::{
+            alloc_zeroed_frame,
+            zero::{get_zero_frame, is_zero_frame},
+        },
+        perms::VmPerms,
+    },
+};
+use ostd::arch::cpu::context::CpuException;
+use ostd::arch::cpu::context::PageFaultErrorCode;
 use ostd::mm::{
     PAGE_SIZE, PageFlags, UFrame, Vaddr, VmSpace, io::util::HasVmReaderWriter, tlb::TlbFlushOp,
     vm_space::VmQueriedItem,
 };
-use ostd::arch::cpu::context::CpuException;
 use ostd::task::disable_preempt;
-use ostd::arch::cpu::context::PageFaultErrorCode;
-use crate::{
-    api::errno::Result,
-    vm::{
-        backing::{alloc_zeroed_frame, zero::{get_zero_frame, is_zero_frame}},
-        perms::VmPerms,
-    },
-};
 
 use super::{Vmar, mappings::VmMapping};
 
@@ -68,10 +71,7 @@ impl PageFaultInfo {
 
     /// Builds the fault information for a CPU page-fault error code.
     #[cfg(target_arch = "x86_64")]
-    pub fn from_fault(
-        addr: Vaddr,
-        error_code: PageFaultErrorCode,
-    ) -> Option<Self> {
+    pub fn from_fault(addr: Vaddr, error_code: PageFaultErrorCode) -> Option<Self> {
         if !error_code.contains(PageFaultErrorCode::USER) {
             return None;
         }
@@ -258,7 +258,11 @@ mod tests {
         fault(&vmar, below).expect("a stack with room grows downwards");
 
         let grown = record_at(&vmar, below);
-        assert_eq!(grown.start(), below, "the record now reaches the faulting page");
+        assert_eq!(
+            grown.start(),
+            below,
+            "the record now reaches the faulting page"
+        );
         assert_eq!(grown.len(), 3 * PAGE_SIZE);
         assert_eq!(
             vmar.total_mapped_size(),
@@ -273,9 +277,15 @@ mod tests {
         let start = growdown_stack(&vmar, MmapFlags::PRIVATE | MmapFlags::GROWSDOWN);
 
         let below = start - PAGE_SIZE;
-        assert!(not_resident(&vmar, below), "the page is not in the page table yet");
+        assert!(
+            not_resident(&vmar, below),
+            "the page is not in the page table yet"
+        );
         fault(&vmar, below).expect("the stack grows");
-        assert!(!not_resident(&vmar, below), "the faulting page is now resident");
+        assert!(
+            !not_resident(&vmar, below),
+            "the faulting page is now resident"
+        );
 
         touch(&vmar, below..below + PAGE_SIZE).expect("the grown page faults in");
         assert_eq!(crate::vm::tests::peek(&vmar, below), 0);
@@ -303,18 +313,33 @@ mod tests {
             PAGE_SIZE,
             VmPerms::READ | VmPerms::WRITE,
             MmapFlags::PRIVATE | MmapFlags::FIXED | MmapFlags::ANONYMOUS,
-        ).unwrap();
+        )
+        .unwrap();
 
         // 1. Read fault should install the shared zero page
-        vmar.handle_page_fault(&PageFaultInfo::new(addr, VmPerms::READ)).unwrap();
+        vmar.handle_page_fault(&PageFaultInfo::new(addr, VmPerms::READ))
+            .unwrap();
         let (paddr1, flags1) = crate::vm::tests::page_at(&vmar, addr).unwrap();
-        assert!(is_zero_frame_paddr(paddr1), "read fault must install shared Zero Page");
-        assert!(!flags1.contains(ostd::mm::PageFlags::W), "Zero Page must be read-only");
+        assert!(
+            is_zero_frame_paddr(paddr1),
+            "read fault must install shared Zero Page"
+        );
+        assert!(
+            !flags1.contains(ostd::mm::PageFlags::W),
+            "Zero Page must be read-only"
+        );
 
         // 2. Write fault should break CoW and allocate a private writable frame
-        vmar.handle_page_fault(&PageFaultInfo::new(addr, VmPerms::WRITE)).unwrap();
+        vmar.handle_page_fault(&PageFaultInfo::new(addr, VmPerms::WRITE))
+            .unwrap();
         let (paddr2, flags2) = crate::vm::tests::page_at(&vmar, addr).unwrap();
-        assert!(!is_zero_frame_paddr(paddr2), "write fault must allocate private frame");
-        assert!(flags2.contains(ostd::mm::PageFlags::W), "private frame must be writable");
+        assert!(
+            !is_zero_frame_paddr(paddr2),
+            "write fault must allocate private frame"
+        );
+        assert!(
+            flags2.contains(ostd::mm::PageFlags::W),
+            "private frame must be writable"
+        );
     }
 }

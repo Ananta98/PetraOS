@@ -40,7 +40,8 @@ impl E1000Device {
     pub fn new(name: String, mmio: IoMem) -> Result<Arc<Self>> {
         // 1. Reset Controller
         let ctrl: u32 = mmio.read_once(REG_CTRL).map_err(|_| Errno::EIO)?;
-        mmio.write_once(REG_CTRL, &(ctrl | CTRL_RST)).map_err(|_| Errno::EIO)?;
+        mmio.write_once(REG_CTRL, &(ctrl | CTRL_RST))
+            .map_err(|_| Errno::EIO)?;
 
         // Wait a few cycles for reset completion
         for _ in 0..10_000 {
@@ -49,11 +50,13 @@ impl E1000Device {
 
         // 2. Set Link Up and Auto-Speed Detection
         let new_ctrl = CTRL_SLU | CTRL_ASDE | CTRL_FD;
-        mmio.write_once(REG_CTRL, &new_ctrl).map_err(|_| Errno::EIO)?;
+        mmio.write_once(REG_CTRL, &new_ctrl)
+            .map_err(|_| Errno::EIO)?;
 
         // 3. Clear Multicast Table Array (MTA)
         for i in 0..128 {
-            mmio.write_once(REG_MTA + i * 4, &0u32).map_err(|_| Errno::EIO)?;
+            mmio.write_once(REG_MTA + i * 4, &0u32)
+                .map_err(|_| Errno::EIO)?;
         }
 
         // 4. Read MAC Address
@@ -101,11 +104,15 @@ impl E1000Device {
         }
 
         // Program RX registers
-        mmio.write_once(REG_RDBAL, &(rx_paddr as u32)).map_err(|_| Errno::EIO)?;
-        mmio.write_once(REG_RDBAH, &((rx_paddr >> 32) as u32)).map_err(|_| Errno::EIO)?;
-        mmio.write_once(REG_RDLEN, &(rx_desc_bytes as u32)).map_err(|_| Errno::EIO)?;
+        mmio.write_once(REG_RDBAL, &(rx_paddr as u32))
+            .map_err(|_| Errno::EIO)?;
+        mmio.write_once(REG_RDBAH, &((rx_paddr >> 32) as u32))
+            .map_err(|_| Errno::EIO)?;
+        mmio.write_once(REG_RDLEN, &(rx_desc_bytes as u32))
+            .map_err(|_| Errno::EIO)?;
         mmio.write_once(REG_RDH, &0u32).map_err(|_| Errno::EIO)?;
-        mmio.write_once(REG_RDT, &((NUM_RX_DESCRIPTORS - 1) as u32)).map_err(|_| Errno::EIO)?;
+        mmio.write_once(REG_RDT, &((NUM_RX_DESCRIPTORS - 1) as u32))
+            .map_err(|_| Errno::EIO)?;
 
         // Enable Receiver
         let rctl = RCTL_EN | RCTL_BAM | RCTL_SZ_2048 | RCTL_SECRC | RCTL_UPE | RCTL_MPE;
@@ -140,9 +147,12 @@ impl E1000Device {
         }
 
         // Program TX registers
-        mmio.write_once(REG_TDBAL, &(tx_paddr as u32)).map_err(|_| Errno::EIO)?;
-        mmio.write_once(REG_TDBAH, &((tx_paddr >> 32) as u32)).map_err(|_| Errno::EIO)?;
-        mmio.write_once(REG_TDLEN, &(tx_desc_bytes as u32)).map_err(|_| Errno::EIO)?;
+        mmio.write_once(REG_TDBAL, &(tx_paddr as u32))
+            .map_err(|_| Errno::EIO)?;
+        mmio.write_once(REG_TDBAH, &((tx_paddr >> 32) as u32))
+            .map_err(|_| Errno::EIO)?;
+        mmio.write_once(REG_TDLEN, &(tx_desc_bytes as u32))
+            .map_err(|_| Errno::EIO)?;
         mmio.write_once(REG_TDH, &0u32).map_err(|_| Errno::EIO)?;
         mmio.write_once(REG_TDT, &0u32).map_err(|_| Errno::EIO)?;
 
@@ -151,11 +161,13 @@ impl E1000Device {
         mmio.write_once(REG_TIPG, &tipg).map_err(|_| Errno::EIO)?;
 
         // Enable Transmitter
-        let tctl: u32 = TCTL_EN | TCTL_PSP | (15 << TCTL_CT_SHIFT) | (64 << TCTL_COLD_SHIFT) | TCTL_RTLC;
+        let tctl: u32 =
+            TCTL_EN | TCTL_PSP | (15 << TCTL_CT_SHIFT) | (64 << TCTL_COLD_SHIFT) | TCTL_RTLC;
         mmio.write_once(REG_TCTL, &tctl).map_err(|_| Errno::EIO)?;
 
         // Disable interrupts for simplicity (polling mode driver)
-        mmio.write_once(REG_IMC, &0xFFFFFFFFu32).map_err(|_| Errno::EIO)?;
+        mmio.write_once(REG_IMC, &0xFFFFFFFFu32)
+            .map_err(|_| Errno::EIO)?;
 
         Ok(Arc::new(Self {
             name,
@@ -225,12 +237,16 @@ impl NetDevice for E1000Device {
         let desc_offset = slot * size_of::<TxDesc>();
         let mut desc_writer = rings.tx_dma.writer();
         desc_writer.skip(desc_offset);
-        desc_writer.write_val(&desc.to_bytes()).map_err(|_| Errno::EIO)?;
+        desc_writer
+            .write_val(&desc.to_bytes())
+            .map_err(|_| Errno::EIO)?;
 
         // Update tail register
         rings.tx_cur = (slot + 1) % NUM_TX_DESCRIPTORS;
         let next_tail = rings.tx_cur as u32;
-        self.mmio.write_once(REG_TDT, &next_tail).map_err(|_| Errno::EIO)?;
+        self.mmio
+            .write_once(REG_TDT, &next_tail)
+            .map_err(|_| Errno::EIO)?;
 
         Ok(())
     }
@@ -280,10 +296,14 @@ impl NetDevice for E1000Device {
         desc_writer.skip(desc_offset);
         let mut new_desc = desc;
         new_desc.status = 0;
-        desc_writer.write_val(&new_desc.to_bytes()).map_err(|_| Errno::EIO)?;
+        desc_writer
+            .write_val(&new_desc.to_bytes())
+            .map_err(|_| Errno::EIO)?;
 
         // Advance tail register to return descriptor to hardware
-        self.mmio.write_once(REG_RDT, &(cur as u32)).map_err(|_| Errno::EIO)?;
+        self.mmio
+            .write_once(REG_RDT, &(cur as u32))
+            .map_err(|_| Errno::EIO)?;
         rings.rx_cur = (cur + 1) % NUM_RX_DESCRIPTORS;
 
         Ok(copy_len)

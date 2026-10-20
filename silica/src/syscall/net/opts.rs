@@ -34,7 +34,9 @@ pub fn sys_setsockopt(
             .reader(optval_ptr, copy_len)
             .map_err(|_| Errno::EFAULT)?;
         let mut writer = ostd::mm::VmWriter::from(&mut val[..copy_len]);
-        reader.read_fallible(&mut writer).map_err(|_| Errno::EFAULT)?;
+        reader
+            .read_fallible(&mut writer)
+            .map_err(|_| Errno::EFAULT)?;
     }
 
     let _ = (socket, level, optname);
@@ -65,7 +67,9 @@ pub fn sys_getsockopt(
             let kind = socket.kind.lock().clone();
             if let crate::net::socket::SocketKind::Tcp(handle) = kind {
                 let mut net = crate::net::interface::NET_MANAGER.lock();
-                let s = net.get_sockets().get_mut::<smoltcp::socket::tcp::Socket>(handle);
+                let s = net
+                    .get_sockets()
+                    .get_mut::<smoltcp::socket::tcp::Socket>(handle);
                 if s.state() == smoltcp::socket::tcp::State::Closed {
                     Errno::ECONNREFUSED as i32
                 } else {
@@ -75,7 +79,7 @@ pub fn sys_getsockopt(
                 0
             }
         }
-        (6, 1) => 1,                // TCP_NODELAY
+        (6, 1) => 1, // TCP_NODELAY
         _ => 0,
     };
 
@@ -86,7 +90,9 @@ pub fn sys_getsockopt(
         .writer(optval_ptr, 4)
         .map_err(|_| Errno::EFAULT)?;
     let mut reader = ostd::mm::VmReader::from(&val_bytes[..]);
-    writer.write_fallible(&mut reader).map_err(|_| Errno::EFAULT)?;
+    writer
+        .write_fallible(&mut reader)
+        .map_err(|_| Errno::EFAULT)?;
 
     let len_bytes = 4u32.to_ne_bytes();
     let mut writer_len = vmar
@@ -94,7 +100,9 @@ pub fn sys_getsockopt(
         .writer(optlen_ptr, 4)
         .map_err(|_| Errno::EFAULT)?;
     let mut reader_len = ostd::mm::VmReader::from(&len_bytes[..]);
-    writer_len.write_fallible(&mut reader_len).map_err(|_| Errno::EFAULT)?;
+    writer_len
+        .write_fallible(&mut reader_len)
+        .map_err(|_| Errno::EFAULT)?;
 
     Ok(0)
 }

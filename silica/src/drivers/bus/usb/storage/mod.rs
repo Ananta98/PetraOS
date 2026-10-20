@@ -11,7 +11,8 @@ use core::sync::atomic::{AtomicUsize, Ordering};
 use spin::Mutex;
 
 use super::{
-    InterfaceDescriptor, USB_CLASS_MASS_STORAGE, USB_STORAGE_PROTOCOL_BBB, USB_STORAGE_SUBCLASS_SCSI,
+    InterfaceDescriptor, USB_CLASS_MASS_STORAGE, USB_STORAGE_PROTOCOL_BBB,
+    USB_STORAGE_SUBCLASS_SCSI,
 };
 use crate::{
     api::errno::{Errno, Result},
@@ -42,7 +43,14 @@ pub struct CommandBlockWrapper {
 }
 
 impl CommandBlockWrapper {
-    pub fn new(tag: u32, transfer_len: u32, dir_in: bool, lun: u8, cmd_len: u8, cmd: [u8; 16]) -> Self {
+    pub fn new(
+        tag: u32,
+        transfer_len: u32,
+        dir_in: bool,
+        lun: u8,
+        cmd_len: u8,
+        cmd: [u8; 16],
+    ) -> Self {
         Self {
             signature: CBW_SIGNATURE,
             tag,
@@ -79,7 +87,13 @@ pub struct UsbStorageDevice {
 }
 
 impl UsbStorageDevice {
-    pub fn new(slot_id: u8, bulk_in_ep: u8, bulk_out_ep: u8, block_size: usize, block_count: u64) -> Self {
+    pub fn new(
+        slot_id: u8,
+        bulk_in_ep: u8,
+        bulk_out_ep: u8,
+        block_size: usize,
+        block_count: u64,
+    ) -> Self {
         let disk_idx = NEXT_DISK_ID.fetch_add(1, Ordering::SeqCst);
         let disk_letter = (b'a' + (disk_idx as u8 % 26)) as char;
         let name = alloc::format!("sd{}", disk_letter);
@@ -203,7 +217,10 @@ impl BlockDevice for UsbStorageDevice {
 
 /// Probes a USB Interface Descriptor to see if it is a Mass Storage device,
 /// and registers it as a block device.
-pub fn probe_storage_interface(slot_id: u8, iface: &InterfaceDescriptor) -> Result<Arc<UsbStorageDevice>> {
+pub fn probe_storage_interface(
+    slot_id: u8,
+    iface: &InterfaceDescriptor,
+) -> Result<Arc<UsbStorageDevice>> {
     if iface.interface_class != USB_CLASS_MASS_STORAGE {
         return Err(Errno::ENODEV);
     }
@@ -218,12 +235,21 @@ pub fn probe_storage_interface(slot_id: u8, iface: &InterfaceDescriptor) -> Resu
         );
     }
 
-    ostd::info!("USB Storage: Initializing USB Mass Storage Device on slot {}", slot_id);
+    ostd::info!(
+        "USB Storage: Initializing USB Mass Storage Device on slot {}",
+        slot_id
+    );
 
     // Default configuration: 512 bytes block size, 2097152 blocks (1 GB storage device)
     let block_size = 512;
     let block_count = 2 * 1024 * 1024; // 1 GiB
-    let dev = Arc::new(UsbStorageDevice::new(slot_id, 1, 2, block_size, block_count));
+    let dev = Arc::new(UsbStorageDevice::new(
+        slot_id,
+        1,
+        2,
+        block_size,
+        block_count,
+    ));
 
     crate::drivers::block::register_block_device(&dev.name(), dev.clone());
     ostd::info!(

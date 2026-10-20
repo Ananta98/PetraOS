@@ -12,12 +12,7 @@
 //! (tracked as follow-up work).
 
 use alloc::{
-    borrow::ToOwned,
-    collections::btree_map::BTreeMap,
-    format,
-    string::String,
-    vec,
-    vec::Vec,
+    borrow::ToOwned, collections::btree_map::BTreeMap, format, string::String, vec, vec::Vec,
 };
 use xmas_elf::{
     ElfFile,
@@ -32,8 +27,8 @@ use crate::return_errno;
 
 use super::{
     params::parse_modparams,
-    registry::{register_loaded_module, rename_module, ModuleInfo, ModuleState, MODULE_TABLE},
-    reloc::{apply_relocations, symbol_address, ImageLayout},
+    registry::{MODULE_TABLE, ModuleInfo, ModuleState, register_loaded_module, rename_module},
+    reloc::{ImageLayout, apply_relocations, symbol_address},
 };
 
 /// Loads and validates a kernel module from an ELF binary image.
@@ -192,11 +187,8 @@ fn load_image_dyn(elf: &ElfFile) -> Result<(Vec<u8>, usize)> {
 
         let aligned_vaddr = align_down(vaddr, page_size);
         let misalign = vaddr - aligned_vaddr;
-        let span = align_up_checked(
-            memsz.checked_add(misalign).ok_or(Errno::ENOMEM)?,
-            page_size,
-        )
-        .ok_or(Errno::ENOMEM)?;
+        let span = align_up_checked(memsz.checked_add(misalign).ok_or(Errno::ENOMEM)?, page_size)
+            .ok_or(Errno::ENOMEM)?;
         let end = aligned_vaddr.checked_add(span).ok_or(Errno::ENOMEM)?;
 
         load_min = load_min.min(aligned_vaddr);
@@ -264,7 +256,10 @@ fn load_image_rel(elf: &ElfFile) -> Result<(Vec<u8>, BTreeMap<u16, usize>)> {
         }
         let file_offset = section.offset() as usize;
         let size = section.size() as usize;
-        let src = elf.input.get(file_offset..file_offset + size).ok_or(Errno::ENOEXEC)?;
+        let src = elf
+            .input
+            .get(file_offset..file_offset + size)
+            .ok_or(Errno::ENOEXEC)?;
         image[offset..offset + size].copy_from_slice(src);
     }
     Ok((image, offsets))
@@ -288,7 +283,10 @@ fn resolve_entry_point(elf: &ElfFile, layout: &ImageLayout) -> Result<usize> {
     if let Some(entry) = for_init_symbol(elf, layout)? {
         return Ok(entry);
     }
-    return_errno!(ENOEXEC, "module defines no entry point (init_module/_init/init)");
+    return_errno!(
+        ENOEXEC,
+        "module defines no entry point (init_module/_init/init)"
+    );
 }
 
 /// Searches the module's symbol tables for a conventional init symbol
@@ -372,9 +370,7 @@ impl Modinfo {
         match key {
             "name" if self.name.is_empty() => self.name = value.to_owned(),
             "version" if self.version.is_empty() => self.version = value.to_owned(),
-            "description" if self.description.is_empty() => {
-                self.description = value.to_owned()
-            }
+            "description" if self.description.is_empty() => self.description = value.to_owned(),
             "author" if self.author.is_empty() => self.author = value.to_owned(),
             "depends" => {
                 for dep in value.split(',') {
@@ -449,8 +445,8 @@ fn parse_modinfo(elf: &ElfFile) -> Modinfo {
 mod tests {
     use super::*;
     use crate::api::errno::Errno;
-    use crate::modules::registry::{register_loaded_module, MODULE_IMAGES};
-    use crate::modules::{list_modules, register_symbol, unload_module, ModuleState};
+    use crate::modules::registry::{MODULE_IMAGES, register_loaded_module};
+    use crate::modules::{ModuleState, list_modules, register_symbol, unload_module};
     use ostd::prelude::ktest;
 
     // Relocation type constants, mirrored locally to build fixture ELFs.
@@ -571,7 +567,18 @@ mod tests {
         // RELATIVE relocation at module vaddr 0x1000, addend 0x1010
         make_rela(&mut hdr[136..160], 0x1000, 0, R_X86_64_RELATIVE, 0x1010);
         make_shdr(&mut hdr[160..224], 0, 0, 0, 0, 0, 0, 0, 0, 0); // NULL
-        make_shdr(&mut hdr[224..288], 0, 4 /*RELA*/, 0, 136, 24, 0, 0, 8, 24);
+        make_shdr(
+            &mut hdr[224..288],
+            0,
+            4, /*RELA*/
+            0,
+            136,
+            24,
+            0,
+            0,
+            8,
+            24,
+        );
 
         let mod_name = load_module(&hdr, "debug=1").expect("load ET_DYN module");
         let info = find_module(&mod_name);
@@ -585,7 +592,11 @@ mod tests {
         );
 
         // value = load bias + addend = base - 0x1000 + 0x1010 = base + 0x10
-        let image = MODULE_IMAGES.lock().get(&mod_name).cloned().expect("image retained");
+        let image = MODULE_IMAGES
+            .lock()
+            .get(&mod_name)
+            .cloned()
+            .expect("image retained");
         assert_eq!(image[0..8], (base + 0x10).to_le_bytes());
 
         unload_module(&mod_name).expect("unload ET_DYN module");
@@ -635,7 +646,11 @@ mod tests {
             ]
         );
 
-        let image = MODULE_IMAGES.lock().get(&mod_name).cloned().expect("image retained");
+        let image = MODULE_IMAGES
+            .lock()
+            .get(&mod_name)
+            .cloned()
+            .expect("image retained");
         assert_eq!(image[0..8], HELPER_ADDR.to_le_bytes());
 
         // Unresolved external symbol must fail the load. Keep the fixture's
@@ -653,7 +668,8 @@ mod tests {
     fn duplicate_module_name_rejected() {
         register_loaded_module(test_module_info("dup_test"), alloc::boxed::Box::new([]))
             .expect("first registration");
-        let second = register_loaded_module(test_module_info("dup_test"), alloc::boxed::Box::new([]));
+        let second =
+            register_loaded_module(test_module_info("dup_test"), alloc::boxed::Box::new([]));
         assert!(matches!(second, Err(Errno::EEXIST)));
         unload_module("dup_test").expect("cleanup");
     }

@@ -44,14 +44,7 @@ pub fn sys_clone(
     };
 
     if (flags & CLONE_THREAD) != 0 {
-        let child_thread = clone_thread(
-            &caller_td,
-            flags,
-            stack,
-            tls,
-            clear_child_tid,
-            Some(ctx),
-        )?;
+        let child_thread = clone_thread(&caller_td, flags, stack, tls, clear_child_tid, Some(ctx))?;
         let tid_val = child_thread.tid.as_u32() as i32;
 
         if (flags & CLONE_PARENT_SETTID) != 0 && parent_tid_ptr != 0 {
@@ -63,14 +56,8 @@ pub fn sys_clone(
 
         Ok(tid_val as usize)
     } else {
-        let (child_proc, _child_thread, child_pid) = clone_proc(
-            &caller_td,
-            flags,
-            stack,
-            tls,
-            clear_child_tid,
-            Some(ctx),
-        )?;
+        let (child_proc, _child_thread, child_pid) =
+            clone_proc(&caller_td, flags, stack, tls, clear_child_tid, Some(ctx))?;
         let pid_val = child_pid.as_u32() as i32;
 
         if (flags & CLONE_PARENT_SETTID) != 0 && parent_tid_ptr != 0 {

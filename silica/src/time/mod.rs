@@ -12,12 +12,10 @@ pub mod tsc;
 use core::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 
 pub use clocksource::{
-    Clocksource, ClocksourceFlags, active_clocksource_name, is_high_resolution,
-    monotonic_now_ns, register_clocksource,
+    Clocksource, ClocksourceFlags, active_clocksource_name, is_high_resolution, monotonic_now_ns,
+    register_clocksource,
 };
-pub use rtc::{
-    CmosRtc, RtcDateTime, datetime_to_unix_epoch, get_cmos_epoch, get_cmos_time,
-};
+pub use rtc::{CmosRtc, RtcDateTime, datetime_to_unix_epoch, get_cmos_epoch, get_cmos_time};
 pub use tsc::{JiffiesClocksource, TscClocksource};
 
 use crate::api::errno::{Errno, Result};
@@ -218,9 +216,15 @@ pub fn get_timespec(clock_id: i32) -> Result<Timespec> {
 /// Returns the resolution of the requested clock domain.
 pub fn get_resolution(clock_id: i32) -> Result<Timespec> {
     match clock_id {
-        CLOCK_REALTIME | CLOCK_REALTIME_ALARM | CLOCK_TAI
-        | CLOCK_MONOTONIC | CLOCK_MONOTONIC_RAW | CLOCK_BOOTTIME | CLOCK_BOOTTIME_ALARM
-        | CLOCK_PROCESS_CPUTIME_ID | CLOCK_THREAD_CPUTIME_ID => {
+        CLOCK_REALTIME
+        | CLOCK_REALTIME_ALARM
+        | CLOCK_TAI
+        | CLOCK_MONOTONIC
+        | CLOCK_MONOTONIC_RAW
+        | CLOCK_BOOTTIME
+        | CLOCK_BOOTTIME_ALARM
+        | CLOCK_PROCESS_CPUTIME_ID
+        | CLOCK_THREAD_CPUTIME_ID => {
             if is_high_resolution() {
                 Ok(Timespec {
                     tv_sec: 0,

@@ -8,11 +8,7 @@
 pub mod ahci;
 pub mod nvme;
 
-use alloc::{
-    string::String,
-    sync::Arc,
-    vec::Vec,
-};
+use alloc::sync::Arc;
 
 pub use crate::drivers::BlockDevice;
 
@@ -29,10 +25,7 @@ pub fn register_block_device(name: &str, device: Arc<dyn BlockDevice>) {
 
 /// Retrieves a block device by name.
 pub fn get_block_device(name: &str) -> Option<Arc<dyn BlockDevice>> {
-    crate::drivers::get_blkdevs().into_iter().find(|d| d.name() == name)
-}
-
-/// Lists all registered block device names.
-pub fn list_block_devices() -> Vec<String> {
-    crate::drivers::get_blkdevs().into_iter().map(|d| d.name()).collect()
+    crate::drivers::get_blkdevs()
+        .into_iter()
+        .find(|d| d.name() == name)
 }

@@ -9,9 +9,9 @@ use core::str;
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Default)]
 pub struct LbaFormat {
-    pub ms: u16,  // Metadata Size
-    pub ds: u8,   // LBA Data Size (2^ds bytes, e.g. 9 = 512 bytes, 12 = 4096 bytes)
-    pub rp: u8,   // Relative Performance
+    pub ms: u16, // Metadata Size
+    pub ds: u8,  // LBA Data Size (2^ds bytes, e.g. 9 = 512 bytes, 12 = 4096 bytes)
+    pub rp: u8,  // Relative Performance
 }
 
 /// 4096-byte Identify Controller data structure.
@@ -19,9 +19,9 @@ pub struct LbaFormat {
 pub struct IdentifyController {
     pub vid: u16,
     pub ssvid: u16,
-    pub sn: [u8; 20],        // Serial Number
-    pub mn: [u8; 40],        // Model Number
-    pub fr: [u8; 8],         // Firmware Revision
+    pub sn: [u8; 20], // Serial Number
+    pub mn: [u8; 40], // Model Number
+    pub fr: [u8; 8],  // Firmware Revision
     pub rab: u8,
     pub ieee: [u8; 3],
     pub cmic: u8,
@@ -33,7 +33,7 @@ pub struct IdentifyController {
     pub oaes: u32,
     pub ctratt: u32,
     pub rsvd64: [u8; 192],
-    pub nn: u32,             // Number of Namespaces
+    pub nn: u32, // Number of Namespaces
     pub rsvd260: [u8; 3836],
 }
 
@@ -48,22 +48,19 @@ impl IdentifyController {
 
     /// Return the serial number as a sanitized string.
     pub fn serial_number(&self) -> String {
-        str::from_utf8(&self.sn)
-            .unwrap_or("")
-            .trim()
-            .into()
+        str::from_utf8(&self.sn).unwrap_or("").trim().into()
     }
 }
 
 /// 4096-byte Identify Namespace data structure.
 #[repr(C)]
 pub struct IdentifyNamespace {
-    pub nsze: u64,           // Namespace Size (total blocks)
-    pub ncap: u64,           // Namespace Capacity (allocatable blocks)
-    pub nuse: u64,           // Namespace Utilization
+    pub nsze: u64, // Namespace Size (total blocks)
+    pub ncap: u64, // Namespace Capacity (allocatable blocks)
+    pub nuse: u64, // Namespace Utilization
     pub nsfeat: u8,
-    pub nlbaf: u8,           // Number of LBA Formats
-    pub flbas: u8,           // Formatted LBA Size (bits 3:0 index into lbaf)
+    pub nlbaf: u8, // Number of LBA Formats
+    pub flbas: u8, // Formatted LBA Size (bits 3:0 index into lbaf)
     pub mc: u8,
     pub dpc: u8,
     pub dps: u8,

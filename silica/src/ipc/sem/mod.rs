@@ -21,14 +21,14 @@ use crate::{
             IpcPerm,
         },
         sem::{
-            GETALL, GETNCNT, GETPID, GETVAL, GETZCNT, SEMMSL, SEMMNI, SEMOPM, SEMVMX,
-            SEM_INFO, SEM_STAT, SEM_STAT_ANY, SEM_UNDO, SETALL, SETVAL, SemBuf, SemIdDs, SemInfo,
+            GETALL, GETNCNT, GETPID, GETVAL, GETZCNT, SEM_INFO, SEM_STAT, SEM_STAT_ANY, SEM_UNDO,
+            SEMMNI, SEMMSL, SEMOPM, SEMVMX, SETALL, SETVAL, SemBuf, SemIdDs, SemInfo,
         },
     },
     ipc::perm::{check_admin_permission, check_read_permission, check_write_permission},
     proc::{
-        thread::{Thread, ThreadFlags},
         Proc,
+        thread::{Thread, ThreadFlags},
     },
     utils::userspace::user_ptr::UserPtr,
 };
@@ -44,7 +44,6 @@ static SEM_REGISTRY: SpinLock<BTreeMap<i32, Arc<SpinLock<SemSet>>>> =
 
 /// Global map from IPC key to `semid`.
 static KEY_MAP: SpinLock<BTreeMap<i32, i32>> = SpinLock::new(BTreeMap::new());
-
 
 /// Returns current monotonic uptime in seconds.
 fn current_time_secs() -> i64 {
@@ -235,7 +234,9 @@ pub fn sem_op(
         }
     }
 
-    let has_nowait = sops.iter().any(|op| (op.sem_flg & (IPC_NOWAIT as i16)) != 0);
+    let has_nowait = sops
+        .iter()
+        .any(|op| (op.sem_flg & (IPC_NOWAIT as i16)) != 0);
     if has_nowait || timeout == Some(Duration::ZERO) {
         return Err(Errno::EAGAIN);
     }
@@ -389,8 +390,7 @@ pub fn sem_ctl(
 
             set.ds.sem_perm.uid = new_ds.sem_perm.uid;
             set.ds.sem_perm.gid = new_ds.sem_perm.gid;
-            set.ds.sem_perm.mode =
-                (set.ds.sem_perm.mode & !0o777) | (new_ds.sem_perm.mode & 0o777);
+            set.ds.sem_perm.mode = (set.ds.sem_perm.mode & !0o777) | (new_ds.sem_perm.mode & 0o777);
             set.ds.sem_ctime = current_time_secs();
             Ok(0)
         }

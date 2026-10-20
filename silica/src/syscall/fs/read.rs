@@ -2,13 +2,13 @@
 
 //! System calls for reading from file descriptors: `read`, `pread64`, `readv`.
 
-use ostd::arch::cpu::context::UserContext;
 use crate::{
     api::errno::{Errno, Result},
     proc::thread::Thread,
     syscall::fs::utils::read_user_iovecs,
     utils::userspace::UserPtr,
 };
+use ostd::arch::cpu::context::UserContext;
 
 /// System call `read(int fd, void *buf, size_t count)` (Syscall #0).
 pub fn sys_read(fd: i32, buf_ptr: usize, count: usize, _ctx: &mut UserContext) -> Result<usize> {
@@ -25,6 +25,7 @@ pub fn sys_read(fd: i32, buf_ptr: usize, count: usize, _ctx: &mut UserContext) -
         let vmar = proc.vmspace();
         UserPtr::new(buf_ptr).write_bytes(&vmar, &kbuf[..nread])?;
     }
+    proc.account_read(nread);
 
     Ok(nread)
 }
@@ -50,6 +51,7 @@ pub fn sys_pread64(
         let vmar = proc.vmspace();
         UserPtr::new(buf_ptr).write_bytes(&vmar, &kbuf[..nread])?;
     }
+    proc.account_read(nread);
 
     Ok(nread)
 }
@@ -81,6 +83,7 @@ pub fn sys_readv(fd: i32, iov_ptr: usize, iovcnt: usize, _ctx: &mut UserContext)
         }
     }
 
+    proc.account_read(total_read);
     Ok(total_read)
 }
 
@@ -126,6 +129,7 @@ pub fn sys_preadv(
         }
     }
 
+    proc.account_read(total_read);
     Ok(total_read)
 }
 
@@ -144,4 +148,3 @@ pub fn sys_preadv2(
     }
     sys_preadv(fd, iov_ptr, iovcnt, pos_l, pos_h, ctx)
 }
-

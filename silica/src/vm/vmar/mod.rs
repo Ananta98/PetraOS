@@ -71,7 +71,12 @@ pub(crate) fn is_mappable_range(range: &Range<Vaddr>) -> bool {
 /// Checks that `range` is a non-empty, page-aligned range inside user space.
 pub(crate) fn check_page_aligned_range(range: &Range<Vaddr>) -> Result<()> {
     if range.start >= range.end {
-        crate::return_errno!(EINVAL, "the range {:#x}..{:#x} is empty", range.start, range.end);
+        crate::return_errno!(
+            EINVAL,
+            "the range {:#x}..{:#x} is empty",
+            range.start,
+            range.end
+        );
     }
     if !range.start.is_multiple_of(PAGE_SIZE) || !range.end.is_multiple_of(PAGE_SIZE) {
         crate::return_errno!(
@@ -324,7 +329,11 @@ impl VmarInner {
 
     /// Drops the page table entries of every mapping that intersects `range`,
     /// keeping the mappings themselves.
-    pub(crate) fn unmap_pages_only(&mut self, vm_space: &VmSpace, range: &Range<Vaddr>) -> CarveOutcome {
+    pub(crate) fn unmap_pages_only(
+        &mut self,
+        vm_space: &VmSpace,
+        range: &Range<Vaddr>,
+    ) -> CarveOutcome {
         self.carve(range, |piece, _| {
             piece.unmap(vm_space);
             Some(piece)
@@ -351,7 +360,11 @@ impl VmarInner {
 
     /// Returns a free region of `size` bytes below `high_limit`, searching from
     /// high addresses to low ones.
-    pub(crate) fn find_free_region(&self, size: usize, high_limit: Vaddr) -> Result<Range<Vaddr>, NoRoom> {
+    pub(crate) fn find_free_region(
+        &self,
+        size: usize,
+        high_limit: Vaddr,
+    ) -> Result<Range<Vaddr>, NoRoom> {
         allocator::find_free_region(&self.mappings, size, high_limit)
     }
 
@@ -389,8 +402,12 @@ mod tests {
         assert!(is_mappable_range(&pages(256, 1)));
         assert!(!is_mappable_range(&pages(255, 1)));
         assert!(!is_mappable_range(&pages(0, 1)));
-        assert!(is_mappable_range(&(VMAR_CAP_ADDR - PAGE_SIZE..VMAR_CAP_ADDR)));
-        assert!(!is_mappable_range(&(VMAR_LOWEST_ADDR..VMAR_CAP_ADDR + PAGE_SIZE)));
+        assert!(is_mappable_range(
+            &(VMAR_CAP_ADDR - PAGE_SIZE..VMAR_CAP_ADDR)
+        ));
+        assert!(!is_mappable_range(
+            &(VMAR_LOWEST_ADDR..VMAR_CAP_ADDR + PAGE_SIZE)
+        ));
     }
 
     #[ktest]

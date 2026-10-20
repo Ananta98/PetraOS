@@ -10,11 +10,7 @@ use ostd::task::disable_preempt;
 
 use crate::{
     api::errno::Result,
-    vm::{
-        backing::Backing,
-        flags::MmapFlags,
-        perms::VmPerms,
-    },
+    vm::{backing::Backing, flags::MmapFlags, perms::VmPerms},
 };
 
 use super::super::{
@@ -225,7 +221,8 @@ impl Vmar {
                         }
                     };
                     let is_shared_zero = crate::vm::backing::zero::is_zero_frame(&frame);
-                    let must_copy = mapping.is_cow() && (frame.reference_count() > 1 || is_shared_zero);
+                    let must_copy =
+                        mapping.is_cow() && (frame.reference_count() > 1 || is_shared_zero);
                     let property = mapping.fault_property(!must_copy, is_write);
                     cursor.map(frame, property);
                     modified = true;
@@ -234,7 +231,9 @@ impl Vmar {
             }
 
             if modified {
-                cursor.flusher().issue_tlb_flush(TlbFlushOp::for_range(wanted.clone()));
+                cursor
+                    .flusher()
+                    .issue_tlb_flush(TlbFlushOp::for_range(wanted.clone()));
                 cursor.flusher().dispatch_tlb_flush();
                 cursor.flusher().sync_tlb_flush();
             }

@@ -39,11 +39,7 @@ pub fn sys_getpeername(
 }
 
 /// System call `shutdown(...)` (Syscall #48).
-pub fn sys_shutdown(
-    fd: i32,
-    how: i32,
-    _ctx: &mut UserContext,
-) -> Result<usize> {
+pub fn sys_shutdown(fd: i32, how: i32, _ctx: &mut UserContext) -> Result<usize> {
     let socket = get_socket(fd)?;
     socket.shutdown(how)?;
     Ok(0)

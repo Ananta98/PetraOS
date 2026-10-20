@@ -268,7 +268,9 @@ mod tests {
         let (mult_24g, shift_24g) = calc_mult_shift(2_400_000_000);
         let ns_24g = ((2_400_000_000u128 * mult_24g as u128) >> shift_24g) as u64;
         let diff = (ns_24g as i64 - 1_000_000_000i64).abs();
-        assert!(diff <= 1, "Diff {diff} exceeds 1ns for 2.4GHz mult/shift scaling");
+        assert!(
+            diff <= 1,
+            "Diff {diff} exceeds 1ns for 2.4GHz mult/shift scaling"
+        );
     }
 }
-

@@ -107,12 +107,7 @@ pub fn sys_getpriority(which: i32, who: i32, _ctx: &mut UserContext) -> Result<u
 }
 
 /// `setpriority(2)` - Sets scheduling priority (nice value) for specified processes.
-pub fn sys_setpriority(
-    which: i32,
-    who: i32,
-    prio: i32,
-    _ctx: &mut UserContext,
-) -> Result<usize> {
+pub fn sys_setpriority(which: i32, who: i32, prio: i32, _ctx: &mut UserContext) -> Result<usize> {
     let caller = Thread::current_proc().ok_or(Errno::ESRCH)?;
     let procs = find_matching_procs(&caller, which, who)?;
 
@@ -141,11 +136,7 @@ pub fn sys_setpriority(
 }
 
 /// `sched_rr_get_interval(2)` - Retrieves round-robin time quantum for a process.
-pub fn sys_sched_rr_get_interval(
-    pid: i32,
-    tp_ptr: usize,
-    _ctx: &mut UserContext,
-) -> Result<usize> {
+pub fn sys_sched_rr_get_interval(pid: i32, tp_ptr: usize, _ctx: &mut UserContext) -> Result<usize> {
     if tp_ptr == 0 {
         return Err(Errno::EFAULT);
     }

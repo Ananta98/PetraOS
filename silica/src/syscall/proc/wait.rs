@@ -141,13 +141,17 @@ pub fn sys_waitid(
             if infop != 0 {
                 let mut siginfo_bytes = [0u8; 128];
                 // si_signo = SIGCHLD (17)
-                siginfo_bytes[0..4].copy_from_slice(&(Signal::SIGCHLD.as_u32() as i32).to_ne_bytes());
+                siginfo_bytes[0..4]
+                    .copy_from_slice(&(Signal::SIGCHLD.as_u32() as i32).to_ne_bytes());
                 // si_errno = 0
                 siginfo_bytes[4..8].copy_from_slice(&0i32.to_ne_bytes());
 
                 let (si_code, si_status) = match wait_res.status {
                     ExitStatus::Exited(code) => (CLD_EXITED, code),
-                    ExitStatus::Signaled { signal, core_dumped } => {
+                    ExitStatus::Signaled {
+                        signal,
+                        core_dumped,
+                    } => {
                         let code = if core_dumped { CLD_DUMPED } else { CLD_KILLED };
                         (code, signal.as_u32() as i32)
                     }
@@ -158,7 +162,8 @@ pub fn sys_waitid(
                 // si_code at offset 8
                 siginfo_bytes[8..12].copy_from_slice(&si_code.to_ne_bytes());
                 // si_pid at offset 16 (x86_64 siginfo layout)
-                siginfo_bytes[16..20].copy_from_slice(&(wait_res.pid.as_u32() as i32).to_ne_bytes());
+                siginfo_bytes[16..20]
+                    .copy_from_slice(&(wait_res.pid.as_u32() as i32).to_ne_bytes());
                 // si_uid at offset 20
                 siginfo_bytes[20..24].copy_from_slice(&(wait_res.uid as i32).to_ne_bytes());
                 // si_status at offset 24

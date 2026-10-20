@@ -424,8 +424,7 @@ impl Thread {
         };
         if clear_tid != 0 {
             let zero = 0i32.to_ne_bytes();
-            let _ = UserPtr::new(clear_tid)
-                .write_bytes(&proc.vmspace(), &zero);
+            let _ = UserPtr::new(clear_tid).write_bytes(&proc.vmspace(), &zero);
             crate::syscall::sync::futex::futex_wake(&proc.vmspace(), clear_tid, 1);
         }
     }
@@ -507,7 +506,12 @@ impl Thread {
                         match exception {
                             CpuException::PageFault(raw_pf) => {
                                 if crate::syscall::TRACE_SYSCALLS {
-                                    ostd::info!("user_page_fault: pid {} addr={:#x} code={:?}", proc.pid, raw_pf.addr, raw_pf.error_code);
+                                    ostd::info!(
+                                        "user_page_fault: pid {} addr={:#x} code={:?}",
+                                        proc.pid,
+                                        raw_pf.addr,
+                                        raw_pf.error_code
+                                    );
                                 }
                                 let info = crate::vm::vmar::page_fault::PageFaultInfo::from_fault(
                                     raw_pf.addr,

@@ -15,11 +15,7 @@ const O_CLOEXEC: i32 = 0o2000000;
 const O_NONBLOCK: i32 = 0o4000;
 
 /// System call `pipe2(int pipefd[2], int flags)` (Syscall #293).
-pub fn sys_pipe2(
-    pipefd_ptr: usize,
-    flags: i32,
-    _ctx: &mut UserContext,
-) -> Result<usize> {
+pub fn sys_pipe2(pipefd_ptr: usize, flags: i32, _ctx: &mut UserContext) -> Result<usize> {
     if (flags & !(O_CLOEXEC | O_NONBLOCK)) != 0 {
         return Err(Errno::EINVAL);
     }

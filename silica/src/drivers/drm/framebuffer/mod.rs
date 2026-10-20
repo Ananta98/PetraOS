@@ -8,7 +8,7 @@ pub mod framebuffer;
 pub mod mode;
 pub mod pixel;
 
-pub use framebuffer::{get_framebuffer, ColorMapEntry, FrameBuffer, Framebuffer, PixelOffset};
+pub use framebuffer::{ColorMapEntry, FrameBuffer, Framebuffer, PixelOffset, get_framebuffer};
 pub use mode::{ConsoleMode, KeyboardMode, KeyboardModeFlags};
 pub use pixel::{Color, Pixel, PixelFormat, RenderedPixel};
 

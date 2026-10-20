@@ -16,12 +16,7 @@ pub const SEEK_CUR: i32 = 1;
 pub const SEEK_END: i32 = 2;
 
 /// System call `lseek(int fd, off_t offset, int whence)` (Syscall #8).
-pub fn sys_lseek(
-    fd: i32,
-    offset: i64,
-    whence: i32,
-    _ctx: &mut UserContext,
-) -> Result<usize> {
+pub fn sys_lseek(fd: i32, offset: i64, whence: i32, _ctx: &mut UserContext) -> Result<usize> {
     let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
     let file = proc.fd_table.lock().get(fd)?;
 

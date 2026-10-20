@@ -5,8 +5,8 @@
 use core::ops::Range;
 use ostd::mm::{PAGE_SIZE, Vaddr};
 
-use crate::api::errno::Result;
 use super::super::{Vmar, check_page_aligned_range};
+use crate::api::errno::Result;
 
 impl Vmar {
     /// Determines whether pages in `range` are resident in physical memory.
@@ -23,10 +23,7 @@ impl Vmar {
         {
             let inner = self.inner.read();
             if !inner.mappings.is_fully_mapped(&range) {
-                crate::return_errno!(
-                    ENOMEM,
-                    "address range {range:#x?} contains unmapped holes"
-                );
+                crate::return_errno!(ENOMEM, "address range {range:#x?} contains unmapped holes");
             }
         }
 
@@ -45,10 +42,10 @@ impl Vmar {
 
 #[cfg(ktest)]
 mod tests {
-    use ostd::mm::PAGE_SIZE;
-    use ostd::prelude::ktest;
     use super::*;
     use crate::vm::abi::{flags::MmapFlags, perms::VmPerms};
+    use ostd::mm::PAGE_SIZE;
+    use ostd::prelude::ktest;
 
     #[ktest]
     fn mincore_detects_residency() {
@@ -60,7 +57,8 @@ mod tests {
             len,
             VmPerms::READ | VmPerms::WRITE,
             MmapFlags::PRIVATE | MmapFlags::FIXED | MmapFlags::ANONYMOUS,
-        ).unwrap();
+        )
+        .unwrap();
 
         // Populate only page 0
         vmar.populate_range(&(addr..addr + PAGE_SIZE)).unwrap();

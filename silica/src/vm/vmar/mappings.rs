@@ -12,8 +12,8 @@ use core::{num::NonZeroUsize, ops::Range};
 use ostd::mm::{CachePolicy, PAGE_SIZE, PageFlags, PageProperty, Vaddr, VmSpace, tlb::TlbFlushOp};
 use ostd::task::disable_preempt;
 
-use crate::vm::{backing::Backing, perms::VmPerms};
 use super::intersect;
+use crate::vm::{backing::Backing, perms::VmPerms};
 
 /// One contiguous run of virtual addresses sharing a set of properties.
 pub struct VmMapping {

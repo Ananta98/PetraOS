@@ -4,7 +4,7 @@
 
 use ostd::arch::cpu::context::UserContext;
 
-use super::utils::{decode_sigaction, encode_sigaction, SIGACTION_LEN};
+use super::utils::{SIGACTION_LEN, decode_sigaction, encode_sigaction};
 use crate::{
     api::{
         errno::{Errno, Result},

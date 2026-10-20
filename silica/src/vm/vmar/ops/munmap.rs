@@ -5,15 +5,18 @@
 use core::ops::Range;
 use ostd::mm::Vaddr;
 
-use crate::{api::errno::Result, vm::flags::MadviseAdvice};
 use super::super::{Vmar, check_page_aligned_range, is_mappable_range};
+use crate::{api::errno::Result, vm::flags::MadviseAdvice};
 
 impl Vmar {
     /// Releases the mappings that intersect `range`.
     pub fn munmap(&self, range: Range<Vaddr>) -> Result<()> {
         check_page_aligned_range(&range)?;
         if range.end <= range.start {
-            crate::return_errno!(EINVAL, "the range wraps around the address space or is empty");
+            crate::return_errno!(
+                EINVAL,
+                "the range wraps around the address space or is empty"
+            );
         }
 
         let mut inner = self.inner.write();
@@ -64,7 +67,10 @@ impl Vmar {
                 });
                 return Ok(());
             }
-            MadviseAdvice::HugePage | MadviseAdvice::NoHugePage | MadviseAdvice::Mergeable | MadviseAdvice::Unmergeable => {
+            MadviseAdvice::HugePage
+            | MadviseAdvice::NoHugePage
+            | MadviseAdvice::Mergeable
+            | MadviseAdvice::Unmergeable => {
                 return Ok(());
             }
             _ => {}

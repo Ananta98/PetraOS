@@ -22,7 +22,7 @@ pub enum InitcallLevel {
     Arch = 3,
     /// Kernel subsystems: VFS, IPC, network stack (level 4)
     Subsys = 4,
-    /// Filesystems: ext2, devfs, initramfs (level 5)
+    /// Filesystems: ext4, devfs, initramfs (level 5)
     Fs = 5,
     /// Device drivers: PCI, NVMe, Block devices (level 6)
     Device = 6,

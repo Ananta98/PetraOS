@@ -56,7 +56,10 @@ pub fn sys_chdir(path_ptr: usize, _ctx: &mut UserContext) -> Result<usize> {
     if !inode.is_dir() {
         return Err(Errno::ENOTDIR);
     }
-    let attr = inode.node_ops.getattr().unwrap_or_else(|_| *inode.attr.read());
+    let attr = inode
+        .node_ops
+        .getattr()
+        .unwrap_or_else(|_| *inode.attr.read());
     crate::fs::perms::check_permission(&attr, &proc.cred(), AccessFlags::EXEC)?;
 
     proc.set_cwd(path_node);
@@ -71,7 +74,11 @@ pub fn sys_fchdir(fd: i32, _ctx: &mut UserContext) -> Result<usize> {
     if !file.inode.is_dir() {
         return Err(Errno::ENOTDIR);
     }
-    let attr = file.inode.node_ops.getattr().unwrap_or_else(|_| *file.inode.attr.read());
+    let attr = file
+        .inode
+        .node_ops
+        .getattr()
+        .unwrap_or_else(|_| *file.inode.attr.read());
     crate::fs::perms::check_permission(&attr, &proc.cred(), AccessFlags::EXEC)?;
 
     let path_node = file.path_node.clone().ok_or(Errno::EBADF)?;

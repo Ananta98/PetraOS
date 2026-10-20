@@ -112,7 +112,8 @@ pub fn sys_poll(
                 let revents = match table.get(pfd.fd) {
                     Err(_) => PollEvents::NVAL,
                     Ok(file) => {
-                        let want = PollEvents::from_bits_truncate(pfd.events as u16) | PollEvents::ALWAYS;
+                        let want =
+                            PollEvents::from_bits_truncate(pfd.events as u16) | PollEvents::ALWAYS;
                         file.poll() & want
                     }
                 };
@@ -247,7 +248,10 @@ fn do_select(
 
                 if let Ok(file) = table.get(fd as i32) {
                     let poll_res = file.poll();
-                    if want_r && (poll_res & (PollEvents::IN | PollEvents::HUP | PollEvents::ERR)).bits() != 0 {
+                    if want_r
+                        && (poll_res & (PollEvents::IN | PollEvents::HUP | PollEvents::ERR)).bits()
+                            != 0
+                    {
                         out_rfds.set(fd);
                         ready_count += 1;
                     }

@@ -78,12 +78,7 @@ pub fn sys_msgrcv(
 }
 
 /// `msgctl(2)` - System V message queue control operations.
-pub fn sys_msgctl(
-    msqid: i32,
-    cmd: i32,
-    buf: usize,
-    _ctx: &mut UserContext,
-) -> Result<usize> {
+pub fn sys_msgctl(msqid: i32, cmd: i32, buf: usize, _ctx: &mut UserContext) -> Result<usize> {
     let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
     let cred = proc.cred();
     crate::ipc::msg::msg_ctl(msqid, cmd, buf, &cred, &proc)

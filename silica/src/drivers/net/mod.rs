@@ -7,8 +7,8 @@
 
 pub mod e1000;
 
-use alloc::{string::String, sync::Arc, vec::Vec};
 use crate::api::errno::Result;
+use alloc::{string::String, sync::Arc, vec::Vec};
 
 /// A network interface device (e.g. Ethernet controller).
 pub trait NetDevice: Send + Sync {
@@ -64,10 +64,15 @@ pub fn unregister_network_device(name: &str) {
 
 /// Retrieves a network device by name.
 pub fn get_network_device(name: &str) -> Option<Arc<dyn NetDevice>> {
-    crate::drivers::get_netdevs().into_iter().find(|d| d.name() == name)
+    crate::drivers::get_netdevs()
+        .into_iter()
+        .find(|d| d.name() == name)
 }
 
 /// Lists all registered network device names.
 pub fn list_network_devices() -> Vec<String> {
-    crate::drivers::get_netdevs().into_iter().map(|d| d.name()).collect()
+    crate::drivers::get_netdevs()
+        .into_iter()
+        .map(|d| d.name())
+        .collect()
 }

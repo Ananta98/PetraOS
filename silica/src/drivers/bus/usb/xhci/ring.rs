@@ -5,8 +5,8 @@
 //! Handles 16-byte Transfer Request Blocks (TRBs), cycle bit toggling,
 //! and DMA memory allocation for xHCI ring architectures.
 
-use ostd::mm::{HasPaddr, dma::DmaCoherent, io::util::HasVmReaderWriter};
 use crate::api::errno::{Errno, Result};
+use ostd::mm::{HasPaddr, dma::DmaCoherent, io::util::HasVmReaderWriter};
 
 pub const TRB_SIZE: usize = 16;
 pub const RING_ENTRIES: usize = 64; // 64 entries * 16 bytes = 1024 bytes (fits within 1 page)
@@ -152,7 +152,11 @@ impl CommandRing {
         let parameter = reader.read_val().map_err(|_| Errno::EIO)?;
         let status = reader.read_val().map_err(|_| Errno::EIO)?;
         let control = reader.read_val().map_err(|_| Errno::EIO)?;
-        Ok(Trb { parameter, status, control })
+        Ok(Trb {
+            parameter,
+            status,
+            control,
+        })
     }
 }
 
@@ -185,7 +189,9 @@ impl EventRing {
         // u32: Reserved
         let mut writer = erst_dma.writer();
         writer.write_val(&ring_paddr).map_err(|_| Errno::EIO)?;
-        writer.write_val(&(RING_ENTRIES as u16)).map_err(|_| Errno::EIO)?;
+        writer
+            .write_val(&(RING_ENTRIES as u16))
+            .map_err(|_| Errno::EIO)?;
         writer.write_val(&0u16).map_err(|_| Errno::EIO)?;
         writer.write_val(&0u32).map_err(|_| Errno::EIO)?;
 
@@ -223,7 +229,11 @@ impl EventRing {
             self.cycle_state = !self.cycle_state;
         }
 
-        Ok(Some(Trb { parameter, status, control }))
+        Ok(Some(Trb {
+            parameter,
+            status,
+            control,
+        }))
     }
 }
 
@@ -307,6 +317,10 @@ impl TransferRing {
         let parameter = reader.read_val().map_err(|_| Errno::EIO)?;
         let status = reader.read_val().map_err(|_| Errno::EIO)?;
         let control = reader.read_val().map_err(|_| Errno::EIO)?;
-        Ok(Trb { parameter, status, control })
+        Ok(Trb {
+            parameter,
+            status,
+            control,
+        })
     }
 }

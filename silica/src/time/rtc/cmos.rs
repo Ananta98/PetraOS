@@ -82,9 +82,7 @@ pub fn datetime_to_unix_epoch(
     second: u8,
 ) -> u64 {
     // Cumulative days before each month in a standard (non-leap) year (1-indexed)
-    const DAYS_BEFORE_MONTH: [u32; 13] = [
-        0, 0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334,
-    ];
+    const DAYS_BEFORE_MONTH: [u32; 13] = [0, 0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
 
     #[inline]
     fn is_leap_year(y: u16) -> bool {
@@ -108,10 +106,7 @@ pub fn datetime_to_unix_epoch(
 
     days += (day as u64).saturating_sub(1);
 
-    days * 86400
-        + (hour as u64) * 3600
-        + (minute as u64) * 60
-        + (second as u64)
+    days * 86400 + (hour as u64) * 3600 + (minute as u64) * 60 + (second as u64)
 }
 
 // ----------------------------------------------------------------------------
@@ -320,4 +315,3 @@ mod tests {
         assert_eq!(datetime_to_unix_epoch(2026, 4, 7, 12, 4, 0), 1775563440);
     }
 }
-

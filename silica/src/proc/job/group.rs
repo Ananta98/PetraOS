@@ -4,11 +4,7 @@
 
 use crate::{
     api::errno::{Errno, Result},
-    proc::{
-        Pid, Proc, allproc_find,
-        thread::Thread,
-        types::table::PROCTREE_LOCK,
-    },
+    proc::{Pid, Proc, allproc_find, thread::Thread, types::table::PROCTREE_LOCK},
 };
 
 impl Proc {

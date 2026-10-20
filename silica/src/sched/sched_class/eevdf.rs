@@ -101,8 +101,7 @@ impl EevdfEntity {
 
     /// Updates the nice value and recalculates weight.
     pub fn set_nice(&self, nice: i8) {
-        self.weight
-            .store(weight_from_nice(nice), Ordering::Relaxed);
+        self.weight.store(weight_from_nice(nice), Ordering::Relaxed);
     }
 
     /// Returns the nice value corresponding to the current weight.
@@ -282,11 +281,7 @@ impl EevdfRunQueue {
 
     /// Places a task into the EEVDF runqueue, restoring preserved lag.
     pub fn place(&mut self, entry: SchedEntry, is_new: bool) {
-        let lag = if is_new {
-            0
-        } else {
-            entry.entity.fair.lag()
-        };
+        let lag = if is_new { 0 } else { entry.entity.fair.lag() };
 
         // Scale lag by change in total weight: Linux EEVDF formulation
         let weight = entry.entity.fair.weight() as i64;
@@ -298,8 +293,8 @@ impl EevdfRunQueue {
         };
 
         let base_vruntime = self.avg_vruntime();
-        let vruntime = ((base_vruntime as i128 - scaled_lag as i128)
-            .max(self.min_vruntime as i128)) as u64;
+        let vruntime =
+            ((base_vruntime as i128 - scaled_lag as i128).max(self.min_vruntime as i128)) as u64;
 
         if self.sum_weight == 0 {
             self.min_vruntime = self.min_vruntime.max(vruntime);
@@ -530,4 +525,3 @@ mod tests {
         assert_eq!(rq.avg_vruntime(), 0);
     }
 }
-

@@ -39,7 +39,8 @@ impl RtEntity {
 
     /// Sets the real-time priority.
     pub fn set_priority(&self, prio: i32) {
-        self.priority.store(prio.clamp(0, RT_PRIO_MAX), Ordering::Relaxed);
+        self.priority
+            .store(prio.clamp(0, RT_PRIO_MAX), Ordering::Relaxed);
     }
 
     /// Returns the remaining round-robin quantum in nanoseconds.
@@ -49,7 +50,8 @@ impl RtEntity {
 
     /// Resets the round-robin quantum to the default 100 ms.
     pub fn reset_time_slice(&self) {
-        self.time_slice_ns.store(DEF_RT_TIMESLICE_NS, Ordering::Relaxed);
+        self.time_slice_ns
+            .store(DEF_RT_TIMESLICE_NS, Ordering::Relaxed);
     }
 
     /// Charges quantum time for `SCHED_RR`. Returns true if the quantum expired.
@@ -300,4 +302,3 @@ mod tests {
         assert_eq!(rt.time_slice_ns(), 0);
     }
 }
-

@@ -251,7 +251,10 @@ pub fn init() -> Result<()> {
     if controller.wait_and_send_cmd(CMD_TEST_CONTROLLER).is_ok() {
         if let Ok(result) = controller.wait_and_read_data() {
             if result != SELF_TEST_OK {
-                ostd::warn!("i8042: Controller self-test returned 0x{:02X} (expected 0x55)", result);
+                ostd::warn!(
+                    "i8042: Controller self-test returned 0x{:02X} (expected 0x55)",
+                    result
+                );
             } else {
                 ostd::info!("i8042: Controller self-test passed (0x55)");
             }
@@ -266,7 +269,9 @@ pub fn init() -> Result<()> {
         if let Ok(cfg_after) = controller.read_config() {
             if !cfg_after.contains(ConfigFlags::PORT2_CLOCK_DISABLE) {
                 controller.has_second_port = true;
-                ostd::info!("i8042: Dual-channel PS/2 controller detected (Port 2 mouse supported)");
+                ostd::info!(
+                    "i8042: Dual-channel PS/2 controller detected (Port 2 mouse supported)"
+                );
             }
         }
         let _ = controller.wait_and_send_cmd(CMD_DISABLE_PORT2);
@@ -295,7 +300,10 @@ pub fn init() -> Result<()> {
 
     // 8. Write final configuration enabling interrupts
     if let Err(err) = controller.write_config(config) {
-        ostd::warn!("i8042: Failed to write final controller configuration: {:?}", err);
+        ostd::warn!(
+            "i8042: Failed to write final controller configuration: {:?}",
+            err
+        );
     }
 
     ostd::info!("i8042: PS/2 Controller initialization complete");

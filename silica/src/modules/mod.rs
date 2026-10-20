@@ -23,11 +23,11 @@ pub mod symbols;
 
 use crate::api::errno::Result;
 
-pub use initcall::{do_initcalls, register_initcall, InitcallEntry, InitcallFn, InitcallLevel};
+pub use initcall::{InitcallEntry, InitcallFn, InitcallLevel, do_initcalls, register_initcall};
 pub use loader::{load_module, load_module_from_file};
 pub use registry::{
-    init_compiled_module, list_modules, register_module, register_module_declaration,
-    unload_module, KernelModule, ModuleInfo, ModuleState,
+    KernelModule, ModuleInfo, ModuleState, init_compiled_module, list_modules, register_module,
+    register_module_declaration, unload_module,
 };
 pub use symbols::{lookup_symbol, register_symbol};
 

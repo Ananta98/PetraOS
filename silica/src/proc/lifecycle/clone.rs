@@ -7,7 +7,9 @@
 //! (CWD, PGID, SID, IPC attachments, scheduler attributes) and supporting POSIX clone flags.
 
 use alloc::sync::{Arc, Weak};
-use ostd::{arch::cpu::context::UserContext, sync::SpinLock, task::TaskOptions, user::UserContextApi};
+use ostd::{
+    arch::cpu::context::UserContext, sync::SpinLock, task::TaskOptions, user::UserContextApi,
+};
 
 use crate::{
     api::{

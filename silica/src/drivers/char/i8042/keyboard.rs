@@ -16,8 +16,8 @@ use ostd::{
     irq::IrqLine,
 };
 pub use pc_keyboard::{
-    layouts::Us104Key, DecodedKey, HandleControl, KeyCode, KeyState, KeyState as KeyStatus,
-    PS2Keyboard, ScancodeSet1,
+    DecodedKey, HandleControl, KeyCode, KeyState, KeyState as KeyStatus, PS2Keyboard, ScancodeSet1,
+    layouts::Us104Key,
 };
 use spin::{Mutex, Once};
 
@@ -26,9 +26,7 @@ use super::{
     ps2::{CMD_ENABLE_SCANNING, CMD_RESET, send_keyboard_cmd},
 };
 use crate::{
-    api::errno::Result,
-    drivers::CharacterDevice,
-    drivers::char::tty,
+    api::errno::Result, drivers::CharacterDevice, drivers::char::tty,
     utils::ring_buffer::RingBuffer,
 };
 
@@ -41,9 +39,11 @@ static KEYBOARD_IRQ_LINE: Once<MappedIrqLine> = Once::new();
 pub static KEYBOARD_BUFFER: RingBuffer<1024> = RingBuffer::new();
 
 /// Global PS/2 keyboard state machine backed by `pc-keyboard`.
-static KEYBOARD: Mutex<PS2Keyboard<Us104Key, ScancodeSet1>> = Mutex::new(
-    PS2Keyboard::new(ScancodeSet1::new(), Us104Key, HandleControl::MapLettersToUnicode),
-);
+static KEYBOARD: Mutex<PS2Keyboard<Us104Key, ScancodeSet1>> = Mutex::new(PS2Keyboard::new(
+    ScancodeSet1::new(),
+    Us104Key,
+    HandleControl::MapLettersToUnicode,
+));
 
 // ----------------------------------------------------------------------------
 // Public Compatibility Types

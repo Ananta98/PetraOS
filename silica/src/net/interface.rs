@@ -10,7 +10,10 @@ use smoltcp::{
     iface::{Config, Interface, SocketHandle, SocketSet},
     socket::{
         tcp::{Socket as TcpSocket, SocketBuffer as TcpSocketBuffer},
-        udp::{PacketBuffer as UdpPacketBuffer, PacketMetadata as UdpPacketMetadata, Socket as UdpSocket},
+        udp::{
+            PacketBuffer as UdpPacketBuffer, PacketMetadata as UdpPacketMetadata,
+            Socket as UdpSocket,
+        },
     },
     time::Instant,
     wire::{EthernetAddress, HardwareAddress, IpCidr, IpEndpoint, Ipv4Address, Ipv4Cidr},
@@ -52,7 +55,8 @@ impl NetworkManager {
 
     /// Access or lazily initialize the socket set.
     pub fn get_sockets(&mut self) -> &mut SocketSet<'static> {
-        self.sockets.get_or_insert_with(|| SocketSet::new(Vec::new()))
+        self.sockets
+            .get_or_insert_with(|| SocketSet::new(Vec::new()))
     }
 
     /// Connect a TCP socket to an endpoint using the bound interface context.
@@ -76,7 +80,9 @@ impl NetworkManager {
         if !has_route && !in_local_subnet {
             return Err(Errno::ENETUNREACH);
         }
-        let sockets = self.sockets.get_or_insert_with(|| SocketSet::new(Vec::new()));
+        let sockets = self
+            .sockets
+            .get_or_insert_with(|| SocketSet::new(Vec::new()));
         let socket = sockets.get_mut::<TcpSocket>(handle);
         socket
             .connect(bound.iface.context(), endpoint, local_port)
@@ -97,11 +103,17 @@ impl NetworkManager {
 
         // Configure standard QEMU / default IPv4: 10.0.2.15/24, Gateway: 10.0.2.2
         iface.update_ip_addrs(|addrs| {
-            let _ = addrs.push(IpCidr::Ipv4(Ipv4Cidr::new(Ipv4Address::new(10, 0, 2, 15), 24)));
+            let _ = addrs.push(IpCidr::Ipv4(Ipv4Cidr::new(
+                Ipv4Address::new(10, 0, 2, 15),
+                24,
+            )));
         });
 
         // Set default IPv4 gateway
-        iface.routes_mut().add_default_ipv4_route(Ipv4Address::new(10, 0, 2, 2)).ok();
+        iface
+            .routes_mut()
+            .add_default_ipv4_route(Ipv4Address::new(10, 0, 2, 2))
+            .ok();
 
         ostd::info!(
             "Net: Configured smoltcp interface on {} (IPv4: 10.0.2.15/24, Gateway: 10.0.2.2)",
@@ -127,7 +139,9 @@ impl NetworkManager {
     /// Polls the network interface, processing incoming/outgoing packets.
     pub fn poll(&mut self) -> bool {
         let now = current_instant();
-        let sockets = self.sockets.get_or_insert_with(|| SocketSet::new(Vec::new()));
+        let sockets = self
+            .sockets
+            .get_or_insert_with(|| SocketSet::new(Vec::new()));
         if let Some(ref mut bound) = self.bound {
             let poll_res = bound.iface.poll(now, &mut bound.device, sockets);
             poll_res != smoltcp::iface::PollResult::None

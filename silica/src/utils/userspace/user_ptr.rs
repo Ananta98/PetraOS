@@ -4,14 +4,14 @@
 
 use core::ops::Range;
 
-use ostd::mm::{io::FallibleVmRead, FallibleVmWrite, MAX_USERSPACE_VADDR, PAGE_SIZE};
+use ostd::mm::{FallibleVmWrite, MAX_USERSPACE_VADDR, PAGE_SIZE, io::FallibleVmRead};
 
 use super::user_cstr::UserCStr;
 use crate::{
     api::errno::{Errno, Result},
     vm::{
         perms::VmPerms,
-        vmar::{page_fault::PageFaultInfo, Vmar},
+        vmar::{Vmar, page_fault::PageFaultInfo},
     },
 };
 
@@ -66,11 +66,8 @@ impl UserPtr {
         // On failure, activate the address space and handle page faults for the range.
         vmar.activate();
         let page_start = range.start & !(PAGE_SIZE - 1);
-        let page_end = range
-            .end
-            .checked_add(PAGE_SIZE - 1)
-            .ok_or(Errno::EFAULT)?
-            & !(PAGE_SIZE - 1);
+        let page_end =
+            range.end.checked_add(PAGE_SIZE - 1).ok_or(Errno::EFAULT)? & !(PAGE_SIZE - 1);
 
         for page in (page_start..page_end).step_by(PAGE_SIZE) {
             let _ = vmar.handle_page_fault(&PageFaultInfo::new(page, perms));
@@ -98,7 +95,9 @@ impl UserPtr {
                 .writer(self.addr, data.len())
                 .map_err(|_| Errno::EFAULT)?;
             let mut reader = ostd::mm::VmReader::from(data);
-            writer.write_fallible(&mut reader).map_err(|_| Errno::EFAULT)?;
+            writer
+                .write_fallible(&mut reader)
+                .map_err(|_| Errno::EFAULT)?;
             Ok(())
         })
     }
@@ -122,7 +121,9 @@ impl UserPtr {
                 .reader(self.addr, buf.len())
                 .map_err(|_| Errno::EFAULT)?;
             let mut writer = ostd::mm::VmWriter::from(&mut buf[..]);
-            reader.read_fallible(&mut writer).map_err(|_| Errno::EFAULT)?;
+            reader
+                .read_fallible(&mut writer)
+                .map_err(|_| Errno::EFAULT)?;
             Ok(())
         })
     }

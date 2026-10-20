@@ -8,11 +8,7 @@
 use alloc::{string::String, sync::Arc};
 use spin::Once;
 
-use crate::{
-    api::errno::Result,
-    drivers::CharacterDevice,
-    utils::ring_buffer::RingBuffer,
-};
+use crate::{api::errno::Result, drivers::CharacterDevice, utils::ring_buffer::RingBuffer};
 
 /// Interrupt-safe, lock-free ring buffer for USB mouse packets.
 static MOUSE_BUFFER: RingBuffer<2048> = RingBuffer::new();

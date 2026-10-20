@@ -15,12 +15,7 @@ use crate::{
 };
 
 /// System call `bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen)` (Syscall #49).
-pub fn sys_bind(
-    fd: i32,
-    addr_ptr: usize,
-    addrlen: u32,
-    _ctx: &mut UserContext,
-) -> Result<usize> {
+pub fn sys_bind(fd: i32, addr_ptr: usize, addrlen: u32, _ctx: &mut UserContext) -> Result<usize> {
     let socket = get_socket(fd)?;
     let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
     let endpoint = read_sockaddr(&proc, addr_ptr, addrlen)?;
@@ -43,11 +38,7 @@ pub fn sys_connect(
 }
 
 /// System call `listen(int sockfd, int backlog)` (Syscall #50).
-pub fn sys_listen(
-    fd: i32,
-    backlog: i32,
-    _ctx: &mut UserContext,
-) -> Result<usize> {
+pub fn sys_listen(fd: i32, backlog: i32, _ctx: &mut UserContext) -> Result<usize> {
     let socket = get_socket(fd)?;
     socket.listen(backlog)?;
     Ok(0)

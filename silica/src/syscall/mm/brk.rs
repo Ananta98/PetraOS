@@ -7,10 +7,10 @@ use ostd::{arch::cpu::context::UserContext, mm::PAGE_SIZE};
 use crate::{
     api::{
         errno::{Errno, Result},
-        limit::{Resource, RLIM_INFINITY},
+        limit::{RLIM_INFINITY, Resource},
     },
     proc::thread::Thread,
-    vm::{flags::MmapFlags, perms::VmPerms, VMAR_CAP_ADDR},
+    vm::{VMAR_CAP_ADDR, flags::MmapFlags, perms::VmPerms},
 };
 
 /// System call `brk(addr)` (Syscall #12 on x86_64).

@@ -43,7 +43,15 @@ pub struct ShmSegment {
 
 impl ShmSegment {
     /// Constructs a new shared memory segment.
-    pub fn new(id: i32, key: i32, perm: IpcPerm, size: usize, pages: Arc<SharedPages>, cpid: Pid, now: u64) -> Arc<Self> {
+    pub fn new(
+        id: i32,
+        key: i32,
+        perm: IpcPerm,
+        size: usize,
+        pages: Arc<SharedPages>,
+        cpid: Pid,
+        now: u64,
+    ) -> Arc<Self> {
         Arc::new(Self {
             id,
             key,

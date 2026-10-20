@@ -140,7 +140,11 @@ impl Shebang {
     }
 
     /// Reconstructs the argument vector for executing the interpreter.
-    pub fn build_argv<'a>(&'a self, script_path: &'a str, original_argv: &[&'a str]) -> Vec<&'a str> {
+    pub fn build_argv<'a>(
+        &'a self,
+        script_path: &'a str,
+        original_argv: &[&'a str],
+    ) -> Vec<&'a str> {
         let mut new_argv = Vec::new();
         new_argv.push(self.interpreter());
         if let Some(arg) = self.arg() {

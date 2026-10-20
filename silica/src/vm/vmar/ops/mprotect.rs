@@ -5,8 +5,8 @@
 use core::ops::Range;
 use ostd::mm::Vaddr;
 
-use crate::{api::errno::Result, vm::perms::VmPerms};
 use super::super::{Vmar, check_page_aligned_range, is_mappable_range};
+use crate::{api::errno::Result, vm::perms::VmPerms};
 
 impl Vmar {
     /// Replaces the permissions in force over `range`.
@@ -58,23 +58,29 @@ impl Vmar {
 
 #[cfg(ktest)]
 mod tests {
-    use ostd::mm::PAGE_SIZE;
-    use ostd::prelude::ktest;
     use super::*;
     use crate::vm::abi::{flags::MmapFlags, perms::VmPerms};
+    use ostd::mm::PAGE_SIZE;
+    use ostd::prelude::ktest;
 
     #[ktest]
     fn repro_mmap_prot_none_then_mprotect_fails() {
         let vmar = Vmar::new();
-        let addr = vmar.mmap_anonymous(
-            0x3000_0000,
-            PAGE_SIZE,
-            VmPerms::empty(), // PROT_NONE
-            MmapFlags::PRIVATE | MmapFlags::FIXED | MmapFlags::ANONYMOUS,
-        ).expect("mmap PROT_NONE must succeed");
+        let addr = vmar
+            .mmap_anonymous(
+                0x3000_0000,
+                PAGE_SIZE,
+                VmPerms::empty(), // PROT_NONE
+                MmapFlags::PRIVATE | MmapFlags::FIXED | MmapFlags::ANONYMOUS,
+            )
+            .expect("mmap PROT_NONE must succeed");
 
         // Verify mprotect can widen permissions on anonymous PROT_NONE mapping
         let res = vmar.mprotect(VmPerms::READ | VmPerms::WRITE, addr..addr + PAGE_SIZE);
-        assert!(res.is_ok(), "mprotect on anonymous PROT_NONE reservation must succeed, got {:?}", res);
+        assert!(
+            res.is_ok(),
+            "mprotect on anonymous PROT_NONE reservation must succeed, got {:?}",
+            res
+        );
     }
 }

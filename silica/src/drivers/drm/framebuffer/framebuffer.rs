@@ -177,7 +177,9 @@ impl FrameBuffer {
         if offset + 4 > self.total_size {
             return Err(Errno::EINVAL);
         }
-        self.io_mem.write_val(offset, &pixel).map_err(|_| Errno::EIO)
+        self.io_mem
+            .write_val(offset, &pixel)
+            .map_err(|_| Errno::EIO)
     }
 
     /// Writes a 16-bit pixel value directly at the specified offset.
@@ -186,7 +188,9 @@ impl FrameBuffer {
         if offset + 2 > self.total_size {
             return Err(Errno::EINVAL);
         }
-        self.io_mem.write_val(offset, &pixel).map_err(|_| Errno::EIO)
+        self.io_mem
+            .write_val(offset, &pixel)
+            .map_err(|_| Errno::EIO)
     }
 
     /// Writes raw bytes at the specified offset (alias for write_bytes_at).

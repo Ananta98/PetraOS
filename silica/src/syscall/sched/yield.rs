@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 
-use ostd::{arch::cpu::context::UserContext, task::Task};
 use crate::api::errno::Result;
+use ostd::{arch::cpu::context::UserContext, task::Task};
 
 pub fn sys_sched_yield(_ctx: &mut UserContext) -> Result<usize> {
     Task::yield_now();

@@ -15,12 +15,20 @@ pub struct PciAddress {
 impl PciAddress {
     /// Create a new PCI address.
     pub const fn new(bus: u8, device: u8, function: u8) -> Self {
-        Self { bus, device, function }
+        Self {
+            bus,
+            device,
+            function,
+        }
     }
 }
 
 impl fmt::Display for PciAddress {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:02x}:{:02x}.{:x}", self.bus, self.device, self.function)
+        write!(
+            f,
+            "{:02x}:{:02x}.{:x}",
+            self.bus, self.device, self.function
+        )
     }
 }

@@ -13,22 +13,13 @@ pub mod signal;
 pub mod thread;
 pub mod types;
 
-pub use self::{
-    job::*,
-    lifecycle::*,
-    types::*,
-};
+pub use self::{job::*, lifecycle::*, types::*};
 
 use alloc::sync::Arc;
 use ostd::sync::SpinLock;
 
 use crate::{
-    api::{
-        cred::Ucred,
-        errno::Result,
-        limit::Plimit,
-        signal::SigActs,
-    },
+    api::{cred::Ucred, errno::Result, limit::Plimit, signal::SigActs},
     fs::fd::Filedesc,
     vm::vmar::Vmar,
 };

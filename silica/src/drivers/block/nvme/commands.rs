@@ -21,11 +21,11 @@ pub mod opcodes {
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Default)]
 pub struct NvmeSqe {
-    pub cdw0: u32,       // Opcode [7:0], Fused [9:8], PSDT [15:14], CID [31:16]
-    pub nsid: u32,       // Namespace Identifier
+    pub cdw0: u32, // Opcode [7:0], Fused [9:8], PSDT [15:14], CID [31:16]
+    pub nsid: u32, // Namespace Identifier
     pub reserved: u64,
-    pub mptr: u64,       // Metadata Pointer
-    pub dptr: [u64; 2],  // Data Pointer: PRP1 and PRP2
+    pub mptr: u64,      // Metadata Pointer
+    pub dptr: [u64; 2], // Data Pointer: PRP1 and PRP2
     pub cdw10: u32,
     pub cdw11: u32,
     pub cdw12: u32,
@@ -96,12 +96,12 @@ impl NvmeSqe {
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Default)]
 pub struct NvmeCqe {
-    pub cdw0: u32,       // Command-specific result
+    pub cdw0: u32, // Command-specific result
     pub reserved: u32,
-    pub sq_head: u16,    // SQ Head Pointer
-    pub sq_id: u16,      // SQ Identifier
-    pub cid: u16,        // Command Identifier
-    pub status: u16,     // Status field: Phase Tag is bit 0
+    pub sq_head: u16, // SQ Head Pointer
+    pub sq_id: u16,   // SQ Identifier
+    pub cid: u16,     // Command Identifier
+    pub status: u16,  // Status field: Phase Tag is bit 0
 }
 
 impl NvmeCqe {

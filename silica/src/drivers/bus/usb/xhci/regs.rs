@@ -6,8 +6,8 @@
 //! [`ostd::io::IoMem`] using `VmIoOnce`, completely eliminating the need for
 //! raw pointers, memory transmutation, and `unsafe` code.
 
-use ostd::{io::IoMem, mm::VmIoOnce};
 use crate::api::errno::{Errno, Result};
+use ostd::{io::IoMem, mm::VmIoOnce};
 
 // ----------------------------------------------------------------------------
 // Operational USBCMD & USBSTS Flags
@@ -24,10 +24,10 @@ pub const USBSTS_CNR: u32 = 1 << 11; // Controller Not Ready
 // Port Status & Control (PORTSC) Flags
 // ----------------------------------------------------------------------------
 
-pub const PORTSC_CCS: u32 = 1 << 0;          // Current Connect Status
-pub const PORTSC_PED: u32 = 1 << 1;          // Port Enabled/Disabled
-pub const PORTSC_PR: u32 = 1 << 4;           // Port Reset
-pub const PORTSC_PP: u32 = 1 << 9;           // Port Power
+pub const PORTSC_CCS: u32 = 1 << 0; // Current Connect Status
+pub const PORTSC_PED: u32 = 1 << 1; // Port Enabled/Disabled
+pub const PORTSC_PR: u32 = 1 << 4; // Port Reset
+pub const PORTSC_PP: u32 = 1 << 9; // Port Power
 pub const PORTSC_SPEED_MASK: u32 = 0x0F << 10;
 pub const PORTSC_SPEED_SHIFT: u32 = 10;
 
@@ -76,7 +76,12 @@ impl XhciRegisters {
 
         ostd::info!(
             "xHCI MMIO: OP at {:#x}, RT at {:#x}, DB at {:#x} (Ports: {}, Slots: {}, 64-bit CSZ: {})",
-            op_base, rt_base, db_base, num_ports, max_device_slots, is_csz_64
+            op_base,
+            rt_base,
+            db_base,
+            num_ports,
+            max_device_slots,
+            is_csz_64
         );
 
         Ok(Self {
@@ -107,16 +112,24 @@ impl XhciRegisters {
 
     pub fn write_config(&self, mmio: &IoMem, max_slots_en: u8) -> Result<()> {
         let val = max_slots_en as u32;
-        mmio.write_once(self.op_base + 0x38, &val).map_err(|_| Errno::EIO)
+        mmio.write_once(self.op_base + 0x38, &val)
+            .map_err(|_| Errno::EIO)
     }
 
     pub fn write_dcbaap(&self, mmio: &IoMem, paddr: u64) -> Result<()> {
-        mmio.write_once(self.op_base + 0x30, &paddr).map_err(|_| Errno::EIO)
+        mmio.write_once(self.op_base + 0x30, &paddr)
+            .map_err(|_| Errno::EIO)
     }
 
-    pub fn write_crcr(&self, mmio: &IoMem, cmd_ring_paddr: u64, ring_cycle_state: bool) -> Result<()> {
+    pub fn write_crcr(
+        &self,
+        mmio: &IoMem,
+        cmd_ring_paddr: u64,
+        ring_cycle_state: bool,
+    ) -> Result<()> {
         let val = (cmd_ring_paddr & !0x3F) | (if ring_cycle_state { 1 } else { 0 });
-        mmio.write_once(self.op_base + 0x18, &val).map_err(|_| Errno::EIO)
+        mmio.write_once(self.op_base + 0x18, &val)
+            .map_err(|_| Errno::EIO)
     }
 
     // ------------------------------------------------------------------------
@@ -132,15 +145,19 @@ impl XhciRegisters {
     ) -> Result<()> {
         let intr0 = self.rt_base + 0x20;
         // ERSTSZ (Event Ring Segment Table Size)
-        mmio.write_once(intr0 + 0x08, &erst_sz).map_err(|_| Errno::EIO)?;
+        mmio.write_once(intr0 + 0x08, &erst_sz)
+            .map_err(|_| Errno::EIO)?;
         // ERSTBA (Event Ring Segment Table Base Address)
-        mmio.write_once(intr0 + 0x10, &erstba_paddr).map_err(|_| Errno::EIO)?;
+        mmio.write_once(intr0 + 0x10, &erstba_paddr)
+            .map_err(|_| Errno::EIO)?;
         // ERDP (Event Ring Dequeue Pointer) - write bit 3 (EHB) to clear busy flag
         let erdp = (erdp_paddr & !0x0F) | 0x08;
-        mmio.write_once(intr0 + 0x18, &erdp).map_err(|_| Errno::EIO)?;
+        mmio.write_once(intr0 + 0x18, &erdp)
+            .map_err(|_| Errno::EIO)?;
         // IMAN (Interrupt Management: bit 1 = Interrupt Enable)
         let iman: u32 = 0x02;
-        mmio.write_once(intr0 + 0x00, &iman).map_err(|_| Errno::EIO)?;
+        mmio.write_once(intr0 + 0x00, &iman)
+            .map_err(|_| Errno::EIO)?;
         Ok(())
     }
 

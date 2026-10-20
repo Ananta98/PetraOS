@@ -43,9 +43,11 @@ pub fn notify_orphaned_pgrp_if_stopped(pgrp: Pid) {
     let members = pgrp_members(pgrp);
     let any_stopped = members.iter().any(|p| {
         p.inner.lock().stop_status.is_some()
-            || p.inner.lock().threads.iter().any(|t| {
-                t.inner.lock().state == crate::proc::thread::ThreadState::Stopped
-            })
+            || p.inner
+                .lock()
+                .threads
+                .iter()
+                .any(|t| t.inner.lock().state == crate::proc::thread::ThreadState::Stopped)
     });
 
     if any_stopped {

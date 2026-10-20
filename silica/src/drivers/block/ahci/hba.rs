@@ -7,43 +7,43 @@
 // ----------------------------------------------------------------------------
 // Generic Host Control (GHC) Register Offsets
 // ----------------------------------------------------------------------------
-pub const AHCI_CAP: usize = 0x00;      // Host Capability
-pub const AHCI_GHC: usize = 0x04;      // Global Host Control
-pub const AHCI_IS: usize = 0x08;       // Interrupt Status
-pub const AHCI_PI: usize = 0x0C;       // Ports Implemented
-pub const AHCI_VS: usize = 0x10;       // AHCI Version
+pub const AHCI_CAP: usize = 0x00; // Host Capability
+pub const AHCI_GHC: usize = 0x04; // Global Host Control
+pub const AHCI_IS: usize = 0x08; // Interrupt Status
+pub const AHCI_PI: usize = 0x0C; // Ports Implemented
+pub const AHCI_VS: usize = 0x10; // AHCI Version
 pub const AHCI_PORTS_BASE: usize = 0x100; // Base offset of Port 0
 
 // GHC Flags
-pub const GHC_HR: u32 = 1 << 0;        // HBA Reset
-pub const GHC_IE: u32 = 1 << 1;        // Interrupt Enable
-pub const GHC_AE: u32 = 1 << 31;       // AHCI Enable
+pub const GHC_HR: u32 = 1 << 0; // HBA Reset
+pub const GHC_IE: u32 = 1 << 1; // Interrupt Enable
+pub const GHC_AE: u32 = 1 << 31; // AHCI Enable
 
 // ----------------------------------------------------------------------------
 // Port Register Offsets (relative to port_base = 0x100 + port_no * 0x80)
 // ----------------------------------------------------------------------------
-pub const PORT_CLB: usize = 0x00;      // Command List Base Address (1KB aligned)
-pub const PORT_CLBU: usize = 0x04;     // Command List Base Address Upper 32-bits
-pub const PORT_FB: usize = 0x08;       // FIS Base Address (256B aligned)
-pub const PORT_FBU: usize = 0x0C;      // FIS Base Address Upper 32-bits
-pub const PORT_IS: usize = 0x10;       // Interrupt Status
-pub const PORT_IE: usize = 0x14;       // Interrupt Enable
-pub const PORT_CMD: usize = 0x18;      // Command and Status
-pub const PORT_TFD: usize = 0x20;      // Task File Data
-pub const PORT_SIG: usize = 0x24;      // Signature
-pub const PORT_SSTS: usize = 0x28;     // Serial ATA Status (SCR0: SStatus)
-pub const PORT_SCTL: usize = 0x2C;     // Serial ATA Control (SCR2: SControl)
-pub const PORT_SERR: usize = 0x30;     // Serial ATA Error (SCR1: SError)
-pub const PORT_SACT: usize = 0x34;     // Serial ATA Active (SCR3: SActive)
-pub const PORT_CI: usize = 0x38;       // Command Issue
+pub const PORT_CLB: usize = 0x00; // Command List Base Address (1KB aligned)
+pub const PORT_CLBU: usize = 0x04; // Command List Base Address Upper 32-bits
+pub const PORT_FB: usize = 0x08; // FIS Base Address (256B aligned)
+pub const PORT_FBU: usize = 0x0C; // FIS Base Address Upper 32-bits
+pub const PORT_IS: usize = 0x10; // Interrupt Status
+pub const PORT_IE: usize = 0x14; // Interrupt Enable
+pub const PORT_CMD: usize = 0x18; // Command and Status
+pub const PORT_TFD: usize = 0x20; // Task File Data
+pub const PORT_SIG: usize = 0x24; // Signature
+pub const PORT_SSTS: usize = 0x28; // Serial ATA Status (SCR0: SStatus)
+pub const PORT_SCTL: usize = 0x2C; // Serial ATA Control (SCR2: SControl)
+pub const PORT_SERR: usize = 0x30; // Serial ATA Error (SCR1: SError)
+pub const PORT_SACT: usize = 0x34; // Serial ATA Active (SCR3: SActive)
+pub const PORT_CI: usize = 0x38; // Command Issue
 
 // Port CMD Register Flags
-pub const PORT_CMD_ST: u32 = 1 << 0;   // Start Command Engine
-pub const PORT_CMD_SUD: u32 = 1 << 1;  // Spin-Up Device
-pub const PORT_CMD_POD: u32 = 1 << 2;  // Power On Device
-pub const PORT_CMD_FRE: u32 = 1 << 4;  // FIS Receive Enable
-pub const PORT_CMD_FR: u32 = 1 << 14;  // FIS Receive Running
-pub const PORT_CMD_CR: u32 = 1 << 15;  // Command List Running
+pub const PORT_CMD_ST: u32 = 1 << 0; // Start Command Engine
+pub const PORT_CMD_SUD: u32 = 1 << 1; // Spin-Up Device
+pub const PORT_CMD_POD: u32 = 1 << 2; // Power On Device
+pub const PORT_CMD_FRE: u32 = 1 << 4; // FIS Receive Enable
+pub const PORT_CMD_FR: u32 = 1 << 14; // FIS Receive Running
+pub const PORT_CMD_CR: u32 = 1 << 15; // Command List Running
 
 // Port TFD Flags
 pub const ATA_DEV_BUSY: u32 = 0x80;

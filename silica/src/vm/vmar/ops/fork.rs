@@ -20,9 +20,7 @@ impl Vmar {
         child
             .max_addr_space
             .store(parent.max_addr_space().unwrap_or(0), Ordering::Relaxed);
-        child
-            .start_brk
-            .store(parent.start_brk(), Ordering::Relaxed);
+        child.start_brk.store(parent.start_brk(), Ordering::Relaxed);
         child
             .current_brk
             .store(parent.current_brk(), Ordering::Relaxed);
@@ -125,25 +123,27 @@ fn make_read_only(flags: &mut PageFlags, _cache: &mut CachePolicy) {
 
 #[cfg(ktest)]
 mod tests {
-    use ostd::mm::PAGE_SIZE;
-    use ostd::prelude::ktest;
     use super::*;
     use crate::vm::abi::{flags::MmapFlags, perms::VmPerms};
     use crate::vm::backing::Backing;
+    use ostd::mm::PAGE_SIZE;
+    use ostd::prelude::ktest;
 
     #[ktest]
     fn repro_fork_shared_mapping_remains_writable() {
         let parent = Vmar::new();
         let shm = crate::vm::backing::shm::new_anonymous(PAGE_SIZE).unwrap();
         let backing: alloc::sync::Arc<dyn Backing> = shm;
-        let addr = parent.mmap_backed(
-            &backing,
-            0x5000_0000,
-            PAGE_SIZE,
-            VmPerms::READ | VmPerms::WRITE,
-            MmapFlags::SHARED | MmapFlags::FIXED,
-            0,
-        ).unwrap();
+        let addr = parent
+            .mmap_backed(
+                &backing,
+                0x5000_0000,
+                PAGE_SIZE,
+                VmPerms::READ | VmPerms::WRITE,
+                MmapFlags::SHARED | MmapFlags::FIXED,
+                0,
+            )
+            .unwrap();
 
         parent.populate_range(&(addr..addr + PAGE_SIZE)).unwrap();
         let child = Vmar::fork_from(&parent);
@@ -151,7 +151,13 @@ mod tests {
         let parent_flags = crate::vm::tests::page_at(&parent, addr).unwrap().1;
         let child_flags = crate::vm::tests::page_at(&child, addr).unwrap().1;
 
-        assert!(parent_flags.contains(ostd::mm::PageFlags::W), "parent shared page must remain writable");
-        assert!(child_flags.contains(ostd::mm::PageFlags::W), "child shared page must remain writable");
+        assert!(
+            parent_flags.contains(ostd::mm::PageFlags::W),
+            "parent shared page must remain writable"
+        );
+        assert!(
+            child_flags.contains(ostd::mm::PageFlags::W),
+            "child shared page must remain writable"
+        );
     }
 }

@@ -6,11 +6,7 @@ use core::mem::size_of;
 
 use ostd::{
     io::IoMem,
-    mm::{
-        HasPaddr, VmIoOnce,
-        dma::DmaCoherent,
-        io::util::HasVmReaderWriter,
-    },
+    mm::{HasPaddr, VmIoOnce, dma::DmaCoherent, io::util::HasVmReaderWriter},
 };
 
 use super::{
@@ -132,7 +128,8 @@ impl NvmeQueuePair {
 
         // 3. Ring SQ Doorbell (notify hardware)
         let sq_tail_val = self.sq_tail as u32;
-        mmio.write_once(self.sq_doorbell, &sq_tail_val).map_err(|_| Errno::EIO)?;
+        mmio.write_once(self.sq_doorbell, &sq_tail_val)
+            .map_err(|_| Errno::EIO)?;
 
         // 4. Poll CQE at cq_head for completion
         let mut timeout_spins = 2_000_000usize;
@@ -150,7 +147,8 @@ impl NvmeQueuePair {
 
                 // 6. Ring CQ Head Doorbell
                 let cq_head_val = self.cq_head as u32;
-                mmio.write_once(self.cq_doorbell, &cq_head_val).map_err(|_| Errno::EIO)?;
+                mmio.write_once(self.cq_doorbell, &cq_head_val)
+                    .map_err(|_| Errno::EIO)?;
 
                 // 7. Verify Status
                 if !cqe.is_success() {

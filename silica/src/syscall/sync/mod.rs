@@ -5,4 +5,3 @@
 pub mod futex;
 
 pub use futex::*;
-

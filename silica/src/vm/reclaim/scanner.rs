@@ -144,11 +144,8 @@ mod tests {
 
     fn fault_in_cleanly(vmar: &Vmar, start: Vaddr, pages: usize) {
         for page in 0..pages {
-            vmar.handle_page_fault(&PageFaultInfo::new(
-                start + page * PAGE_SIZE,
-                VmPerms::READ,
-            ))
-            .expect("the page faults in");
+            vmar.handle_page_fault(&PageFaultInfo::new(start + page * PAGE_SIZE, VmPerms::READ))
+                .expect("the page faults in");
         }
     }
 
@@ -160,10 +157,7 @@ mod tests {
         assert!(!not_resident(&vmar, start), "the page is resident");
 
         assert_eq!(vmar.reclaim_pages(8), 1, "the clean page is released");
-        assert!(
-            not_resident(&vmar, start),
-            "its page table entry is gone"
-        );
+        assert!(not_resident(&vmar, start), "its page table entry is gone");
         assert_eq!(record_at(&vmar, start).len(), 2 * PAGE_SIZE);
     }
 
@@ -181,10 +175,7 @@ mod tests {
             0,
             "a written page has no other copy, so it is not reclaimable"
         );
-        assert!(
-            !not_resident(&vmar, start),
-            "and so it stays resident"
-        );
+        assert!(!not_resident(&vmar, start), "and so it stays resident");
     }
 
     #[ktest]
@@ -206,7 +197,11 @@ mod tests {
         vmar.populate_range(&(start..start + PAGE_SIZE))
             .expect("the page faults in");
 
-        assert_eq!(vmar.reclaim_pages(8), 0, "the object's pages are not this space's");
+        assert_eq!(
+            vmar.reclaim_pages(8),
+            0,
+            "the object's pages are not this space's"
+        );
         assert_eq!(object.resident_pages(), 1, "and the object still holds it");
         assert!(!not_resident(&vmar, start), "so it stays mapped");
     }
@@ -234,7 +229,11 @@ mod tests {
     fn an_empty_address_space_releases_nothing() {
         let vmar = Vmar::new();
         assert_eq!(vmar.reclaim_pages(16), 0);
-        assert_eq!(vmar.reclaim_pages(0), 0, "and a zero budget asks for nothing");
+        assert_eq!(
+            vmar.reclaim_pages(0),
+            0,
+            "and a zero budget asks for nothing"
+        );
     }
 
     #[ktest]

@@ -177,7 +177,9 @@ pub fn sys_futex(
             // Parse timeout if provided
             let (has_timeout, is_absolute, timeout_ticks) = if utime != 0 {
                 let (sec, nsec) = read_timespec(&vmar, utime)?;
-                let ms = (sec as u64).saturating_mul(1000).saturating_add((nsec as u64) / 1_000_000);
+                let ms = (sec as u64)
+                    .saturating_mul(1000)
+                    .saturating_add((nsec as u64) / 1_000_000);
                 let ticks = (ms * crate::sched::TIMER_HZ).div_ceil(1000);
                 let absolute = cmd == FUTEX_WAIT_BITSET || is_realtime;
                 (true, absolute, ticks)

@@ -9,5 +9,3 @@ pub mod msg;
 pub mod perm;
 pub mod sem;
 pub mod shm;
-
-

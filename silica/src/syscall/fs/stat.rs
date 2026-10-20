@@ -11,7 +11,7 @@ use crate::{
     fs::vfs::{INode, LookupFlags},
     proc::thread::Thread,
     syscall::fs::utils::{
-        resolve_at_start, UserCStr, UserPtr, AT_EMPTY_PATH, AT_FDCWD, AT_SYMLINK_NOFOLLOW,
+        AT_EMPTY_PATH, AT_FDCWD, AT_SYMLINK_NOFOLLOW, UserCStr, UserPtr, resolve_at_start,
     },
     vm::vmar::Vmar,
 };
@@ -70,7 +70,10 @@ impl Stat {
 
 /// Helper to serialize inode attributes to userspace `struct stat`.
 pub fn stat_inode_to_user(inode: &Arc<INode>, statbuf_ptr: usize, vmar: &Vmar) -> Result<()> {
-    let attr = inode.node_ops.getattr().unwrap_or_else(|_| *inode.attr.read());
+    let attr = inode
+        .node_ops
+        .getattr()
+        .unwrap_or_else(|_| *inode.attr.read());
     let times = inode.times();
 
     let stat = Stat {

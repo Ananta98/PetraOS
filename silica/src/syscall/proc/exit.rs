@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: GPL-2.0
 
-use ostd::arch::cpu::context::UserContext;
 use crate::{
     api::errno::Result,
     proc::{
         ExitStatus,
-        lifecycle::{exit1, exit_thread},
+        lifecycle::{exit_thread, exit1},
         thread::Thread,
     },
 };
+use ostd::arch::cpu::context::UserContext;
 
 pub fn sys_exit(code: i32, _ctx: &mut UserContext) -> Result<usize> {
     let td = Thread::current().expect("must be in thread context");
@@ -21,4 +21,3 @@ pub fn sys_exit_group(code: i32, _ctx: &mut UserContext) -> Result<usize> {
     exit1(&td, ExitStatus::Exited(code));
     Ok(0)
 }
-

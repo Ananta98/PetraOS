@@ -29,7 +29,7 @@ use crate::{
 };
 
 /// Filesystem type descriptor for Ext4.
-pub struct Ext4FsType;
+pub(crate) struct Ext4FsType;
 
 impl FileSystemType for Ext4FsType {
     fn name(&self) -> &'static str {

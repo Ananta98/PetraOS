@@ -6,6 +6,7 @@
 //! and ATA Read/Write operations via DMA.
 
 use alloc::string::String;
+use core::sync::atomic::{AtomicU64, Ordering};
 use spin::Mutex;
 
 use ostd::{
@@ -19,7 +20,7 @@ use super::{
 };
 use crate::{
     api::errno::{Errno, Result},
-    drivers::{Device, DeviceType, block::BlockDevice},
+    drivers::{BlockDeviceStats, Device, DeviceType, block::BlockDevice},
 };
 
 /// Type of device attached to an AHCI port.
@@ -49,6 +50,10 @@ pub struct AhciPort {
     // Command Table for Slot 0: 256 bytes (64B CFIS + 16B ACMD + 48B RSV + 128B PRDT)
     pub cmd_table_dma: DmaCoherent,
     pub lock: Mutex<()>,
+    pub reads_completed: AtomicU64,
+    pub sectors_read: AtomicU64,
+    pub writes_completed: AtomicU64,
+    pub sectors_written: AtomicU64,
 }
 
 impl AhciPort {
@@ -182,6 +187,10 @@ impl AhciPort {
             rx_fis_dma,
             cmd_table_dma,
             lock: Mutex::new(()),
+            reads_completed: AtomicU64::new(0),
+            sectors_read: AtomicU64::new(0),
+            writes_completed: AtomicU64::new(0),
+            sectors_written: AtomicU64::new(0),
         };
 
         port.rebase()?;
@@ -636,7 +645,13 @@ impl BlockDevice for AhciPort {
         }
 
         let sector_count = (buf.len() / self.sector_size) as u16;
-        self.read_dma_ext(block_id, sector_count, buf)
+        let res = self.read_dma_ext(block_id, sector_count, buf);
+        if res.is_ok() {
+            self.reads_completed.fetch_add(1, Ordering::Relaxed);
+            self.sectors_read
+                .fetch_add(sector_count as u64, Ordering::Relaxed);
+        }
+        res
     }
 
     fn write_blocks(&self, block_id: u64, buf: &[u8]) -> Result<usize> {
@@ -648,10 +663,32 @@ impl BlockDevice for AhciPort {
         }
 
         let sector_count = (buf.len() / self.sector_size) as u16;
-        self.write_dma_ext(block_id, sector_count, buf)
+        let res = self.write_dma_ext(block_id, sector_count, buf);
+        if res.is_ok() {
+            self.writes_completed.fetch_add(1, Ordering::Relaxed);
+            self.sectors_written
+                .fetch_add(sector_count as u64, Ordering::Relaxed);
+        }
+        res
     }
 
     fn flush(&self) -> Result<()> {
         Ok(())
+    }
+
+    fn stats(&self) -> BlockDeviceStats {
+        BlockDeviceStats {
+            reads_completed: self.reads_completed.load(Ordering::Relaxed),
+            reads_merged: 0,
+            sectors_read: self.sectors_read.load(Ordering::Relaxed),
+            read_ms: 0,
+            writes_completed: self.writes_completed.load(Ordering::Relaxed),
+            writes_merged: 0,
+            sectors_written: self.sectors_written.load(Ordering::Relaxed),
+            write_ms: 0,
+            io_in_progress: 0,
+            io_ms: 0,
+            weighted_io_ms: 0,
+        }
     }
 }

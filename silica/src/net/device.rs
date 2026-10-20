@@ -40,7 +40,6 @@ impl RxToken for SmolRxToken {
     }
 }
 
-
 pub struct SmolTxToken {
     dev: Arc<dyn NetDevice>,
 }
@@ -58,8 +57,14 @@ impl TxToken for SmolTxToken {
 }
 
 impl Device for SmolNetDevice {
-    type RxToken<'a> = SmolRxToken where Self: 'a;
-    type TxToken<'a> = SmolTxToken where Self: 'a;
+    type RxToken<'a>
+        = SmolRxToken
+    where
+        Self: 'a;
+    type TxToken<'a>
+        = SmolTxToken
+    where
+        Self: 'a;
 
     fn receive(&mut self, _timestamp: Instant) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
         if !self.dev.can_receive() {

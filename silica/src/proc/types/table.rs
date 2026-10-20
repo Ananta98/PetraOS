@@ -9,7 +9,10 @@ use alloc::{
 };
 use ostd::sync::{RwLock, SpinLock};
 
-use super::{pid::{PID_INIT, Pid, PidAllocator}, proc::{Proc, ProcState}};
+use super::{
+    pid::{PID_INIT, Pid, PidAllocator},
+    proc::{Proc, ProcState},
+};
 
 /// Central process registry maintaining primary and secondary group/session indices.
 pub struct ProcessTable {

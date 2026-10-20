@@ -8,8 +8,8 @@ use crate::{
     api::errno::{Errno, Result},
     fs::{
         epoll::{
-            create_epoll_file, EpollEvent, EPOLL_CLOEXEC, EPOLL_CTL_ADD, EPOLL_CTL_DEL,
-            EPOLL_CTL_MOD,
+            EPOLL_CLOEXEC, EPOLL_CTL_ADD, EPOLL_CTL_DEL, EPOLL_CTL_MOD, EpollEvent,
+            create_epoll_file,
         },
         fd::FdFlags,
     },

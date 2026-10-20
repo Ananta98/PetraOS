@@ -3,18 +3,14 @@
 //! Kernel module registry: lifecycle state, metadata and compiled-in modules.
 
 use alloc::{
-    borrow::ToOwned,
-    boxed::Box,
-    collections::btree_map::BTreeMap,
-    string::String,
-    sync::Arc,
+    borrow::ToOwned, boxed::Box, collections::btree_map::BTreeMap, string::String, sync::Arc,
     vec::Vec,
 };
 use spin::Mutex;
 
 use crate::api::errno::{Errno, Result};
 
-use super::initcall::{register_initcall, InitcallFn, InitcallLevel};
+use super::initcall::{InitcallFn, InitcallLevel, register_initcall};
 
 /// Lifecycle state of a kernel module.
 ///
@@ -55,8 +51,7 @@ pub(crate) static MODULE_TABLE: Mutex<BTreeMap<String, ModuleInfo>> = Mutex::new
 ///
 /// Locking convention: whenever both registries are needed, lock
 /// `MODULE_TABLE` first, then `MODULE_IMAGES` (the mutexes are non-reentrant).
-pub(crate) static MODULE_IMAGES: Mutex<BTreeMap<String, Box<[u8]>>> =
-    Mutex::new(BTreeMap::new());
+pub(crate) static MODULE_IMAGES: Mutex<BTreeMap<String, Box<[u8]>>> = Mutex::new(BTreeMap::new());
 
 /// Global registry of compiled-in kernel modules.
 static COMPILED_MODULES: Mutex<BTreeMap<String, Arc<dyn KernelModule>>> =

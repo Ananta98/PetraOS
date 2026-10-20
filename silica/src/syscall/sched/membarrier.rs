@@ -43,12 +43,7 @@ const SUPPORTED_COMMANDS: i32 = MEMBARRIER_CMD_GLOBAL
     | MEMBARRIER_CMD_REGISTER_PRIVATE_EXPEDITED_SYNC_CORE;
 
 /// `membarrier(2)` - Issues a memory barrier as requested by user space.
-pub fn sys_membarrier(
-    cmd: i32,
-    flags: u32,
-    _cpu_id: i32,
-    _ctx: &mut UserContext,
-) -> Result<usize> {
+pub fn sys_membarrier(cmd: i32, flags: u32, _cpu_id: i32, _ctx: &mut UserContext) -> Result<usize> {
     if flags != 0 {
         return Err(Errno::EINVAL);
     }

@@ -13,7 +13,7 @@ use super::font::ConsoleFont;
 
 use crate::{
     api::termios::winsize,
-    drivers::drm::framebuffer::{get_framebuffer, FrameBuffer, PixelFormat},
+    drivers::drm::framebuffer::{FrameBuffer, PixelFormat, get_framebuffer},
 };
 
 /// Hardware display target integrating `FrameBuffer` with `os-terminal`'s `DrawTarget`.
