@@ -9,8 +9,7 @@
 #
 # Environment:
 #   PETRAOS_USERLAND_PACKAGES  space separated prebuild-package layer names
-#                              (default: bash gawk grep sed btop fastfetch htop
-#                              openssl build-base e2fsprogs exfatprogs)
+#                              (default: developer-tools)
 #   PETRAOS_VERSION            version string reported by /etc/os-release
 #   ALPINE_VERSION/ALPINE_BRANCH/ALPINE_SHA256  override the Alpine release
 set -euo pipefail
@@ -29,7 +28,7 @@ BUILD_DIR="${REPO_ROOT}/build/userland-amd64"
 STAGING="${BUILD_DIR}/staging"
 INITRAMFS="${REPO_ROOT}/build/initramfs.cpio"
 
-PACKAGES="${PETRAOS_USERLAND_PACKAGES:-bash gawk grep sed btop fastfetch htop openssl build-base e2fsprogs exfatprogs}"
+PACKAGES="${PETRAOS_USERLAND_PACKAGES:-developer-tools}"
 PETRAOS_VERSION="${PETRAOS_VERSION:-0.1.0}"
 SUPPORT_DIR="${REPO_ROOT}/scripts/build-support"
 PREBUILD_DIR="${REPO_ROOT}/scripts/prebuild-package"

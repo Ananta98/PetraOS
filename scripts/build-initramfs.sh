@@ -1,5 +1,5 @@
 #!/bin/bash
-# Pack a staged userland into a newc CPIO initramfs and build the ext2/exFAT
+# Pack a staged userland into a newc CPIO initramfs and build the ext4/exFAT
 # block-device images that the kernel mounts (see OSDK.toml's qemu args).
 #
 # The filesystem images are formatted with the e2fsprogs/exfatprogs tools that
@@ -7,7 +7,7 @@
 # images therefore does not depend on the host having e2fsprogs or exfatprogs.
 #
 # Usage: build-initramfs.sh [--staging DIR] [--output CPIO]
-#                           [--ext2 FILE] [--exfat FILE]
+#                           [--ext4 FILE] [--exfat FILE]
 #                           [--image-size SIZE] [--no-images]
 set -euo pipefail
 
@@ -16,13 +16,13 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 STAGING="${REPO_ROOT}/build/userland-amd64/staging"
 OUTPUT="${REPO_ROOT}/build/initramfs.cpio"
-EXT2_IMAGE="${REPO_ROOT}/build/ext2.img"
+EXT4_IMAGE="${REPO_ROOT}/build/ext4.img"
 EXFAT_IMAGE="${REPO_ROOT}/build/exfat.img"
 IMAGE_SIZE="64M"
 BUILD_IMAGES=1
 
 usage() {
-    echo "Usage: $0 [--staging DIR] [--output CPIO] [--ext2 FILE] [--exfat FILE]"
+    echo "Usage: $0 [--staging DIR] [--output CPIO] [--ext4 FILE] [--exfat FILE]"
     echo "          [--image-size SIZE] [--no-images]"
     exit 0
 }
@@ -31,7 +31,7 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --staging) STAGING="$2"; shift 2 ;;
         --output) OUTPUT="$2"; shift 2 ;;
-        --ext2) EXT2_IMAGE="$2"; shift 2 ;;
+        --ext4) EXT4_IMAGE="$2"; shift 2 ;;
         --exfat) EXFAT_IMAGE="$2"; shift 2 ;;
         --image-size) IMAGE_SIZE="$2"; shift 2 ;;
         --no-images) BUILD_IMAGES=0; shift ;;
@@ -74,16 +74,16 @@ make_image() {
     truncate -s "${size}" "${image}"
 }
 
-build_ext2_image() {
-    make_image "${EXT2_IMAGE}" "${IMAGE_SIZE}"
-    if [ -x "${MUSL_LOADER}" ] && [ -x "${STAGING}/sbin/mkfs.ext2" ]; then
-        run_staged sbin/mkfs.ext2 -q -F "${EXT2_IMAGE}"
-        echo "    ext2:  ${EXT2_IMAGE} (${IMAGE_SIZE})"
-    elif command -v mkfs.ext2 >/dev/null 2>&1; then
-        mkfs.ext2 -q -F "${EXT2_IMAGE}"
-        echo "    ext2:  ${EXT2_IMAGE} (${IMAGE_SIZE}, host mkfs.ext2)"
+build_ext4_image() {
+    make_image "${EXT4_IMAGE}" "${IMAGE_SIZE}"
+    if [ -x "${MUSL_LOADER}" ] && [ -x "${STAGING}/sbin/mkfs.ext4" ]; then
+        run_staged sbin/mkfs.ext4 -q -F "${EXT4_IMAGE}"
+        echo "    ext4:  ${EXT4_IMAGE} (${IMAGE_SIZE})"
+    elif command -v mkfs.ext4 >/dev/null 2>&1; then
+        mkfs.ext4 -q -F "${EXT4_IMAGE}"
+        echo "    ext4:  ${EXT4_IMAGE} (${IMAGE_SIZE}, host mkfs.ext4)"
     else
-        echo "    ext2:  ${EXT2_IMAGE} left unformatted (no mkfs.ext2 available)" >&2
+        echo "    ext4:  ${EXT4_IMAGE} left unformatted (no mkfs.ext4 available)" >&2
     fi
 }
 
@@ -110,6 +110,6 @@ echo "    ${OUTPUT} ($(du -h "${OUTPUT}" | cut -f1), $(find "${STAGING}" -mindep
 
 if [ "${BUILD_IMAGES}" -eq 1 ]; then
     echo "==> Building block-device images"
-    build_ext2_image
+    build_ext4_image
     build_exfat_image
 fi

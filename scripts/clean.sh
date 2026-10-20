@@ -83,7 +83,7 @@ if [ "${CLEAN_USERLAND}" -eq 1 ]; then
     remove "${BUILD_DIR}/prebuild-package"
     remove "${BUILD_DIR}/initramfs.cpio"
     remove "${BUILD_DIR}/initramfs_base"
-    remove "${BUILD_DIR}/ext2.img"
+    remove "${BUILD_DIR}/ext4.img"
     remove "${BUILD_DIR}/exfat.img"
     remove "${BUILD_DIR}/disk.img"
 fi

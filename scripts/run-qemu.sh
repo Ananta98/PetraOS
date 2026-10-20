@@ -15,7 +15,7 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 KERNEL_BIN="${REPO_ROOT}/target/osdk/silica-osdk-bin"
 INITRAMFS_CPIO="${REPO_ROOT}/build/initramfs.cpio"
 ISO_IMAGE="${REPO_ROOT}/build/petraos-x86_64.iso"
-EXT2_IMAGE="${REPO_ROOT}/build/ext2.img"
+EXT4_IMAGE="${REPO_ROOT}/build/ext4.img"
 EXFAT_IMAGE="${REPO_ROOT}/build/exfat.img"
 QMP_SOCKET="/tmp/qmp-petra.sock"
 
@@ -151,14 +151,14 @@ if [ -f "/usr/share/OVMF/OVMF_CODE_4M.fd" ] && [ -f "/usr/share/OVMF/OVMF_VARS_4
     )
 fi
 
-# Attach the ext2/exFAT test images as AHCI drives when they have been built.
+# Attach the ext4/exFAT test images as AHCI drives when they have been built.
 DISK_FLAGS=()
-if [ -f "${EXT2_IMAGE}" ] || [ -f "${EXFAT_IMAGE}" ]; then
+if [ -f "${EXT4_IMAGE}" ] || [ -f "${EXFAT_IMAGE}" ]; then
     DISK_FLAGS+=(-device ich9-ahci,id=ahci)
-    if [ -f "${EXT2_IMAGE}" ]; then
+    if [ -f "${EXT4_IMAGE}" ]; then
         DISK_FLAGS+=(
-            -drive id=ext2,file="${EXT2_IMAGE}",format=raw,if=none
-            -device ide-hd,drive=ext2,bus=ahci.0
+            -drive id=ext4,file="${EXT4_IMAGE}",format=raw,if=none
+            -device ide-hd,drive=ext4,bus=ahci.0
         )
     fi
     if [ -f "${EXFAT_IMAGE}" ]; then
