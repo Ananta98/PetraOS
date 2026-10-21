@@ -13,6 +13,7 @@
 //! - [`cmdline`]: the kernel command line.
 //! - [`drivers`]: device drivers.
 //! - [`fs`]: filesystems and the virtual file system.
+//! - [`kpi`]: Linux-shaped safe-Rust Kernel Programming Interface backbone.
 //! - [`modules`]: loadable kernel modules and their initcalls.
 //! - [`proc`]: processes, threads, and their lifecycle.
 //! - [`sched`]: task scheduling.
@@ -42,6 +43,7 @@ pub mod crypto;
 pub mod drivers;
 pub mod fs;
 pub mod ipc;
+pub mod kpi;
 pub mod modules;
 pub mod net;
 pub mod proc;
@@ -68,6 +70,7 @@ fn kernel_init() {
     vm::init();
     fs::init();
     sched::init();
+    kpi::init().unwrap();
     drivers::init().unwrap();
     modules::init_calls().unwrap();
     vm::reclaim::init_page_reclaim_daemon();

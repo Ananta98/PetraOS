@@ -46,5 +46,10 @@ if [ $# -gt 0 ] && [ "$1" != "sh" ]; then
     exec "$@"
 fi
 
-echo "[init] Spawning interactive login shell (/bin/bash -l)..."
-exec /bin/bash -l
+if [ -x /bin/bash ]; then
+    echo "[init] Spawning interactive login shell (/bin/bash -l)..."
+    exec /bin/bash -l
+else
+    echo "[init] Spawning interactive login shell (/bin/sh -l)..."
+    exec /bin/sh -l
+fi
