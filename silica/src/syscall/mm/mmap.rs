@@ -86,8 +86,14 @@ pub fn sys_mmap(
         // Validate memory mapping request with the file description
         file.mmap(offset as u64, len)?;
 
-        let min_size = offset.saturating_add(len);
-        let backing: Arc<dyn Backing> = Arc::new(FileBacking::new_with_min_size(file, min_size)?);
+        // Devices with special mapping semantics (DRM cards resolving GEM
+        // grants) override the default file page cache backing.
+        let backing: Arc<dyn Backing> = if let Some(b) = file.mmap_backing(offset as u64, len)? {
+            b
+        } else {
+            let min_size = offset.saturating_add(len);
+            Arc::new(FileBacking::new_with_min_size(file, min_size)?)
+        };
         let res = vmar.mmap_backed(&backing, addr, len, perms, flags, offset)?;
         Ok(res)
     }

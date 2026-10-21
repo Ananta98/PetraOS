@@ -344,6 +344,11 @@ impl VmMapping {
 
     /// Removes this mapping's page table entries and returns how many pages were released.
     pub(super) fn unmap(&self, vm_space: &VmSpace) -> usize {
+        if self.shared {
+            if let Some(backing) = &self.backing {
+                let _ = backing.flush(self.backing_offset..self.backing_offset + self.len.get());
+            }
+        }
         let range = self.range();
         let guard = disable_preempt();
         let mut cursor = vm_space

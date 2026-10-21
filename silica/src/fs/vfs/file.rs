@@ -91,6 +91,20 @@ pub trait FileOps: Send + Sync {
         crate::return_errno!(ENODEV, "file does not support mmap");
     }
 
+    /// The [`Backing`] serving a mapping of `[offset, offset + len)`, or
+    /// `None` when the caller should use the default file page cache.
+    ///
+    /// Devices whose mmap semantics are not "map the file contents" hook in
+    /// here; DRM cards, for example, resolve the offset into a GEM buffer
+    /// object.
+    fn mmap_backing(
+        &self,
+        _offset: u64,
+        _len: usize,
+    ) -> Result<Option<Arc<dyn crate::vm::backing::Backing>>> {
+        Ok(None)
+    }
+
     /// Fills `buf` with the file contents at `offset` to satisfy a page fault
     /// in a file-backed mapping.
     fn fault_in(&self, offset: u64, buf: &mut [u8]) -> Result<usize> {
@@ -263,6 +277,16 @@ impl File {
             return Err(Errno::EACCES);
         }
         self.ops.mmap(offset, len)
+    }
+
+    /// The mapping backing for `[offset, offset + len)`, if the file defines
+    /// one (see [`FileOps::mmap_backing`]).
+    pub fn mmap_backing(
+        &self,
+        offset: u64,
+        len: usize,
+    ) -> Result<Option<Arc<dyn crate::vm::backing::Backing>>> {
+        self.ops.mmap_backing(offset, len)
     }
 
     /// Return the underlying network socket if this file represents a socket.

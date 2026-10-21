@@ -119,6 +119,9 @@ impl Tty {
     pub fn input_byte(&self, byte: u8) {
         let output = self.input_byte_internal(byte);
         if !output.is_empty() {
+            for &b in &output {
+                ostd::early_print!("{}", b as char);
+            }
             let _ = self.driver.write_output(&output);
         }
     }
@@ -209,6 +212,9 @@ impl Tty {
         }
 
         let output = self.ldisc.lock().write_output(buf);
+        for &b in &output {
+            ostd::early_print!("{}", b as char);
+        }
         self.driver.write_output(&output)?;
         Ok(buf.len())
     }

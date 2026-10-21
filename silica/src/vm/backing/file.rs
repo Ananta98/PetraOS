@@ -94,7 +94,7 @@ impl Backing for FileBacking {
 
     fn flush(&self, range: Range<usize>) -> Result<()> {
         let pages = self.pages.lock();
-        let file_len = self.file.inode.size();
+        let file_len = self.file.inode.size().max(self.size);
         for (&offset, frame) in pages.range(range.start..range.end) {
             if offset >= file_len {
                 continue;
@@ -106,10 +106,21 @@ impl Backing for FileBacking {
             let write_len = PAGE_SIZE.min(file_len.saturating_sub(offset));
             if write_len > 0 {
                 let _ = self.file.ops.write(offset as u64, &buf[..write_len]);
+                let new_size = offset + write_len;
+                if new_size > self.file.inode.size() {
+                    self.file.inode.set_size(new_size);
+                }
             }
         }
+        self.file.inode.touch_mtime();
         let _ = self.file.ops.fsync(false);
         Ok(())
+    }
+}
+
+impl Drop for FileBacking {
+    fn drop(&mut self) {
+        let _ = self.flush(0..self.size);
     }
 }
 

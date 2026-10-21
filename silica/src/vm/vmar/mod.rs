@@ -238,6 +238,16 @@ impl Vmar {
         let mut inner = self.inner.write();
         let vm_space = &self.vm_space;
 
+        for mapping in inner.mappings.iter() {
+            if mapping.is_shared() {
+                if let Some(backing) = mapping.backing() {
+                    let _ = backing.flush(
+                        mapping.backing_offset()..mapping.backing_offset() + mapping.len(),
+                    );
+                }
+            }
+        }
+
         let full_range = 0..VMAR_CAP_ADDR;
         let guard = ostd::task::disable_preempt();
         let mut cursor = vm_space
