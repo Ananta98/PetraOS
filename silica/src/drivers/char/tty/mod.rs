@@ -639,40 +639,6 @@ pub fn handle_keyboard_char(ch: u8) {
     }
 }
 
-/// Feeds queued keystrokes to the line discipline in thread context.
-///
-/// The line discipline cannot run from the keyboard interrupt: it takes the TTY
-/// and process locks, which are not interrupt-safe. Running it here gives queued
-/// bytes an execution context even when no process is reading the console, so a
-/// control character such as Ctrl+C still signals the foreground process group
-/// while a command that does not read stdin (e.g. `sleep`) is running.
-fn keyboard_input_daemon() {
-    loop {
-        // `drain_input` returns early when another thread holds the drain lock,
-        // so retry until the queue is observed empty rather than stranding input.
-        while !INPUT_QUEUE.is_empty() {
-            drain_input();
-            if !INPUT_QUEUE.is_empty() {
-                ostd::task::Task::yield_now();
-            }
-        }
-
-        INPUT_WAIT_QUEUE.wait_until(|| INPUT_PENDING.swap(false, Ordering::Acquire).then_some(()));
-    }
-}
-
-fn spawn_keyboard_input_daemon() -> Result<()> {
-    crate::proc::kthread::kproc_create("tty_input", keyboard_input_daemon, 0)?;
-    Ok(())
-}
-
-crate::module!(
-    "TTY Input Daemon",
-    "Ananta98",
-    crate::modules::InitcallLevel::Late,
-    spawn_keyboard_input_daemon
-);
-
 /// Called when a process terminates.
 /// If the process left the active console TTY in raw mode or with disabled ONLCR,
 /// restores canonical termios, exits alternate screen, and unhides cursor,

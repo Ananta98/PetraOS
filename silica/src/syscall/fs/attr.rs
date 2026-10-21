@@ -68,7 +68,10 @@ pub fn sys_fchmodat2(
     };
 
     let cred = proc.cred();
-    let mut attr = *inode.attr.read();
+    let mut attr = inode
+        .node_ops
+        .getattr()
+        .unwrap_or_else(|_| *inode.attr.read());
     if !cred.is_superuser() && cred.cr_uid != Uid(attr.uid) {
         return Err(Errno::EPERM);
     }
@@ -104,7 +107,11 @@ pub fn sys_fchmod(fd: i32, mode: u32, _ctx: &mut UserContext) -> Result<usize> {
     let file = proc.fd_table.lock().get(fd)?;
 
     let cred = proc.cred();
-    let mut attr = *file.inode.attr.read();
+    let mut attr = file
+        .inode
+        .node_ops
+        .getattr()
+        .unwrap_or_else(|_| *file.inode.attr.read());
     if !cred.is_superuser() && cred.cr_uid != Uid(attr.uid) {
         return Err(Errno::EPERM);
     }
@@ -169,7 +176,10 @@ pub fn sys_fchownat(
         return Err(Errno::EPERM);
     }
 
-    let mut attr = *inode.attr.read();
+    let mut attr = inode
+        .node_ops
+        .getattr()
+        .unwrap_or_else(|_| *inode.attr.read());
     if owner != 0xffffffff {
         attr.uid = owner;
     }
@@ -203,7 +213,11 @@ pub fn sys_fchown(fd: i32, owner: u32, group: u32, _ctx: &mut UserContext) -> Re
         return Err(Errno::EPERM);
     }
 
-    let mut attr = *file.inode.attr.read();
+    let mut attr = file
+        .inode
+        .node_ops
+        .getattr()
+        .unwrap_or_else(|_| *file.inode.attr.read());
     if owner != 0xffffffff {
         attr.uid = owner;
     }

@@ -24,6 +24,7 @@ pub mod stat;
 pub mod statfs;
 pub mod utils;
 pub mod write;
+pub mod xattr;
 
 pub use access::*;
 pub use attr::*;
@@ -48,3 +49,4 @@ pub use sendfile::*;
 pub use stat::*;
 pub use statfs::*;
 pub use write::*;
+pub use xattr::*;

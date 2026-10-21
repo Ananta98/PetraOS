@@ -238,8 +238,13 @@ impl NodeOps for InitramfsRamFileNodeOps {
     }
 
     fn setattr(&self, attr: &INodeAttr) -> Result<()> {
-        self.data.write().resize(attr.size, 0);
-        *self.attr.write() = *attr;
+        let mut data = self.data.write();
+        if attr.size != data.len() {
+            data.resize(attr.size, 0);
+        }
+        let mut new_attr = *attr;
+        new_attr.size = data.len();
+        *self.attr.write() = new_attr;
         Ok(())
     }
 }

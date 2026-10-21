@@ -148,8 +148,9 @@ crate::impl_syscall_nums_and_dispatch_fn! {
     SYS_INIT_MODULE = 175 => platform::sys_init_module(usize, usize, usize);
     SYS_DELETE_MODULE = 176 => platform::sys_delete_module(usize, i32);
     SYS_GETTID = 186 => proc::sys_gettid();
+    SYS_LISTXATTR = 194 => fs::sys_listxattr(usize, usize, usize);
     SYS_TKILL = 200 => signals::sys_tkill(i32, i32);
-    SYS_TIME = 201 => time::sys_time(usize);
+SYS_TIME = 201 => time::sys_time(usize);
     SYS_FUTEX = 202 => sync::sys_futex(usize, i32, u32, usize, usize, u32);
     SYS_SCHED_SETAFFINITY = 203 => sched::sys_sched_setaffinity(i32, usize, usize);
     SYS_SCHED_GETAFFINITY = 204 => sched::sys_sched_getaffinity(i32, usize, usize);
@@ -205,7 +206,7 @@ crate::impl_syscall_nums_and_dispatch_fn! {
     SYS_MEMBARRIER = 324 => sched::sys_membarrier(i32, u32, i32);
     SYS_COPY_FILE_RANGE = 326 => fs::sys_copy_file_range(i32, usize, i32, usize, usize, u32);
     SYS_PREADV2 = 327 => fs::sys_preadv2(i32, usize, usize, usize, usize, i32);
-    SYS_PWRITEV2 = 328 => fs::sys_pwritev2(i32, usize, usize, usize, usize, i32);
+    SYS_STATX = 332 => fs::sys_statx(i32, usize, i32, u32, usize);
     SYS_FACCESSAT2 = 439 => fs::sys_faccessat2(i32, usize, i32, i32);
     SYS_FCHMODAT2 = 452 => fs::sys_fchmodat2(i32, usize, u32, i32);
 }
