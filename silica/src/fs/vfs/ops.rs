@@ -485,7 +485,10 @@ pub fn truncate_at(start: &PathNode, path: &str, size: usize) -> Result<()> {
     if !inode.is_file() {
         return Err(Errno::EINVAL);
     }
-    let attr: INodeAttr = *inode.attr.read();
+    let attr: INodeAttr = inode
+        .node_ops
+        .getattr()
+        .unwrap_or_else(|_| *inode.attr.read());
     check_permission(&attr, &current_cred(), AccessFlags::WRITE)?;
     let mut new_attr = attr;
     new_attr.size = size;

@@ -297,7 +297,11 @@ impl INode {
 
     /// Returns the current size of the inode.
     pub fn size(&self) -> usize {
-        self.attr.read().size
+        if let Ok(attr) = self.node_ops.getattr() {
+            attr.size
+        } else {
+            self.attr.read().size
+        }
     }
 
     /// Sets the size of the inode.

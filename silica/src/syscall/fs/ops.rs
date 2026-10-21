@@ -38,7 +38,11 @@ pub fn sys_ftruncate(fd: i32, length: usize, _ctx: &mut UserContext) -> Result<u
         return Err(Errno::EINVAL);
     }
 
-    let mut attr = *file.inode.attr.read();
+    let mut attr = file
+        .inode
+        .node_ops
+        .getattr()
+        .unwrap_or_else(|_| *file.inode.attr.read());
     attr.size = length;
     file.inode.node_ops.setattr(&attr)?;
     file.inode.set_size(length);

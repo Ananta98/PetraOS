@@ -152,6 +152,7 @@ impl InitramfsDirNodeOps {
 
 pub struct InitramfsRamFileOps {
     data: Arc<RwLock<Vec<u8>>>,
+    attr: Arc<RwLock<INodeAttr>>,
 }
 
 impl FileOps for InitramfsRamFileOps {
@@ -174,6 +175,8 @@ impl FileOps for InitramfsRamFileOps {
             data.resize(offset + buf.len(), 0);
         }
         data[offset..offset + buf.len()].copy_from_slice(buf);
+        let len = data.len();
+        self.attr.write().size = len;
         Ok(buf.len())
     }
 
@@ -228,6 +231,7 @@ impl NodeOps for InitramfsRamFileNodeOps {
     fn open(&self, _flags: OpenFlags) -> Result<Box<dyn FileOps>> {
         Ok(Box::new(InitramfsRamFileOps {
             data: Arc::clone(&self.data),
+            attr: Arc::clone(&self.attr),
         }))
     }
 

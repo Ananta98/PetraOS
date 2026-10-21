@@ -196,7 +196,10 @@ pub fn open_at(
 
     // O_TRUNC: only meaningful for regular files opened for writing.
     if flags.contains(OpenFlags::TRUNC) && flags.contains(OpenFlags::WRITE) && inode.is_file() {
-        let mut attr = *inode.attr.read();
+        let mut attr = inode
+            .node_ops
+            .getattr()
+            .unwrap_or_else(|_| *inode.attr.read());
         attr.size = 0;
         let _ = inode.node_ops.setattr(&attr);
         inode.set_size(0);
