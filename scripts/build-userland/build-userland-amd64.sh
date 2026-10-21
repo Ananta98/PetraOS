@@ -28,7 +28,7 @@ BUILD_DIR="${REPO_ROOT}/build/userland-amd64"
 STAGING="${BUILD_DIR}/staging"
 INITRAMFS="${REPO_ROOT}/build/initramfs.cpio"
 
-PACKAGES="${PETRAOS_USERLAND_PACKAGES:-developer-tools}"
+PACKAGES="${PETRAOS_USERLAND_PACKAGES-developer-tools}"
 PETRAOS_VERSION="${PETRAOS_VERSION:-0.1.0}"
 SUPPORT_DIR="${REPO_ROOT}/scripts/build-support"
 PREBUILD_DIR="${REPO_ROOT}/scripts/prebuild-package"

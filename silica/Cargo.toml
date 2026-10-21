@@ -18,6 +18,10 @@ version = "2"
 [dependencies.spin]
 version = "0.9.8"
 
+[dependencies.zerocopy]
+version = "0.8"
+features = ["derive"]
+
 [dependencies.smoltcp]
 version = "0.12"
 default-features = false
