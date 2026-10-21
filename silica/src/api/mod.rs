@@ -11,6 +11,8 @@
 //! | Module | ABI |
 //! |---|---|
 //! | [`errno`] | `errno` numbers, and the negated value a failed syscall returns |
+//! | [`drm`] | `drm.h`/`drm_mode.h` UAPI: LGPL-style ioctl numbers, GEM flink
+//!   structs and the KMS mode tables |
 //! | [`cred`] | `uid_t`, `gid_t` and `struct ucred` |
 //! | [`ipc`] | System V IPC common constants and `struct ipc_perm` |
 //! | [`shm`] | System V Shared Memory `struct shmid_ds`, `struct shminfo`, and `SHM_*` constants |
@@ -28,6 +30,7 @@
 //! descriptors in [`crate::fs`].
 
 pub mod cred;
+pub mod drm;
 pub mod errno;
 pub mod ioctl;
 pub mod ipc;

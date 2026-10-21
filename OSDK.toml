@@ -25,7 +25,10 @@ args = """\
     -m 8G \
     -smp 4 \
     -vga std \
+    -device virtio-gpu-pci \
     -serial stdio \
+    -chardev socket,id=mon0,path=/tmp/petra_qemu_monitor.sock,server=on,wait=off \
+    -mon chardev=mon0,mode=readline \
     -device isa-debug-exit,iobase=0xf4,iosize=0x04 \
     -device ich9-ahci,id=ahci \
     -drive id=ext4,file=build/ext4.img,format=raw,if=none \

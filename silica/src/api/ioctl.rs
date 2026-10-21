@@ -1,5 +1,52 @@
 // SPDX-License-Identifier: GPL-2.0
 
+use core::mem::size_of;
+
+// ----------------------------------------------------------------------------
+// `ioctl_request` encoding (`uapi/asm-generic/ioctls.h` `_IOC()` macros)
+// ----------------------------------------------------------------------------
+
+/// Direction/type/number/size field widths of the standard encoding.
+const IOC_NRBITS: u32 = 8;
+const IOC_TYPEBITS: u32 = 8;
+const IOC_SIZEBITS: u32 = 14;
+const IOC_NRSHIFT: u32 = 0;
+const IOC_TYPESHIFT: u32 = IOC_NRSHIFT + IOC_NRBITS;
+const IOC_SIZESHIFT: u32 = IOC_TYPESHIFT + IOC_TYPEBITS;
+const IOC_DIRSHIFT: u32 = IOC_SIZESHIFT + IOC_SIZEBITS;
+/// `_IOC_READ`: the kernel writes the user-space buffer.
+pub const IOC_READ: u32 = 1;
+/// `_IOC_WRITE`: the kernel reads the user-space buffer.
+pub const IOC_WRITE: u32 = 2;
+
+/// `_IOC(dir, type, nr, size)`.
+pub const fn _ioc(dir: u32, ty: u32, nr: u32, size: usize) -> u32 {
+    ((dir & 0x3) << IOC_DIRSHIFT)
+        | (((size as u32) & 0x3FFF) << IOC_SIZESHIFT)
+        | ((ty & 0xFF) << IOC_TYPESHIFT)
+        | ((nr & 0xFF) << IOC_NRSHIFT)
+}
+
+/// `_IO(type, nr)` — no payload.
+pub const fn _io(ty: u32, nr: u32) -> u32 {
+    _ioc(0, ty, nr, 0)
+}
+
+/// `_IOR(type, nr, size)` — kernel → user.
+pub const fn _ior<T>(ty: u32, nr: u32) -> u32 {
+    _ioc(IOC_READ, ty, nr, size_of::<T>())
+}
+
+/// `_IOW(type, nr, size)` — user → kernel.
+pub const fn _iow<T>(ty: u32, nr: u32) -> u32 {
+    _ioc(IOC_WRITE, ty, nr, size_of::<T>())
+}
+
+/// `_IOWR(type, nr, size)` — both directions.
+pub const fn _iowr<T>(ty: u32, nr: u32) -> u32 {
+    _ioc(IOC_READ | IOC_WRITE, ty, nr, size_of::<T>())
+}
+
 pub const TCGETS: u32 = 0x5401;
 pub const TCSETS: u32 = 0x5402;
 pub const TCSETSW: u32 = 0x5403;
