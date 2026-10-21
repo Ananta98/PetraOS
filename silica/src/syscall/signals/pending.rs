@@ -20,7 +20,7 @@ pub fn sys_rt_sigpending(
     sigsetsize: usize,
     _ctx: &mut UserContext,
 ) -> Result<usize> {
-    if sigsetsize != SIGSET_WORDS * 8 {
+    if sigsetsize != 8 && sigsetsize != SIGSET_WORDS * 8 {
         return Err(Errno::EINVAL);
     }
     if set_ptr == 0 {
@@ -35,6 +35,6 @@ pub fn sys_rt_sigpending(
     let proc_pending = proc.sigqueue.pending_set();
     pending.union(&proc_pending);
 
-    UserPtr::new(set_ptr).write_bytes(&vmar, &encode_sigset(&pending))?;
+    UserPtr::new(set_ptr).write_bytes(&vmar, &encode_sigset(&pending)[..sigsetsize])?;
     Ok(0)
 }

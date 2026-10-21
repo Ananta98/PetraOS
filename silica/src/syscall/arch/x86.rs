@@ -125,6 +125,7 @@ crate::impl_syscall_nums_and_dispatch_fn! {
     SYS_SETFSGID = 123 => proc::sys_setfsgid(u32);
     SYS_GETSID = 124 => proc::sys_getsid(i32);
     SYS_RT_SIGPENDING = 127 => signals::sys_rt_sigpending(usize, usize);
+    SYS_RT_SIGTIMEDWAIT = 128 => signals::sys_rt_sigtimedwait(usize, usize, usize, usize);
     SYS_RT_SIGSUSPEND = 130 => signals::sys_rt_sigsuspend(usize, usize);
     SYS_SIGALTSTACK = 131 => signals::sys_sigaltstack(usize, usize);
     SYS_STATFS = 137 => fs::sys_statfs(usize, usize);

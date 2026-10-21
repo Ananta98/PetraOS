@@ -89,7 +89,8 @@ impl SigQueue {
     pub fn post(&self, queued: QueuedSignal) {
         let sig = queued.signal();
         let mut queue = self.inner.lock();
-        let collapse = sig != Signal::SIGCHLD && queue.iter().any(|q| q.signal() == sig);
+        let collapse =
+            sig.as_u32() <= 31 && sig != Signal::SIGCHLD && queue.iter().any(|q| q.signal() == sig);
         if !collapse {
             queue.push(queued);
         }
@@ -97,9 +98,17 @@ impl SigQueue {
 
     /// Removes the lowest-numbered queued signal that `mask` does not block.
     pub fn take_unmasked(&self, mask: &SigSet) -> Option<QueuedSignal> {
+        self.take_matching(|sig| !mask.contains(sig))
+    }
+
+    /// Removes the lowest-numbered queued signal that matches `predicate`.
+    pub fn take_matching<F>(&self, predicate: F) -> Option<QueuedSignal>
+    where
+        F: Fn(Signal) -> bool,
+    {
         let mut queue = self.inner.lock();
         let idx = (0..queue.len())
-            .filter(|&i| !mask.contains(queue[i].signal()))
+            .filter(|&i| predicate(queue[i].signal()))
             .min_by_key(|&i| queue[i].signal().as_u32())?;
         Some(queue.remove(idx))
     }

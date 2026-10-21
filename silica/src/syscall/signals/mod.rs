@@ -11,6 +11,7 @@ pub mod pause;
 pub mod pending;
 pub mod sigreturn;
 pub mod suspend;
+pub mod timedwait;
 pub mod utils;
 
 pub use action::*;
@@ -21,4 +22,5 @@ pub use pause::*;
 pub use pending::*;
 pub use sigreturn::*;
 pub use suspend::*;
+pub use timedwait::*;
 pub use utils::*;

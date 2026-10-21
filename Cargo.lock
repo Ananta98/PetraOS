@@ -856,6 +856,7 @@ dependencies = [
  "smoltcp",
  "spin",
  "xmas-elf",
+ "zerocopy",
 ]
 
 [[package]]

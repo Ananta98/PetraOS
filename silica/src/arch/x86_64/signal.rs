@@ -493,6 +493,25 @@ mod offset {
     pub const INFO_SI_STATUS: usize = INFO + 32;
 }
 
+/// Encodes a `SigInfo` structure into 128-byte Linux `siginfo_t` user-space layout.
+pub fn encode_siginfo(info: &SigInfo) -> [u8; 128] {
+    let mut buf = [0u8; 128];
+    buf[0..4].copy_from_slice(&info.si_signo.to_le_bytes());
+    buf[4..8].copy_from_slice(&info.si_errno.to_le_bytes());
+    buf[8..12].copy_from_slice(&info.si_code.to_le_bytes());
+    if info.si_code == crate::api::signal::code::TIMER {
+        buf[16..20].copy_from_slice(&(info.si_addr as u32).to_le_bytes());
+        buf[20..24].copy_from_slice(&0u32.to_le_bytes());
+        buf[24..32].copy_from_slice(&info.si_value.to_le_bytes());
+    } else {
+        buf[16..24].copy_from_slice(&info.si_addr.to_le_bytes());
+        buf[24..28].copy_from_slice(&info.si_pid.to_le_bytes());
+        buf[28..32].copy_from_slice(&info.si_uid.to_le_bytes());
+        buf[32..36].copy_from_slice(&info.si_status.to_le_bytes());
+    }
+    buf
+}
+
 impl SigFrame {
     /// The frame as bytes, in the layout user space reads.
     ///
@@ -521,19 +540,7 @@ impl SigFrame {
         buf[UC_SIGMASK..UC_SIGMASK + SIGSET_WORDS * 8]
             .copy_from_slice(&encode_sigset(&self.uc.uc_sigmask));
 
-        buf[INFO..INFO + 4].copy_from_slice(&self.info.si_signo.to_le_bytes());
-        buf[INFO + 4..INFO + 8].copy_from_slice(&self.info.si_errno.to_le_bytes());
-        buf[INFO + 8..INFO + 12].copy_from_slice(&self.info.si_code.to_le_bytes());
-        if self.info.si_code == crate::api::signal::code::TIMER {
-            buf[INFO + 16..INFO + 20].copy_from_slice(&(self.info.si_addr as u32).to_le_bytes());
-            buf[INFO + 20..INFO + 24].copy_from_slice(&0u32.to_le_bytes());
-            buf[INFO + 24..INFO + 32].copy_from_slice(&self.info.si_value.to_le_bytes());
-        } else {
-            buf[INFO_SI_ADDR..INFO_SI_ADDR + 8].copy_from_slice(&self.info.si_addr.to_le_bytes());
-            buf[INFO_SI_PID..INFO_SI_PID + 4].copy_from_slice(&self.info.si_pid.to_le_bytes());
-            buf[INFO_SI_UID..INFO_SI_UID + 4].copy_from_slice(&self.info.si_uid.to_le_bytes());
-            buf[INFO_SI_STATUS..INFO_SI_STATUS + 4].copy_from_slice(&self.info.si_status.to_le_bytes());
-        }
+        buf[INFO..INFO + 128].copy_from_slice(&encode_siginfo(&self.info));
 
         buf
     }

@@ -16,8 +16,8 @@ use core::fmt;
 pub const SIGRTMIN: u32 = 34;
 /// The highest signal number reserved for `kill(2)`.
 pub const SIGRTMAX: u32 = 64;
-/// The highest number this kernel knows, `SIGSYS`.
-pub const SIGNAL_MAX: u32 = 31;
+/// The highest signal number supported by this kernel, including real-time signals.
+pub const SIGNAL_MAX: u32 = 64;
 
 /// Signals, with their Linux numbers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -55,6 +55,39 @@ pub enum Signal {
     SIGIO = 29,
     SIGPWR = 30,
     SIGSYS = 31,
+    SIGRT32 = 32,
+    SIGRT33 = 33,
+    SIGRT34 = 34,
+    SIGRT35 = 35,
+    SIGRT36 = 36,
+    SIGRT37 = 37,
+    SIGRT38 = 38,
+    SIGRT39 = 39,
+    SIGRT40 = 40,
+    SIGRT41 = 41,
+    SIGRT42 = 42,
+    SIGRT43 = 43,
+    SIGRT44 = 44,
+    SIGRT45 = 45,
+    SIGRT46 = 46,
+    SIGRT47 = 47,
+    SIGRT48 = 48,
+    SIGRT49 = 49,
+    SIGRT50 = 50,
+    SIGRT51 = 51,
+    SIGRT52 = 52,
+    SIGRT53 = 53,
+    SIGRT54 = 54,
+    SIGRT55 = 55,
+    SIGRT56 = 56,
+    SIGRT57 = 57,
+    SIGRT58 = 58,
+    SIGRT59 = 59,
+    SIGRT60 = 60,
+    SIGRT61 = 61,
+    SIGRT62 = 62,
+    SIGRT63 = 63,
+    SIGRT64 = 64,
 }
 
 /// Every signal by number, indexed by that number.
@@ -97,6 +130,39 @@ const TABLE: [Option<Signal>; SIGNAL_MAX as usize + 1] = {
         Some(SIGIO),
         Some(SIGPWR),
         Some(SIGSYS),
+        Some(SIGRT32),
+        Some(SIGRT33),
+        Some(SIGRT34),
+        Some(SIGRT35),
+        Some(SIGRT36),
+        Some(SIGRT37),
+        Some(SIGRT38),
+        Some(SIGRT39),
+        Some(SIGRT40),
+        Some(SIGRT41),
+        Some(SIGRT42),
+        Some(SIGRT43),
+        Some(SIGRT44),
+        Some(SIGRT45),
+        Some(SIGRT46),
+        Some(SIGRT47),
+        Some(SIGRT48),
+        Some(SIGRT49),
+        Some(SIGRT50),
+        Some(SIGRT51),
+        Some(SIGRT52),
+        Some(SIGRT53),
+        Some(SIGRT54),
+        Some(SIGRT55),
+        Some(SIGRT56),
+        Some(SIGRT57),
+        Some(SIGRT58),
+        Some(SIGRT59),
+        Some(SIGRT60),
+        Some(SIGRT61),
+        Some(SIGRT62),
+        Some(SIGRT63),
+        Some(SIGRT64),
     ]
 };
 
@@ -198,6 +264,7 @@ impl fmt::Display for Signal {
             Self::SIGIO => "SIGIO",
             Self::SIGPWR => "SIGPWR",
             Self::SIGSYS => "SIGSYS",
+            _ => return write!(f, "SIGRT{}", self.as_u32()),
         };
         f.write_str(name)
     }

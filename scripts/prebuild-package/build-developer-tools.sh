@@ -77,6 +77,8 @@ ROOT_PACKAGES=(
     strace
     tar
     tmux
+    vim
+    python3
     xz
 )
 root_packages="${PETRAOS_DEVELOPER_PACKAGES:-${ROOT_PACKAGES[*]}}"

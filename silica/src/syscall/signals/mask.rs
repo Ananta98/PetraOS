@@ -28,7 +28,7 @@ pub fn sys_rt_sigprocmask(
 ) -> Result<usize> {
     let td = Thread::current().ok_or(Errno::ESRCH)?;
 
-    if sigsetsize != SIGSET_WORDS * 8 {
+    if sigsetsize != 8 && sigsetsize != SIGSET_WORDS * 8 {
         return Err(Errno::EINVAL);
     }
 
@@ -41,7 +41,7 @@ pub fn sys_rt_sigprocmask(
         SigSet::empty()
     } else {
         let mut buf = [0u8; SIGSET_WORDS * 8];
-        UserPtr::new(set_ptr).read_bytes(&vmar, &mut buf)?;
+        UserPtr::new(set_ptr).read_bytes(&vmar, &mut buf[..sigsetsize])?;
         decode_sigset(&buf)
     };
 
@@ -71,11 +71,11 @@ pub fn sys_rt_sigprocmask(
     inner.sigmask = updated;
 
     if old_set_ptr != 0 {
-        UserPtr::new(old_set_ptr).write_bytes(&vmar, &encode_sigset(&previous))?;
+        UserPtr::new(old_set_ptr).write_bytes(&vmar, &encode_sigset(&previous)[..sigsetsize])?;
     }
 
     inner.flags.insert(ThreadFlags::TDF_ASTPENDING);
     drop(inner);
 
-    Ok(SIGSET_WORDS * 8)
+    Ok(sigsetsize)
 }

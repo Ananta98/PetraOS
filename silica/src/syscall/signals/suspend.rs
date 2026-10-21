@@ -20,7 +20,7 @@ pub fn sys_rt_sigsuspend(
     sigsetsize: usize,
     _ctx: &mut UserContext,
 ) -> Result<usize> {
-    if sigsetsize != SIGSET_WORDS * 8 {
+    if sigsetsize != 8 && sigsetsize != SIGSET_WORDS * 8 {
         return Err(Errno::EINVAL);
     }
     if unewset_ptr == 0 {
@@ -32,7 +32,7 @@ pub fn sys_rt_sigsuspend(
     let vmar = proc.vmspace();
 
     let mut buf = [0u8; SIGSET_WORDS * 8];
-    UserPtr::new(unewset_ptr).read_bytes(&vmar, &mut buf)?;
+    UserPtr::new(unewset_ptr).read_bytes(&vmar, &mut buf[..sigsetsize])?;
     let mut requested = decode_sigset(&buf);
     requested.clear_unblockable();
 

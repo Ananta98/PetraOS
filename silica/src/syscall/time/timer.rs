@@ -22,7 +22,7 @@ use crate::{
         CLOCK_MONOTONIC_RAW, CLOCK_PROCESS_CPUTIME_ID, CLOCK_REALTIME, CLOCK_REALTIME_ALARM,
         CLOCK_REALTIME_COARSE, CLOCK_TAI, CLOCK_THREAD_CPUTIME_ID, Itimerspec, Timespec,
         posix_timer::{
-            PosixTimer, SIGEV_NONE, SIGEV_SIGNAL, SIGEV_THREAD_ID, get_clock_now,
+            PosixTimer, SIGEV_NONE, SIGEV_SIGNAL, SIGEV_THREAD, SIGEV_THREAD_ID, get_clock_now,
             on_timer_expire,
         },
     },
@@ -93,6 +93,17 @@ pub fn sys_timer_create(
                 }
                 drop(inner);
                 (SIGEV_THREAD_ID, sigev_signo, sigev_value, Some(tid))
+            }
+            SIGEV_THREAD => {
+                // If user space passes SIGEV_THREAD directly to the kernel, accept it
+                // instead of failing with EINVAL. Deliver signal if signo is valid,
+                // or treat as SIGEV_NONE if 0.
+                let signo = if sigev_signo > 0 && sigev_signo <= 64 {
+                    sigev_signo
+                } else {
+                    Signal::SIGALRM.as_u32() as i32
+                };
+                (SIGEV_SIGNAL, signo, sigev_value, None)
             }
             _ => return Err(Errno::EINVAL),
         }

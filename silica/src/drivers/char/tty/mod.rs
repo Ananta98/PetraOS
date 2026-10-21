@@ -212,9 +212,6 @@ impl Tty {
         }
 
         let output = self.ldisc.lock().write_output(buf);
-        for &b in &output {
-            ostd::early_print!("{}", b as char);
-        }
         self.driver.write_output(&output)?;
         Ok(buf.len())
     }
