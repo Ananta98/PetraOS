@@ -524,10 +524,16 @@ impl SigFrame {
         buf[INFO..INFO + 4].copy_from_slice(&self.info.si_signo.to_le_bytes());
         buf[INFO + 4..INFO + 8].copy_from_slice(&self.info.si_errno.to_le_bytes());
         buf[INFO + 8..INFO + 12].copy_from_slice(&self.info.si_code.to_le_bytes());
-        buf[INFO_SI_ADDR..INFO_SI_ADDR + 8].copy_from_slice(&self.info.si_addr.to_le_bytes());
-        buf[INFO_SI_PID..INFO_SI_PID + 4].copy_from_slice(&self.info.si_pid.to_le_bytes());
-        buf[INFO_SI_UID..INFO_SI_UID + 4].copy_from_slice(&self.info.si_uid.to_le_bytes());
-        buf[INFO_SI_STATUS..INFO_SI_STATUS + 4].copy_from_slice(&self.info.si_status.to_le_bytes());
+        if self.info.si_code == crate::api::signal::code::TIMER {
+            buf[INFO + 16..INFO + 20].copy_from_slice(&(self.info.si_addr as u32).to_le_bytes());
+            buf[INFO + 20..INFO + 24].copy_from_slice(&0u32.to_le_bytes());
+            buf[INFO + 24..INFO + 32].copy_from_slice(&self.info.si_value.to_le_bytes());
+        } else {
+            buf[INFO_SI_ADDR..INFO_SI_ADDR + 8].copy_from_slice(&self.info.si_addr.to_le_bytes());
+            buf[INFO_SI_PID..INFO_SI_PID + 4].copy_from_slice(&self.info.si_pid.to_le_bytes());
+            buf[INFO_SI_UID..INFO_SI_UID + 4].copy_from_slice(&self.info.si_uid.to_le_bytes());
+            buf[INFO_SI_STATUS..INFO_SI_STATUS + 4].copy_from_slice(&self.info.si_status.to_le_bytes());
+        }
 
         buf
     }
@@ -540,6 +546,26 @@ impl SigFrame {
             let at = GREGS + i * 8;
             *slot = read_u64(&buf[at..at + 8]);
         }
+
+        let si_code = read_u32(&buf[INFO + 8..INFO + 12]) as i32;
+        let (si_addr, si_pid, si_uid, si_status, si_value) =
+            if si_code == crate::api::signal::code::TIMER {
+                (
+                    read_u32(&buf[INFO + 16..INFO + 20]) as u64,
+                    0,
+                    0,
+                    0,
+                    read_u64(&buf[INFO + 24..INFO + 32]),
+                )
+            } else {
+                (
+                    read_u64(&buf[INFO_SI_ADDR..INFO_SI_ADDR + 8]),
+                    read_u32(&buf[INFO_SI_PID..INFO_SI_PID + 4]) as i32,
+                    read_u32(&buf[INFO_SI_UID..INFO_SI_UID + 4]),
+                    read_u32(&buf[INFO_SI_STATUS..INFO_SI_STATUS + 4]) as i32,
+                    0,
+                )
+            };
 
         Self {
             pretcode: read_u64(&buf[PRETCODE..PRETCODE + 8]),
@@ -562,16 +588,16 @@ impl SigFrame {
             info: SigInfo {
                 si_signo: read_u32(&buf[INFO..INFO + 4]) as i32,
                 si_errno: read_u32(&buf[INFO + 4..INFO + 8]) as i32,
-                si_code: read_u32(&buf[INFO + 8..INFO + 12]) as i32,
+                si_code,
                 _pad0: 0,
-                si_addr: read_u64(&buf[INFO_SI_ADDR..INFO_SI_ADDR + 8]),
-                si_pid: read_u32(&buf[INFO_SI_PID..INFO_SI_PID + 4]) as i32,
-                si_uid: read_u32(&buf[INFO_SI_UID..INFO_SI_UID + 4]),
-                si_status: read_u32(&buf[INFO_SI_STATUS..INFO_SI_STATUS + 4]) as i32,
+                si_addr,
+                si_pid,
+                si_uid,
+                si_status,
                 _pad1: 0,
                 si_utime: 0,
                 si_stime: 0,
-                si_value: 0,
+                si_value,
                 _pad2: [0; 8],
             },
         }

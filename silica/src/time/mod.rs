@@ -6,6 +6,7 @@
 //! CMOS RTC driver, and unified POSIX clock domain timekeeping.
 
 pub mod clocksource;
+pub mod posix_timer;
 pub mod rtc;
 pub mod tsc;
 
@@ -15,6 +16,7 @@ pub use clocksource::{
     Clocksource, ClocksourceFlags, active_clocksource_name, is_high_resolution, monotonic_now_ns,
     register_clocksource,
 };
+pub use posix_timer::*;
 pub use rtc::{CmosRtc, RtcDateTime, datetime_to_unix_epoch, get_cmos_epoch, get_cmos_time};
 pub use tsc::{JiffiesClocksource, TscClocksource};
 
@@ -121,6 +123,47 @@ impl Timeval {
         let tv_sec = i64::from_ne_bytes(buf[0..8].try_into().ok()?);
         let tv_usec = i64::from_ne_bytes(buf[8..16].try_into().ok()?);
         Some(Self { tv_sec, tv_usec })
+    }
+}
+
+/// POSIX / Linux x86_64 compatible `struct itimerspec` (32 bytes).
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Itimerspec {
+    pub it_interval: Timespec,
+    pub it_value: Timespec,
+}
+
+impl Itimerspec {
+    pub const ZERO: Self = Self {
+        it_interval: Timespec::ZERO,
+        it_value: Timespec::ZERO,
+    };
+
+    pub fn new(interval: Timespec, value: Timespec) -> Self {
+        Self {
+            it_interval: interval,
+            it_value: value,
+        }
+    }
+
+    pub fn to_bytes(&self) -> [u8; 32] {
+        let mut buf = [0u8; 32];
+        buf[0..16].copy_from_slice(&self.it_interval.to_bytes());
+        buf[16..32].copy_from_slice(&self.it_value.to_bytes());
+        buf
+    }
+
+    pub fn from_bytes(buf: &[u8]) -> Option<Self> {
+        if buf.len() < 32 {
+            return None;
+        }
+        let it_interval = Timespec::from_bytes(&buf[0..16])?;
+        let it_value = Timespec::from_bytes(&buf[16..32])?;
+        Some(Self {
+            it_interval,
+            it_value,
+        })
     }
 }
 

@@ -220,6 +220,8 @@ pub struct Proc {
     pub io_stats: ProcIoStats,
     /// Registered `membarrier(2)` commands, shared by every thread of the process.
     pub membarrier_state: AtomicU32,
+    /// POSIX.1b interval timers (`timer_create(2)`).
+    pub posix_timers: SpinLock<BTreeMap<i32, Arc<crate::time::posix_timer::PosixTimer>>>,
 }
 
 impl Proc {
@@ -279,6 +281,7 @@ impl Proc {
             vfork_waitq: WaitQueue::new(),
             io_stats: ProcIoStats::default(),
             membarrier_state: AtomicU32::new(0),
+            posix_timers: SpinLock::new(BTreeMap::new()),
         })
     }
 

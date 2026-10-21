@@ -323,6 +323,8 @@ fn execve_depth(
     td.inner.lock().clear_child_tid = 0;
     // 3. Clear SysV shared memory attachments
     proc.inner.lock().shm_attachments.clear();
+    // 4. Disarm and delete all POSIX interval timers
+    crate::time::posix_timer::on_proc_exit(&proc);
 
     // Swap process address space
     proc.set_vmspace(Arc::clone(&new_vmar));

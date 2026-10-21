@@ -423,6 +423,8 @@ pub mod code {
     pub const USER: i32 = 0;
     /// Sent by the kernel.
     pub const KERNEL: i32 = 0x80;
+    /// Sent by timer expiration.
+    pub const TIMER: i32 = -2;
     /// An address in user space that is not mapped.
     pub const SEGV_MAPERR: i32 = 1;
     /// An address in user space mapped without the access that was attempted.
