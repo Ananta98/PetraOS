@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-2.0
 
-//! POSIX Interval Timer System Calls:
+//! Interval Timer (itimer) and POSIX Interval Timer System Calls:
+//! - `getitimer(2)` (Syscall #36)
+//! - `alarm(2)` (Syscall #37)
+//! - `setitimer(2)` (Syscall #38)
 //! - `timer_create(2)` (Syscall #222)
 //! - `timer_settime(2)` (Syscall #223)
 //! - `timer_gettime(2)` (Syscall #224)
@@ -16,7 +19,9 @@ use crate::{
     time::{
         CLOCK_BOOTTIME, CLOCK_BOOTTIME_ALARM, CLOCK_MONOTONIC, CLOCK_MONOTONIC_COARSE,
         CLOCK_MONOTONIC_RAW, CLOCK_PROCESS_CPUTIME_ID, CLOCK_REALTIME, CLOCK_REALTIME_ALARM,
-        CLOCK_REALTIME_COARSE, CLOCK_TAI, CLOCK_THREAD_CPUTIME_ID, Itimerspec, Timespec,
+        CLOCK_REALTIME_COARSE, CLOCK_TAI, CLOCK_THREAD_CPUTIME_ID, ITIMER_PROF, ITIMER_PROF_ID,
+        ITIMER_REAL, ITIMER_REAL_ID, ITIMER_VIRTUAL, ITIMER_VIRTUAL_ID, Itimerval, Itimerspec,
+        Timespec, Timeval,
         posix_timer::{
             PosixTimer, SIGEV_NONE, SIGEV_SIGNAL, SIGEV_THREAD, SIGEV_THREAD_ID, get_clock_now,
             on_timer_expire,
@@ -30,6 +35,221 @@ use crate::{
 };
 
 use super::clock::TIMER_ABSTIME;
+
+/// Maps `which` selector (ITIMER_REAL, ITIMER_VIRTUAL, ITIMER_PROF) to its internal ID.
+fn itimer_id_and_props(which: i32) -> Result<(i32, i32, Signal)> {
+    match which {
+        ITIMER_REAL => Ok((ITIMER_REAL_ID, CLOCK_REALTIME, Signal::SIGALRM)),
+        ITIMER_VIRTUAL => Ok((ITIMER_VIRTUAL_ID, CLOCK_PROCESS_CPUTIME_ID, Signal::SIGVTALRM)),
+        ITIMER_PROF => Ok((ITIMER_PROF_ID, CLOCK_PROCESS_CPUTIME_ID, Signal::SIGPROF)),
+        _ => Err(Errno::EINVAL),
+    }
+}
+
+/// Retrieves the current value of an interval timer (`getitimer(2)`, Syscall #36).
+pub fn sys_getitimer(which: i32, curr_val_ptr: usize, _ctx: &mut UserContext) -> Result<usize> {
+    let (id, _, _) = itimer_id_and_props(which)?;
+    if curr_val_ptr == 0 {
+        return Err(Errno::EFAULT);
+    }
+
+    let proc = Thread::proc_or_esrch()?;
+    let vmar = proc.vmspace();
+
+    let itimerval = {
+        let timers = proc.posix_timers.lock();
+        if let Some(timer) = timers.get(&id) {
+            let inner = timer.inner.lock();
+            let interval = Timeval {
+                tv_sec: (inner.interval_ns / 1_000_000_000) as i64,
+                tv_usec: ((inner.interval_ns % 1_000_000_000) / 1_000) as i64,
+            };
+            let value = if inner.armed {
+                let clock_now = get_clock_now(timer.clock_id);
+                let rem_ns = inner.next_deadline_ns.saturating_sub(clock_now);
+                Timeval {
+                    tv_sec: (rem_ns / 1_000_000_000) as i64,
+                    tv_usec: ((rem_ns % 1_000_000_000) / 1_000) as i64,
+                }
+            } else {
+                Timeval::ZERO
+            };
+            Itimerval::new(interval, value)
+        } else {
+            Itimerval::ZERO
+        }
+    };
+
+    UserPtr::new(curr_val_ptr).write_bytes(&vmar, &itimerval.to_bytes())?;
+    Ok(0)
+}
+
+/// Sets an alarm clock for delivery of a signal (`alarm(2)`, Syscall #37).
+pub fn sys_alarm(seconds: u32, _ctx: &mut UserContext) -> Result<usize> {
+    let proc = Thread::proc_or_esrch()?;
+    let timer = {
+        let mut timers = proc.posix_timers.lock();
+        if let Some(t) = timers.get(&ITIMER_REAL_ID).cloned() {
+            t
+        } else {
+            let t = Arc::new(PosixTimer::new(
+                ITIMER_REAL_ID,
+                CLOCK_REALTIME,
+                SIGEV_SIGNAL,
+                Signal::SIGALRM.as_u32() as i32,
+                0,
+                None,
+                proc.pid,
+            ));
+            timers.insert(ITIMER_REAL_ID, Arc::clone(&t));
+            t
+        }
+    };
+
+    let mut inner = timer.inner.lock();
+    let old_remaining_secs = if inner.armed {
+        let clock_now = get_clock_now(timer.clock_id);
+        let rem_ns = inner.next_deadline_ns.saturating_sub(clock_now);
+        let secs = rem_ns / 1_000_000_000;
+        if rem_ns % 1_000_000_000 > 0 {
+            secs + 1
+        } else {
+            secs
+        }
+    } else {
+        0
+    };
+
+    inner.generation = inner.generation.wrapping_add(1);
+    let generation = inner.generation;
+
+    if seconds == 0 {
+        inner.armed = false;
+        inner.interval_ns = 0;
+        inner.next_deadline_ns = 0;
+        return Ok(old_remaining_secs as usize);
+    }
+
+    let val_ns = (seconds as u64) * 1_000_000_000;
+    inner.armed = true;
+    inner.interval_ns = 0;
+    let clock_now = get_clock_now(timer.clock_id);
+    inner.next_deadline_ns = clock_now.saturating_add(val_ns);
+    drop(inner);
+
+    let timer_clone = Arc::clone(&timer);
+    let proc_id = proc.pid;
+    crate::kpi::task::schedule_delayed_work_fn(
+        move || {
+            on_timer_expire(timer_clone, proc_id, generation);
+        },
+        Duration::from_nanos(val_ns),
+    );
+
+    Ok(old_remaining_secs as usize)
+}
+
+/// Sets the value of an interval timer (`setitimer(2)`, Syscall #38).
+pub fn sys_setitimer(
+    which: i32,
+    new_val_ptr: usize,
+    old_val_ptr: usize,
+    _ctx: &mut UserContext,
+) -> Result<usize> {
+    let (id, clock_id, signo) = itimer_id_and_props(which)?;
+    if new_val_ptr == 0 {
+        return Err(Errno::EFAULT);
+    }
+
+    let proc = Thread::proc_or_esrch()?;
+    let vmar = proc.vmspace();
+
+    let mut new_buf = [0u8; 32];
+    UserPtr::new(new_val_ptr).read_bytes(&vmar, &mut new_buf)?;
+    let new_val = Itimerval::from_bytes(&new_buf).ok_or(Errno::EINVAL)?;
+
+    if !new_val.it_interval.is_valid() || !new_val.it_value.is_valid() {
+        return Err(Errno::EINVAL);
+    }
+
+    // If caller requested old_value, write it out before applying changes
+    if old_val_ptr != 0 {
+        let old_itimerval = {
+            let timers = proc.posix_timers.lock();
+            if let Some(timer) = timers.get(&id) {
+                let inner = timer.inner.lock();
+                let old_interval = Timeval {
+                    tv_sec: (inner.interval_ns / 1_000_000_000) as i64,
+                    tv_usec: ((inner.interval_ns % 1_000_000_000) / 1_000) as i64,
+                };
+                let old_value = if inner.armed {
+                    let clock_now = get_clock_now(timer.clock_id);
+                    let rem_ns = inner.next_deadline_ns.saturating_sub(clock_now);
+                    Timeval {
+                        tv_sec: (rem_ns / 1_000_000_000) as i64,
+                        tv_usec: ((rem_ns % 1_000_000_000) / 1_000) as i64,
+                    }
+                } else {
+                    Timeval::ZERO
+                };
+                Itimerval::new(old_interval, old_value)
+            } else {
+                Itimerval::ZERO
+            }
+        };
+        UserPtr::new(old_val_ptr).write_bytes(&vmar, &old_itimerval.to_bytes())?;
+    }
+
+    let timer = {
+        let mut timers = proc.posix_timers.lock();
+        if let Some(t) = timers.get(&id).cloned() {
+            t
+        } else {
+            let t = Arc::new(PosixTimer::new(
+                id,
+                clock_id,
+                SIGEV_SIGNAL,
+                signo.as_u32() as i32,
+                0,
+                None,
+                proc.pid,
+            ));
+            timers.insert(id, Arc::clone(&t));
+            t
+        }
+    };
+
+    let mut inner = timer.inner.lock();
+    inner.generation = inner.generation.wrapping_add(1);
+    let generation = inner.generation;
+
+    let val_ns = new_val.it_value.total_nanos().ok_or(Errno::EINVAL)?;
+    let interval_ns = new_val.it_interval.total_nanos().ok_or(Errno::EINVAL)?;
+
+    if val_ns == 0 {
+        inner.armed = false;
+        inner.interval_ns = 0;
+        inner.next_deadline_ns = 0;
+        return Ok(0);
+    }
+
+    inner.armed = true;
+    inner.interval_ns = interval_ns;
+    let clock_now = get_clock_now(timer.clock_id);
+    inner.next_deadline_ns = clock_now.saturating_add(val_ns);
+    drop(inner);
+
+    let timer_clone = Arc::clone(&timer);
+    let proc_id = proc.pid;
+    crate::kpi::task::schedule_delayed_work_fn(
+        move || {
+            on_timer_expire(timer_clone, proc_id, generation);
+        },
+        Duration::from_nanos(val_ns),
+    );
+
+    Ok(0)
+}
 
 /// Creates an interval timer (`timer_create(2)`, Syscall #222).
 pub fn sys_timer_create(
@@ -155,6 +375,10 @@ pub fn sys_timer_settime(
     old_val_ptr: usize,
     _ctx: &mut UserContext,
 ) -> Result<usize> {
+    if timerid < 0 {
+        return Err(Errno::EINVAL);
+    }
+
     if new_val_ptr == 0 {
         return Err(Errno::EFAULT);
     }
@@ -265,6 +489,9 @@ pub fn sys_timer_gettime(
     curr_val_ptr: usize,
     _ctx: &mut UserContext,
 ) -> Result<usize> {
+    if timerid < 0 {
+        return Err(Errno::EINVAL);
+    }
     if curr_val_ptr == 0 {
         return Err(Errno::EFAULT);
     }
@@ -306,6 +533,9 @@ pub fn sys_timer_gettime(
 
 /// Retrieves the overrun count of an interval timer (`timer_getoverrun(2)`, Syscall #225).
 pub fn sys_timer_getoverrun(timerid: i32, _ctx: &mut UserContext) -> Result<usize> {
+    if timerid < 0 {
+        return Err(Errno::EINVAL);
+    }
     let proc = Thread::proc_or_esrch()?;
     let timer = proc
         .posix_timers
@@ -321,6 +551,9 @@ pub fn sys_timer_getoverrun(timerid: i32, _ctx: &mut UserContext) -> Result<usiz
 
 /// Deletes an interval timer (`timer_delete(2)`, Syscall #226).
 pub fn sys_timer_delete(timerid: i32, _ctx: &mut UserContext) -> Result<usize> {
+    if timerid < 0 {
+        return Err(Errno::EINVAL);
+    }
     let proc = Thread::proc_or_esrch()?;
     let timer = proc
         .posix_timers

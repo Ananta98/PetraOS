@@ -41,6 +41,9 @@ crate::impl_syscall_nums_and_dispatch_fn! {
     SYS_DUP2 = 33 => fs::sys_dup2(i32, i32);
     SYS_PAUSE = 34 => signals::sys_pause();
     SYS_NANOSLEEP = 35 => time::sys_nanosleep(usize, usize);
+    SYS_GETITIMER = 36 => time::sys_getitimer(i32, usize);
+    SYS_ALARM = 37 => time::sys_alarm(u32);
+    SYS_SETITIMER = 38 => time::sys_setitimer(i32, usize, usize);
     SYS_GETPID = 39 => proc::sys_getpid();
     SYS_SENDFILE = 40 => fs::sys_sendfile(i32, i32, usize, usize);
     SYS_SOCKET = 41 => net::sys_socket(i32, i32, i32);

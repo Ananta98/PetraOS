@@ -15,4 +15,4 @@ pub use timer::*;
 pub use times::*;
 
 // Re-export common time types and helper functions for backward compatibility
-pub use crate::time::{Timespec, Timeval, get_boot_epoch_secs};
+pub use crate::time::{Itimerval, Timespec, Timeval, get_boot_epoch_secs};

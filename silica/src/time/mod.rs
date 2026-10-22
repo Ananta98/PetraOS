@@ -39,6 +39,19 @@ pub const CLOCK_BOOTTIME_ALARM: i32 = 9;
 pub const CLOCK_TAI: i32 = 11;
 
 // ----------------------------------------------------------------------------
+// POSIX Interval Timer IDs & Selectors (setitimer / getitimer)
+// ----------------------------------------------------------------------------
+
+pub const ITIMER_REAL: i32 = 0;
+pub const ITIMER_VIRTUAL: i32 = 1;
+pub const ITIMER_PROF: i32 = 2;
+
+/// Reserved internal timer IDs for process itimers in `posix_timers`.
+pub const ITIMER_REAL_ID: i32 = -1;
+pub const ITIMER_VIRTUAL_ID: i32 = -2;
+pub const ITIMER_PROF_ID: i32 = -3;
+
+// ----------------------------------------------------------------------------
 // Timespec & Timeval Data Structures
 // ----------------------------------------------------------------------------
 
@@ -102,11 +115,29 @@ pub struct Timeval {
 }
 
 impl Timeval {
+    pub const ZERO: Self = Self {
+        tv_sec: 0,
+        tv_usec: 0,
+    };
+
     pub fn new(sec: i64, usec: i64) -> Self {
         Self {
             tv_sec: sec,
             tv_usec: usec,
         }
+    }
+
+    pub fn is_valid(&self) -> bool {
+        self.tv_sec >= 0 && self.tv_usec >= 0 && self.tv_usec < 1_000_000
+    }
+
+    pub fn total_nanos(&self) -> Option<u64> {
+        if !self.is_valid() {
+            return None;
+        }
+        (self.tv_sec as u64)
+            .checked_mul(1_000_000_000)?
+            .checked_add((self.tv_usec as u64).checked_mul(1_000)?)
     }
 
     pub fn to_bytes(&self) -> [u8; 16] {
@@ -160,6 +191,47 @@ impl Itimerspec {
         }
         let it_interval = Timespec::from_bytes(&buf[0..16])?;
         let it_value = Timespec::from_bytes(&buf[16..32])?;
+        Some(Self {
+            it_interval,
+            it_value,
+        })
+    }
+}
+
+/// POSIX / Linux x86_64 compatible `struct itimerval` (32 bytes).
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Itimerval {
+    pub it_interval: Timeval,
+    pub it_value: Timeval,
+}
+
+impl Itimerval {
+    pub const ZERO: Self = Self {
+        it_interval: Timeval::ZERO,
+        it_value: Timeval::ZERO,
+    };
+
+    pub fn new(interval: Timeval, value: Timeval) -> Self {
+        Self {
+            it_interval: interval,
+            it_value: value,
+        }
+    }
+
+    pub fn to_bytes(&self) -> [u8; 32] {
+        let mut buf = [0u8; 32];
+        buf[0..16].copy_from_slice(&self.it_interval.to_bytes());
+        buf[16..32].copy_from_slice(&self.it_value.to_bytes());
+        buf
+    }
+
+    pub fn from_bytes(buf: &[u8]) -> Option<Self> {
+        if buf.len() < 32 {
+            return None;
+        }
+        let it_interval = Timeval::from_bytes(&buf[0..16])?;
+        let it_value = Timeval::from_bytes(&buf[16..32])?;
         Some(Self {
             it_interval,
             it_value,
