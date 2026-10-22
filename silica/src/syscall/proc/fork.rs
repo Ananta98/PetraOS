@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-2.0
 
 use crate::{
-    api::errno::{Errno, Result},
     proc::{
         lifecycle::{CLONE_VFORK, CLONE_VM, clone_proc, fork1},
         thread::Thread,
     },
+    uapi::errno::{Errno, Result},
 };
 use ostd::arch::cpu::context::UserContext;
 

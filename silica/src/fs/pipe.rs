@@ -29,8 +29,8 @@ use core::sync::atomic::{AtomicUsize, Ordering};
 use ostd::sync::WaitQueue;
 use spin::Mutex;
 
-use crate::api::errno::{Errno, Result};
-use crate::api::signal::{SigInfo, Signal};
+use crate::uapi::errno::{Errno, Result};
+use crate::uapi::signal::{SigInfo, Signal};
 use crate::fs::poll::{self, PollEvents};
 use crate::fs::vfs::{File, FileOps, INode, INodeAttr, Mode, NodeOps, OpenFlags};
 use crate::proc::thread::Thread;

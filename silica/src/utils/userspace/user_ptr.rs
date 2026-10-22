@@ -9,7 +9,7 @@ use zerocopy::{FromBytes, Immutable, IntoBytes};
 
 use super::user_cstr::UserCStr;
 use crate::{
-    api::errno::{Errno, Result},
+    uapi::errno::{Errno, Result},
     vm::{
         perms::VmPerms,
         vmar::{Vmar, page_fault::PageFaultInfo},

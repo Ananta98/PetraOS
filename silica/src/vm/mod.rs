@@ -8,7 +8,7 @@
 //! # The system call surface
 //!
 //! The methods of [`vmar::Vmar`] mirror the system calls one for one and report
-//! failures as [`errno::Errno`](crate::api::errno::Errno) values, so the syscall layer
+//! failures as [`errno::Errno`](crate::uapi::errno::Errno) values, so the syscall layer
 //! is left with nothing but argument validation:
 //!
 //! | System call | Method |
@@ -44,7 +44,7 @@ use alloc::sync::Arc;
 
 use self::vmar::page_fault::PageFaultInfo;
 pub use self::vmar::{VMAR_CAP_ADDR, VMAR_LOWEST_ADDR, Vmar, VmarQuery};
-use crate::api::errno::{Errno, Result};
+use crate::uapi::errno::{Errno, Result};
 use ostd::arch::cpu::context::CpuException;
 use ostd::{
     irq::InterruptLevel,

@@ -2,7 +2,7 @@
 
 //! `mremap(2)` and mapping resize implementation.
 
-use crate::{api::errno::Result, vm::flags::MremapFlags};
+use crate::{uapi::errno::Result, vm::flags::MremapFlags};
 use core::ops::Range;
 use ostd::mm::{PAGE_SIZE, Vaddr, vm_space::VmQueriedItem};
 
@@ -163,7 +163,7 @@ impl Vmar {
             .mappings
             .get(old_range.start)
             .map(VmMapping::dup)
-            .ok_or(crate::api::errno::Errno::EFAULT)?;
+            .ok_or(crate::uapi::errno::Errno::EFAULT)?;
         if source.end() < old_range.end {
             crate::return_errno!(
                 EFAULT,
@@ -279,7 +279,7 @@ impl Vmar {
             .mappings
             .get(addr)
             .map(|mapping| (mapping.start(), mapping.end()))
-            .ok_or(crate::api::errno::Errno::EFAULT)?;
+            .ok_or(crate::uapi::errno::Errno::EFAULT)?;
         if owner.1 < old_range.end {
             crate::return_errno!(
                 EFAULT,

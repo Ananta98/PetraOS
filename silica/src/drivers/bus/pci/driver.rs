@@ -9,7 +9,7 @@ use alloc::{sync::Arc, vec::Vec};
 use spin::Mutex;
 
 use super::device::PciDevice;
-use crate::api::errno::Result;
+use crate::uapi::errno::Result;
 
 /// Wildcard value matching any PCI vendor, device, or class ID.
 pub const PCI_ANY_ID: u16 = 0xFFFF;

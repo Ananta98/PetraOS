@@ -327,10 +327,10 @@ pub type Result<T, E = Errno> = core::result::Result<T, E>;
 #[macro_export]
 macro_rules! return_errno {
     ($errno:ident) => {
-        return ::core::result::Result::Err($crate::api::errno::Errno::$errno)
+        return ::core::result::Result::Err($crate::uapi::errno::Errno::$errno)
     };
     ($errno:ident, $($arg:tt)+) => {{
         let _ = ::core::format_args!($($arg)+);
-        return ::core::result::Result::Err($crate::api::errno::Errno::$errno);
+        return ::core::result::Result::Err($crate::uapi::errno::Errno::$errno);
     }};
 }

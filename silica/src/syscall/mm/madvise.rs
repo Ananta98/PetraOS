@@ -5,8 +5,8 @@
 use ostd::{arch::cpu::context::UserContext, mm::PAGE_SIZE};
 
 use crate::{
-    api::errno::{Errno, Result},
     proc::thread::Thread,
+    uapi::errno::{Errno, Result},
     vm::flags::MadviseAdvice,
 };
 

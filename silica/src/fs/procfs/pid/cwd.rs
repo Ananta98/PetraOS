@@ -4,7 +4,7 @@
 
 use alloc::string::String;
 
-use crate::{api::errno::Result, fs::procfs::template::ProcSymOps};
+use crate::{fs::procfs::template::ProcSymOps, uapi::errno::Result};
 
 /// Symlink operations reporting the working directory.
 pub struct ProcPidCwdSymlinkOps;

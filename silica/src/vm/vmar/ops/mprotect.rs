@@ -6,7 +6,7 @@ use core::ops::Range;
 use ostd::mm::Vaddr;
 
 use super::super::{Vmar, check_page_aligned_range, is_mappable_range};
-use crate::{api::errno::Result, vm::perms::VmPerms};
+use crate::{uapi::errno::Result, vm::perms::VmPerms};
 
 impl Vmar {
     /// Replaces the permissions in force over `range`.

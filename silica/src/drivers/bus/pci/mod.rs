@@ -37,7 +37,7 @@ pub use driver::{
 };
 pub use scan::scan_bus;
 
-use crate::api::errno::Result;
+use crate::uapi::errno::Result;
 
 /// Global registry of discovered PCI devices.
 pub static PCI_DEVICES: Mutex<Vec<PciDevice>> = Mutex::new(Vec::new());

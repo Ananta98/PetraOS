@@ -20,7 +20,7 @@ pub use posix_timer::*;
 pub use rtc::{CmosRtc, RtcDateTime, datetime_to_unix_epoch, get_cmos_epoch, get_cmos_time};
 pub use tsc::{JiffiesClocksource, TscClocksource};
 
-use crate::api::errno::{Errno, Result};
+use crate::uapi::errno::{Errno, Result};
 
 // ----------------------------------------------------------------------------
 // POSIX Clock Identifiers (Linux compatible)

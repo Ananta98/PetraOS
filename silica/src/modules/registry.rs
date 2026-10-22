@@ -8,7 +8,7 @@ use alloc::{
 };
 use spin::Mutex;
 
-use crate::api::errno::{Errno, Result};
+use crate::uapi::errno::{Errno, Result};
 
 use super::initcall::{InitcallFn, InitcallLevel, register_initcall};
 

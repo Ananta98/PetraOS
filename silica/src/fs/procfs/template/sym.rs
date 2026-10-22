@@ -13,11 +13,11 @@ use alloc::string::String;
 use alloc::sync::Arc;
 
 use crate::{
-    api::errno::Result,
     fs::{
         template::symlink_mode,
         vfs::{INode, INodeAttr, NodeOps},
     },
+    uapi::errno::Result,
 };
 
 /// Operations for dynamic procfs symlinks.

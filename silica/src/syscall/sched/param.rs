@@ -5,8 +5,8 @@
 use alloc::sync::Arc;
 use ostd::arch::cpu::context::UserContext;
 
-use crate::api::errno::{Errno, Result};
-use crate::api::sched::*;
+use crate::uapi::errno::{Errno, Result};
+use crate::uapi::sched::*;
 use crate::proc::Proc;
 use crate::proc::thread::Thread;
 use crate::proc::{Pid, allproc_find};

@@ -17,12 +17,12 @@ pub use entry::ExFatFileEntry;
 pub use fs::ExFatFs;
 
 use crate::{
-    api::errno::Result,
     drivers::block::BlockDevice,
     fs::{
         registry::{FileSystemType, register_filesystem_type},
         vfs::FileSystem,
     },
+    uapi::errno::Result,
 };
 
 /// Filesystem type descriptor for ExFAT.

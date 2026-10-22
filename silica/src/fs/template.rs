@@ -15,7 +15,7 @@
 use alloc::{boxed::Box, vec::Vec};
 
 use crate::{
-    api::errno::{Errno, Result},
+    uapi::errno::{Errno, Result},
     fs::vfs::{FileOps, Mode, SeekAnchor},
 };
 

@@ -22,10 +22,10 @@ pub mod task;
 use alloc::{string::String, sync::Arc, vec::Vec};
 
 use crate::{
-    api::errno::{Errno, Result},
     fs::procfs::template::{ProcDirOps, ProcSymOps, dir_node, file_node, sym_node},
     fs::vfs::INode,
     proc::{Pid, allproc_find},
+    uapi::errno::{Errno, Result},
 };
 
 pub use cwd::ProcPidCwdSymlinkOps;

@@ -11,11 +11,11 @@ use core::sync::atomic::{AtomicUsize, Ordering};
 use ostd::io::IoMem;
 
 use crate::{
-    api::errno::{Errno, Result},
     drivers::{
         bus::pci::{PciDevice, PciDeviceId, PciDriver, pci_register_driver},
         net::register_network_device,
     },
+    uapi::errno::{Errno, Result},
 };
 pub use device::E1000Device;
 

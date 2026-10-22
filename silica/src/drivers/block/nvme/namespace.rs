@@ -16,8 +16,8 @@ use super::{
     queue::NvmeQueuePair,
 };
 use crate::{
-    api::errno::{Errno, Result},
     drivers::{BlockDeviceStats, Device, DeviceType, block::BlockDevice},
+    uapi::errno::{Errno, Result},
 };
 
 /// Represents an active NVMe Namespace that provides block-level I/O.

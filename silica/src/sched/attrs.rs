@@ -5,9 +5,9 @@
 use alloc::collections::BTreeMap;
 use ostd::sync::SpinLock;
 
-use crate::api::errno::{Errno, Result};
-use crate::api::sched::{CpuMask, SCHED_OTHER};
 use crate::proc::{Pid, Proc};
+use crate::uapi::errno::{Errno, Result};
+use crate::uapi::sched::{CpuMask, SCHED_OTHER};
 
 /// Per-process scheduling attributes and CPU affinity.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

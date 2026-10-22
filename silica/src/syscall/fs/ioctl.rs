@@ -2,7 +2,7 @@
 
 use crate::utils::userspace::UserPtr;
 use crate::{
-    api::errno::Result,
+    uapi::errno::Result,
     proc::thread::Thread,
 };
 use ostd::arch::cpu::context::UserContext;

@@ -20,7 +20,7 @@ use ostd::mm::{UFrame, io::util::HasVmReaderWriter};
 use ostd::sync::SpinLock;
 
 use super::{Backing, alloc_zeroed_frame};
-use crate::api::errno::Result;
+use crate::uapi::errno::Result;
 
 /// The longest name a shared memory object may have, matching `NAME_MAX`.
 const NAME_MAX: usize = 255;

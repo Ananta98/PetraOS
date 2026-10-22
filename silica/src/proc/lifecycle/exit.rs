@@ -8,10 +8,6 @@
 use alloc::{sync::Arc, vec::Vec};
 
 use crate::{
-    api::{
-        errno::{Errno, Result},
-        signal::Signal,
-    },
     proc::{
         ExitStatus, Proc, ProcState,
         thread::{Thread, ThreadState},
@@ -22,6 +18,10 @@ use crate::{
                 tree_reparent_children,
             },
         },
+    },
+    uapi::{
+        errno::{Errno, Result},
+        signal::Signal,
     },
 };
 
@@ -204,15 +204,15 @@ pub fn proc_reap(parent: &Arc<Proc>, child_pid: Pid) -> Result<(Pid, ExitStatus)
 mod tests {
     use super::*;
     use crate::{
-        api::{
-            cred::Ucred,
-            limit::Plimit,
-            signal::{SigActs, SigSet, SigStack},
-        },
         fs::fd::Filedesc,
         proc::{
             thread::{ThreadFlags, ThreadInner, alloc_tid},
             types::table::allproc_insert,
+        },
+        uapi::{
+            cred::Ucred,
+            limit::Plimit,
+            signal::{SigActs, SigSet, SigStack},
         },
         vm::{flags::MmapFlags, perms::VmPerms, vmar::Vmar},
     };

@@ -6,9 +6,9 @@ use alloc::{string::String, sync::Arc, vec::Vec};
 use spin::Mutex;
 
 use super::file::DrmFile;
-use crate::api::errno::{Errno, Result};
 use crate::drivers::drm::gem;
 use crate::drivers::drm::kms::KmsState;
+use crate::uapi::errno::{Errno, Result};
 
 /// The programming interface exposed by each DRM-capable GPU driver.
 ///

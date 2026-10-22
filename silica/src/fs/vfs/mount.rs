@@ -7,7 +7,7 @@ use spin::RwLock;
 
 use super::dcache::DEntry;
 use super::fs::FileSystem;
-use crate::api::errno::{Errno, Result};
+use crate::uapi::errno::{Errno, Result};
 
 /// Represents a mounted filesystem instance.
 pub struct Mount {

@@ -8,7 +8,7 @@
 
 use ::alloc::vec;
 
-use crate::api::errno::{Errno, Result};
+use crate::uapi::errno::{Errno, Result};
 
 use super::blockgroup::BgTable;
 use super::superblock::SuperBlock;

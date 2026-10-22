@@ -10,7 +10,7 @@ use xmas_elf::{
 };
 
 use crate::{
-    api::errno::{Errno, Result},
+    uapi::errno::{Errno, Result},
     utils::userspace::user_ptr::UserPtr,
     vm::{VMAR_CAP_ADDR, VMAR_LOWEST_ADDR, Vmar, flags::MmapFlags, perms::VmPerms},
 };

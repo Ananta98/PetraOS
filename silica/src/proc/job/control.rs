@@ -5,7 +5,7 @@
 use alloc::{sync::Arc, vec::Vec};
 
 use crate::{
-    api::signal::{SigInfo, Signal, code},
+    uapi::signal::{SigInfo, Signal, code},
     proc::{
         ExitStatus, Proc, allproc_find,
         thread::{Thread, ThreadState},

@@ -4,11 +4,7 @@
 
 use ostd::arch::cpu::context::UserContext;
 
-use crate::{
-    api::errno::Result,
-    proc::thread::Thread,
-    vm::flags::MremapFlags,
-};
+use crate::{proc::thread::Thread, uapi::errno::Result, vm::flags::MremapFlags};
 
 /// System call `mremap(old_address, old_size, new_size, flags, new_address)` (Syscall #25 on x86_64).
 pub fn sys_mremap(

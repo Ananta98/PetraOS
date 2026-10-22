@@ -10,12 +10,12 @@
 //! everything through [`KmsState`].
 
 use alloc::{collections::BTreeMap, sync::Arc, vec::Vec};
-use ostd::sync::SpinLock;
 use core::sync::atomic::{AtomicU32, Ordering};
+use ostd::sync::SpinLock;
 
-use crate::api::drm;
-use crate::api::errno::{Errno, Result};
 use crate::drivers::drm::gem::GemObject;
+use crate::uapi::drm;
+use crate::uapi::errno::{Errno, Result};
 
 /// Static description of one display pipeline (connector/encoder/CRTC trio).
 pub struct KmsPipeline {
@@ -50,8 +50,12 @@ impl KmsPipeline {
 /// The hardware callbacks plugged in by the display driver.
 pub trait DisplayDriver: Send + Sync {
     /// Displays `fb` on pipeline `pipeline`, applying the given mode.
-    fn set_scanout(&self, pipeline: usize, fb: &Framebuffer, mode: &drm::DrmModeModeInfo)
-        -> Result<()>;
+    fn set_scanout(
+        &self,
+        pipeline: usize,
+        fb: &Framebuffer,
+        mode: &drm::DrmModeModeInfo,
+    ) -> Result<()>;
 
     /// Stops displaying on pipeline `pipeline`.
     fn disable_scanout(&self, pipeline: usize) -> Result<()>;
@@ -178,12 +182,7 @@ impl KmsState {
 
     pub fn pipeline_connector(&self, pipeline: usize) -> (u32, u32, u32, u32) {
         let info = &self.pipelines[pipeline];
-        (
-            info.connector_type,
-            1,
-            info.mm_width,
-            info.mm_height,
-        )
+        (info.connector_type, 1, info.mm_width, info.mm_height)
     }
 
     pub fn pipeline_encoder(&self, pipeline: usize) -> (u32, u32, u32) {

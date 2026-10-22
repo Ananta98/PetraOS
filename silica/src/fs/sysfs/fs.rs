@@ -10,7 +10,7 @@
 use alloc::{boxed::Box, sync::Arc};
 
 use crate::{
-    api::errno::Result,
+    uapi::errno::Result,
     fs::{
         sysfs::{
             inode::SysFsDirNodeOps,

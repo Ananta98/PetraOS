@@ -19,7 +19,7 @@ Code in `silica/src/` is strictly partitioned into domain-specific subsystems:
 | Directory | Subsystem / Responsibility |
 | :--- | :--- |
 | `arch/` | Architecture-specific code (e.g., `x86_64`) |
-| `api/` | Userspace ABI / POSIX structures & error codes |
+| `uapi/` | Userspace ABI / POSIX structures & error codes |
 | `drivers/` | Device drivers (`block`, `char`, `net`, `bus`, `drm`) |
 | `fs/` | Virtual File System (`vfs`), `devfs`, `procfs`, `sysfs`, `pipe`, `ext2`, `exfat` |
 | `ipc/` | IPC primitives (`shm`, `sem`, `msg`, `perm`) |

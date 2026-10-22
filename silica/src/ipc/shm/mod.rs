@@ -11,7 +11,10 @@ use core::sync::atomic::Ordering;
 use ostd::mm::PAGE_SIZE;
 
 use crate::{
-    api::{
+    ipc::perm::{check_admin_permission, check_read_permission, check_write_permission},
+    ipc::registry::IpcRegistry,
+    proc::{Pid, Proc},
+    uapi::{
         cred::Ucred,
         errno::{Errno, Result},
         ipc::{IPC_CREAT, IPC_EXCL, IPC_INFO, IPC_PRIVATE, IPC_RMID, IPC_SET, IPC_STAT, IpcPerm},
@@ -20,9 +23,6 @@ use crate::{
             SHM_UNLOCK, SHMLBA, SHMMAX, SHMMIN, SHMMNI, ShmIdDs, ShmInfo,
         },
     },
-    ipc::perm::{check_admin_permission, check_read_permission, check_write_permission},
-    ipc::registry::IpcRegistry,
-    proc::{Pid, Proc},
     utils::userspace::user_ptr::UserPtr,
     vm::{
         backing::Backing,

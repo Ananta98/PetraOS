@@ -6,7 +6,7 @@
 //! Resource limits are shared across threads within a process and are cloned
 //! across `fork(2)`. Modifications follow Copy-on-Write semantics.
 
-use crate::api::errno::Result;
+use crate::uapi::errno::Result;
 
 /// Unbounded resource limit value (POSIX `RLIM_INFINITY`).
 pub const RLIM_INFINITY: u64 = !0;

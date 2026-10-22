@@ -13,7 +13,10 @@ use core::time::Duration;
 use ostd::sync::{SpinLock, Waiter};
 
 use crate::{
-    api::{
+    ipc::perm::{check_admin_permission, check_read_permission, check_write_permission},
+    ipc::registry::IpcRegistry,
+    proc::{Proc, thread::Thread},
+    uapi::{
         cred::Ucred,
         errno::{Errno, Result},
         ipc::{
@@ -24,12 +27,6 @@ use crate::{
             GETALL, GETNCNT, GETPID, GETVAL, GETZCNT, SEM_INFO, SEM_STAT, SEM_STAT_ANY, SEM_UNDO,
             SEMMNI, SEMMSL, SEMOPM, SEMVMX, SETALL, SETVAL, SemBuf, SemIdDs, SemInfo,
         },
-    },
-    ipc::perm::{check_admin_permission, check_read_permission, check_write_permission},
-    ipc::registry::IpcRegistry,
-    proc::{
-        Proc,
-        thread::Thread,
     },
     utils::userspace::user_ptr::UserPtr,
 };

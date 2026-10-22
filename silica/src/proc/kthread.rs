@@ -10,7 +10,7 @@ use ostd::{sync::SpinLock, task::TaskOptions};
 
 use crate::fs::fd::Filedesc;
 use crate::{
-    api::{
+    uapi::{
         cred::Ucred,
         errno::Result,
         limit::Plimit,

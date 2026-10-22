@@ -10,10 +10,10 @@
 use alloc::{format, string::String, sync::Arc, vec::Vec};
 
 use crate::{
-    api::errno::{Errno, Result},
     fs::procfs::template::{ProcDirOps, dir_node},
     fs::vfs::INode,
     proc::{Pid, Tid, allproc_find},
+    uapi::errno::{Errno, Result},
 };
 
 /// `/proc/<pid>/task` directory node operations.

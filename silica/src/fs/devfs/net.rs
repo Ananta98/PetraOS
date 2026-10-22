@@ -10,7 +10,7 @@ use alloc::boxed::Box;
 use alloc::sync::Arc;
 
 use crate::{
-    api::errno::{Errno, Result},
+    uapi::errno::{Errno, Result},
     drivers::net::NetDevice,
     fs::vfs::{FileOps, INodeAttr, Mode, NodeOps, OpenFlags},
     utils::userspace::UserPtr,

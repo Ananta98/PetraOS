@@ -16,13 +16,13 @@ use spin::Mutex;
 
 use super::{Tty, TtyDriver};
 use crate::{
-    api::errno::{Errno, Result},
-    api::ioctl,
-    api::signal::Signal,
-    api::termios::winsize,
     drivers::{CharacterDevice, register_chrdev},
     fs::poll::PollEvents,
     fs::vfs::{FileOps, INode, Mode, NodeOps, OpenFlags},
+    uapi::errno::{Errno, Result},
+    uapi::ioctl,
+    uapi::signal::Signal,
+    uapi::termios::winsize,
     utils::userspace::user_ptr::UserPtr,
 };
 

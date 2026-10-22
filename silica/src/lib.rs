@@ -6,7 +6,7 @@
 //! module:
 //!
 //! - [`arch`]: architecture-specific bring-up.
-//! - [`api`]: the types and constants user space sees — `errno` numbers, `uid`
+//! - [`uapi`]: the types and constants user space sees — `errno` numbers, `uid`
 //!   and `gid`, resource limits, signal dispositions, `termios`, `ioctl`
 //!   requests. Layout-sensitive, so it changes with the ABI rather than with
 //!   kernel logic.
@@ -38,7 +38,6 @@ macro_rules! __log_prefix {
 #[cfg_attr(target_arch = "x86_64", path = "arch/x86_64/mod.rs")]
 pub mod arch;
 
-pub mod api;
 pub mod crypto;
 pub mod drivers;
 pub mod fs;
@@ -50,6 +49,7 @@ pub mod proc;
 pub mod sched;
 pub mod syscall;
 pub mod time;
+pub mod uapi;
 pub mod utils;
 pub mod vm;
 

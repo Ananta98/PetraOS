@@ -15,7 +15,7 @@ use ostd::{
 };
 
 use super::pixel::{Pixel, PixelFormat, RenderedPixel};
-use crate::api::errno::{Errno, Result};
+use crate::uapi::errno::{Errno, Result};
 
 use alloc::sync::Arc;
 use spin::Once;

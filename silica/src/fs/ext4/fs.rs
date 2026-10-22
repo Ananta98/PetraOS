@@ -14,7 +14,7 @@ use ::alloc::vec;
 use ::alloc::vec::Vec;
 use spin::Mutex;
 
-use crate::api::errno::{Errno, Result};
+use crate::uapi::errno::{Errno, Result};
 use crate::drivers::block::BlockDevice;
 use crate::fs::ext4::dir::ftype;
 use crate::fs::vfs::{

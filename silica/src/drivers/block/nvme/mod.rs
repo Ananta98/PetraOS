@@ -27,11 +27,11 @@ use self::{
     regs::*,
 };
 use crate::{
-    api::errno::{Errno, Result},
     drivers::{
         block::register_block_device,
         bus::pci::{self, PciDevice, PciDeviceId, PciDriver, pci_register_driver},
     },
+    uapi::errno::{Errno, Result},
 };
 
 /// High-level NVMe Controller handle.

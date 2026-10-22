@@ -6,8 +6,8 @@ use alloc::{collections::BTreeMap, sync::Arc};
 use ostd::sync::SpinLock;
 
 use crate::{
-    api::sem::{SEMAEM, SEMVMX},
     proc::{Pid, Proc},
+    uapi::sem::{SEMAEM, SEMVMX},
 };
 
 use super::set::SemSet;

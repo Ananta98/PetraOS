@@ -5,7 +5,7 @@
 use ostd::arch::cpu::context::UserContext;
 
 use crate::{
-    api::errno::{Errno, Result},
+    uapi::errno::{Errno, Result},
     fs::vfs::{AccessFlags, LookupFlags},
     proc::thread::Thread,
     syscall::fs::utils::{

@@ -3,7 +3,7 @@
 //! Process group tracking and `setpgid` semantics.
 
 use crate::{
-    api::errno::{Errno, Result},
+    uapi::errno::{Errno, Result},
     proc::{Pid, Proc, allproc_find, thread::Thread, types::table::PROCTREE_LOCK},
 };
 

@@ -19,7 +19,7 @@ pub use transport::{VirtioDevice, VirtioTransport, register_virtio_device};
 
 /// Scans the enumerated PCI devices for modern virtio ones and binds the
 /// registered drivers (runs before `Device`-level GPU drivers register).
-pub fn init() -> crate::api::errno::Result<()> {
+pub fn init() -> crate::uapi::errno::Result<()> {
     transport::init()
 }
 

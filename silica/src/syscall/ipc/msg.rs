@@ -5,7 +5,7 @@
 use ostd::arch::cpu::context::UserContext;
 
 use crate::{
-    api::errno::{Errno, Result},
+    uapi::errno::{Errno, Result},
     proc::thread::Thread,
     utils::userspace::user_ptr::UserPtr,
 };
@@ -30,7 +30,7 @@ pub fn sys_msgsnd(
     if msgp == 0 {
         return Err(Errno::EFAULT);
     }
-    if msgsz > crate::api::msg::MSGMAX {
+    if msgsz > crate::uapi::msg::MSGMAX {
         return Err(Errno::EINVAL);
     }
 

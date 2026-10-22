@@ -10,7 +10,7 @@ use bitflags::bitflags;
 use ostd::sync::{LocalIrqDisabled, SpinLock};
 use spin::Once;
 
-use crate::api::errno::Result;
+use crate::uapi::errno::Result;
 
 // ----------------------------------------------------------------------------
 // Clocksource Flags

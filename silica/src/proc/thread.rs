@@ -18,11 +18,11 @@ use ostd::{
 use super::signal::{QueuedSignal, SigQueue};
 use super::{COMM_LEN, Proc};
 use crate::{
-    api::{
+    arch::signal::{self as sigframe, Redirect},
+    uapi::{
         errno::{Errno, Result},
         signal::{SigHandler, SigInfo, SigSet, SigStack, Signal, code, flags},
     },
-    arch::signal::{self as sigframe, Redirect},
 };
 
 use crate::utils::userspace::user_ptr::UserPtr;
@@ -224,7 +224,10 @@ impl Thread {
     /// Blocking syscalls consult this from their wait loops instead of
     /// inspecting `TDF_ASTPENDING` directly.
     pub fn has_pending_ast(&self) -> bool {
-        self.inner.lock().flags.contains(ThreadFlags::TDF_ASTPENDING)
+        self.inner
+            .lock()
+            .flags
+            .contains(ThreadFlags::TDF_ASTPENDING)
     }
 
     /// Returns `true` when the calling thread must abandon a blocked
@@ -330,7 +333,7 @@ impl Thread {
         &self,
         sig: Signal,
         info: &SigInfo,
-        action: crate::api::signal::SigAction,
+        action: crate::uapi::signal::SigAction,
     ) -> Option<(usize, Redirect)> {
         let proc = self.proc()?;
         let vmar = proc.vmspace();
@@ -365,7 +368,7 @@ impl Thread {
     fn enter_handler(
         &self,
         sig: Signal,
-        action: crate::api::signal::SigAction,
+        action: crate::uapi::signal::SigAction,
         frame_addr: usize,
         redirect: Redirect,
     ) {
@@ -389,7 +392,7 @@ impl Thread {
         {
             proc.sigacts
                 .lock()
-                .set(sig, crate::api::signal::SigAction::default());
+                .set(sig, crate::uapi::signal::SigAction::default());
         }
     }
 

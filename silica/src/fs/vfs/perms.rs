@@ -10,8 +10,8 @@ use bitflags::bitflags;
 
 use super::inode::{INodeAttr, Mode};
 use crate::{
-    api::cred::{Gid, Ucred, Uid},
-    api::errno::{Errno, Result},
+    uapi::cred::{Gid, Ucred, Uid},
+    uapi::errno::{Errno, Result},
     proc::thread::Thread,
 };
 

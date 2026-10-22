@@ -5,7 +5,7 @@
 use ostd::arch::cpu::context::UserContext;
 
 use crate::{
-    api::errno::Result,
+    uapi::errno::Result,
     fs::{fd::FdFlags, socket::create_socket_file},
     net::socket::{
         AF_INET, AF_INET6, AF_NETLINK, AF_UNIX, IPPROTO_IP, IPPROTO_TCP, IPPROTO_UDP, KernelSocket,

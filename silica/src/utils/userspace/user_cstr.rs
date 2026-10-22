@@ -7,7 +7,7 @@ use ostd::mm::PAGE_SIZE;
 
 use super::user_ptr::UserPtr;
 use crate::{
-    api::errno::{Errno, Result},
+    uapi::errno::{Errno, Result},
     vm::vmar::Vmar,
 };
 

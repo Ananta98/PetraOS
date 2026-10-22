@@ -14,14 +14,14 @@ use ostd::sync::{SpinLock, Waiter};
 
 use self::message::Message;
 use self::queue::MsgQueue;
-use crate::api::cred::Ucred;
-use crate::api::errno::{Errno, Result};
-use crate::api::ipc::*;
-use crate::api::msg::*;
 use crate::ipc::perm::{check_admin_permission, check_read_permission, check_write_permission};
 use crate::ipc::registry::IpcRegistry;
 use crate::proc::thread::{Thread, ThreadFlags, ThreadState};
 use crate::proc::{Proc, ProcState};
+use crate::uapi::cred::Ucred;
+use crate::uapi::errno::{Errno, Result};
+use crate::uapi::ipc::*;
+use crate::uapi::msg::*;
 use crate::utils::userspace::user_ptr::UserPtr;
 
 /// Global registry of message queues by `msqid`.

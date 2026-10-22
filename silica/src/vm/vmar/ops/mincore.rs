@@ -6,7 +6,7 @@ use core::ops::Range;
 use ostd::mm::{PAGE_SIZE, Vaddr};
 
 use super::super::{Vmar, check_page_aligned_range};
-use crate::api::errno::Result;
+use crate::uapi::errno::Result;
 
 impl Vmar {
     /// Determines whether pages in `range` are resident in physical memory.

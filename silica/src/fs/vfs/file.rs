@@ -10,7 +10,7 @@ use spin::Mutex;
 
 use super::inode::INode;
 use super::mount::PathNode;
-use crate::api::errno::{Errno, Result};
+use crate::uapi::errno::{Errno, Result};
 use crate::fs::poll::PollEvents;
 
 bitflags! {

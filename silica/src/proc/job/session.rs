@@ -3,7 +3,7 @@
 //! POSIX Session management (`setsid`, `getsid`, session leader validation).
 
 use crate::{
-    api::errno::{Errno, Result},
+    uapi::errno::{Errno, Result},
     proc::{Pid, Proc, types::table::PROCTREE_LOCK},
 };
 

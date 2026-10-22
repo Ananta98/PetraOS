@@ -12,22 +12,17 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use super::state::{Framebuffer, KmsState};
-use crate::api::drm;
-use crate::api::errno::{Errno, Result};
-use crate::drivers::drm::core::ioctl::{read_uapi, write_uapi};
 use crate::drivers::drm::core::file::DrmFile;
+use crate::drivers::drm::core::ioctl::{read_uapi, write_uapi};
 use crate::drivers::drm::gem::GemObject;
 use crate::proc::thread::Thread;
+use crate::uapi::drm;
+use crate::uapi::errno::{Errno, Result};
 use crate::utils::userspace::UserPtr;
 use zerocopy::IntoBytes;
 
 /// Dispatches a KMS-range ioctl; reached only for devices with a KMS.
-pub fn dispatch(
-    kms: &KmsState,
-    file: &mut DrmFile,
-    cmd: u32,
-    arg: usize,
-) -> Result<usize> {
+pub fn dispatch(kms: &KmsState, file: &mut DrmFile, cmd: u32, arg: usize) -> Result<usize> {
     match cmd {
         drm::DRM_IOCTL_MODE_GETRESOURCES => get_resources(kms, arg),
         drm::DRM_IOCTL_MODE_GETCRTC => get_crtc(kms, arg),
@@ -339,14 +334,7 @@ fn add_fb2(kms: &KmsState, file: &mut DrmFile, arg: usize) -> Result<usize> {
     }
 
     let object = file.handles.get(req.handles[0]).ok_or(Errno::EINVAL)?;
-    req.fb_id = fb_from_object(
-        kms,
-        object,
-        req.width,
-        req.height,
-        req.pitches[0],
-        format,
-    )?;
+    req.fb_id = fb_from_object(kms, object, req.width, req.height, req.pitches[0], format)?;
     write_uapi(arg, &req)?;
     Ok(0)
 }

@@ -12,10 +12,6 @@ use core::time::Duration;
 use ostd::arch::cpu::context::UserContext;
 
 use crate::{
-    api::{
-        errno::{Errno, Result},
-        signal::Signal,
-    },
     proc::thread::{Thread, Tid},
     time::{
         CLOCK_BOOTTIME, CLOCK_BOOTTIME_ALARM, CLOCK_MONOTONIC, CLOCK_MONOTONIC_COARSE,
@@ -25,6 +21,10 @@ use crate::{
             PosixTimer, SIGEV_NONE, SIGEV_SIGNAL, SIGEV_THREAD, SIGEV_THREAD_ID, get_clock_now,
             on_timer_expire,
         },
+    },
+    uapi::{
+        errno::{Errno, Result},
+        signal::Signal,
     },
     utils::userspace::user_ptr::UserPtr,
 };

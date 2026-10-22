@@ -4,7 +4,7 @@
 
 use alloc::{boxed::Box, sync::Arc};
 
-use crate::api::errno::Result;
+use crate::uapi::errno::Result;
 use crate::fs::initramfs::InitramfsDirNodeOps;
 use crate::fs::vfs::{FileSystem, INode, Mode, StatFs};
 

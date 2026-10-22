@@ -4,11 +4,7 @@
 
 use ostd::arch::cpu::context::UserContext;
 
-use crate::{
-    api::errno::{Result},
-    proc::thread::Thread,
-    vm::flags::MsyncFlags,
-};
+use crate::{proc::thread::Thread, uapi::errno::Result, vm::flags::MsyncFlags};
 
 /// System call `msync(addr, len, flags)` (Syscall #26 on x86_64).
 pub fn sys_msync(addr: usize, len: usize, flags_val: u32, _ctx: &mut UserContext) -> Result<usize> {

@@ -15,8 +15,8 @@ use ostd::sync::WaitQueue;
 use spin::Mutex;
 
 use crate::{
-    api::errno::{Errno, Result},
     net::socket::KernelSocket,
+    uapi::errno::{Errno, Result},
 };
 
 /// Global registry of bound UNIX domain sockets keyed by filesystem path or abstract name.

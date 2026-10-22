@@ -13,7 +13,7 @@
 use alloc::{collections::BTreeMap, sync::Arc};
 use ostd::sync::{PreemptDisabled, SpinLock, SpinLockGuard};
 
-use crate::api::ipc::IPC_PRIVATE;
+use crate::uapi::ipc::IPC_PRIVATE;
 
 /// Id- and key-indexed registry for one System V IPC object family.
 ///

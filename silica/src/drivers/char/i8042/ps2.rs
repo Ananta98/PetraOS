@@ -6,7 +6,7 @@
 //! mice, and auxiliary input devices connected to the i8042 microcontroller.
 
 use super::controller::I8042Controller;
-use crate::api::errno::Result;
+use crate::uapi::errno::Result;
 
 // ----------------------------------------------------------------------------
 // PS/2 Device Standard Commands

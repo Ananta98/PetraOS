@@ -6,7 +6,7 @@ use core::ops::Range;
 use ostd::mm::{PAGE_SIZE, Vaddr};
 
 use super::{VMAR_LOWEST_ADDR, mappings::Mappings};
-use crate::api::errno::Errno;
+use crate::uapi::errno::Errno;
 
 /// The address space has no room for a mapping of the requested size.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

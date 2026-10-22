@@ -21,7 +21,7 @@ pub mod registry;
 pub mod reloc;
 pub mod symbols;
 
-use crate::api::errno::Result;
+use crate::uapi::errno::Result;
 
 pub use initcall::{InitcallEntry, InitcallFn, InitcallLevel, do_initcalls, register_initcall};
 pub use loader::{load_module, load_module_from_file};

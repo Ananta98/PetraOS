@@ -19,8 +19,8 @@ use super::{
     hba::*,
 };
 use crate::{
-    api::errno::{Errno, Result},
     drivers::{BlockDeviceStats, Device, DeviceType, block::BlockDevice},
+    uapi::errno::{Errno, Result},
 };
 
 /// Type of device attached to an AHCI port.

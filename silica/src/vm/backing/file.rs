@@ -13,7 +13,7 @@ use ostd::{
 };
 
 use super::{Backing, alloc_zeroed_frame};
-use crate::{api::errno::Result, fs::File};
+use crate::{uapi::errno::Result, fs::File};
 
 /// A backing object for file-mapped virtual memory (`mmap(2)`).
 ///

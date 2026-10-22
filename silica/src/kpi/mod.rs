@@ -28,7 +28,7 @@ pub mod sync;
 pub mod task;
 pub mod time;
 
-use crate::api::errno::Result;
+use crate::uapi::errno::Result;
 
 /// Brings up the workqueue and the timer wheel.
 pub fn init() -> Result<()> {

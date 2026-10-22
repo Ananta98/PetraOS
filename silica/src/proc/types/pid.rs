@@ -5,7 +5,7 @@
 use core::num::NonZeroU32;
 use core::sync::atomic::{AtomicU32, Ordering};
 
-use crate::api::errno::Result;
+use crate::uapi::errno::Result;
 
 /// Maximum process identifier value.
 pub const PID_MAX: u32 = 99999;

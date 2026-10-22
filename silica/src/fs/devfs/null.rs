@@ -1,5 +1,5 @@
 use crate::{
-    api::errno::Result,
+    uapi::errno::Result,
     fs::vfs::{FileOps, INodeAttr, Mode, NodeOps, OpenFlags},
 };
 use alloc::boxed::Box;

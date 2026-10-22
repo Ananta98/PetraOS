@@ -12,8 +12,8 @@ use spin::Mutex;
 
 use super::{hw::*, regs::*};
 use crate::{
-    api::errno::{Errno, Result},
     drivers::net::NetDevice,
+    uapi::errno::{Errno, Result},
 };
 
 /// Internal mutable ring state for e1000.

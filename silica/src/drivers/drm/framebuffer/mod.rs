@@ -12,7 +12,7 @@ pub use framebuffer::{ColorMapEntry, FrameBuffer, Framebuffer, PixelOffset, get_
 pub use mode::{ConsoleMode, KeyboardMode, KeyboardModeFlags};
 pub use pixel::{Color, Pixel, PixelFormat, RenderedPixel};
 
-use crate::api::errno::Result;
+use crate::uapi::errno::Result;
 
 pub fn init() -> Result<()> {
     framebuffer::init()?;

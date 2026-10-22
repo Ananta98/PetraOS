@@ -12,7 +12,7 @@ use ostd::{
 };
 
 use crate::{
-    api::{
+    uapi::{
         errno::{Errno, Result},
         signal::{SigActs, SigSet, SigStack},
     },

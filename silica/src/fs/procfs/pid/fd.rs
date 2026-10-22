@@ -9,10 +9,10 @@
 use alloc::{format, string::String, sync::Arc, vec::Vec};
 
 use crate::{
-    api::errno::{Errno, Result},
     fs::procfs::template::{ProcDirOps, ProcSymOps, sym_node},
     fs::vfs::INode,
     proc::{Pid, allproc_find},
+    uapi::errno::{Errno, Result},
 };
 
 /// Tag selecting the `fd` subdirectory of a pid (into [`super::pid_ino`]).

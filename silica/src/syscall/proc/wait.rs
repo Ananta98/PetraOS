@@ -5,14 +5,14 @@
 use ostd::arch::cpu::context::UserContext;
 
 use crate::{
-    api::{
-        errno::{Errno, Result},
-        signal::Signal,
-    },
     proc::{
         ExitStatus, Pid,
         lifecycle::{IdType, WaitOptions, kernel_wait},
         thread::Thread,
+    },
+    uapi::{
+        errno::{Errno, Result},
+        signal::Signal,
     },
     utils::userspace::UserPtr,
 };

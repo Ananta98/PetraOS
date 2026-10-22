@@ -7,7 +7,7 @@
 //! random bytes; writes feed external entropy back into the pool.
 
 use crate::{
-    api::errno::Result,
+    uapi::errno::Result,
     fs::vfs::{FileOps, INodeAttr, Mode, NodeOps, OpenFlags},
 };
 use alloc::boxed::Box;

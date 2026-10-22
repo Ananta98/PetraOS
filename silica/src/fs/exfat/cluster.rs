@@ -7,7 +7,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use crate::{
-    api::errno::{Errno, Result},
+    uapi::errno::{Errno, Result},
     drivers::block::BlockDevice,
     fs::exfat::boot_sector::ExFatBootSector,
 };

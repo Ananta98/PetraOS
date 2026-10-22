@@ -9,7 +9,7 @@ use alloc::{collections::btree_map::BTreeMap, string::String, sync::Arc, vec::Ve
 use spin::Mutex;
 
 use crate::{
-    api::errno::{Errno, Result},
+    uapi::errno::{Errno, Result},
     drivers::block::{BlockDevice, get_block_device},
     fs::vfs::{
         FileSystem, LookupFlags,

@@ -12,9 +12,9 @@ pub mod kernel;
 use alloc::{string::String, sync::Arc, vec::Vec};
 
 use crate::{
-    api::errno::Result,
     fs::procfs::template::{ProcDirOps, dir_node},
     fs::vfs::INode,
+    uapi::errno::Result,
 };
 
 pub use kernel::get_hostname;

@@ -18,7 +18,7 @@ use alloc::{collections::BTreeMap, string::String, sync::Arc, vec::Vec};
 use core::sync::atomic::{AtomicUsize, Ordering};
 use spin::{Once, RwLock};
 
-use crate::api::errno::Result;
+use crate::uapi::errno::Result;
 
 static NEXT_SYSFS_INO: AtomicUsize = AtomicUsize::new(1000);
 

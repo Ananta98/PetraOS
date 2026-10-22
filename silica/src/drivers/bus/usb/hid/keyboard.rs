@@ -9,7 +9,7 @@
 use alloc::{string::String, sync::Arc};
 use spin::{Mutex, Once};
 
-use crate::{api::errno::Result, drivers::CharacterDevice, utils::ring_buffer::RingBuffer};
+use crate::{drivers::CharacterDevice, uapi::errno::Result, utils::ring_buffer::RingBuffer};
 
 /// Interrupt-safe, lock-free ring buffer for USB keyboard characters.
 static KEYBOARD_BUFFER: RingBuffer<1024> = RingBuffer::new();

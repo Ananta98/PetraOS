@@ -5,11 +5,11 @@
 use ostd::{arch::cpu::context::UserContext, mm::PAGE_SIZE};
 
 use crate::{
-    api::{
-        errno::{Result},
+    proc::thread::Thread,
+    uapi::{
+        errno::Result,
         limit::{RLIM_INFINITY, Resource},
     },
-    proc::thread::Thread,
     vm::{VMAR_CAP_ADDR, flags::MmapFlags, perms::VmPerms},
 };
 

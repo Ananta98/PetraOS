@@ -6,11 +6,11 @@ use alloc::vec::Vec;
 use ostd::arch::cpu::context::UserContext;
 
 use crate::{
-    api::errno::{Errno, Result},
     proc::{
         lifecycle::{AT_EMPTY_PATH, AT_FDCWD, execve_at},
         thread::Thread,
     },
+    uapi::errno::{Errno, Result},
     utils::userspace::user_cstr::UserCStr,
 };
 

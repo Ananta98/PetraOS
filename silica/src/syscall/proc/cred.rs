@@ -9,11 +9,11 @@ use alloc::{sync::Arc, vec::Vec};
 use ostd::arch::cpu::context::UserContext;
 
 use crate::{
-    api::{
-        cred::{Gid, Uid, Ucred},
+    proc::thread::Thread,
+    uapi::{
+        cred::{Gid, Ucred, Uid},
         errno::{Errno, Result},
     },
-    proc::thread::Thread,
     utils::userspace::UserPtr,
 };
 

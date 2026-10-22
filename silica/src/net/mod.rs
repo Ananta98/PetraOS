@@ -8,8 +8,8 @@ pub mod netlink;
 pub mod socket;
 pub mod unix;
 
-use crate::api::errno::Result;
 use crate::drivers::net::NetDevice;
+use crate::uapi::errno::Result;
 use alloc::sync::Arc;
 
 pub use interface::{NET_MANAGER, poll};

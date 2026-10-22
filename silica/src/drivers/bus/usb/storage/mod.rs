@@ -15,8 +15,8 @@ use super::{
     USB_STORAGE_SUBCLASS_SCSI,
 };
 use crate::{
-    api::errno::{Errno, Result},
     drivers::BlockDevice,
+    uapi::errno::{Errno, Result},
 };
 
 pub const CBW_SIGNATURE: u32 = 0x43425355; // "USBC"

@@ -6,7 +6,7 @@ use alloc::collections::VecDeque;
 use ostd::sync::WaitQueue;
 
 use super::message::Message;
-use crate::api::msg::MsqIdDs;
+use crate::uapi::msg::MsqIdDs;
 
 /// System V Message Queue structure.
 pub struct MsgQueue {

@@ -9,7 +9,7 @@ use super::{
     socket::{SOCK_CLOEXEC, SOCK_NONBLOCK},
 };
 use crate::{
-    api::errno::{Errno, Result},
+    uapi::errno::{Errno, Result},
     fs::{fd::FdFlags, socket::create_socket_file},
     proc::thread::Thread,
 };

@@ -12,8 +12,8 @@ use spin::Mutex;
 use super::font::ConsoleFont;
 
 use crate::{
-    api::termios::winsize,
     drivers::drm::framebuffer::{FrameBuffer, PixelFormat, get_framebuffer},
+    uapi::termios::winsize,
 };
 
 /// Hardware display target integrating `FrameBuffer` with `os-terminal`'s `DrawTarget`.

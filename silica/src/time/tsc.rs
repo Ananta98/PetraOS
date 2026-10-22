@@ -9,7 +9,7 @@ use alloc::sync::Arc;
 use ostd::timer::{Jiffies, TIMER_FREQ};
 
 use super::clocksource::{Clocksource, ClocksourceFlags, calc_mult_shift, register_clocksource};
-use crate::api::errno::Result;
+use crate::uapi::errno::Result;
 
 // ----------------------------------------------------------------------------
 // TSC Clocksource

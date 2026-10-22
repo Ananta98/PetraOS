@@ -10,8 +10,8 @@
 use ::alloc::vec;
 use ::alloc::vec::Vec;
 
-use crate::api::errno::{Errno, Result};
 use crate::fs::ext4::crc32c::crc32c;
+use crate::uapi::errno::{Errno, Result};
 
 /// Maximum logical length of a single extent (`0x7FFF` blocks; the value
 /// `0x8000` is reserved on-disk for uninitialized extents, never created here).

@@ -5,7 +5,6 @@
 use ostd::arch::cpu::context::UserContext;
 
 use crate::{
-    api::errno::{Errno, Result},
     proc::{
         lifecycle::{
             CLONE_CHILD_CLEARTID, CLONE_CHILD_SETTID, CLONE_PARENT_SETTID, CLONE_THREAD,
@@ -13,6 +12,7 @@ use crate::{
         },
         thread::Thread,
     },
+    uapi::errno::{Errno, Result},
     utils::userspace::user_ptr::UserPtr,
     vm::vmar::Vmar,
 };

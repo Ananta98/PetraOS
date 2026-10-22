@@ -1,7 +1,7 @@
 use alloc::boxed::Box;
 
-use crate::api::errno::Result;
 use crate::fs::vfs::{FileOps, NodeOps, OpenFlags};
+use crate::uapi::errno::Result;
 
 /// /dev/zero - Discards all writes, reads return infinite zero-bytes.
 pub struct ZeroFile;

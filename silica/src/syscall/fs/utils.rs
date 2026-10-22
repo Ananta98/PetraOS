@@ -7,7 +7,7 @@ use alloc::{sync::Arc, vec::Vec};
 pub use crate::utils::userspace::{UserCStr, UserPtr};
 
 use crate::{
-    api::errno::{Errno, Result},
+    uapi::errno::{Errno, Result},
     fs::{
         fd::FdFlags,
         vfs::{OpenFlags, PathNode},

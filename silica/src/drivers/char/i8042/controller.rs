@@ -13,7 +13,7 @@ use ostd::{
 };
 use spin::Once;
 
-use crate::api::errno::{Errno, Result};
+use crate::uapi::errno::{Errno, Result};
 
 // ----------------------------------------------------------------------------
 // I/O Port Addresses

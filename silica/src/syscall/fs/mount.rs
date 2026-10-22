@@ -6,7 +6,7 @@ use alloc::sync::Arc;
 use ostd::arch::cpu::context::UserContext;
 
 use crate::{
-    api::errno::Result,
+    uapi::errno::Result,
     fs::{
         devfs::DevFs,
         procfs::ProcFs,

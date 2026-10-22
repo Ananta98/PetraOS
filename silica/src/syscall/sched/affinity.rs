@@ -5,8 +5,8 @@
 use ostd::arch::cpu::context::UserContext;
 
 use super::param::resolve_target_proc;
-use crate::api::errno::{Errno, Result};
-use crate::api::sched::{CPU_BYTES, CpuMask};
+use crate::uapi::errno::{Errno, Result};
+use crate::uapi::sched::{CPU_BYTES, CpuMask};
 use crate::proc::thread::Thread;
 use crate::utils::userspace::UserPtr;
 

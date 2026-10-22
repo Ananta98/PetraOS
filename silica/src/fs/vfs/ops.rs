@@ -17,7 +17,7 @@ use super::inode::{INode, INodeAttr, Mode, S_IFMT};
 use super::mount::{PathNode, root};
 use super::path::{LookupFlags, lookup};
 use super::perms::{AccessFlags, apply_umask, check_permission, check_sticky, current_cred};
-use crate::api::errno::{Errno, Result};
+use crate::uapi::errno::{Errno, Result};
 use crate::proc::thread::Thread;
 
 /// Longest single path component.

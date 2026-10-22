@@ -3,7 +3,7 @@
 //! Controlling terminal associations and orphan process group management.
 
 use crate::{
-    api::signal::Signal,
+    uapi::signal::Signal,
     proc::{
         Pid,
         types::table::{allproc_find, pgrp_members},

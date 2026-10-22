@@ -26,7 +26,7 @@ use super::{
     ps2::{CMD_ENABLE_SCANNING, CMD_RESET, send_keyboard_cmd},
 };
 use crate::{
-    api::errno::Result, drivers::CharacterDevice, drivers::char::tty,
+    drivers::CharacterDevice, drivers::char::tty, uapi::errno::Result,
     utils::ring_buffer::RingBuffer,
 };
 

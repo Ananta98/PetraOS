@@ -10,12 +10,12 @@
 use ostd::arch::cpu::context::UserContext;
 
 use crate::{
-    api::errno::{Errno, Result},
     proc::thread::Thread,
     time::{
         CLOCK_MONOTONIC, CLOCK_PROCESS_CPUTIME_ID, CLOCK_REALTIME, CLOCK_THREAD_CPUTIME_ID,
         Timespec,
     },
+    uapi::errno::{Errno, Result},
     utils::userspace::user_ptr::UserPtr,
 };
 

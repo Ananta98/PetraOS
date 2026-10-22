@@ -6,7 +6,7 @@ use core::ops::Range;
 use ostd::mm::{PAGE_SIZE, Vaddr};
 
 use super::super::{Vmar, is_mappable_range, mappings::VmMapping};
-use crate::{api::errno::Result, vm::flags::MsyncFlags};
+use crate::{uapi::errno::Result, vm::flags::MsyncFlags};
 
 impl Vmar {
     /// Brings the mapping of `range` in line with the object behind it.

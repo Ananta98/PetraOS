@@ -16,8 +16,8 @@ use ostd::mm::io::{VmIo, VmIoOnce};
 use spin::Mutex;
 
 use super::caps::{find_caps, map_cap};
-use crate::api::errno::{Errno, Result};
 use crate::drivers::bus::pci::{PCI_DEVICES, PciDevice};
+use crate::uapi::errno::{Errno, Result};
 
 // `virtio_pci_common_cfg` register offsets (virtio 1.0 spec).
 const CFG_MAGIC_VALUE: usize = 0x00;
@@ -99,9 +99,7 @@ pub struct VirtioTransport {
 impl VirtioTransport {
     /// Walks the caps of `device` and maps the virtio PCI windows.
     pub fn new(device: PciDevice) -> Result<Arc<Self>> {
-        let caps =
-            find_caps(&device)?
-                ;
+        let caps = find_caps(&device)?;
         let common = map_cap(&device, caps.common.as_ref().unwrap())?;
         let notify_cap = caps.notify.unwrap();
         let notify = map_cap(&device, &notify_cap)?;
@@ -155,7 +153,9 @@ impl VirtioTransport {
     }
 
     fn read_status(&self) -> Result<u8> {
-        self.common.read_val::<u8>(CFG_STATUS).map_err(|_| Errno::EIO)
+        self.common
+            .read_val::<u8>(CFG_STATUS)
+            .map_err(|_| Errno::EIO)
     }
 
     fn set_status(&self, status: u8) -> Result<()> {
@@ -286,7 +286,10 @@ impl VirtioTransport {
     /// Marks the host PCI records the device as claimed by this driver.
     pub(crate) fn mark_bound(&self) {
         let mut devices = PCI_DEVICES.lock();
-        if let Some(target) = devices.iter_mut().find(|d| d.address == self.device.address) {
+        if let Some(target) = devices
+            .iter_mut()
+            .find(|d| d.address == self.device.address)
+        {
             target.bound_driver = Some("virtio");
         }
     }
@@ -336,9 +339,7 @@ pub fn init() -> Result<()> {
 pub fn register_virtio_device(device: Arc<dyn VirtioDevice>) -> Result<()> {
     DRIVERS.lock().push(Arc::clone(&device));
     for transport in TRANSPORTS.lock().iter() {
-        if transport.driver.lock().is_some()
-            || transport.pci_device_id() != device.device_id()
-        {
+        if transport.driver.lock().is_some() || transport.pci_device_id() != device.device_id() {
             continue;
         }
         match transport.activate(Arc::clone(&device)) {
@@ -364,8 +365,7 @@ fn bind_devices() {
     for driver in drivers {
         let transports = TRANSPORTS.lock().clone();
         for transport in transports {
-            if transport.driver.lock().is_some()
-                || transport.pci_device_id() != driver.device_id()
+            if transport.driver.lock().is_some() || transport.pci_device_id() != driver.device_id()
             {
                 continue;
             }

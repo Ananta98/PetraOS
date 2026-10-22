@@ -4,7 +4,10 @@
 
 use ostd::{arch::cpu::context::UserContext, task::Task};
 
-use crate::{api::errno::{Errno, Result}, proc::thread::Thread};
+use crate::{
+    proc::thread::Thread,
+    uapi::errno::{Errno, Result},
+};
 
 /// `pause(2)` - suspends execution until a signal is delivered.
 pub fn sys_pause(_ctx: &mut UserContext) -> Result<usize> {

@@ -12,11 +12,11 @@ use core::str;
 use spin::RwLock;
 
 use crate::{
-    api::errno::Result,
     fs::{
         procfs::template::{ProcDirOps, ProcFileOps, rw_file_node, static_file_node},
         vfs::INode,
     },
+    uapi::errno::Result,
 };
 
 /// Inode numbers of `/proc/sys/kernel` parameters (inside the 2000.. block,

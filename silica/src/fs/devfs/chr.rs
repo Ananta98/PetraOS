@@ -2,7 +2,7 @@ use alloc::boxed::Box;
 use alloc::sync::Arc;
 
 use crate::{
-    api::errno::Result,
+    uapi::errno::Result,
     drivers::CharacterDevice,
     fs::vfs::{FileOps, INodeAttr, Mode, NodeOps, OpenFlags},
 };

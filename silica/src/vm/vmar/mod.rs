@@ -7,7 +7,7 @@
 //! describe what has been placed in it.
 //!
 //! Every operation here works on page-aligned ranges and reports failures as
-//! POSIX [`Errno`](crate::api::errno::Errno) values, so that the syscall layer is a
+//! POSIX [`Errno`](crate::uapi::errno::Errno) values, so that the syscall layer is a
 //! thin argument-validation shell around these methods.
 
 pub mod allocator;
@@ -24,7 +24,7 @@ use core::{
 use ostd::mm::{MAX_USERSPACE_VADDR, PAGE_SIZE, Vaddr, VmSpace};
 use ostd::sync::{PreemptDisabled, RwLock, RwLockReadGuard};
 
-use crate::api::errno::Result;
+use crate::uapi::errno::Result;
 
 pub use self::allocator::NoRoom;
 pub use self::mappings::VmMapping;
@@ -241,9 +241,8 @@ impl Vmar {
         for mapping in inner.mappings.iter() {
             if mapping.is_shared() {
                 if let Some(backing) = mapping.backing() {
-                    let _ = backing.flush(
-                        mapping.backing_offset()..mapping.backing_offset() + mapping.len(),
-                    );
+                    let _ = backing
+                        .flush(mapping.backing_offset()..mapping.backing_offset() + mapping.len());
                 }
             }
         }

@@ -15,7 +15,7 @@ use alloc::{
 };
 use core::fmt;
 
-use crate::api::errno::{Errno, Result};
+use crate::uapi::errno::{Errno, Result};
 
 /// Maximum length in bytes for a shebang header line (matching Linux `BINPRM_BUF_SIZE`).
 pub const MAX_SHEBANG_LINE_LEN: usize = 256;

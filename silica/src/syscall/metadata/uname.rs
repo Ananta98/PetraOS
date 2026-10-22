@@ -5,7 +5,7 @@
 use ostd::arch::cpu::context::UserContext;
 
 use crate::{
-    api::errno::Result,
+    uapi::errno::Result,
     fs::procfs::sys::get_hostname,
     proc::thread::Thread,
     utils::userspace::user_ptr::UserPtr,

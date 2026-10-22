@@ -18,7 +18,7 @@ pub use ps2_mouse::{Mouse, MouseFlags, MouseState};
 use spin::{Mutex, Once};
 
 use super::controller::{I8042_CONTROLLER, I8042Controller, StatusFlags};
-use crate::{api::errno::Result, drivers::CharacterDevice, utils::ring_buffer::RingBuffer};
+use crate::{drivers::CharacterDevice, uapi::errno::Result, utils::ring_buffer::RingBuffer};
 
 const ISA_MOUSE_IRQ: u8 = 12;
 

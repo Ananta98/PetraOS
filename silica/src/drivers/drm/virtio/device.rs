@@ -16,14 +16,12 @@ use core::mem::size_of;
 use ostd::mm::{HasPaddr, VmIo, dma::DmaCoherent, io::util::HasVmReaderWriter};
 use spin::{Mutex, Once};
 
-use crate::api::drm;
-use crate::api::errno::{Errno, Result};
-use crate::drivers::bus::virtio::{
-    SubmitBuffer, VirtQueue, VirtioDevice, VirtioTransport,
-};
+use crate::drivers::bus::virtio::{SubmitBuffer, VirtQueue, VirtioDevice, VirtioTransport};
 use crate::drivers::drm::core::{DrmDevice, register_drm_device};
 use crate::drivers::drm::gem::GemObject;
 use crate::drivers::drm::kms::{DisplayDriver, Framebuffer, KmsPipeline, KmsState};
+use crate::uapi::drm;
+use crate::uapi::errno::{Errno, Result};
 
 // 2D control commands (`VIRTIO_GPU_CMD_*`) and responses.
 const VG_CMD_GET_DISPLAY_INFO: u32 = 0x0100;
@@ -239,7 +237,10 @@ pub struct VirtioGpu {
 impl VirtioGpu {
     fn new(transport: &Arc<VirtioTransport>) -> Result<Arc<Self>> {
         let Some(control) = transport.queue(CONTROL_QUEUE) else {
-            ostd::info!("virtio-gpu: no control queue; activated = {}", transport.queues().len());
+            ostd::info!(
+                "virtio-gpu: no control queue; activated = {}",
+                transport.queues().len()
+            );
             crate::return_errno!(ENODEV, "device does not expose its control queue");
         };
         Ok(Arc::new(Self {
@@ -466,7 +467,7 @@ impl DisplayDriver for VirtioGpu {
         &self,
         pipeline: usize,
         fb: &Framebuffer,
-        mode: &crate::api::drm::DrmModeModeInfo,
+        mode: &crate::uapi::drm::DrmModeModeInfo,
     ) -> Result<()> {
         let resource = self.resource_for_fb(fb)?;
         let rect = VgRect {

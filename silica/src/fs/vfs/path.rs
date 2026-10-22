@@ -9,7 +9,7 @@ use super::dcache::DEntry;
 use super::file::{File, OpenFlags};
 use super::mount::PathNode;
 use super::perms::{AccessFlags, check_permission, current_cred};
-use crate::api::errno::{Errno, Result};
+use crate::uapi::errno::{Errno, Result};
 
 bitflags! {
     /// Flags for path lookup operations.

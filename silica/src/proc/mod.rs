@@ -19,7 +19,7 @@ use alloc::sync::Arc;
 use ostd::sync::SpinLock;
 
 use crate::{
-    api::{cred::Ucred, errno::Result, limit::Plimit, signal::SigActs},
+    uapi::{cred::Ucred, errno::Result, limit::Plimit, signal::SigActs},
     fs::fd::Filedesc,
     vm::vmar::Vmar,
 };

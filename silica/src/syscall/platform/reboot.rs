@@ -2,8 +2,8 @@
 
 //! Reboot and power management system calls.
 
-use crate::api::errno::{Errno, Result};
-use crate::api::reboot::*;
+use crate::uapi::errno::{Errno, Result};
+use crate::uapi::reboot::*;
 use ostd::arch::cpu::context::UserContext;
 
 use crate::proc::thread::Thread;

@@ -5,7 +5,7 @@
 //! Provides common constants, keys, permissions (`struct ipc_perm` / `struct ipc64_perm`),
 //! and operation flags shared across System V Shared Memory, Semaphores, and Message Queues.
 
-use crate::api::cred::Ucred;
+use crate::uapi::cred::Ucred;
 
 /// System V IPC key type (`key_t` in C).
 pub type Key = i32;

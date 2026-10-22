@@ -15,7 +15,7 @@ use ostd::{
 use spin::{Lazy, Mutex};
 
 use crate::{
-    api::errno::{Errno, Result},
+    uapi::errno::{Errno, Result},
     proc::thread::Thread,
     utils::userspace::user_ptr::UserPtr,
     vm::vmar::Vmar,

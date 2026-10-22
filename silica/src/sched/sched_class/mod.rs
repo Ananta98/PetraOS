@@ -13,8 +13,8 @@ pub use eevdf::{EevdfEntity, EevdfRunQueue};
 pub use rq::{RunQueue, SchedEntry};
 pub use rt::{DEF_RT_TIMESLICE_NS, RtEntity, RtRunQueue};
 
-use crate::api::sched::{CpuMask, SCHED_FIFO, SCHED_IDLE, SCHED_OTHER, SCHED_RR};
 use crate::sched::stats::TaskStats;
+use crate::uapi::sched::{CpuMask, SCHED_FIFO, SCHED_IDLE, SCHED_OTHER, SCHED_RR};
 use alloc::sync::Arc;
 use core::sync::atomic::{AtomicI32, AtomicU64, Ordering};
 use ostd::sync::SpinLock;

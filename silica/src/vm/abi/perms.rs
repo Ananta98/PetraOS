@@ -15,7 +15,7 @@
 //! The `MAY_*` bits are laid out so that shifting them down by three yields the corresponding
 //! `PROT_*` bit.
 
-use crate::api::errno::Result;
+use crate::uapi::errno::Result;
 use bitflags::bitflags;
 use ostd::mm::PageFlags;
 

@@ -5,7 +5,7 @@
 use alloc::sync::Arc;
 
 use crate::{
-    api::errno::Result,
+    uapi::errno::Result,
     fs::vfs::File,
     proc::{Proc, thread::Thread},
     syscall::fs::utils::{IoVec, decode_loffhi, read_user_iovecs},

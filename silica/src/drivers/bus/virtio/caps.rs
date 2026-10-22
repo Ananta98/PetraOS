@@ -3,8 +3,8 @@
 //! Discovery of the vendor-specific PCI capabilities a modern virtio device
 //! publishes (`struct virtio_pci_cap`).
 
-use crate::api::errno::{Errno, Result};
-use crate::drivers::bus::pci::{PciDevice, PciBar, BarType};
+use crate::drivers::bus::pci::{BarType, PciBar, PciDevice};
+use crate::uapi::errno::{Errno, Result};
 
 /// `virtio_pci_cap::cfg_type` values.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -48,9 +48,7 @@ impl VirtioCap {
         let offset = device.read_config_u32(cap_base + 0x08);
         let length = device.read_config_u32(cap_base + 0x0C);
         // The notify cap appends `__u32 notify_off_multiplier`.
-        let notify_multiplier = if cap_len > 0x10
-            && kind == VirtioCapType::Notify
-        {
+        let notify_multiplier = if cap_len > 0x10 && kind == VirtioCapType::Notify {
             device.read_config_u32(cap_base + 0x10)
         } else {
             0

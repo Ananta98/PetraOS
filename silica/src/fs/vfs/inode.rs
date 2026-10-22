@@ -9,7 +9,7 @@ use bitflags::bitflags;
 use spin::RwLock;
 
 use super::file::{FileOps, OpenFlags};
-use crate::api::errno::Result;
+use crate::uapi::errno::Result;
 
 bitflags! {
     /// File types and permission bits mirroring standard POSIX modes.

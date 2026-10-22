@@ -11,7 +11,7 @@ pub mod mouse;
 use super::{
     InterfaceDescriptor, USB_CLASS_HID, USB_HID_PROTOCOL_KEYBOARD, USB_HID_PROTOCOL_MOUSE,
 };
-use crate::api::errno::{Errno, Result};
+use crate::uapi::errno::{Errno, Result};
 
 /// USB HID Device Type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

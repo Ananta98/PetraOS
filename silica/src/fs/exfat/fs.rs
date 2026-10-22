@@ -5,7 +5,7 @@
 use alloc::{boxed::Box, sync::Arc, vec, vec::Vec};
 
 use crate::{
-    api::errno::{Errno, Result},
+    uapi::errno::{Errno, Result},
     drivers::block::BlockDevice,
     fs::{
         exfat::{

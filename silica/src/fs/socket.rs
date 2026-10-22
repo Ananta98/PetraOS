@@ -12,7 +12,7 @@ use smoltcp::socket::{
 };
 
 use crate::{
-    api::errno::Result,
+    uapi::errno::Result,
     fs::{
         poll::PollEvents,
         vfs::{File, FileOps, INode, INodeAttr, Mode, NodeOps, OpenFlags},

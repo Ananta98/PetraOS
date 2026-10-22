@@ -6,7 +6,7 @@
 //! [`ostd::io::IoMem`] using `VmIoOnce`, completely eliminating the need for
 //! raw pointers, memory transmutation, and `unsafe` code.
 
-use crate::api::errno::{Errno, Result};
+use crate::uapi::errno::{Errno, Result};
 use ostd::{io::IoMem, mm::VmIoOnce};
 
 // ----------------------------------------------------------------------------

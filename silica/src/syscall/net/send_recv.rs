@@ -6,7 +6,7 @@ use ostd::arch::cpu::context::UserContext;
 
 use super::addr::{get_socket, read_sockaddr, write_sockaddr};
 use crate::{
-    api::errno::Result,
+    uapi::errno::Result,
     proc::thread::Thread,
     utils::userspace::UserPtr,
 };

@@ -4,10 +4,7 @@
 
 use ostd::arch::cpu::context::UserContext;
 
-use crate::{
-    api::errno::Result,
-    proc::thread::Thread,
-};
+use crate::{proc::thread::Thread, uapi::errno::Result};
 
 /// System call `close(int fd)` (Syscall #3).
 pub fn sys_close(fd: i32, _ctx: &mut UserContext) -> Result<usize> {

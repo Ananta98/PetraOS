@@ -12,7 +12,7 @@ use core::sync::atomic::{AtomicI32, AtomicU64, Ordering};
 use ostd::task::Task;
 
 use super::rq::SchedEntry;
-use crate::api::sched::{RT_PRIO_MAX, SCHED_RR};
+use crate::uapi::sched::{RT_PRIO_MAX, SCHED_RR};
 
 /// Default round-robin time quantum (100 ms).
 pub const DEF_RT_TIMESLICE_NS: u64 = 100_000_000;

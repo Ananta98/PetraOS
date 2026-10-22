@@ -24,7 +24,7 @@ use crate::fs::vfs::{
     mount::{Mount, PathNode, root},
 };
 use crate::{
-    api::errno::{Errno, Result},
+    uapi::errno::{Errno, Result},
     fs::vfs::{FileOps, FileSystem, INode, INodeAttr, Mode, NodeOps, OpenFlags, StatFs},
 };
 use alloc::string::String;

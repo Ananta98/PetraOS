@@ -8,7 +8,7 @@ use alloc::vec::Vec;
 use ostd::arch::cpu::context::UserContext;
 
 use crate::{
-    api::errno::{Errno, Result},
+    uapi::errno::{Errno, Result},
     fs::vfs::{File, Mode},
     proc::thread::Thread,
     syscall::fs::utils::UserPtr,

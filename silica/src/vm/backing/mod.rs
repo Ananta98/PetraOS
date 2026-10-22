@@ -9,7 +9,7 @@ pub mod zero;
 use core::{fmt::Debug, ops::Range};
 use ostd::mm::{FrameAllocOptions, UFrame};
 
-use crate::api::errno::Result;
+use crate::uapi::errno::Result;
 
 pub use file::FileBacking;
 pub use shm::SharedPages;

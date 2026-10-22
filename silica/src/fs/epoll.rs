@@ -10,7 +10,7 @@ use alloc::{boxed::Box, sync::Arc, vec::Vec};
 use spin::Mutex;
 
 use crate::{
-    api::errno::{Errno, Result},
+    uapi::errno::{Errno, Result},
     fs::{
         poll::PollEvents,
         vfs::{File, FileOps, INode, INodeAttr, Mode, NodeOps, OpenFlags},

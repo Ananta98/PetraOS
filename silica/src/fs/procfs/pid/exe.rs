@@ -5,8 +5,8 @@
 use alloc::{format, string::String};
 
 use crate::{
-    api::errno::Errno,
-    api::errno::Result,
+    uapi::errno::Errno,
+    uapi::errno::Result,
     fs::procfs::template::ProcSymOps,
     proc::{Pid, allproc_find},
 };

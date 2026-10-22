@@ -7,7 +7,7 @@
 
 pub mod e1000;
 
-use crate::api::errno::Result;
+use crate::uapi::errno::Result;
 use alloc::{string::String, sync::Arc, vec::Vec};
 
 /// A network interface device (e.g. Ethernet controller).

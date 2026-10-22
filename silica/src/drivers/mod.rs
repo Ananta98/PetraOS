@@ -17,7 +17,7 @@ use spin::Mutex;
 
 pub use net::NetDevice;
 
-use crate::{api::errno::Result, drivers::bus::pci::PciDevice};
+use crate::{drivers::bus::pci::PciDevice, uapi::errno::Result};
 
 // ----------------------------------------------------------------------------
 // Device Registries

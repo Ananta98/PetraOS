@@ -2,7 +2,7 @@
 
 //! Process signal operations.
 //!
-//! The shapes live in [`crate::api::signal`] and the frame layout in
+//! The shapes live in [`crate::uapi::signal`] and the frame layout in
 //! [`crate::arch::x86_64::signal`]. This module is the part that acts: holding a
 //! signal until a thread can take it, deciding whether a disposition applies, and
 //! running the default action.
@@ -30,15 +30,15 @@
 //!   `Task::run`, which is the same missing piece [`wait`] depends on.
 
 use crate::{
-    api::{
-        errno::{Errno, Result},
-        signal::{SigHandler, SigInfo, SigSet, Signal},
-    },
     proc::{
         Proc, ProcState,
         job::{continue_thread, stop_thread},
         lifecycle::exit1,
         thread::Thread,
+    },
+    uapi::{
+        errno::{Errno, Result},
+        signal::{SigHandler, SigInfo, SigSet, Signal},
     },
 };
 use alloc::vec::Vec;

@@ -6,7 +6,7 @@ use ostd::arch::cpu::context::UserContext;
 use ostd::cpu::CpuId;
 
 use crate::{
-    api::errno::Result,
+    uapi::errno::Result,
     proc::thread::Thread,
     utils::userspace::UserPtr,
 };

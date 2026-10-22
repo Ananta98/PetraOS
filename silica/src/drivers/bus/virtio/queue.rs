@@ -12,8 +12,8 @@ use core::fmt::{self, Debug, Formatter};
 use ostd::mm::{HasPaddr, VmIo, dma::DmaCoherent};
 use spin::Mutex;
 
-use crate::api::errno::{Errno, Result};
 use crate::drivers::bus::virtio::transport::VirtioTransport;
+use crate::uapi::errno::{Errno, Result};
 
 /// `virtq_desc.flags`: chain-on-to-next bit.
 pub const DESC_FLAG_NEXT: u16 = 1 << 0;
@@ -33,8 +33,14 @@ pub struct SubmitBuffer {
 /// `struct virtq_desc` — descriptor table entry layout.
 #[repr(C)]
 #[derive(
-    Debug, Clone, Copy, Default, zerocopy::FromBytes, zerocopy::IntoBytes,
-    zerocopy::KnownLayout, zerocopy::Immutable,
+    Debug,
+    Clone,
+    Copy,
+    Default,
+    zerocopy::FromBytes,
+    zerocopy::IntoBytes,
+    zerocopy::KnownLayout,
+    zerocopy::Immutable,
 )]
 struct Desc {
     addr: u64,
@@ -148,8 +154,11 @@ impl VirtQueue {
                 } else {
                     0
                 };
-                let flags = if i + 1 < buffers.len() { DESC_FLAG_NEXT } else { 0 }
-                    | if buffer.writable { DESC_FLAG_WRITE } else { 0 };
+                let flags = if i + 1 < buffers.len() {
+                    DESC_FLAG_NEXT
+                } else {
+                    0
+                } | if buffer.writable { DESC_FLAG_WRITE } else { 0 };
                 let desc = Desc {
                     addr: buffer.addr,
                     len: buffer.len,
@@ -214,10 +223,7 @@ impl VirtQueue {
 
     /// Rings this queue's doorbell via the transport's notify window.
     fn ring_bell(&self) -> Result<()> {
-        let transport = self
-            .transport
-            .upgrade()
-            .ok_or(Errno::ENODEV)?;
+        let transport = self.transport.upgrade().ok_or(Errno::ENODEV)?;
         transport.ring_bell(self.notify_off, self.index)
     }
 }

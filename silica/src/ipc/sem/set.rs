@@ -5,7 +5,7 @@
 use alloc::{sync::Arc, vec::Vec};
 use ostd::sync::{SpinLock, WaitQueue};
 
-use crate::api::sem::{SEMMSL, SemIdDs};
+use crate::uapi::sem::{SEMMSL, SemIdDs};
 
 /// A single semaphore within a set.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

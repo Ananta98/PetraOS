@@ -3,10 +3,10 @@
 //! DRM ioctl dispatch and userspace struct marshalling.
 
 use super::file::DrmFile;
-use crate::api;
-use crate::api::errno::Result;
 use crate::drivers::drm::kms;
 use crate::proc::thread::Thread;
+use crate::uapi;
+use crate::uapi::errno::Result;
 use crate::utils::userspace::UserPtr;
 
 // ----------------------------------------------------------------------------
@@ -20,7 +20,11 @@ use crate::utils::userspace::UserPtr;
 /// instead of crashing the kernel.
 pub(crate) fn read_uapi<T>(arg: usize) -> Result<T>
 where
-    T: zerocopy::FromBytes + zerocopy::IntoBytes + zerocopy::KnownLayout + zerocopy::Immutable + Copy,
+    T: zerocopy::FromBytes
+        + zerocopy::IntoBytes
+        + zerocopy::KnownLayout
+        + zerocopy::Immutable
+        + Copy,
 {
     let vmar = Thread::proc_or_esrch()?.vmspace();
     UserPtr::new(arg).read_val(&vmar)
@@ -29,7 +33,11 @@ where
 /// Writes a `#[repr(C)]` plain-data struct into user space at `arg`.
 pub(crate) fn write_uapi<T>(arg: usize, val: &T) -> Result<()>
 where
-    T: zerocopy::FromBytes + zerocopy::IntoBytes + zerocopy::KnownLayout + zerocopy::Immutable + Copy,
+    T: zerocopy::FromBytes
+        + zerocopy::IntoBytes
+        + zerocopy::KnownLayout
+        + zerocopy::Immutable
+        + Copy,
 {
     let vmar = Thread::proc_or_esrch()?.vmspace();
     UserPtr::new(arg).write_val(&vmar, *val)
@@ -64,15 +72,15 @@ pub(crate) fn copy_string_to_user(ptr: usize, len: usize, src: &[u8]) -> usize {
 /// mode-setting range (0xA0..) delegate to the device's own ioctl handler.
 pub fn dispatch(file: &mut DrmFile, cmd: u32, arg: usize) -> Result<usize> {
     match cmd {
-        api::drm::DRM_IOCTL_VERSION => ioctl_version(file, arg),
-        api::drm::DRM_IOCTL_GET_CAP => ioctl_get_cap(arg),
-        api::drm::DRM_IOCTL_SET_CLIENT_CAP => ioctl_set_client_cap(file, arg),
-        api::drm::DRM_IOCTL_SET_MASTER | api::drm::DRM_IOCTL_DROP_MASTER => Ok(0),
-        api::drm::DRM_IOCTL_GEM_CLOSE | api::drm::DRM_IOCTL_MODE_DESTROY_DUMB => {
+        uapi::drm::DRM_IOCTL_VERSION => ioctl_version(file, arg),
+        uapi::drm::DRM_IOCTL_GET_CAP => ioctl_get_cap(arg),
+        uapi::drm::DRM_IOCTL_SET_CLIENT_CAP => ioctl_set_client_cap(file, arg),
+        uapi::drm::DRM_IOCTL_SET_MASTER | uapi::drm::DRM_IOCTL_DROP_MASTER => Ok(0),
+        uapi::drm::DRM_IOCTL_GEM_CLOSE | uapi::drm::DRM_IOCTL_MODE_DESTROY_DUMB => {
             ioctl_gem_close(file, arg)
         }
-        api::drm::DRM_IOCTL_MODE_CREATE_DUMB => ioctl_create_dumb(file, arg),
-        api::drm::DRM_IOCTL_MODE_MAP_DUMB => ioctl_map_dumb(file, arg),
+        uapi::drm::DRM_IOCTL_MODE_CREATE_DUMB => ioctl_create_dumb(file, arg),
+        uapi::drm::DRM_IOCTL_MODE_MAP_DUMB => ioctl_map_dumb(file, arg),
         _ => {
             let device = file.device.clone();
             // The number byte decides the family: only native KMS request
@@ -90,12 +98,12 @@ pub fn dispatch(file: &mut DrmFile, cmd: u32, arg: usize) -> Result<usize> {
 }
 
 fn ioctl_version(file: &mut DrmFile, arg: usize) -> Result<usize> {
-    let ver = read_uapi::<api::drm::DrmVersion>(arg)?;
+    let ver = read_uapi::<uapi::drm::DrmVersion>(arg)?;
     let (major, minor, patch) = file.device.driver_version();
     let driver_name = file.device.driver_name().as_bytes();
     let (date, desc) = file.device.driver_info();
 
-    let out = api::drm::DrmVersion {
+    let out = uapi::drm::DrmVersion {
         version_major: major as i32,
         version_minor: minor as i32,
         version_patchlevel: patch as i32,
@@ -112,12 +120,12 @@ fn ioctl_version(file: &mut DrmFile, arg: usize) -> Result<usize> {
 }
 
 fn ioctl_get_cap(arg: usize) -> Result<usize> {
-    let mut cap = read_uapi::<api::drm::DrmGetCap>(arg)?;
+    let mut cap = read_uapi::<uapi::drm::DrmGetCap>(arg)?;
     cap.value = match cap.capability {
-        api::drm::DRM_CAP_DUMB_BUFFER => 1,
-        api::drm::DRM_CAP_DUMB_PREFERRED_DEPTH => 24, // 24-bit weight preferred
-        api::drm::DRM_CAP_CURSOR_WIDTH => 64,
-        api::drm::DRM_CAP_CURSOR_HEIGHT => 64,
+        uapi::drm::DRM_CAP_DUMB_BUFFER => 1,
+        uapi::drm::DRM_CAP_DUMB_PREFERRED_DEPTH => 24, // 24-bit weight preferred
+        uapi::drm::DRM_CAP_CURSOR_WIDTH => 64,
+        uapi::drm::DRM_CAP_CURSOR_HEIGHT => 64,
         _ => 0,
     };
     write_uapi(arg, &cap)?;
@@ -125,17 +133,17 @@ fn ioctl_get_cap(arg: usize) -> Result<usize> {
 }
 
 fn ioctl_set_client_cap(file: &mut DrmFile, arg: usize) -> Result<usize> {
-    let req = read_uapi::<api::drm::DrmSetClientCap>(arg)?;
+    let req = read_uapi::<uapi::drm::DrmSetClientCap>(arg)?;
     if req.value > 1 {
         // Linux rejects non-boolean values with EINVAL.
         crate::return_errno!(EINVAL, "client capability value must be 0 or 1");
     }
     let enabled = req.value == 1;
     match req.capability {
-        api::drm::DRM_CLIENT_CAP_STEREO_3D => file.caps.stereo_3d = enabled,
-        api::drm::DRM_CLIENT_CAP_UNIVERSAL_PLANES => file.caps.universal_planes = enabled,
-        api::drm::DRM_CLIENT_CAP_ATOMIC => file.caps.atomic = enabled,
-        api::drm::DRM_CLIENT_CAP_ASPECT_RATIO => file.caps.aspect_ratio = enabled,
+        uapi::drm::DRM_CLIENT_CAP_STEREO_3D => file.caps.stereo_3d = enabled,
+        uapi::drm::DRM_CLIENT_CAP_UNIVERSAL_PLANES => file.caps.universal_planes = enabled,
+        uapi::drm::DRM_CLIENT_CAP_ATOMIC => file.caps.atomic = enabled,
+        uapi::drm::DRM_CLIENT_CAP_ASPECT_RATIO => file.caps.aspect_ratio = enabled,
         _ => {
             // Unknown capabilities are rejected, matching Linux.
             crate::return_errno!(EINVAL, "unknown client capability");
@@ -145,7 +153,7 @@ fn ioctl_set_client_cap(file: &mut DrmFile, arg: usize) -> Result<usize> {
 }
 
 fn ioctl_gem_close(file: &mut DrmFile, arg: usize) -> Result<usize> {
-    let req = read_uapi::<api::drm::DrmGemClose>(arg)?;
+    let req = read_uapi::<uapi::drm::DrmGemClose>(arg)?;
     if !file.handles.remove(req.handle) {
         crate::return_errno!(EINVAL, "handle to close does not exist");
     }
@@ -153,7 +161,7 @@ fn ioctl_gem_close(file: &mut DrmFile, arg: usize) -> Result<usize> {
 }
 
 fn ioctl_create_dumb(file: &mut DrmFile, arg: usize) -> Result<usize> {
-    let mut req = read_uapi::<api::drm::DrmModeCreateDumb>(arg)?;
+    let mut req = read_uapi::<uapi::drm::DrmModeCreateDumb>(arg)?;
     if req.flags != 0 || req.bpp == 0 || req.height == 0 || req.width == 0 {
         crate::return_errno!(EINVAL, "invalid dumb buffer parameters");
     }
@@ -171,7 +179,7 @@ fn ioctl_create_dumb(file: &mut DrmFile, arg: usize) -> Result<usize> {
 }
 
 fn ioctl_map_dumb(file: &mut DrmFile, arg: usize) -> Result<usize> {
-    let mut req = read_uapi::<api::drm::DrmModeMapDumb>(arg)?;
+    let mut req = read_uapi::<uapi::drm::DrmModeMapDumb>(arg)?;
     let Some(object) = file.handles.get(req.handle) else {
         crate::return_errno!(EINVAL, "handle to map does not exist");
     };

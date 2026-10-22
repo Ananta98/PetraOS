@@ -7,10 +7,10 @@
 use ostd::arch::cpu::context::UserContext;
 
 use crate::{
-    api::errno::{Errno, Result},
     fs::vfs::{Mode, OpenFlags},
     proc::thread::Thread,
     syscall::fs::utils::{AT_FDCWD, AT_REMOVEDIR, UserCStr, UserPtr, resolve_at_start},
+    uapi::errno::{Errno, Result},
 };
 
 /// System call `truncate(const char *path, off_t length)` (Syscall #76).

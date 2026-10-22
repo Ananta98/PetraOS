@@ -6,13 +6,13 @@ use alloc::vec::Vec;
 use ostd::arch::cpu::context::UserContext;
 
 use crate::{
-    api::{
-        errno::{Errno, Result},
-        signal::{SigInfo, Signal},
-    },
     proc::{
         Pid, Proc, allproc_find, allproc_for_each, pgrp_members,
         thread::{Thread, Tid},
+    },
+    uapi::{
+        errno::{Errno, Result},
+        signal::{SigInfo, Signal},
     },
 };
 

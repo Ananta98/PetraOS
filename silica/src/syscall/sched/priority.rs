@@ -7,8 +7,8 @@ use alloc::vec::Vec;
 use ostd::arch::cpu::context::UserContext;
 
 use super::param::resolve_target_proc;
-use crate::api::cred::Uid;
-use crate::api::errno::{Errno, Result};
+use crate::uapi::cred::Uid;
+use crate::uapi::errno::{Errno, Result};
 use crate::proc::Proc;
 use crate::proc::thread::Thread;
 use crate::proc::{Pid, allproc_iter, pgrp_members};

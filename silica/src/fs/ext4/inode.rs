@@ -5,8 +5,8 @@
 
 use ::alloc::vec::Vec;
 
-use crate::api::errno::{Errno, Result};
 use crate::fs::ext4::crc32c::crc32c;
+use crate::uapi::errno::{Errno, Result};
 
 /// Root inode number for the filesystem root directory.
 pub const ROOT_INO: u32 = 2;

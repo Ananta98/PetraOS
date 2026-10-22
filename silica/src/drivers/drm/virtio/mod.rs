@@ -17,7 +17,7 @@ pub const PCI_DEVICE_ID_VIRTIO_GPU: u16 = 0x1050;
 
 /// Registers the driver with the virtio bus, which binds it to any
 /// unclaimed matching PCI device.
-pub fn init() -> crate::api::errno::Result<()> {
+pub fn init() -> crate::uapi::errno::Result<()> {
     crate::drivers::bus::virtio::register_virtio_device(alloc::sync::Arc::new(VirtioGpuDevice))
 }
 

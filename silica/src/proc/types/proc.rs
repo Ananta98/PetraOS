@@ -13,16 +13,16 @@ use ostd::sync::{SpinLock, WaitQueue};
 
 use super::pid::{PID_INIT, Pid};
 use crate::{
-    api::{
-        cred::Ucred,
-        errno::Result,
-        limit::{Plimit, Rusage},
-        signal::{SigActs, SigInfo, Signal, code},
-    },
     fs::{PathNode, fd::Filedesc, vfs::File},
     proc::{
         signal::SigQueue,
         thread::{Thread, Tid},
+    },
+    uapi::{
+        cred::Ucred,
+        errno::Result,
+        limit::{Plimit, Rusage},
+        signal::{SigActs, SigInfo, Signal, code},
     },
     vm::vmar::Vmar,
 };

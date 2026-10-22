@@ -5,7 +5,6 @@
 use ostd::{arch::cpu::context::UserContext, task::Task};
 
 use crate::{
-    api::errno::{Errno, Result},
     fs::{
         epoll::{
             EPOLL_CLOEXEC, EPOLL_CTL_ADD, EPOLL_CTL_DEL, EPOLL_CTL_MOD, EpollEvent,
@@ -15,6 +14,7 @@ use crate::{
     },
     proc::thread::Thread,
     syscall::fs::utils::UserPtr,
+    uapi::errno::{Errno, Result},
 };
 
 /// System call `epoll_create(int size)` (Syscall #213).

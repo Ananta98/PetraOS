@@ -6,11 +6,11 @@ use ostd::arch::cpu::context::UserContext;
 
 use super::utils::encode_sigset;
 use crate::{
-    api::{
+    proc::thread::Thread,
+    uapi::{
         errno::{Errno, Result},
         signal::SIGSET_WORDS,
     },
-    proc::thread::Thread,
     utils::userspace::user_ptr::UserPtr,
 };
 

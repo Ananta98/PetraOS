@@ -19,7 +19,7 @@ use super::{
     },
     ring::{CommandRing, EventRing, TRB_TYPE_COMMAND_COMPLETION, TRB_TYPE_TRANSFER_EVENT, Trb},
 };
-use crate::api::errno::{Errno, Result};
+use crate::uapi::errno::{Errno, Result};
 
 pub const MAX_SLOTS: usize = 64;
 

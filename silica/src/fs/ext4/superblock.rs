@@ -10,8 +10,8 @@
 use ::alloc::vec;
 use ::alloc::vec::Vec;
 
-use crate::api::errno::{Errno, Result};
 use crate::fs::ext4::crc32c::crc32c;
+use crate::uapi::errno::{Errno, Result};
 
 /// Standard ext2/3/4 superblock magic (`0xEF53`).
 pub const EXT4_SUPER_MAGIC: u16 = 0xEF53;

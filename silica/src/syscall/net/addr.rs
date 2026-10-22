@@ -7,7 +7,7 @@ use smoltcp::wire::{IpAddress, IpEndpoint, Ipv4Address, Ipv6Address};
 use zerocopy::{FromBytes, Immutable,IntoBytes};
 
 use crate::{
-    api::errno::{Errno, Result},
+    uapi::errno::{Errno, Result},
     net::socket::{AF_INET, AF_INET6, AF_NETLINK, AF_UNIX, KernelSocket, SocketAddress},
     proc::{Proc, thread::Thread},
     utils::userspace::UserPtr,

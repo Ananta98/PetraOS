@@ -2,7 +2,7 @@
 
 //! System V IPC permission checks and validation.
 
-use crate::api::{
+use crate::uapi::{
     cred::Ucred,
     errno::{Errno, Result},
     ipc::IpcPerm,

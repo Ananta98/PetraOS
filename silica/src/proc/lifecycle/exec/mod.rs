@@ -24,7 +24,7 @@ use ostd::arch::cpu::context::UserContext;
 use ostd::user::UserContextApi;
 
 use crate::{
-    api::{
+    uapi::{
         cred::Ucred,
         errno::{Errno, Result},
         signal::{SigHandler, SigStack},

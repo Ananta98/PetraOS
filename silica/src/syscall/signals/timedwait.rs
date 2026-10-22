@@ -6,13 +6,13 @@ use ostd::arch::cpu::context::UserContext;
 
 use super::utils::decode_sigset;
 use crate::{
-    api::{
-        errno::{Errno, Result},
-        signal::SIGSET_WORDS,
-    },
     arch::signal::encode_siginfo,
     proc::thread::{Thread, ThreadFlags},
     time::Timespec,
+    uapi::{
+        errno::{Errno, Result},
+        signal::SIGSET_WORDS,
+    },
     utils::userspace::user_ptr::UserPtr,
 };
 

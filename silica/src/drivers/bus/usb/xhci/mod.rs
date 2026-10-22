@@ -14,8 +14,8 @@ use alloc::sync::Arc;
 use ostd::io::IoMem;
 
 use crate::{
-    api::errno::{Errno, Result},
     drivers::bus::pci::{self, PciDevice, PciDeviceId, PciDriver, pci_register_driver},
+    uapi::errno::{Errno, Result},
 };
 
 pub use controller::XhciController;

@@ -18,8 +18,8 @@ use core::time::Duration;
 use ostd::sync::{LocalIrqDisabled, SpinLock, WaitQueue};
 use spin::Once;
 
-use crate::api::errno::Result;
 use crate::proc::kthread::{kproc_create, kthread_add};
+use crate::uapi::errno::Result;
 
 type WorkFn = Box<dyn FnOnce() + Send>;
 

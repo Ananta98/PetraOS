@@ -14,9 +14,9 @@ use ostd::task::scheduler::UpdateFlags;
 use super::SchedEntity;
 use super::eevdf::EevdfRunQueue;
 use super::rt::RtRunQueue;
-use crate::api::sched::SCHED_RR;
 use crate::sched::now;
 use crate::sched::stats::CpuStats;
+use crate::uapi::sched::SCHED_RR;
 
 /// Runnable task together with attached scheduling entity and arrival tick.
 #[derive(Clone)]

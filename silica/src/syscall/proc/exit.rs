@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: GPL-2.0
 
 use crate::{
-    api::errno::Result,
     proc::{
         ExitStatus,
         lifecycle::{exit_thread, exit1},
         thread::Thread,
     },
+    uapi::errno::Result,
 };
 use ostd::arch::cpu::context::UserContext;
 

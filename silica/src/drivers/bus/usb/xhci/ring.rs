@@ -5,7 +5,7 @@
 //! Handles 16-byte Transfer Request Blocks (TRBs), cycle bit toggling,
 //! and DMA memory allocation for xHCI ring architectures.
 
-use crate::api::errno::{Errno, Result};
+use crate::uapi::errno::{Errno, Result};
 use ostd::mm::{HasPaddr, dma::DmaCoherent, io::util::HasVmReaderWriter};
 
 pub const TRB_SIZE: usize = 16;

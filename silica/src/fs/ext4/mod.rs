@@ -20,12 +20,12 @@ pub mod superblock;
 use ::alloc::sync::Arc;
 
 use crate::{
-    api::errno::Result,
     drivers::block::BlockDevice,
     fs::{
         registry::{FileSystemType, register_filesystem_type},
         vfs::FileSystem,
     },
+    uapi::errno::Result,
 };
 
 /// Filesystem type descriptor for Ext4.

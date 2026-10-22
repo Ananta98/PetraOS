@@ -6,7 +6,7 @@ use alloc::vec::Vec;
 use core::fmt;
 use spin::Mutex;
 
-use crate::api::errno::Result;
+use crate::uapi::errno::Result;
 
 /// Initcall execution levels, matching Linux kernel boot stages.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]

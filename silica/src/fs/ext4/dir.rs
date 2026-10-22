@@ -11,7 +11,7 @@
 use ::alloc::string::String;
 use ::alloc::vec::Vec;
 
-use crate::api::errno::{Errno, Result};
+use crate::uapi::errno::{Errno, Result};
 
 /// Dirent file-type byte values.
 pub mod ftype {

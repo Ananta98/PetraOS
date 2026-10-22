@@ -9,7 +9,7 @@ use ostd::mm::{PAGE_SIZE, Vaddr, tlb::TlbFlushOp};
 use ostd::task::disable_preempt;
 
 use crate::{
-    api::errno::Result,
+    uapi::errno::Result,
     vm::{backing::Backing, flags::MmapFlags, perms::VmPerms},
 };
 

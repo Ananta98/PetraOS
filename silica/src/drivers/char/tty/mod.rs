@@ -17,10 +17,10 @@ use spin::Mutex;
 
 use ostd::sync::{LocalIrqDisabled, SpinLock, WaitQueue, Waiter};
 
-use crate::api::errno::{Errno, Result};
-use crate::api::ioctl;
-use crate::api::signal::Signal;
-use crate::api::termios::{Termios, VMIN, VTIME, winsize};
+use crate::uapi::errno::{Errno, Result};
+use crate::uapi::ioctl;
+use crate::uapi::signal::Signal;
+use crate::uapi::termios::{Termios, VMIN, VTIME, winsize};
 use crate::drivers::{CharacterDevice, register_chrdev};
 use crate::fs::poll::PollEvents;
 use crate::fs::vfs::{File, FileOps, INode, Mode, OpenFlags};

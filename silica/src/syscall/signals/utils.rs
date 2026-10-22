@@ -2,7 +2,7 @@
 
 //! Shared utilities and encoders/decoders for signal system calls.
 
-use crate::api::signal::{SIGSET_WORDS, SigAction, SigHandler, SigSet, SigStack, Signal};
+use crate::uapi::signal::{SIGSET_WORDS, SigAction, SigHandler, SigSet, SigStack, Signal};
 
 /// The size of `struct sigaction` as user space lays it out.
 ///
@@ -90,5 +90,5 @@ pub fn encode_sigstack(stack: &SigStack) -> [u8; 24] {
 }
 
 pub fn all_signals() -> impl Iterator<Item = Signal> {
-    (1..=crate::api::signal::SIGNAL_MAX).filter_map(Signal::from_u32)
+    (1..=crate::uapi::signal::SIGNAL_MAX).filter_map(Signal::from_u32)
 }

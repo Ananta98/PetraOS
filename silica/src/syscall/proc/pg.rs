@@ -5,8 +5,8 @@
 use ostd::arch::cpu::context::UserContext;
 
 use crate::{
-    api::errno::{Errno, Result},
     proc::{Pid, allproc_find, thread::Thread},
+    uapi::errno::{Errno, Result},
 };
 
 /// `setpgid(2)` - sets process group ID for process.

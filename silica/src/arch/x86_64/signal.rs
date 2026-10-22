@@ -48,7 +48,7 @@
 //! [`crate::proc::thread::Thread::fs_base`], which keeps it in the thread
 //! instead.
 //!
-//! [`SA_RESTART`]: crate::api::signal::flags::SA_RESTART
+//! [`SA_RESTART`]: crate::uapi::signal::flags::SA_RESTART
 
 use alloc::sync::Arc;
 use core::fmt;
@@ -56,7 +56,7 @@ use core::fmt;
 use ostd::{arch::cpu::context::UserContext, mm::PAGE_SIZE, user::UserContextApi};
 
 use crate::{
-    api::{
+    uapi::{
         errno::{Errno, Result},
         signal::{SIGSET_WORDS, SigInfo, SigSet, SigStack, Signal},
     },
@@ -214,7 +214,7 @@ pub struct UContext {
     /// Present on x86-64 and unused on i386, which is exactly why it is easy to
     /// miss. `rt_sigreturn` puts it back, so a handler cannot make a signal
     /// permanently blocked by accident.
-    pub uc_sigmask: crate::api::signal::SigSet,
+    pub uc_sigmask: crate::uapi::signal::SigSet,
 }
 
 /// `struct ucontext` is 424 bytes on x86-64.
@@ -475,7 +475,7 @@ pub fn encode_siginfo(info: &SigInfo) -> [u8; 128] {
     buf[0..4].copy_from_slice(&info.si_signo.to_le_bytes());
     buf[4..8].copy_from_slice(&info.si_errno.to_le_bytes());
     buf[8..12].copy_from_slice(&info.si_code.to_le_bytes());
-    if info.si_code == crate::api::signal::code::TIMER {
+    if info.si_code == crate::uapi::signal::code::TIMER {
         buf[16..20].copy_from_slice(&(info.si_addr as u32).to_le_bytes());
         buf[20..24].copy_from_slice(&0u32.to_le_bytes());
         buf[24..32].copy_from_slice(&info.si_value.to_le_bytes());
@@ -532,7 +532,7 @@ impl SigFrame {
 
         let si_code = read_u32(&buf[INFO + 8..INFO + 12]) as i32;
         let (si_addr, si_pid, si_uid, si_status, si_value) =
-            if si_code == crate::api::signal::code::TIMER {
+            if si_code == crate::uapi::signal::code::TIMER {
                 (
                     read_u32(&buf[INFO + 16..INFO + 20]) as u64,
                     0,

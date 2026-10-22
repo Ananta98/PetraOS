@@ -4,7 +4,7 @@ use alloc::sync::Arc;
 use ostd::arch::cpu::context::UserContext;
 
 use crate::{
-    api::errno::{Errno, Result},
+    uapi::errno::{Errno, Result},
     fs::vfs::OpenFlags,
     proc::thread::Thread,
     vm::{

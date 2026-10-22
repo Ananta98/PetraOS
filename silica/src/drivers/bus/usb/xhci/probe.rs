@@ -18,7 +18,6 @@ use super::{
     },
 };
 use crate::{
-    api::errno::{Errno, Result},
     drivers::{
         BlockDevice,
         bus::usb::{
@@ -29,6 +28,7 @@ use crate::{
             storage::probe_storage_interface,
         },
     },
+    uapi::errno::{Errno, Result},
 };
 
 /// Represents an active enumerated USB device managed by xHCI.

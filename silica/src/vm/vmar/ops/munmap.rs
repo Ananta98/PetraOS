@@ -6,7 +6,7 @@ use core::ops::Range;
 use ostd::mm::Vaddr;
 
 use super::super::{Vmar, check_page_aligned_range, is_mappable_range};
-use crate::{api::errno::Result, vm::flags::MadviseAdvice};
+use crate::{uapi::errno::Result, vm::flags::MadviseAdvice};
 
 impl Vmar {
     /// Releases the mappings that intersect `range`.

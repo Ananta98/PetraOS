@@ -5,10 +5,10 @@
 use alloc::sync::Arc;
 
 use crate::{
-    api::errno::Result,
     fs::vfs::File,
     proc::{Proc, thread::Thread},
     syscall::fs::utils::{decode_loffhi, read_user_iovecs},
+    uapi::errno::Result,
     utils::userspace::UserPtr,
 };
 use ostd::arch::cpu::context::UserContext;
@@ -78,7 +78,7 @@ fn do_readv(
 
 /// System call `read(int fd, void *buf, size_t count)` (Syscall #0).
 pub fn sys_read(fd: i32, buf_ptr: usize, count: usize, _ctx: &mut UserContext) -> Result<usize> {
-    let proc = Thread::current_proc().ok_or(crate::api::errno::Errno::ESRCH)?;
+    let proc = Thread::current_proc().ok_or(crate::uapi::errno::Errno::ESRCH)?;
     let file = proc.file(fd)?;
     do_read(&proc, &file, buf_ptr, count, None)
 }
@@ -91,7 +91,7 @@ pub fn sys_pread64(
     offset: usize,
     _ctx: &mut UserContext,
 ) -> Result<usize> {
-    let proc = Thread::current_proc().ok_or(crate::api::errno::Errno::ESRCH)?;
+    let proc = Thread::current_proc().ok_or(crate::uapi::errno::Errno::ESRCH)?;
     let file = proc.file(fd)?;
     do_read(&proc, &file, buf_ptr, count, Some(offset as u64))
 }
@@ -101,7 +101,7 @@ pub fn sys_readv(fd: i32, iov_ptr: usize, iovcnt: usize, _ctx: &mut UserContext)
     if iovcnt == 0 {
         return Ok(0);
     }
-    let proc = Thread::current_proc().ok_or(crate::api::errno::Errno::ESRCH)?;
+    let proc = Thread::current_proc().ok_or(crate::uapi::errno::Errno::ESRCH)?;
     let vmar = proc.vmspace();
     let iovecs = read_user_iovecs(&vmar, iov_ptr, iovcnt)?;
     let file = proc.file(fd)?;
@@ -121,7 +121,7 @@ pub fn sys_preadv(
     if iovcnt == 0 {
         return Ok(0);
     }
-    let proc = Thread::current_proc().ok_or(crate::api::errno::Errno::ESRCH)?;
+    let proc = Thread::current_proc().ok_or(crate::uapi::errno::Errno::ESRCH)?;
     let vmar = proc.vmspace();
     let iovecs = read_user_iovecs(&vmar, iov_ptr, iovcnt)?;
     let file = proc.file(fd)?;

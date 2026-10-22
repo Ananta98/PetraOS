@@ -15,11 +15,11 @@
 use alloc::{boxed::Box, sync::Arc, vec::Vec};
 
 use crate::{
-    api::errno::Result,
     fs::{
         template::{BufFileOps, WriteHook, ro_file_mode, rw_file_mode},
         vfs::{FileOps, INode, INodeAttr, NodeOps, OpenFlags},
     },
+    uapi::errno::Result,
 };
 
 /// Content operations for a virtual procfs file.

@@ -8,7 +8,7 @@
 
 use bitflags::bitflags;
 
-use crate::api::errno::Result;
+use crate::uapi::errno::Result;
 
 bitflags! {
     /// The `flags` argument of `mmap(2)`.

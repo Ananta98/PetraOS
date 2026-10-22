@@ -8,7 +8,7 @@
 //! or handles Copy-on-Write (CoW).
 
 use crate::{
-    api::errno::Result,
+    uapi::errno::Result,
     vm::{
         backing::{
             alloc_zeroed_frame,

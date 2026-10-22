@@ -7,14 +7,14 @@ use alloc::sync::Arc;
 use ostd::arch::cpu::context::UserContext;
 
 use crate::{
-    api::{
-        cred::Uid,
-        errno::{Errno, Result},
-    },
     fs::vfs::{INode, LookupFlags, Mode, S_IFMT},
     proc::thread::Thread,
     syscall::fs::utils::{
         AT_EMPTY_PATH, AT_FDCWD, AT_SYMLINK_NOFOLLOW, UserCStr, UserPtr, resolve_at_start,
+    },
+    uapi::{
+        cred::Uid,
+        errno::{Errno, Result},
     },
 };
 

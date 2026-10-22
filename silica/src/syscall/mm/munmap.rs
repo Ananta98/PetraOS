@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
 
-use crate::{
-    api::errno::Result,
-    proc::thread::Thread,
-};
+use crate::{proc::thread::Thread, uapi::errno::Result};
 use ostd::arch::cpu::context::UserContext;
 
 pub fn sys_munmap(addr: usize, len: usize, _ctx: &mut UserContext) -> Result<usize> {

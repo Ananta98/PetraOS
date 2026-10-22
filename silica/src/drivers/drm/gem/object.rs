@@ -14,7 +14,7 @@ use ostd::{
     sync::SpinLock,
 };
 
-use crate::api::errno::{Errno, Result};
+use crate::uapi::errno::{Errno, Result};
 use crate::vm::backing::alloc_zeroed_frame;
 
 /// Next object instance counter; objects get distinguishing allocation ids.

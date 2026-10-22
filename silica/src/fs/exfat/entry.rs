@@ -2,7 +2,7 @@
 
 //! ExFAT Directory Entry structures and set parsing.
 
-use crate::api::errno::Result;
+use crate::uapi::errno::Result;
 use alloc::{string::String, vec::Vec};
 
 pub const EXFAT_ENTRY_EOD: u8 = 0x00;

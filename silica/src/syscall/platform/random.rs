@@ -2,8 +2,8 @@
 
 //! Random number generation system calls.
 
-use crate::api::errno::{Errno, Result};
-use crate::api::random::*;
+use crate::uapi::errno::{Errno, Result};
+use crate::uapi::random::*;
 use crate::proc::thread::Thread;
 use crate::utils::userspace::UserPtr;
 use ostd::arch::cpu::context::UserContext;

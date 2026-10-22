@@ -11,9 +11,6 @@ use core::time::Duration;
 use ostd::sync::SpinLock;
 
 use crate::{
-    api::{
-        signal::{SigInfo, code},
-    },
     proc::{
         Pid, Proc, ProcState, allproc_find,
         thread::{Thread, Tid},
@@ -22,6 +19,7 @@ use crate::{
         CLOCK_PROCESS_CPUTIME_ID, CLOCK_REALTIME, CLOCK_REALTIME_ALARM, CLOCK_TAI,
         CLOCK_THREAD_CPUTIME_ID,
     },
+    uapi::signal::{SigInfo, code},
 };
 
 pub const SIGEV_SIGNAL: i32 = 0;
@@ -194,7 +192,15 @@ mod tests {
     #[ktest]
     fn test_posix_timer_create_and_disarm() {
         let pid = Pid::from_u32(100).unwrap();
-        let timer = PosixTimer::new(0, crate::time::CLOCK_MONOTONIC, SIGEV_SIGNAL, 14, 42, None, pid);
+        let timer = PosixTimer::new(
+            0,
+            crate::time::CLOCK_MONOTONIC,
+            SIGEV_SIGNAL,
+            14,
+            42,
+            None,
+            pid,
+        );
         assert_eq!(timer.id, 0);
         assert_eq!(timer.clock_id, crate::time::CLOCK_MONOTONIC);
         assert_eq!(timer.sigev_signo, 14);

@@ -9,7 +9,7 @@ use alloc::{sync::Arc, vec::Vec};
 use bitflags::bitflags;
 
 use crate::{
-    api::errno::Result,
+    uapi::errno::Result,
     proc::{
         ExitStatus, Proc, ProcState,
         lifecycle::exit::proc_reap,

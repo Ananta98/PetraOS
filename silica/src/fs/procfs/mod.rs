@@ -36,9 +36,9 @@ pub mod version;
 use alloc::{format, string::String, sync::Arc, vec::Vec};
 
 use crate::{
-    api::errno::Result,
     fs::vfs::{FileSystem, INode, StatFs},
     proc::{Pid, allproc_find, allproc_iter},
+    uapi::errno::Result,
 };
 
 /// The ProcFS filesystem representation.

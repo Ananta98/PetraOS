@@ -5,7 +5,7 @@
 use ostd::{arch::cpu::context::UserContext, task::Task};
 
 use crate::{
-    api::errno::{Errno, Result},
+    uapi::errno::{Errno, Result},
     fs::poll::{PollEvents, PollFd},
     proc::thread::Thread,
     syscall::fs::utils::UserPtr,

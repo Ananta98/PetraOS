@@ -8,8 +8,8 @@ use core::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering
 use ostd::sync::SpinLock;
 
 use crate::{
-    api::{ipc::IpcPerm, shm::ShmIdDs},
     proc::Pid,
+    uapi::{ipc::IpcPerm, shm::ShmIdDs},
     vm::shm::SharedPages,
 };
 

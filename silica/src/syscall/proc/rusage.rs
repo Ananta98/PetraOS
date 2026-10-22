@@ -5,11 +5,11 @@
 use ostd::arch::cpu::context::UserContext;
 
 use crate::{
-    api::{
+    proc::thread::Thread,
+    uapi::{
         errno::{Errno, Result},
         limit::Rusage,
     },
-    proc::thread::Thread,
     utils::userspace::user_ptr::UserPtr,
 };
 

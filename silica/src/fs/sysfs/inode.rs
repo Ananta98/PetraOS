@@ -16,7 +16,7 @@
 use alloc::{boxed::Box, string::String, sync::Arc, vec::Vec};
 
 use crate::{
-    api::errno::{Errno, Result},
+    uapi::errno::{Errno, Result},
     fs::{
         template::{BufFileOps, WriteHook, dir_mode, ro_file_mode, rw_file_mode, symlink_mode},
         vfs::{FileOps, INode, INodeAttr, Mode, NodeOps, OpenFlags},

@@ -14,7 +14,7 @@ pub use controller::I8042Controller;
 pub use keyboard::{KeyCode, KeyStatus, KeyboardDevice, TranslationMode};
 pub use mouse::MouseDevice;
 
-use crate::api::errno::Result;
+use crate::uapi::errno::Result;
 use core::sync::atomic::{AtomicBool, Ordering};
 
 static INITIALIZED: AtomicBool = AtomicBool::new(false);

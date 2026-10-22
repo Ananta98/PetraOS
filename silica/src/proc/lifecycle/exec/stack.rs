@@ -5,7 +5,7 @@
 use alloc::{sync::Arc, vec::Vec};
 
 use crate::{
-    api::{cred::Ucred, errno::Result},
+    uapi::{cred::Ucred, errno::Result},
     utils::userspace::user_ptr::UserPtr,
     vm::{Vmar, flags::MmapFlags, perms::VmPerms},
 };

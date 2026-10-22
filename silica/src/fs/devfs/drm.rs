@@ -13,7 +13,7 @@ use alloc::{boxed::Box, format, sync::Arc, vec::Vec};
 use spin::Mutex;
 
 use crate::{
-    api::errno::{Errno, Result},
+    uapi::errno::{Errno, Result},
     drivers::drm::{
         core as drm_core,
         core::ioctl as drm_ioctl,

@@ -6,11 +6,11 @@ use alloc::sync::Arc;
 use ostd::arch::cpu::context::UserContext;
 
 use crate::{
-    api::{
+    proc::{Pid, allproc_find, thread::Thread},
+    uapi::{
         errno::{Errno, Result},
         limit::{RLimit, Resource},
     },
-    proc::{Pid, allproc_find, thread::Thread},
     utils::userspace::user_ptr::UserPtr,
 };
 

@@ -8,7 +8,7 @@
 use alloc::{sync::Arc, vec::Vec};
 use bitflags::bitflags;
 
-use crate::api::errno::Result;
+use crate::uapi::errno::Result;
 use crate::drivers::char::tty::create_console_file;
 use crate::fs::vfs::{File, OpenFlags};
 

@@ -9,8 +9,8 @@
 use ::alloc::vec;
 use ::alloc::vec::Vec;
 
-use crate::api::errno::{Errno, Result};
 use crate::fs::ext4::inode::RawInode;
+use crate::uapi::errno::{Errno, Result};
 
 /// Block I/O context for indirect mapping.
 pub struct IndirectIo<'a> {

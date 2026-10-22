@@ -3,7 +3,7 @@
 //! Core FileSystem trait for the VFS.
 
 use super::inode::INode;
-use crate::api::errno::Result;
+use crate::uapi::errno::Result;
 use alloc::sync::Arc;
 
 /// Filesystem-wide statistics, as reported by `statfs(2)`.

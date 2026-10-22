@@ -22,8 +22,8 @@ use xmas_elf::{
     symbol_table::Entry,
 };
 
-use crate::api::errno::{Errno, Result};
 use crate::return_errno;
+use crate::uapi::errno::{Errno, Result};
 
 use super::{
     params::parse_modparams,
@@ -444,9 +444,9 @@ fn parse_modinfo(elf: &ElfFile) -> Modinfo {
 #[cfg(ktest)]
 mod tests {
     use super::*;
-    use crate::api::errno::Errno;
     use crate::modules::registry::{MODULE_IMAGES, register_loaded_module};
     use crate::modules::{ModuleState, list_modules, register_symbol, unload_module};
+    use crate::uapi::errno::Errno;
     use ostd::prelude::ktest;
 
     // Relocation type constants, mirrored locally to build fixture ELFs.

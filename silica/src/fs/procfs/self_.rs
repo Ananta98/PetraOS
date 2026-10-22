@@ -9,12 +9,12 @@
 use alloc::{format, string::String, sync::Arc};
 
 use crate::{
-    api::errno::Result,
     fs::{
         procfs::template::{ProcSymOps, sym_node},
         vfs::INode,
     },
     proc::thread::Thread,
+    uapi::errno::Result,
 };
 
 /// Inode number of `/proc/self`; shared by all PID table slots because the

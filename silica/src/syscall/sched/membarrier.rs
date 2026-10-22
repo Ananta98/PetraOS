@@ -12,7 +12,7 @@ use core::sync::atomic::{Ordering, fence};
 use ostd::{arch::cpu::context::UserContext, cpu::CpuSet, smp::inter_processor_call};
 
 use crate::{
-    api::errno::{Errno, Result},
+    uapi::errno::{Errno, Result},
     proc::{Proc, thread::Thread},
 };
 

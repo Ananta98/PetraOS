@@ -7,11 +7,11 @@ use ostd::arch::cpu::context::UserContext;
 
 use super::utils::{decode_sigstack, encode_sigstack};
 use crate::{
-    api::{
+    proc::thread::Thread,
+    uapi::{
         errno::{Errno, Result},
         signal::SigStack,
     },
-    proc::thread::Thread,
     utils::userspace::user_ptr::UserPtr,
 };
 
@@ -33,7 +33,7 @@ pub fn sys_sigaltstack(ss_ptr: usize, old_ss_ptr: usize, _ctx: &mut UserContext)
         let requested = decode_sigstack(&buf);
         let effective = if requested.ss_sp == 0 || requested.ss_size == 0 {
             SigStack {
-                ss_flags: crate::api::signal::ss_flags::DISABLED,
+                ss_flags: crate::uapi::signal::ss_flags::DISABLED,
                 ..SigStack::default()
             }
         } else {

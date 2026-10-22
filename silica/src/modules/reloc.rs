@@ -12,8 +12,8 @@ use xmas_elf::{
     symbol_table::{DynEntry64, Entry, Entry64},
 };
 
-use crate::api::errno::{Errno, Result};
 use crate::return_errno;
+use crate::uapi::errno::{Errno, Result};
 
 use super::symbols::lookup_symbol;
 

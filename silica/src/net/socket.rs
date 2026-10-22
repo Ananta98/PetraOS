@@ -12,8 +12,8 @@ use smoltcp::{
 use spin::Mutex;
 
 use crate::{
-    api::errno::{Errno, Result},
     net::interface::NET_MANAGER,
+    uapi::errno::{Errno, Result},
 };
 
 // Standard socket domains
@@ -660,8 +660,8 @@ impl KernelSocket {
                 if *end.tx.closed.lock() {
                     if let Some(proc) = crate::proc::thread::Thread::current_proc() {
                         let _ = proc.send_signal(
-                            crate::api::signal::SigInfo::from_user(
-                                crate::api::signal::Signal::SIGPIPE,
+                            crate::uapi::signal::SigInfo::from_user(
+                                crate::uapi::signal::Signal::SIGPIPE,
                                 0,
                             ),
                             0,
@@ -711,8 +711,8 @@ impl KernelSocket {
                             }
                             if let Some(proc) = crate::proc::thread::Thread::current_proc() {
                                 let _ = proc.send_signal(
-                                    crate::api::signal::SigInfo::from_user(
-                                        crate::api::signal::Signal::SIGPIPE,
+                                    crate::uapi::signal::SigInfo::from_user(
+                                        crate::uapi::signal::Signal::SIGPIPE,
                                         0,
                                     ),
                                     0,

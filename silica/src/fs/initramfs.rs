@@ -9,10 +9,10 @@ use alloc::sync::Arc;
 use alloc::vec::Vec;
 use spin::RwLock;
 
-use crate::api::errno::{Errno, Result};
 use crate::fs::vfs::{
     FileOps, FileSystem, INode, INodeAttr, Mode, NodeOps, OpenFlags, SeekAnchor, StatFs,
 };
+use crate::uapi::errno::{Errno, Result};
 use crate::utils::cpio::{CpioArchive, FileType};
 
 /// File operations for reading from an in-memory initramfs file slice.

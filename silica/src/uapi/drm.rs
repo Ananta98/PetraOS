@@ -5,7 +5,7 @@
 //! Every layout is transcribed from the Linux UAPI headers so that stock
 //! libdrm-based user space works unmodified against `/dev/dri/cardN`.
 //! Request numbers are computed with the generic encoder in
-//! [`crate::api::ioctl`], reproducing the exact Linux `_IOC_*` bit layout
+//! [`crate::uapi::ioctl`], reproducing the exact Linux `_IOC_*` bit layout
 //! (dir<31:30 | size<29:16 | type<15:8 | nr<7:0).
 //!
 //! All structures additionally derive the zerocopy traits so that they can be
@@ -22,7 +22,7 @@
 
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
-use crate::api::ioctl::{_io, _iow, _iowr};
+use crate::uapi::ioctl::{_io, _iow, _iowr};
 
 /// `'d'` — command family shared by all DRM ioctl requests.
 pub const DRM_IOCTL_BASE: u32 = 0x64;
@@ -59,8 +59,7 @@ pub const DRM_IOCTL_MODE_CREATE_DUMB: u32 = _iowr::<DrmModeCreateDumb>(DRM_IOCTL
 /// Return the fake offset used to `mmap(2)` a created dumb buffer.
 pub const DRM_IOCTL_MODE_MAP_DUMB: u32 = _iowr::<DrmModeMapDumb>(DRM_IOCTL_BASE, 0xB3);
 /// Release a dumb buffer allocated with `CREATE_DUMB`.
-pub const DRM_IOCTL_MODE_DESTROY_DUMB: u32 =
-    _iowr::<DrmModeDestroyDumb>(DRM_IOCTL_BASE, 0xB4);
+pub const DRM_IOCTL_MODE_DESTROY_DUMB: u32 = _iowr::<DrmModeDestroyDumb>(DRM_IOCTL_BASE, 0xB4);
 
 // ----------------------------------------------------------------------------
 // Core structures (verified against /usr/include/drm/drm.h)
@@ -160,8 +159,7 @@ pub struct DrmModeDestroyDumb {
 // ----------------------------------------------------------------------------
 
 /// Enumerate the display objects and buffer limits of the device.
-pub const DRM_IOCTL_MODE_GETRESOURCES: u32 =
-    _iowr::<DrmModeCardRes>(DRM_IOCTL_BASE, 0xA0);
+pub const DRM_IOCTL_MODE_GETRESOURCES: u32 = _iowr::<DrmModeCardRes>(DRM_IOCTL_BASE, 0xA0);
 /// Query a CRTC.
 pub const DRM_IOCTL_MODE_GETCRTC: u32 = _iowr::<DrmModeCrtc>(DRM_IOCTL_BASE, 0xA1);
 /// Enable a CRTC with a framebuffer and connector list.
@@ -169,8 +167,7 @@ pub const DRM_IOCTL_MODE_SETCRTC: u32 = _iowr::<DrmModeCrtc>(DRM_IOCTL_BASE, 0xA
 /// Query an encoder.
 pub const DRM_IOCTL_MODE_GETENCODER: u32 = _iowr::<DrmModeGetEncoder>(DRM_IOCTL_BASE, 0xA6);
 /// Query a connector.
-pub const DRM_IOCTL_MODE_GETCONNECTOR: u32 =
-    _iowr::<DrmModeGetConnector>(DRM_IOCTL_BASE, 0xA7);
+pub const DRM_IOCTL_MODE_GETCONNECTOR: u32 = _iowr::<DrmModeGetConnector>(DRM_IOCTL_BASE, 0xA7);
 /// Query framebuffer metadata.
 pub const DRM_IOCTL_MODE_GETFB: u32 = _iowr::<DrmModeFbCmd>(DRM_IOCTL_BASE, 0xAD);
 /// Register a framebuffer from a GEM handle (legacy single-plane form).
@@ -178,8 +175,7 @@ pub const DRM_IOCTL_MODE_ADDFB: u32 = _iowr::<DrmModeFbCmd>(DRM_IOCTL_BASE, 0xAE
 /// Remove a framebuffer (the request carries the raw object id).
 pub const DRM_IOCTL_MODE_RMFB: u32 = _iowr::<u32>(DRM_IOCTL_BASE, 0xAF);
 /// Asynchronously swap the framebuffer displayed by a CRTC.
-pub const DRM_IOCTL_MODE_PAGE_FLIP: u32 =
-    _iowr::<DrmModeCrtcPageFlip>(DRM_IOCTL_BASE, 0xB0);
+pub const DRM_IOCTL_MODE_PAGE_FLIP: u32 = _iowr::<DrmModeCrtcPageFlip>(DRM_IOCTL_BASE, 0xB0);
 /// Notify the driver of dirty framebuffer regions (flush hook).
 pub const DRM_IOCTL_MODE_DIRTYFB: u32 = _iowr::<DrmModeFbDirtyCmd>(DRM_IOCTL_BASE, 0xB1);
 /// Change which plane displays a framebuffer.

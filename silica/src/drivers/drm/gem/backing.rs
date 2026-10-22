@@ -8,7 +8,7 @@ use core::ops::Range;
 use ostd::mm::{PAGE_SIZE, UFrame};
 
 use super::object::GemObject;
-use crate::api::errno::Result;
+use crate::uapi::errno::Result;
 use crate::vm::backing::Backing;
 
 /// Mapping backing of a [`GemObject`].

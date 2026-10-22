@@ -22,8 +22,8 @@ use spin::Mutex;
 
 use super::device::SmolNetDevice;
 use crate::{
-    api::errno::{Errno, Result},
     drivers::net::NetDevice,
+    uapi::errno::{Errno, Result},
 };
 
 /// Returns current timestamp as a [`smoltcp::time::Instant`].

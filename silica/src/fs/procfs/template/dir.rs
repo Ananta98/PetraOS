@@ -19,11 +19,11 @@
 use alloc::{boxed::Box, string::String, sync::Arc, vec::Vec};
 
 use crate::{
-    api::errno::Result,
     fs::{
         template::dir_mode,
         vfs::{FileOps, INode, INodeAttr, NodeOps, OpenFlags},
     },
+    uapi::errno::Result,
 };
 
 /// Content operations for a procfs directory, implemented per directory.

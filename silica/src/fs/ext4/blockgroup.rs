@@ -5,8 +5,8 @@
 use ::alloc::vec;
 use ::alloc::vec::Vec;
 
-use crate::api::errno::{Errno, Result};
 use crate::fs::ext4::crc32c::{crc16, crc32c};
+use crate::uapi::errno::{Errno, Result};
 
 /// Minimum descriptor size (legacy ext2/ext3).
 pub const MIN_DESC_SIZE: usize = 32;
