@@ -21,7 +21,7 @@ Code in `silica/src/` is strictly partitioned into domain-specific subsystems:
 | `arch/` | Architecture-specific code (e.g., `x86_64`) |
 | `uapi/` | Userspace ABI / POSIX structures & error codes |
 | `drivers/` | Device drivers (`block`, `char`, `net`, `bus`, `drm`) |
-| `fs/` | Virtual File System (`vfs`), `devfs`, `procfs`, `sysfs`, `pipe`, `ext2`, `exfat` |
+| `fs/` | Virtual File System (`vfs`), `devfs`, `procfs`, `sysfs`, `pipe`, `ext4`, `exfat` |
 | `ipc/` | IPC primitives (`shm`, `sem`, `msg`, `perm`) |
 | `net/` | Network stack and sockets (`smoltcp`, `unix`, `netlink`) |
 | `proc/` | Process lifecycle, threads, scheduler hooks, `fork`, `exec`, `signal` |
@@ -61,6 +61,8 @@ Whenever an agent modifies the codebase, it **MUST** perform the following steps
    - Check file placement, module hygiene, and clean abstraction boundaries.
    - Refactor messy shortcuts, dead code, or unnecessary complexity.
    - Activate the `code-review` skill (`.agents/skills/code-review/SKILL.md`) for systematic audit.
+   - After review verify build and run to make sure nothing broken builds
+   - After runs well always commit changes.
 
 2. **Verify Build & Run**:
    - Run compilation and kernel build check:
@@ -74,7 +76,6 @@ Whenever an agent modifies the codebase, it **MUST** perform the following steps
      bash .agents/skills/code-review/scripts/verify.sh
      ```
    - **Never leave a broken build.** The task is only complete when `cargo osdk check` and `cargo osdk build` pass with exit code `0`.
-
 ---
 
 ## 5. Available Skills & OSTD Routing Policy
@@ -90,3 +91,9 @@ If an agent lacks terminal execution permissions, is denied access, or requires 
   1. Consult and reference the OSTD guide ([`.agents/skills/osdk/references/ostd.md`](.agents/skills/osdk/references/ostd.md)) or official documentation ([https://asterinas.github.io/api-docs](https://asterinas.github.io/api-docs)).
   2. Ground solutions in safe OSTD subsystem primitives (`ostd::mm`, `ostd::task`, `ostd::sync`, `ostd::irq`, `ostd::io`, `ostd::user`).
   3. Provide the user with the recommended code changes and exact manual `cargo osdk` commands to run.
+
+## 6. Git Authorship & Attribution (Strict Human Attribution)
+
+* **Human committer only:** All commits, patch headers (`From:`), `bootstrap.yml` / `packages/**/*.yml` (`patch_author`, `patch_email`), and module metadata must use the human maintainer from `git config user.name` / `user.email`. Never use AI identities.
+* **No AI author:** Never use `AI Agent`, `PetraOS Agent`, `Antigravity`, `ChatGPT`, `Claude`, or synthetic emails like `agent@petraos.dev`.
+* **File headers:** `@author`, module creator, and doc author tags must attribute the human developer, not an AI.
