@@ -10,7 +10,6 @@
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
-use ostd::mm::{VmReader, io::FallibleVmWrite};
 
 use super::state::{Framebuffer, KmsState};
 use crate::api::drm;
@@ -19,6 +18,7 @@ use crate::drivers::drm::core::ioctl::{read_uapi, write_uapi};
 use crate::drivers::drm::core::file::DrmFile;
 use crate::drivers::drm::gem::GemObject;
 use crate::proc::thread::Thread;
+use crate::utils::userspace::UserPtr;
 use zerocopy::IntoBytes;
 
 /// Dispatches a KMS-range ioctl; reached only for devices with a KMS.
@@ -46,19 +46,15 @@ pub fn dispatch(
 }
 
 /// Marshals `bytes` into a user buffer at `ptr`.
+///
+/// A null pointer or an empty payload is the two-call protocol's "no array"
+/// reply, not a fault.
 fn write_user_bytes(ptr: usize, bytes: &[u8]) -> Result<()> {
     if ptr == 0 || bytes.is_empty() {
         return Ok(());
     }
-    let vmar = Thread::current_proc().ok_or(Errno::ESRCH)?.vmspace();
-    let mut writer = vmar
-        .vm_space()
-        .writer(ptr, bytes.len())
-        .map_err(|_| Errno::EFAULT)?;
-    writer
-        .write_fallible(&mut VmReader::from(bytes))
-        .map_err(|_| Errno::EFAULT)?;
-    Ok(())
+    let vmar = Thread::proc_or_esrch()?.vmspace();
+    UserPtr::new(ptr).write_bytes(&vmar, bytes)
 }
 
 /// Marshals `[]` id arrays in the ioctl two-call protocol usage.
@@ -86,16 +82,13 @@ fn read_user_ids(ptr: usize, len: usize) -> Result<Vec<u32>> {
     if ptr == 0 {
         crate::return_errno!(EFAULT, "null id array");
     }
-    let vmar = Thread::current_proc().ok_or(Errno::ESRCH)?.vmspace();
-    let mut reader = vmar
-        .vm_space()
-        .reader(ptr, len * 4)
-        .map_err(|_| Errno::EFAULT)?;
-    let mut ids = vec![0u32; len];
-    for slot in &mut ids {
-        *slot = reader.read_val::<u32>().map_err(|_| Errno::EFAULT)?;
-    }
-    Ok(ids)
+    let vmar = Thread::proc_or_esrch()?.vmspace();
+    let mut bytes = vec![0u8; len * 4];
+    UserPtr::new(ptr).read_bytes(&vmar, &mut bytes)?;
+    Ok(bytes
+        .chunks_exact(4)
+        .map(|chunk| u32::from_ne_bytes(chunk.try_into().unwrap()))
+        .collect())
 }
 
 fn get_resources(kms: &KmsState, arg: usize) -> Result<usize> {
@@ -368,9 +361,7 @@ fn rm_fb(kms: &KmsState, arg: usize) -> Result<usize> {
         }
     }
     let fb = kms.remove_fb(id)?;
-    // Releasing the object reference lets the GEM object die if user space
-    // has also closed its handle.
-    let _ = fb;
+    drop(fb); // releasing the Arc lets the object die once handles are closed
     write_uapi(arg, &id)?;
     Ok(0)
 }

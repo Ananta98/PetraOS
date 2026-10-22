@@ -2,55 +2,37 @@
 
 //! DRM ioctl dispatch and userspace struct marshalling.
 
-use core::mem::size_of;
-
-use ostd::mm::FallibleVmWrite;
-
 use super::file::DrmFile;
 use crate::api;
-use crate::api::errno::{Errno, Result};
+use crate::api::errno::Result;
 use crate::drivers::drm::kms;
 use crate::proc::thread::Thread;
+use crate::utils::userspace::UserPtr;
 
 // ----------------------------------------------------------------------------
 // Userspace struct marshalling
 // ----------------------------------------------------------------------------
 
-/// Copies a `#[repr(C)]` POD struct out of user space at `arg`.
+/// Copies a `#[repr(C)]` plain-data struct out of user space at `arg`.
 ///
 /// This is DRM's ioctl convention: every request carries a pointer to a
-/// struct in user memory. The user-space readers of
-/// [`crate::proc::thread::Thread::vmspace`] fault in `EFAULT` on bad
-/// pointers instead of crashing the kernel.
+/// struct in user memory. `UserPtr` faults in `EFAULT` on bad pointers
+/// instead of crashing the kernel.
 pub(crate) fn read_uapi<T>(arg: usize) -> Result<T>
 where
     T: zerocopy::FromBytes + zerocopy::IntoBytes + zerocopy::KnownLayout + zerocopy::Immutable + Copy,
 {
-    if arg == 0 {
-        return Err(Errno::EFAULT);
-    }
-    let vmar = Thread::current_proc().ok_or(Errno::ESRCH)?.vmspace();
-    let mut reader = vmar
-        .vm_space()
-        .reader(arg, size_of::<T>())
-        .map_err(|_| Errno::EFAULT)?;
-    reader.read_val::<T>().map_err(|_| Errno::EFAULT)
+    let vmar = Thread::proc_or_esrch()?.vmspace();
+    UserPtr::new(arg).read_val(&vmar)
 }
 
-/// Writes a `#[repr(C)]` POD struct into user space at `arg`.
+/// Writes a `#[repr(C)]` plain-data struct into user space at `arg`.
 pub(crate) fn write_uapi<T>(arg: usize, val: &T) -> Result<()>
 where
     T: zerocopy::FromBytes + zerocopy::IntoBytes + zerocopy::KnownLayout + zerocopy::Immutable + Copy,
 {
-    if arg == 0 {
-        return Err(Errno::EFAULT);
-    }
-    let vmar = Thread::current_proc().ok_or(Errno::ESRCH)?.vmspace();
-    let mut writer = vmar
-        .vm_space()
-        .writer(arg, size_of::<T>())
-        .map_err(|_| Errno::EFAULT)?;
-    writer.write_val(val).map_err(|_| Errno::EFAULT)
+    let vmar = Thread::proc_or_esrch()?.vmspace();
+    UserPtr::new(arg).write_val(&vmar, *val)
 }
 
 /// Copies a byte string into a user buffer, returning the untruncated length.
@@ -65,10 +47,8 @@ pub(crate) fn copy_string_to_user(ptr: usize, len: usize, src: &[u8]) -> usize {
         return src.len();
     }
     let copy_len = src.len().min(len);
-    if let Some(vmar) = Thread::current_proc().map(|t| t.vmspace()) {
-        if let Ok(mut writer) = vmar.vm_space().writer(ptr, copy_len) {
-            let _ = writer.write_fallible(&mut ostd::mm::VmReader::from(&src[..copy_len]));
-        }
+    if let Some(proc) = Thread::current_proc() {
+        let _ = UserPtr::new(ptr).write_bytes(&proc.vmspace(), &src[..copy_len]);
     }
     src.len()
 }

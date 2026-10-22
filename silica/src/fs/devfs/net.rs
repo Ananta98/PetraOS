@@ -8,12 +8,12 @@
 
 use alloc::boxed::Box;
 use alloc::sync::Arc;
-use ostd::mm::FallibleVmWrite;
 
 use crate::{
     api::errno::{Errno, Result},
     drivers::net::NetDevice,
     fs::vfs::{FileOps, INodeAttr, Mode, NodeOps, OpenFlags},
+    utils::userspace::UserPtr,
 };
 
 /// Generic network device adapter node operations in devfs.
@@ -71,13 +71,8 @@ impl FileOps for GenericNetFileOps {
                     return Err(Errno::EFAULT);
                 }
                 let mac = self.dev.mac_address();
-                let proc = crate::proc::thread::Thread::current_proc().ok_or(Errno::ESRCH)?;
-                let vmar = proc.vmspace();
-                let mut writer = vmar.vm_space().writer(arg, 6).map_err(|_| Errno::EFAULT)?;
-                let mut reader = ostd::mm::VmReader::from(&mac[..]);
-                writer
-                    .write_fallible(&mut reader)
-                    .map_err(|_| Errno::EFAULT)?;
+                let proc = crate::proc::thread::Thread::proc_or_esrch()?;
+                UserPtr::new(arg).write_bytes(&proc.vmspace(), &mac)?;
                 Ok(0)
             }
             _ => crate::return_errno!(ENOTTY, "unsupported netdev ioctl"),

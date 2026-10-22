@@ -5,6 +5,7 @@
 use core::ops::Range;
 
 use ostd::mm::{FallibleVmWrite, MAX_USERSPACE_VADDR, PAGE_SIZE, io::FallibleVmRead};
+use zerocopy::{FromBytes, Immutable, IntoBytes};
 
 use super::user_cstr::UserCStr;
 use crate::{
@@ -126,6 +127,42 @@ impl UserPtr {
                 .map_err(|_| Errno::EFAULT)?;
             Ok(())
         })
+    }
+
+    /// Copies a plain-data value from userspace memory.
+    ///
+    /// Type bounds are zerocopy's so there are no reads of invalid bit
+    /// patterns and the kernel never holds a reference into user memory.
+    pub fn read_val<T: FromBytes>(&self, vmar: &Vmar) -> Result<T> {
+        let mut bytes = alloc::vec![0u8; core::mem::size_of::<T>()];
+        self.read_bytes(vmar, &mut bytes)?;
+        // Can only fail on a short source, which cannot happen: `bytes` is
+        // exactly `size_of::<T>()`.
+        T::read_from_bytes(&bytes).map_err(|_| Errno::EFAULT)
+    }
+
+    /// Copies a plain-data value to userspace memory.
+    pub fn write_val<T: IntoBytes + Immutable>(&self, vmar: &Vmar, val: T) -> Result<()> {
+        self.write_bytes(vmar, val.as_bytes())
+    }
+
+    /// Reads a value if the pointer is non-null; `Ok(None)` otherwise.
+    ///
+    /// Encodes the kernel's optional-pointer idiom (e.g. ioctl `out` pointers
+    /// and optional `loff_t` arguments are only written/read when present).
+    pub fn read_opt<T: FromBytes>(&self, vmar: &Vmar) -> Result<Option<T>> {
+        if self.is_null() {
+            return Ok(None);
+        }
+        self.read_val(vmar).map(Some)
+    }
+
+    /// Writes a value if the pointer is non-null; a null pointer is a no-op.
+    pub fn write_opt<T: IntoBytes + Immutable>(&self, vmar: &Vmar, val: T) -> Result<()> {
+        if self.is_null() {
+            return Ok(());
+        }
+        self.write_val(vmar, val)
     }
 }
 

@@ -53,17 +53,14 @@
 use alloc::sync::Arc;
 use core::fmt;
 
-use ostd::{
-    arch::cpu::context::UserContext,
-    mm::{FallibleVmRead, FallibleVmWrite, PAGE_SIZE},
-    user::UserContextApi,
-};
+use ostd::{arch::cpu::context::UserContext, mm::PAGE_SIZE, user::UserContextApi};
 
 use crate::{
     api::{
         errno::{Errno, Result},
         signal::{SIGSET_WORDS, SigInfo, SigSet, SigStack, Signal},
     },
+    utils::userspace::UserPtr,
     vm::{Vmar, flags::MmapFlags, perms::VmPerms},
 };
 
@@ -388,16 +385,9 @@ fn write_frame(vmar: &Arc<Vmar>, addr: usize, frame: &SigFrame) -> Result<(), Fr
     let _ = vmar.populate_range(&(addr..addr + SigFrame::LEN));
     vmar.activate();
 
-    let bytes = frame.to_bytes();
-    let mut writer = vmar
-        .vm_space()
-        .writer(addr, SigFrame::LEN)
-        .map_err(|_| FrameError::Unwritable)?;
-    let mut reader = ostd::mm::VmReader::from(&bytes[..]);
-    writer
-        .write_fallible(&mut reader)
-        .map_err(|_| FrameError::Unwritable)?;
-    Ok(())
+    UserPtr::new(addr)
+        .write_bytes(vmar, &frame.to_bytes())
+        .map_err(|_| FrameError::Unwritable)
 }
 
 /// Maps the return trampoline into `vmar` and makes it executable.
@@ -424,14 +414,7 @@ pub fn install_trampoline(vmar: &Arc<Vmar>) -> Result<()> {
     vmar.populate_range(&(aligned..aligned + PAGE_SIZE))?;
     vmar.activate();
 
-    let mut writer = vmar
-        .vm_space()
-        .writer(TRAMPOLINE_ADDR, TRAMPOLINE.len())
-        .map_err(|_| Errno::EFAULT)?;
-    let mut reader = ostd::mm::VmReader::from(&TRAMPOLINE[..]);
-    writer
-        .write_fallible(&mut reader)
-        .map_err(|_| Errno::EFAULT)?;
+    UserPtr::new(TRAMPOLINE_ADDR).write_bytes(vmar, &TRAMPOLINE[..])?;
 
     vmar.mprotect(VmPerms::READ | VmPerms::EXEC, aligned..aligned + PAGE_SIZE)?;
     Ok(())
@@ -444,14 +427,7 @@ pub fn install_trampoline(vmar: &Arc<Vmar>) -> Result<()> {
 /// the handler ran.
 pub fn read_frame(vmar: &Arc<Vmar>, addr: usize) -> Result<SigFrame> {
     let mut buf = [0u8; SigFrame::LEN];
-    let mut writer = ostd::mm::VmWriter::from(&mut buf[..]);
-    let mut reader = vmar
-        .vm_space()
-        .reader(addr, SigFrame::LEN)
-        .map_err(|_| Errno::EFAULT)?;
-    reader
-        .read_fallible(&mut writer)
-        .map_err(|_| Errno::EFAULT)?;
+    UserPtr::new(addr).read_bytes(vmar, &mut buf)?;
     Ok(SigFrame::from_bytes(&buf))
 }
 

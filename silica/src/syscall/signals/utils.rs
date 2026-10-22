@@ -92,38 +92,3 @@ pub fn encode_sigstack(stack: &SigStack) -> [u8; 24] {
 pub fn all_signals() -> impl Iterator<Item = Signal> {
     (1..=crate::api::signal::SIGNAL_MAX).filter_map(Signal::from_u32)
 }
-
-pub fn read_bytes(
-    vmar: &crate::vm::vmar::Vmar,
-    uaddr: usize,
-    len: usize,
-) -> crate::api::errno::Result<alloc::vec::Vec<u8>> {
-    use ostd::mm::FallibleVmRead;
-    let mut buf = alloc::vec![0u8; len];
-    let mut reader = vmar
-        .vm_space()
-        .reader(uaddr, len)
-        .map_err(|_| crate::api::errno::Errno::EFAULT)?;
-    let mut writer = ostd::mm::VmWriter::from(&mut buf[..]);
-    reader
-        .read_fallible(&mut writer)
-        .map_err(|_| crate::api::errno::Errno::EFAULT)?;
-    Ok(buf)
-}
-
-pub fn write_bytes(
-    vmar: &crate::vm::vmar::Vmar,
-    uaddr: usize,
-    bytes: &[u8],
-) -> crate::api::errno::Result<()> {
-    use ostd::mm::FallibleVmWrite;
-    let mut writer = vmar
-        .vm_space()
-        .writer(uaddr, bytes.len())
-        .map_err(|_| crate::api::errno::Errno::EFAULT)?;
-    let mut reader = ostd::mm::VmReader::from(bytes);
-    writer
-        .write_fallible(&mut reader)
-        .map_err(|_| crate::api::errno::Errno::EFAULT)?;
-    Ok(())
-}

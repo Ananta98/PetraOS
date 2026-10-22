@@ -2,15 +2,13 @@
 
 //! System calls for socket options: `setsockopt(2)`, `getsockopt(2)`.
 
-use ostd::{
-    arch::cpu::context::UserContext,
-    mm::io::{FallibleVmRead, FallibleVmWrite},
-};
+use ostd::arch::cpu::context::UserContext;
 
 use super::addr::get_socket;
 use crate::{
     api::errno::{Errno, Result},
     proc::thread::Thread,
+    utils::userspace::UserPtr,
 };
 
 /// System call `setsockopt(...)` (Syscall #54).
@@ -23,20 +21,13 @@ pub fn sys_setsockopt(
     _ctx: &mut UserContext,
 ) -> Result<usize> {
     let socket = get_socket(fd)?;
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
 
     let mut val = [0u8; 4];
     if optlen > 0 && optval_ptr != 0 {
         let copy_len = (optlen as usize).min(4);
         let vmar = proc.vmspace();
-        let mut reader = vmar
-            .vm_space()
-            .reader(optval_ptr, copy_len)
-            .map_err(|_| Errno::EFAULT)?;
-        let mut writer = ostd::mm::VmWriter::from(&mut val[..copy_len]);
-        reader
-            .read_fallible(&mut writer)
-            .map_err(|_| Errno::EFAULT)?;
+        UserPtr::new(optval_ptr).read_bytes(&vmar, &mut val[..copy_len])?;
     }
 
     let _ = (socket, level, optname);
@@ -53,7 +44,7 @@ pub fn sys_getsockopt(
     _ctx: &mut UserContext,
 ) -> Result<usize> {
     let socket = get_socket(fd)?;
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
 
     if optval_ptr == 0 || optlen_ptr == 0 {
         return Err(Errno::EFAULT);
@@ -83,26 +74,9 @@ pub fn sys_getsockopt(
         _ => 0,
     };
 
-    let val_bytes = val.to_ne_bytes();
     let vmar = proc.vmspace();
-    let mut writer = vmar
-        .vm_space()
-        .writer(optval_ptr, 4)
-        .map_err(|_| Errno::EFAULT)?;
-    let mut reader = ostd::mm::VmReader::from(&val_bytes[..]);
-    writer
-        .write_fallible(&mut reader)
-        .map_err(|_| Errno::EFAULT)?;
-
-    let len_bytes = 4u32.to_ne_bytes();
-    let mut writer_len = vmar
-        .vm_space()
-        .writer(optlen_ptr, 4)
-        .map_err(|_| Errno::EFAULT)?;
-    let mut reader_len = ostd::mm::VmReader::from(&len_bytes[..]);
-    writer_len
-        .write_fallible(&mut reader_len)
-        .map_err(|_| Errno::EFAULT)?;
+    UserPtr::new(optval_ptr).write_val(&vmar, val)?;
+    UserPtr::new(optlen_ptr).write_val(&vmar, 4u32)?;
 
     Ok(0)
 }

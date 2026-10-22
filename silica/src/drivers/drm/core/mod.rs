@@ -3,7 +3,7 @@
 //! DRM core: card registry, per-file state and the ioctl dispatcher.
 //!
 //! The core is the shared glue behind every DRM driver: it owns the
-//! `/dev/dri/cardN` character nodes (opened via `userland`),
+//! `/dev/dri/cardN` character nodes (exposed through devfs),
 //! the GEM handle/offset bookkeeping (see [`crate::drivers::drm::gem`]), and
 //! the translation of Linux-ABI ioctl requests into driver callbacks of
 //! [`DrmDevice`].

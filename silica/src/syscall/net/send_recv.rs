@@ -2,15 +2,13 @@
 
 //! System calls for basic socket I/O: `sendto(2)`, `recvfrom(2)`.
 
-use ostd::{
-    arch::cpu::context::UserContext,
-    mm::io::{FallibleVmRead, FallibleVmWrite},
-};
+use ostd::arch::cpu::context::UserContext;
 
 use super::addr::{get_socket, read_sockaddr, write_sockaddr};
 use crate::{
-    api::errno::{Errno, Result},
+    api::errno::Result,
     proc::thread::Thread,
+    utils::userspace::UserPtr,
 };
 
 /// System call `sendto(...)` (Syscall #44).
@@ -27,20 +25,13 @@ pub fn sys_sendto(
         return Ok(0);
     }
     let socket = get_socket(fd)?;
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
 
     let mut kbuf = alloc::vec![0u8; len.min(65536)];
     let copy_len = kbuf.len();
 
     let vmar = proc.vmspace();
-    let mut reader = vmar
-        .vm_space()
-        .reader(buf_ptr, copy_len)
-        .map_err(|_| Errno::EFAULT)?;
-    let mut writer = ostd::mm::VmWriter::from(&mut kbuf[..]);
-    reader
-        .read_fallible(&mut writer)
-        .map_err(|_| Errno::EFAULT)?;
+    UserPtr::new(buf_ptr).read_bytes(&vmar, &mut kbuf)?;
 
     let endpoint = if dest_ptr != 0 && addrlen > 0 {
         Some(read_sockaddr(&proc, dest_ptr, addrlen)?)
@@ -69,7 +60,7 @@ pub fn sys_recvfrom(
         return Ok(0);
     }
     let socket = get_socket(fd)?;
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
 
     let mut kbuf = alloc::vec![0u8; len.min(65536)];
     let (nrecv, endpoint_opt) = if src_ptr != 0 && addrlen_ptr != 0 {
@@ -81,14 +72,7 @@ pub fn sys_recvfrom(
 
     if nrecv > 0 {
         let vmar = proc.vmspace();
-        let mut writer = vmar
-            .vm_space()
-            .writer(buf_ptr, nrecv)
-            .map_err(|_| Errno::EFAULT)?;
-        let mut reader = ostd::mm::VmReader::from(&kbuf[..nrecv]);
-        writer
-            .write_fallible(&mut reader)
-            .map_err(|_| Errno::EFAULT)?;
+        UserPtr::new(buf_ptr).write_bytes(&vmar, &kbuf[..nrecv])?;
     }
 
     if src_ptr != 0

@@ -239,6 +239,7 @@ pub struct VirtioGpu {
 impl VirtioGpu {
     fn new(transport: &Arc<VirtioTransport>) -> Result<Arc<Self>> {
         let Some(control) = transport.queue(CONTROL_QUEUE) else {
+            ostd::info!("virtio-gpu: no control queue; activated = {}", transport.queues().len());
             crate::return_errno!(ENODEV, "device does not expose its control queue");
         };
         Ok(Arc::new(Self {
@@ -425,6 +426,7 @@ impl VirtioGpu {
     /// host and leaks the state (the trait hands out `'static`).
     fn build_kms(self: &Arc<Self>) -> Result<&'static KmsState> {
         let scanouts = self.get_display_info()?;
+        ostd::info!("virtio-gpu: {} scanout(s) reported", scanouts.len());
         if scanouts.is_empty() {
             crate::return_errno!(ENODEV, "host exposes no enabled scanout");
         }
