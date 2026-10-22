@@ -34,7 +34,7 @@ pub fn resolve_at_start(proc: &Arc<Proc>, dirfd: i32, path: &str) -> Result<Path
     if dirfd < 0 {
         return Err(Errno::EBADF);
     }
-    let file = proc.fd_table.lock().get(dirfd)?;
+    let file = proc.file(dirfd)?;
     if !file.inode.is_dir() {
         return Err(Errno::ENOTDIR);
     }
@@ -77,6 +77,18 @@ pub fn parse_open_flags(flags: i32) -> (OpenFlags, FdFlags) {
     }
 
     (open_flags, fd_flags)
+}
+
+/// Joins the low/high halves of a split 64-bit positional syscall argument.
+///
+/// `pread64`-style syscalls pass `off_t` as two register halves on x86-64;
+/// a zero high half means the caller left it unset.
+pub fn decode_loffhi(pos_l: usize, pos_h: usize) -> u64 {
+    if pos_h != 0 {
+        ((pos_h as u64) << 32) | (pos_l as u64)
+    } else {
+        pos_l as u64
+    }
 }
 
 /// Linux `struct iovec` describing a single buffer in scatter/gather I/O.

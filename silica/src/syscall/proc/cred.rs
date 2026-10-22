@@ -10,38 +10,247 @@ use ostd::arch::cpu::context::UserContext;
 
 use crate::{
     api::{
-        cred::{Gid, Uid},
+        cred::{Gid, Uid, Ucred},
         errno::{Errno, Result},
     },
     proc::thread::Thread,
-    utils::userspace::user_ptr::UserPtr,
+    utils::userspace::UserPtr,
 };
 
 const NO_CHANGE: u32 = u32::MAX;
 const NGROUPS_MAX: usize = 65536;
 
+/// Wrapping behavior shared by `Uid`/`Gid` so the identically-ruled credential
+/// transitions are written once for both families.
+trait CredId: Copy {
+    fn wrap(v: u32) -> Self;
+    fn value(self) -> u32;
+}
+
+impl CredId for Uid {
+    fn wrap(v: u32) -> Self {
+        Uid(v)
+    }
+    fn value(self) -> u32 {
+        self.0
+    }
+}
+
+impl CredId for Gid {
+    fn wrap(v: u32) -> Self {
+        Gid(v)
+    }
+    fn value(self) -> u32 {
+        self.0
+    }
+}
+
+/// Accessor bundle pairing the uid or gid columns of `Ucred`.
+///
+/// `set_eff` covers `cr_uid`/`cr_fsuid` and `cr_gid`/`cr_fsgid` alike: in every
+/// POSIX transition setting the effective ID also refreshes the filesystem ID.
+struct IdColumns<Id> {
+    real: fn(&Ucred) -> Id,
+    eff: fn(&Ucred) -> Id,
+    saved: fn(&Ucred) -> Id,
+    fs: fn(&Ucred) -> Id,
+    set_real: fn(&mut Ucred, Id),
+    set_eff: fn(&mut Ucred, Id),
+    set_fs: fn(&mut Ucred, Id),
+    set_saved: fn(&mut Ucred, Id),
+}
+
+const UID_COLS: IdColumns<Uid> = IdColumns {
+    real: |c| c.cr_ruid,
+    eff: |c| c.cr_uid,
+    saved: |c| c.cr_svuid,
+    fs: |c| c.cr_fsuid,
+    set_real: |c, v| c.cr_ruid = v,
+    set_eff: |c, v| {
+        c.cr_uid = v;
+        c.cr_fsuid = v;
+    },
+    set_fs: |c, v| c.cr_fsuid = v,
+    set_saved: |c, v| c.cr_svuid = v,
+};
+
+const GID_COLS: IdColumns<Gid> = IdColumns {
+    real: |c| c.cr_rgid,
+    eff: |c| c.cr_gid,
+    saved: |c| c.cr_svgid,
+    fs: |c| c.cr_fsgid,
+    set_real: |c, v| c.cr_rgid = v,
+    set_eff: |c, v| {
+        c.cr_gid = v;
+        c.cr_fsgid = v;
+    },
+    set_fs: |c, v| c.cr_fsgid = v,
+    set_saved: |c, v| c.cr_svgid = v,
+};
+
+fn transition_single<Id: CredId>(
+    proc: &Arc<crate::proc::Proc>,
+    columns: &IdColumns<Id>,
+    v: u32,
+) -> Result<()> {
+    let old_cred = proc.cred();
+    let mut new_cred = (*old_cred).clone();
+    if old_cred.is_superuser() {
+        (columns.set_real)(&mut new_cred, Id::wrap(v));
+        (columns.set_eff)(&mut new_cred, Id::wrap(v));
+        (columns.set_saved)(&mut new_cred, Id::wrap(v));
+        (columns.set_fs)(&mut new_cred, Id::wrap(v));
+    } else if v == (columns.real)(&old_cred).value() || v == (columns.saved)(&old_cred).value() {
+        (columns.set_eff)(&mut new_cred, Id::wrap(v));
+    } else {
+        return Err(Errno::EPERM);
+    }
+
+    proc.set_cred(Arc::new(new_cred));
+    Ok(())
+}
+
+fn transition_re<Id: CredId>(
+    proc: &Arc<crate::proc::Proc>,
+    columns: &IdColumns<Id>,
+    r: u32,
+    e: u32,
+) -> Result<()> {
+    let old_cred = proc.cred();
+    let mut new_cred = (*old_cred).clone();
+    let is_root = old_cred.is_superuser();
+
+    if r != NO_CHANGE {
+        if is_root
+            || r == (columns.real)(&old_cred).value()
+            || r == (columns.eff)(&old_cred).value()
+        {
+            (columns.set_real)(&mut new_cred, Id::wrap(r));
+        } else {
+            return Err(Errno::EPERM);
+        }
+    }
+
+    if e != NO_CHANGE {
+        if is_root
+            || e == (columns.real)(&old_cred).value()
+            || e == (columns.eff)(&old_cred).value()
+            || e == (columns.saved)(&old_cred).value()
+        {
+            (columns.set_eff)(&mut new_cred, Id::wrap(e));
+        } else {
+            return Err(Errno::EPERM);
+        }
+    }
+
+    if (r != NO_CHANGE || (e != NO_CHANGE && e != (columns.real)(&old_cred).value()))
+        && (is_root || e != NO_CHANGE)
+    {
+        let saved = (columns.eff)(&new_cred);
+        (columns.set_saved)(&mut new_cred, saved);
+    }
+
+    proc.set_cred(Arc::new(new_cred));
+    Ok(())
+}
+
+fn transition_res<Id: CredId>(
+    proc: &Arc<crate::proc::Proc>,
+    columns: &IdColumns<Id>,
+    r: u32,
+    e: u32,
+    s: u32,
+) -> Result<()> {
+    let old_cred = proc.cred();
+
+    let is_root = old_cred.is_superuser();
+    let is_allowed = |id: u32| {
+        id == NO_CHANGE
+            || is_root
+            || id == (columns.real)(&old_cred).value()
+            || id == (columns.eff)(&old_cred).value()
+            || id == (columns.saved)(&old_cred).value()
+    };
+
+    if !is_allowed(r) || !is_allowed(e) || !is_allowed(s) {
+        return Err(Errno::EPERM);
+    }
+
+    let mut new_cred = (*old_cred).clone();
+    if r != NO_CHANGE {
+        (columns.set_real)(&mut new_cred, Id::wrap(r));
+    }
+    if e != NO_CHANGE {
+        (columns.set_eff)(&mut new_cred, Id::wrap(e));
+    }
+    if s != NO_CHANGE {
+        (columns.set_saved)(&mut new_cred, Id::wrap(s));
+    }
+
+    proc.set_cred(Arc::new(new_cred));
+    Ok(())
+}
+
+fn report_res<Id: CredId>(
+    proc: &Arc<crate::proc::Proc>,
+    columns: &IdColumns<Id>,
+    r_ptr: usize,
+    e_ptr: usize,
+    s_ptr: usize,
+) -> Result<usize> {
+    let cred = proc.cred();
+    let vmar = proc.vmspace();
+
+    UserPtr::new(r_ptr).write_opt(&vmar, (columns.real)(&cred).value())?;
+    UserPtr::new(e_ptr).write_opt(&vmar, (columns.eff)(&cred).value())?;
+    UserPtr::new(s_ptr).write_opt(&vmar, (columns.saved)(&cred).value())?;
+    Ok(0)
+}
+
+fn transition_fs<Id: CredId>(
+    proc: &Arc<crate::proc::Proc>,
+    columns: &IdColumns<Id>,
+    v: u32,
+) -> Result<usize> {
+    let old_cred = proc.cred();
+    let prev = (columns.fs)(&old_cred).value() as usize;
+
+    if old_cred.is_superuser()
+        || v == (columns.real)(&old_cred).value()
+        || v == (columns.eff)(&old_cred).value()
+        || v == (columns.saved)(&old_cred).value()
+        || v == (columns.fs)(&old_cred).value()
+    {
+        let mut new_cred = (*old_cred).clone();
+        (columns.set_fs)(&mut new_cred, Id::wrap(v));
+        proc.set_cred(Arc::new(new_cred));
+    }
+
+    Ok(prev)
+}
+
 /// `getpid(2)` - returns process ID.
 pub fn sys_getpid(_ctx: &mut UserContext) -> Result<usize> {
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     Ok(proc.pid.as_u32() as usize)
 }
 
 /// `getppid(2)` - returns parent process ID.
 pub fn sys_getppid(_ctx: &mut UserContext) -> Result<usize> {
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     let ppid = proc.inner.lock().ppid.map(|p| p.as_u32()).unwrap_or(0);
     Ok(ppid as usize)
 }
 
 /// `getuid(2)` - returns real user ID.
 pub fn sys_getuid(_ctx: &mut UserContext) -> Result<usize> {
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     Ok(proc.cred().cr_ruid.as_u32() as usize)
 }
 
 /// `getgid(2)` - returns real group ID.
 pub fn sys_getgid(_ctx: &mut UserContext) -> Result<usize> {
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     Ok(proc.cred().cr_rgid.as_u32() as usize)
 }
 
@@ -53,169 +262,48 @@ pub fn sys_gettid(_ctx: &mut UserContext) -> Result<usize> {
 
 /// `geteuid(2)` - returns effective user ID.
 pub fn sys_geteuid(_ctx: &mut UserContext) -> Result<usize> {
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     Ok(proc.cred().cr_uid.as_u32() as usize)
 }
 
 /// `getegid(2)` - returns effective group ID.
 pub fn sys_getegid(_ctx: &mut UserContext) -> Result<usize> {
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     Ok(proc.cred().cr_gid.as_u32() as usize)
 }
 
 /// `setuid(2)` - sets user ID per POSIX rules.
 pub fn sys_setuid(uid: u32, _ctx: &mut UserContext) -> Result<usize> {
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
-    let old_cred = proc.cred();
-
-    let mut new_cred = (*old_cred).clone();
-    if old_cred.is_superuser() {
-        new_cred.cr_ruid = Uid(uid);
-        new_cred.cr_uid = Uid(uid);
-        new_cred.cr_svuid = Uid(uid);
-        new_cred.cr_fsuid = Uid(uid);
-    } else if uid == old_cred.cr_ruid.as_u32() || uid == old_cred.cr_svuid.as_u32() {
-        new_cred.cr_uid = Uid(uid);
-        new_cred.cr_fsuid = Uid(uid);
-    } else {
-        return Err(Errno::EPERM);
-    }
-
-    proc.set_cred(Arc::new(new_cred));
+    let proc = Thread::proc_or_esrch()?;
+    transition_single(&proc, &UID_COLS, uid)?;
     Ok(0)
 }
 
 /// `setgid(2)` - sets group ID per POSIX rules.
 pub fn sys_setgid(gid: u32, _ctx: &mut UserContext) -> Result<usize> {
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
-    let old_cred = proc.cred();
-
-    let mut new_cred = (*old_cred).clone();
-    if old_cred.is_superuser() {
-        new_cred.cr_rgid = Gid(gid);
-        new_cred.cr_gid = Gid(gid);
-        new_cred.cr_svgid = Gid(gid);
-        new_cred.cr_fsgid = Gid(gid);
-    } else if gid == old_cred.cr_rgid.as_u32() || gid == old_cred.cr_svgid.as_u32() {
-        new_cred.cr_gid = Gid(gid);
-        new_cred.cr_fsgid = Gid(gid);
-    } else {
-        return Err(Errno::EPERM);
-    }
-
-    proc.set_cred(Arc::new(new_cred));
+    let proc = Thread::proc_or_esrch()?;
+    transition_single(&proc, &GID_COLS, gid)?;
     Ok(0)
 }
 
 /// `setreuid(2)` - sets real and/or effective user ID.
 pub fn sys_setreuid(ruid: u32, euid: u32, _ctx: &mut UserContext) -> Result<usize> {
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
-    let old_cred = proc.cred();
-
-    let mut new_cred = (*old_cred).clone();
-    let is_root = old_cred.is_superuser();
-
-    if ruid != NO_CHANGE {
-        if is_root || ruid == old_cred.cr_ruid.as_u32() || ruid == old_cred.cr_uid.as_u32() {
-            new_cred.cr_ruid = Uid(ruid);
-        } else {
-            return Err(Errno::EPERM);
-        }
-    }
-
-    if euid != NO_CHANGE {
-        if is_root
-            || euid == old_cred.cr_ruid.as_u32()
-            || euid == old_cred.cr_uid.as_u32()
-            || euid == old_cred.cr_svuid.as_u32()
-        {
-            new_cred.cr_uid = Uid(euid);
-            new_cred.cr_fsuid = Uid(euid);
-        } else {
-            return Err(Errno::EPERM);
-        }
-    }
-
-    if (ruid != NO_CHANGE || (euid != NO_CHANGE && euid != old_cred.cr_ruid.as_u32()))
-        && (is_root || euid != NO_CHANGE)
-    {
-        new_cred.cr_svuid = new_cred.cr_uid;
-    }
-
-    proc.set_cred(Arc::new(new_cred));
+    let proc = Thread::proc_or_esrch()?;
+    transition_re(&proc, &UID_COLS, ruid, euid)?;
     Ok(0)
 }
 
 /// `setregid(2)` - sets real and/or effective group ID.
 pub fn sys_setregid(rgid: u32, egid: u32, _ctx: &mut UserContext) -> Result<usize> {
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
-    let old_cred = proc.cred();
-
-    let mut new_cred = (*old_cred).clone();
-    let is_root = old_cred.is_superuser();
-
-    if rgid != NO_CHANGE {
-        if is_root || rgid == old_cred.cr_rgid.as_u32() || rgid == old_cred.cr_gid.as_u32() {
-            new_cred.cr_rgid = Gid(rgid);
-        } else {
-            return Err(Errno::EPERM);
-        }
-    }
-
-    if egid != NO_CHANGE {
-        if is_root
-            || egid == old_cred.cr_rgid.as_u32()
-            || egid == old_cred.cr_gid.as_u32()
-            || egid == old_cred.cr_svgid.as_u32()
-        {
-            new_cred.cr_gid = Gid(egid);
-            new_cred.cr_fsgid = Gid(egid);
-        } else {
-            return Err(Errno::EPERM);
-        }
-    }
-
-    if (rgid != NO_CHANGE || (egid != NO_CHANGE && egid != old_cred.cr_rgid.as_u32()))
-        && (is_root || egid != NO_CHANGE)
-    {
-        new_cred.cr_svgid = new_cred.cr_gid;
-    }
-
-    proc.set_cred(Arc::new(new_cred));
+    let proc = Thread::proc_or_esrch()?;
+    transition_re(&proc, &GID_COLS, rgid, egid)?;
     Ok(0)
 }
 
 /// `setresuid(2)` - sets real, effective, and saved user ID.
 pub fn sys_setresuid(ruid: u32, euid: u32, suid: u32, _ctx: &mut UserContext) -> Result<usize> {
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
-    let old_cred = proc.cred();
-
-    let is_root = old_cred.is_superuser();
-    let is_allowed = |id: u32| {
-        id == NO_CHANGE
-            || is_root
-            || id == old_cred.cr_ruid.as_u32()
-            || id == old_cred.cr_uid.as_u32()
-            || id == old_cred.cr_svuid.as_u32()
-    };
-
-    if !is_allowed(ruid) || !is_allowed(euid) || !is_allowed(suid) {
-        return Err(Errno::EPERM);
-    }
-
-    let mut new_cred = (*old_cred).clone();
-    if ruid != NO_CHANGE {
-        new_cred.cr_ruid = Uid(ruid);
-    }
-    if euid != NO_CHANGE {
-        new_cred.cr_uid = Uid(euid);
-        new_cred.cr_fsuid = Uid(euid);
-    }
-    if suid != NO_CHANGE {
-        new_cred.cr_svuid = Uid(suid);
-    }
-
-    proc.set_cred(Arc::new(new_cred));
+    let proc = Thread::proc_or_esrch()?;
+    transition_res(&proc, &UID_COLS, ruid, euid, suid)?;
     Ok(0)
 }
 
@@ -226,55 +314,14 @@ pub fn sys_getresuid(
     suid_ptr: usize,
     _ctx: &mut UserContext,
 ) -> Result<usize> {
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
-    let cred = proc.cred();
-    let vmar = proc.vmspace();
-
-    let write_id = |ptr: usize, val: u32| -> Result<()> {
-        if ptr == 0 {
-            return Ok(());
-        }
-        UserPtr::new(ptr).write_bytes(&vmar, &val.to_ne_bytes())
-    };
-
-    write_id(ruid_ptr, cred.cr_ruid.as_u32())?;
-    write_id(euid_ptr, cred.cr_uid.as_u32())?;
-    write_id(suid_ptr, cred.cr_svuid.as_u32())?;
-
-    Ok(0)
+    let proc = Thread::proc_or_esrch()?;
+    report_res(&proc, &UID_COLS, ruid_ptr, euid_ptr, suid_ptr)
 }
 
 /// `setresgid(2)` - sets real, effective, and saved group ID.
 pub fn sys_setresgid(rgid: u32, egid: u32, sgid: u32, _ctx: &mut UserContext) -> Result<usize> {
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
-    let old_cred = proc.cred();
-
-    let is_root = old_cred.is_superuser();
-    let is_allowed = |id: u32| {
-        id == NO_CHANGE
-            || is_root
-            || id == old_cred.cr_rgid.as_u32()
-            || id == old_cred.cr_gid.as_u32()
-            || id == old_cred.cr_svgid.as_u32()
-    };
-
-    if !is_allowed(rgid) || !is_allowed(egid) || !is_allowed(sgid) {
-        return Err(Errno::EPERM);
-    }
-
-    let mut new_cred = (*old_cred).clone();
-    if rgid != NO_CHANGE {
-        new_cred.cr_rgid = Gid(rgid);
-    }
-    if egid != NO_CHANGE {
-        new_cred.cr_gid = Gid(egid);
-        new_cred.cr_fsgid = Gid(egid);
-    }
-    if sgid != NO_CHANGE {
-        new_cred.cr_svgid = Gid(sgid);
-    }
-
-    proc.set_cred(Arc::new(new_cred));
+    let proc = Thread::proc_or_esrch()?;
+    transition_res(&proc, &GID_COLS, rgid, egid, sgid)?;
     Ok(0)
 }
 
@@ -285,22 +332,8 @@ pub fn sys_getresgid(
     sgid_ptr: usize,
     _ctx: &mut UserContext,
 ) -> Result<usize> {
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
-    let cred = proc.cred();
-    let vmar = proc.vmspace();
-
-    let write_id = |ptr: usize, val: u32| -> Result<()> {
-        if ptr == 0 {
-            return Ok(());
-        }
-        UserPtr::new(ptr).write_bytes(&vmar, &val.to_ne_bytes())
-    };
-
-    write_id(rgid_ptr, cred.cr_rgid.as_u32())?;
-    write_id(egid_ptr, cred.cr_gid.as_u32())?;
-    write_id(sgid_ptr, cred.cr_svgid.as_u32())?;
-
-    Ok(0)
+    let proc = Thread::proc_or_esrch()?;
+    report_res(&proc, &GID_COLS, rgid_ptr, egid_ptr, sgid_ptr)
 }
 
 /// `getgroups(2)` - gets list of supplementary group IDs.
@@ -309,7 +342,7 @@ pub fn sys_getgroups(size: i32, list_ptr: usize, _ctx: &mut UserContext) -> Resu
         return Err(Errno::EINVAL);
     }
 
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     let cred = proc.cred();
     let num_groups = cred.cr_groups.len();
 
@@ -334,7 +367,7 @@ pub fn sys_getgroups(size: i32, list_ptr: usize, _ctx: &mut UserContext) -> Resu
 
 /// `setgroups(2)` - sets list of supplementary group IDs.
 pub fn sys_setgroups(size: usize, list_ptr: usize, _ctx: &mut UserContext) -> Result<usize> {
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     let old_cred = proc.cred();
 
     if !old_cred.is_superuser() {
@@ -368,40 +401,12 @@ pub fn sys_setgroups(size: usize, list_ptr: usize, _ctx: &mut UserContext) -> Re
 
 /// `setfsuid(2)` - sets filesystem user ID. Returns previous fsuid.
 pub fn sys_setfsuid(fsuid: u32, _ctx: &mut UserContext) -> Result<usize> {
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
-    let old_cred = proc.cred();
-    let prev = old_cred.cr_fsuid.as_u32() as usize;
-
-    if old_cred.is_superuser()
-        || fsuid == old_cred.cr_ruid.as_u32()
-        || fsuid == old_cred.cr_uid.as_u32()
-        || fsuid == old_cred.cr_svuid.as_u32()
-        || fsuid == old_cred.cr_fsuid.as_u32()
-    {
-        let mut new_cred = (*old_cred).clone();
-        new_cred.cr_fsuid = Uid(fsuid);
-        proc.set_cred(Arc::new(new_cred));
-    }
-
-    Ok(prev)
+    let proc = Thread::proc_or_esrch()?;
+    transition_fs(&proc, &UID_COLS, fsuid)
 }
 
 /// `setfsgid(2)` - sets filesystem group ID. Returns previous fsgid.
 pub fn sys_setfsgid(fsgid: u32, _ctx: &mut UserContext) -> Result<usize> {
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
-    let old_cred = proc.cred();
-    let prev = old_cred.cr_fsgid.as_u32() as usize;
-
-    if old_cred.is_superuser()
-        || fsgid == old_cred.cr_rgid.as_u32()
-        || fsgid == old_cred.cr_gid.as_u32()
-        || fsgid == old_cred.cr_svgid.as_u32()
-        || fsgid == old_cred.cr_fsgid.as_u32()
-    {
-        let mut new_cred = (*old_cred).clone();
-        new_cred.cr_fsgid = Gid(fsgid);
-        proc.set_cred(Arc::new(new_cred));
-    }
-
-    Ok(prev)
+    let proc = Thread::proc_or_esrch()?;
+    transition_fs(&proc, &GID_COLS, fsgid)
 }

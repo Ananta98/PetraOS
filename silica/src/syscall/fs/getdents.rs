@@ -2,12 +2,14 @@
 
 //! System calls for reading directory entries: `getdents`, `getdents64`.
 
+use alloc::string::String;
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 use ostd::arch::cpu::context::UserContext;
 
 use crate::{
     api::errno::{Errno, Result},
-    fs::vfs::Mode,
+    fs::vfs::{File, Mode},
     proc::thread::Thread,
     syscall::fs::utils::UserPtr,
 };
@@ -41,23 +43,10 @@ fn mode_to_dtype(mode: Mode) -> u8 {
     }
 }
 
-/// System call `getdents64(unsigned int fd, struct linux_dirent64 *dirp, unsigned int count)` (Syscall #217).
-pub fn sys_getdents64(
-    fd: i32,
-    dirp_ptr: usize,
-    count: usize,
-    _ctx: &mut UserContext,
-) -> Result<usize> {
-    if fd < 0 {
-        return Err(Errno::EBADF);
-    }
-    if count == 0 {
-        return Ok(0);
-    }
-
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
-    let file = proc.fd_table.lock().get(fd)?;
-
+/// Directory listing shared by `getdents`/`getdents64`: validates the fd is a
+/// directory, reads the file's entry list, synthesizes `.`/`..`, and resolves
+/// each child's inode number and type.
+fn collect_dir_entries(file: &File) -> Result<Vec<(String, u64, u8)>> {
     if !file.inode.is_dir() {
         return Err(Errno::ENOTDIR);
     }
@@ -66,33 +55,65 @@ pub fn sys_getdents64(
     let raw_str = core::str::from_utf8(&entries_raw).map_err(|_| Errno::EIO)?;
     let lines: Vec<&str> = raw_str.lines().filter(|s| !s.is_empty()).collect();
 
-    let mut all_entries: Vec<(&str, u64, u8)> = Vec::new();
-    let has_dot = lines.contains(&".");
-    let has_dotdot = lines.contains(&"..");
-
-    if !has_dot {
-        all_entries.push((".", file.inode.id as u64, DT_DIR));
+    let mut all_entries: Vec<(String, u64, u8)> = Vec::new();
+    if !lines.contains(&".") {
+        all_entries.push((".".into(), file.inode.id as u64, DT_DIR));
     }
-    if !has_dotdot {
-        all_entries.push(("..", file.inode.id as u64, DT_DIR));
+    if !lines.contains(&"..") {
+        all_entries.push(("..".into(), file.inode.id as u64, DT_DIR));
     }
 
-    for &name in &lines {
-        if name == "." {
-            all_entries.push((".", file.inode.id as u64, DT_DIR));
-        } else if name == ".." {
-            all_entries.push(("..", file.inode.id as u64, DT_DIR));
-        } else {
-            let (child_ino, child_type) = match file.inode.node_ops.lookup(name) {
-                Ok(child) => {
-                    let d_type = mode_to_dtype(child.attr.read().mode);
-                    (child.id as u64, d_type)
-                }
-                Err(_) => (1, DT_UNKNOWN),
-            };
-            all_entries.push((name, child_ino, child_type));
+    for name in &lines {
+        if *name == "." || *name == ".." {
+            continue;
         }
+        let (child_ino, child_type) = match file.inode.node_ops.lookup(name) {
+            Ok(child) => {
+                let d_type = mode_to_dtype(child.attr.read().mode);
+                (child.id as u64, d_type)
+            }
+            Err(_) => (1, DT_UNKNOWN),
+        };
+        all_entries.push(((*name).into(), child_ino, child_type));
     }
+    Ok(all_entries)
+}
+
+/// Shared getdents preamble: fd validation, directory-entry collection, and
+/// `Ok(None)` for the trivially empty call (`count == 0`).
+#[allow(clippy::type_complexity)]
+fn prepare(
+    fd: i32,
+    count: usize,
+) -> Result<
+    Option<(
+        Arc<crate::proc::Proc>,
+        Arc<File>,
+        Vec<(String, u64, u8)>,
+    )>,
+> {
+    if fd < 0 {
+        return Err(Errno::EBADF);
+    }
+    if count == 0 {
+        return Ok(None);
+    }
+    let proc = Thread::proc_or_esrch()?;
+    let file = proc.file(fd)?;
+    let entries = collect_dir_entries(&file)?;
+    Ok(Some((proc, file, entries)))
+}
+
+/// System call `getdents64(unsigned int fd, struct linux_dirent64 *dirp, unsigned int count)` (Syscall #217).
+pub fn sys_getdents64(
+    fd: i32,
+    dirp_ptr: usize,
+    count: usize,
+    _ctx: &mut UserContext,
+) -> Result<usize> {
+    let Some((proc, file, all_entries)) = prepare(fd, count)? else {
+        return Ok(0);
+    };
 
     let mut offset_guard = file.offset.lock();
     let mut pos = *offset_guard as usize;
@@ -104,7 +125,7 @@ pub fn sys_getdents64(
     let vmar = proc.vmspace();
 
     while pos < all_entries.len() {
-        let (name, ino, d_type) = all_entries[pos];
+        let (name, ino, d_type) = all_entries[pos].clone();
         let name_bytes = name.as_bytes();
         let unaligned_len = 19 + name_bytes.len() + 1;
         let reclen = (unaligned_len + 7) & !7;
@@ -141,51 +162,9 @@ pub fn sys_getdents(
     count: usize,
     _ctx: &mut UserContext,
 ) -> Result<usize> {
-    if fd < 0 {
-        return Err(Errno::EBADF);
-    }
-    if count == 0 {
+    let Some((proc, file, all_entries)) = prepare(fd, count)? else {
         return Ok(0);
-    }
-
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
-    let file = proc.fd_table.lock().get(fd)?;
-
-    if !file.inode.is_dir() {
-        return Err(Errno::ENOTDIR);
-    }
-
-    let entries_raw = file.readdir()?;
-    let raw_str = core::str::from_utf8(&entries_raw).map_err(|_| Errno::EIO)?;
-    let lines: Vec<&str> = raw_str.lines().filter(|s| !s.is_empty()).collect();
-
-    let mut all_entries: Vec<(&str, u64, u8)> = Vec::new();
-    let has_dot = lines.contains(&".");
-    let has_dotdot = lines.contains(&"..");
-
-    if !has_dot {
-        all_entries.push((".", file.inode.id as u64, DT_DIR));
-    }
-    if !has_dotdot {
-        all_entries.push(("..", file.inode.id as u64, DT_DIR));
-    }
-
-    for &name in &lines {
-        if name == "." {
-            all_entries.push((".", file.inode.id as u64, DT_DIR));
-        } else if name == ".." {
-            all_entries.push(("..", file.inode.id as u64, DT_DIR));
-        } else {
-            let (child_ino, child_type) = match file.inode.node_ops.lookup(name) {
-                Ok(child) => {
-                    let d_type = mode_to_dtype(child.attr.read().mode);
-                    (child.id as u64, d_type)
-                }
-                Err(_) => (1, DT_UNKNOWN),
-            };
-            all_entries.push((name, child_ino, child_type));
-        }
-    }
+    };
 
     let mut offset_guard = file.offset.lock();
     let mut pos = *offset_guard as usize;
@@ -197,7 +176,7 @@ pub fn sys_getdents(
     let vmar = proc.vmspace();
 
     while pos < all_entries.len() {
-        let (name, ino, d_type) = all_entries[pos];
+        let (name, ino, d_type) = all_entries[pos].clone();
         let name_bytes = name.as_bytes();
         let unaligned_len = 18 + name_bytes.len() + 1 + 1;
         let reclen = (unaligned_len + 7) & !7;
