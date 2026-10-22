@@ -7,5 +7,6 @@
 pub mod id;
 pub mod msg;
 pub mod perm;
+pub mod registry;
 pub mod sem;
 pub mod shm;

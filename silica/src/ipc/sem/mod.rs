@@ -8,7 +8,7 @@
 pub mod set;
 pub mod undo;
 
-use alloc::{collections::BTreeMap, sync::Arc, vec::Vec};
+use alloc::{sync::Arc, vec::Vec};
 use core::time::Duration;
 use ostd::sync::{SpinLock, Waiter};
 
@@ -26,9 +26,10 @@ use crate::{
         },
     },
     ipc::perm::{check_admin_permission, check_read_permission, check_write_permission},
+    ipc::registry::IpcRegistry,
     proc::{
         Proc,
-        thread::{Thread, ThreadFlags},
+        thread::Thread,
     },
     utils::userspace::user_ptr::UserPtr,
 };
@@ -38,21 +39,17 @@ pub use self::{
     undo::{clear_undo_for_sem, record_undo},
 };
 
-/// Global table of active semaphore sets keyed by `semid`.
-static SEM_REGISTRY: SpinLock<BTreeMap<i32, Arc<SpinLock<SemSet>>>> =
-    SpinLock::new(BTreeMap::new());
-
-/// Global map from IPC key to `semid`.
-static KEY_MAP: SpinLock<BTreeMap<i32, i32>> = SpinLock::new(BTreeMap::new());
+/// Global table of active semaphore sets by `semid`.
+static SEM_REGISTRY: IpcRegistry<SpinLock<SemSet>> = IpcRegistry::new();
 
 /// Returns current monotonic uptime in seconds.
 fn current_time_secs() -> i64 {
-    (crate::sched::now() / crate::sched::TIMER_HZ) as i64
+    crate::time::uptime_secs() as i64
 }
 
 /// Looks up an active semaphore set by `semid`.
 pub fn lookup_set(semid: i32) -> Option<Arc<SpinLock<SemSet>>> {
-    SEM_REGISTRY.lock().get(&semid).cloned()
+    SEM_REGISTRY.get(semid)
 }
 
 /// `semget(2)` - Obtains or creates a System V semaphore set.
@@ -70,7 +67,7 @@ pub fn sem_get(key: i32, nsems: i32, semflg: i32, cred: &Ucred) -> Result<i32> {
     }
 
     // Check if key already exists
-    let existing_semid = KEY_MAP.lock().get(&key).copied();
+    let existing_semid = SEM_REGISTRY.lookup_key(key);
     if let Some(semid) = existing_semid {
         if (semflg & IPC_CREAT != 0) && (semflg & IPC_EXCL != 0) {
             return Err(Errno::EEXIST);
@@ -123,11 +120,8 @@ fn create_sem_set(key: i32, nsems: usize, semflg: i32, cred: &Ucred) -> Result<i
     };
 
     let set = SemSet::new(semid, key, nsems, ds);
-    reg.insert(semid, set);
-
-    if key != IPC_PRIVATE {
-        KEY_MAP.lock().insert(key, semid);
-    }
+    reg.insert(semid, Arc::clone(&set));
+    SEM_REGISTRY.bind_key(key, semid);
 
     Ok(semid)
 }
@@ -286,10 +280,8 @@ pub fn sem_op(
                 return Err(Errno::EAGAIN);
             }
         }
-        if let Some(td) = Thread::current() {
-            if td.inner.lock().flags.contains(ThreadFlags::TDF_ASTPENDING) {
-                return Err(Errno::EINTR);
-            }
+        if Thread::should_interrupt() {
+            return Err(Errno::EINTR);
         }
         Ok(())
     };
@@ -397,7 +389,6 @@ pub fn sem_ctl(
 
         IPC_RMID => {
             let mut reg = SEM_REGISTRY.lock();
-            let mut key_map = KEY_MAP.lock();
 
             let mut set = set_lock.lock();
             if set.destroyed {
@@ -407,9 +398,7 @@ pub fn sem_ctl(
 
             set.destroyed = true;
             reg.remove(&semid);
-            if set.key != IPC_PRIVATE {
-                key_map.remove(&set.key);
-            }
+            SEM_REGISTRY.unbind_key(set.key);
             clear_undo_for_sem(semid, None);
             set.wq.wake_all();
             Ok(0)

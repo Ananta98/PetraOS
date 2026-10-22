@@ -200,19 +200,17 @@ impl FileOps for PtyMasterFileOps {
     }
 
     fn ioctl(&self, cmd: u32, arg: usize) -> Result<usize> {
-        let proc = crate::proc::thread::Thread::current_proc().ok_or(Errno::ESRCH)?;
+        let proc = crate::proc::thread::Thread::proc_or_esrch()?;
         let vmar = proc.vmspace();
 
         match cmd {
             TIOCGPTN => {
                 let index = self.pair.index as i32;
-                UserPtr::new(arg).write_bytes(&vmar, &index.to_ne_bytes())?;
+                UserPtr::new(arg).write_val(&vmar, index)?;
                 Ok(0)
             }
             TIOCSPTLCK => {
-                let mut bytes = [0u8; 4];
-                UserPtr::new(arg).read_bytes(&vmar, &mut bytes)?;
-                let lock = i32::from_ne_bytes(bytes);
+                let lock: i32 = UserPtr::new(arg).read_val(&vmar)?;
                 self.pair.unlocked.store(lock == 0, Ordering::Release);
                 Ok(0)
             }
@@ -222,13 +220,11 @@ impl FileOps for PtyMasterFileOps {
                 } else {
                     1
                 };
-                UserPtr::new(arg).write_bytes(&vmar, &locked.to_ne_bytes())?;
+                UserPtr::new(arg).write_val(&vmar, locked)?;
                 Ok(0)
             }
             TIOCPKT => {
-                let mut bytes = [0u8; 4];
-                UserPtr::new(arg).read_bytes(&vmar, &mut bytes)?;
-                let enable = i32::from_ne_bytes(bytes);
+                let enable: i32 = UserPtr::new(arg).read_val(&vmar)?;
                 self.pair.packet.store(enable != 0, Ordering::Release);
                 if enable == 0 {
                     self.pair.packet_flags.store(0, Ordering::Release);
@@ -237,13 +233,11 @@ impl FileOps for PtyMasterFileOps {
             }
             TIOCGPKT => {
                 let val: i32 = self.pair.packet.load(Ordering::Acquire) as i32;
-                UserPtr::new(arg).write_bytes(&vmar, &val.to_ne_bytes())?;
+                UserPtr::new(arg).write_val(&vmar, val)?;
                 Ok(0)
             }
             TIOCSIG => {
-                let mut bytes = [0u8; 4];
-                UserPtr::new(arg).read_bytes(&vmar, &mut bytes)?;
-                let signum = i32::from_ne_bytes(bytes);
+                let signum: i32 = UserPtr::new(arg).read_val(&vmar)?;
                 if let Some(sig) = Signal::from_u32(signum as u32) {
                     self.pair.tty.signal_foreground(sig);
                 }
@@ -251,7 +245,7 @@ impl FileOps for PtyMasterFileOps {
             }
             ioctl::FIONREAD => {
                 let avail = self.pair.master_buf.lock().len() as i32;
-                UserPtr::new(arg).write_bytes(&vmar, &avail.to_ne_bytes())?;
+                UserPtr::new(arg).write_val(&vmar, avail)?;
                 Ok(0)
             }
             _ => self.pair.tty.ioctl(cmd, arg),

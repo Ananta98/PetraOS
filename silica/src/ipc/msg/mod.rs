@@ -8,7 +8,6 @@
 pub mod message;
 pub mod queue;
 
-use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use ostd::sync::{SpinLock, Waiter};
@@ -20,34 +19,48 @@ use crate::api::errno::{Errno, Result};
 use crate::api::ipc::*;
 use crate::api::msg::*;
 use crate::ipc::perm::{check_admin_permission, check_read_permission, check_write_permission};
+use crate::ipc::registry::IpcRegistry;
 use crate::proc::thread::{Thread, ThreadFlags, ThreadState};
 use crate::proc::{Proc, ProcState};
 use crate::utils::userspace::user_ptr::UserPtr;
 
 /// Global registry of message queues by `msqid`.
-static MSG_REGISTRY: SpinLock<BTreeMap<i32, Arc<SpinLock<MsgQueue>>>> =
-    SpinLock::new(BTreeMap::new());
-
-/// Mapping from IPC key to `msqid`.
-static KEY_MAP: SpinLock<BTreeMap<Key, i32>> = SpinLock::new(BTreeMap::new());
+static MSG_REGISTRY: IpcRegistry<SpinLock<MsgQueue>> = IpcRegistry::new();
 
 /// Returns current system timestamp in seconds using the active clocksource.
 fn current_time_secs() -> i64 {
-    (crate::time::get_realtime_ns() / 1_000_000_000) as i64
+    crate::time::realtime_secs()
+}
+
+/// Cancels a blocking IPC wait once the caller has been interrupted or is
+/// dying: an AST is outstanding, termination is pending, the thread is dead,
+/// or the whole process has become a zombie.
+fn wait_cancelled() -> Result<()> {
+    if let Some(td) = Thread::current() {
+        let inner = td.inner.lock();
+        if inner.flags.contains(ThreadFlags::TDF_ASTPENDING)
+            || inner.flags.contains(ThreadFlags::KILL_PENDING)
+            || inner.state == ThreadState::Dead
+        {
+            return Err(Errno::EINTR);
+        }
+    }
+    if let Some(proc) = Thread::current_proc() {
+        if proc.state() == ProcState::Zombie {
+            return Err(Errno::EINTR);
+        }
+    }
+    Ok(())
 }
 
 /// Looks up a message queue by `msqid`.
 pub fn lookup_queue(msqid: i32) -> Option<Arc<SpinLock<MsgQueue>>> {
-    MSG_REGISTRY.lock().get(&msqid).cloned()
+    MSG_REGISTRY.get(msqid)
 }
 
 /// Handles `msgget(2)`.
 pub fn msg_get(key: Key, msgflg: i32, cred: &Ucred) -> Result<i32> {
-    let existing_msqid = if key != IPC_PRIVATE {
-        KEY_MAP.lock().get(&key).copied()
-    } else {
-        None
-    };
+    let existing_msqid = MSG_REGISTRY.lookup_key(key);
 
     if let Some(msqid) = existing_msqid {
         if (msgflg & IPC_CREAT != 0) && (msgflg & IPC_EXCL != 0) {
@@ -96,11 +109,8 @@ fn create_msg_queue(key: Key, msgflg: i32, cred: &Ucred) -> Result<i32> {
     };
 
     let q = Arc::new(SpinLock::new(MsgQueue::new(ds)));
-    reg.insert(msqid, q);
-
-    if key != IPC_PRIVATE {
-        KEY_MAP.lock().insert(key, msqid);
-    }
+    reg.insert(msqid, Arc::clone(&q));
+    MSG_REGISTRY.bind_key(key, msqid);
 
     Ok(msqid)
 }
@@ -174,23 +184,7 @@ pub fn msg_snd(msqid: i32, mtype: i64, mtext: &[u8], msgflg: i32, proc: &Arc<Pro
         }
     };
 
-    let cancel_cond = || {
-        if let Some(td) = Thread::current() {
-            let inner = td.inner.lock();
-            if inner.flags.contains(ThreadFlags::TDF_ASTPENDING)
-                || inner.flags.contains(ThreadFlags::KILL_PENDING)
-                || inner.state == ThreadState::Dead
-            {
-                return Err(Errno::EINTR);
-            }
-        }
-        if let Some(proc) = Thread::current_proc() {
-            if proc.state() == ProcState::Zombie {
-                return Err(Errno::EINTR);
-            }
-        }
-        Ok(())
-    };
+    let cancel_cond = wait_cancelled;
 
     let wait_res = waiter.wait_until_or_cancelled(cond, cancel_cond);
     match wait_res {
@@ -344,23 +338,7 @@ pub fn msg_rcv(
         }
     };
 
-    let cancel_cond = || {
-        if let Some(td) = Thread::current() {
-            let inner = td.inner.lock();
-            if inner.flags.contains(ThreadFlags::TDF_ASTPENDING)
-                || inner.flags.contains(ThreadFlags::KILL_PENDING)
-                || inner.state == ThreadState::Dead
-            {
-                return Err(Errno::EINTR);
-            }
-        }
-        if let Some(proc) = Thread::current_proc() {
-            if proc.state() == ProcState::Zombie {
-                return Err(Errno::EINTR);
-            }
-        }
-        Ok(())
-    };
+    let cancel_cond = wait_cancelled;
 
     let wait_res = waiter.wait_until_or_cancelled(cond, cancel_cond);
     match wait_res {
@@ -420,10 +398,7 @@ pub fn msg_ctl(
 
             let mut reg = MSG_REGISTRY.lock();
             reg.remove(&msqid);
-
-            if key != IPC_PRIVATE {
-                KEY_MAP.lock().remove(&key);
-            }
+            MSG_REGISTRY.unbind_key(key);
 
             // Wake all waiting tasks with EIDRM
             q.send_wq.wake_all();

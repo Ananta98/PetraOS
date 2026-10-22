@@ -6,9 +6,9 @@
 
 pub mod segment;
 
-use alloc::{collections::BTreeMap, sync::Arc};
+use alloc::sync::Arc;
 use core::sync::atomic::Ordering;
-use ostd::{mm::PAGE_SIZE, sync::SpinLock};
+use ostd::mm::PAGE_SIZE;
 
 use crate::{
     api::{
@@ -21,6 +21,7 @@ use crate::{
         },
     },
     ipc::perm::{check_admin_permission, check_read_permission, check_write_permission},
+    ipc::registry::IpcRegistry,
     proc::{Pid, Proc},
     utils::userspace::user_ptr::UserPtr,
     vm::{
@@ -34,8 +35,7 @@ use crate::{
 
 pub use self::segment::ShmSegment;
 
-static SHM_REGISTRY: SpinLock<BTreeMap<i32, Arc<ShmSegment>>> = SpinLock::new(BTreeMap::new());
-static KEY_MAP: SpinLock<BTreeMap<i32, i32>> = SpinLock::new(BTreeMap::new());
+static SHM_REGISTRY: IpcRegistry<ShmSegment> = IpcRegistry::new();
 
 /// A per-process shared memory attachment record.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -47,11 +47,7 @@ pub struct ShmAttachment {
 }
 
 fn now_sec() -> u64 {
-    crate::sched::now() / crate::sched::TIMER_HZ
-}
-
-fn alloc_shmid(reg: &BTreeMap<i32, Arc<ShmSegment>>) -> i32 {
-    crate::ipc::id::alloc_ipc_id(reg)
+    crate::time::uptime_secs()
 }
 
 /// System call implementation for `shmget(2)`.
@@ -67,7 +63,7 @@ pub fn shm_get(key: i32, size: usize, shmflg: i32, cred: &Ucred, pid: Pid) -> Re
         if reg.len() >= SHMMNI {
             crate::return_errno!(ENOSPC, "maximum number of shared memory segments reached");
         }
-        let shmid = alloc_shmid(&reg);
+        let shmid = crate::ipc::id::alloc_ipc_id(&reg);
         let perm = IpcPerm::new(key, cred, (shmflg as u32) & 0o777);
         let pages = SharedPages::new(aligned_size)?;
         let segment = ShmSegment::new(shmid, key, perm, aligned_size, pages, pid, now_sec());
@@ -75,8 +71,7 @@ pub fn shm_get(key: i32, size: usize, shmflg: i32, cred: &Ucred, pid: Pid) -> Re
         return Ok(shmid);
     }
 
-    let mut key_map = KEY_MAP.lock();
-    if let Some(&shmid) = key_map.get(&key) {
+    if let Some(shmid) = SHM_REGISTRY.lookup_key(key) {
         if (shmflg & IPC_CREAT) != 0 && (shmflg & IPC_EXCL) != 0 {
             crate::return_errno!(EEXIST, "IPC segment already exists");
         }
@@ -113,13 +108,13 @@ pub fn shm_get(key: i32, size: usize, shmflg: i32, cred: &Ucred, pid: Pid) -> Re
     if reg.len() >= SHMMNI {
         crate::return_errno!(ENOSPC, "maximum number of shared memory segments reached");
     }
-    let shmid = alloc_shmid(&reg);
+    let shmid = crate::ipc::id::alloc_ipc_id(&reg);
     let perm = IpcPerm::new(key, cred, (shmflg as u32) & 0o777);
     let pages = SharedPages::new(aligned_size)?;
     let segment = ShmSegment::new(shmid, key, perm, aligned_size, pages, pid, now_sec());
 
-    key_map.insert(key, shmid);
     reg.insert(shmid, segment);
+    SHM_REGISTRY.bind_key(key, shmid);
 
     Ok(shmid)
 }
@@ -238,11 +233,8 @@ pub fn shm_dt(shmaddr: usize, proc: &Arc<Proc>) -> Result<()> {
         if prev <= 1 && segment.marked_for_deletion.load(Ordering::Relaxed) {
             // Reap deleted segment
             let mut reg = SHM_REGISTRY.lock();
-            let mut key_map = KEY_MAP.lock();
             reg.remove(&attachment.shmid);
-            if segment.key != IPC_PRIVATE {
-                key_map.remove(&segment.key);
-            }
+            SHM_REGISTRY.unbind_key(segment.key);
         }
     }
 
@@ -320,11 +312,8 @@ pub fn shm_ctl(
         segment.marked_for_deletion.store(true, Ordering::Relaxed);
         if segment.nattch.load(Ordering::Relaxed) == 0 {
             let mut reg = SHM_REGISTRY.lock();
-            let mut key_map = KEY_MAP.lock();
             reg.remove(&shmid);
-            if segment.key != IPC_PRIVATE {
-                key_map.remove(&segment.key);
-            }
+            SHM_REGISTRY.unbind_key(segment.key);
         }
         return Ok(0);
     }
@@ -351,22 +340,18 @@ pub fn on_proc_exit(proc: &Proc) {
     }
 
     let mut reg = SHM_REGISTRY.lock();
-    let mut key_map = KEY_MAP.lock();
 
     for (_, att) in attachments {
-        if let Some(segment) = reg.get(&att.shmid) {
-            let prev = segment.nattch.fetch_sub(1, Ordering::Relaxed);
-            segment.dtime.store(now_sec(), Ordering::Relaxed);
-            segment.lpid.store(proc.pid.as_u32(), Ordering::Relaxed);
+        let Some(segment) = reg.get(&att.shmid).cloned() else {
+            continue;
+        };
+        let prev = segment.nattch.fetch_sub(1, Ordering::Relaxed);
+        segment.dtime.store(now_sec(), Ordering::Relaxed);
+        segment.lpid.store(proc.pid.as_u32(), Ordering::Relaxed);
 
-            if prev <= 1 && segment.marked_for_deletion.load(Ordering::Relaxed) {
-                let key = segment.key;
-                let id = segment.id;
-                reg.remove(&id);
-                if key != IPC_PRIVATE {
-                    key_map.remove(&key);
-                }
-            }
+        if prev <= 1 && segment.marked_for_deletion.load(Ordering::Relaxed) {
+            reg.remove(&segment.id);
+            SHM_REGISTRY.unbind_key(segment.key);
         }
     }
 }
