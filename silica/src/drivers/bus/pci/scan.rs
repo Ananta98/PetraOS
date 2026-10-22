@@ -77,7 +77,6 @@ pub fn scan_bus() -> Vec<PciDevice> {
                     bars,
                     interrupt_line: int_line,
                     interrupt_pin: int_pin,
-                    bound_driver: None,
                 });
             }
         }

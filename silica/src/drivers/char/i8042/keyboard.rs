@@ -230,7 +230,7 @@ pub fn init(controller: &I8042Controller) -> Result<()> {
     }
 
     // 4. Register into unified driver registry
-    crate::drivers::register_chrdev(Arc::new(KeyboardDevice));
+    crate::drivers::register_chrdev(Arc::new(KeyboardDevice))?;
 
     ostd::info!("PS/2 Keyboard: Driver registered successfully.");
     Ok(())

@@ -2,36 +2,28 @@
 
 //! Unified Kernel Driver Model and Device Abstractions.
 //!
-//! Provides core [`Device`] and [`Driver`] traits, device registration,
-//! bus discovery abstractions, and block device traits.
+//! Provides the payload traits devices expose to consumers
+//! ([`CharacterDevice`], [`BlockDevice`], [`NetDevice`]) and registers them
+//! through the generic device classes from [`device`]. Bus-level discovery
+//! and driver binding live in [`device::bus`], used in particular by the PCI
+//! subsystem.
 
 pub mod block;
 pub mod bus;
 pub mod char;
+pub mod device;
 pub mod drm;
 pub mod net;
 
 use alloc::{string::String, sync::Arc, vec::Vec};
-use core::fmt;
-use spin::Mutex;
 
 pub use net::NetDevice;
 
-use crate::{drivers::bus::pci::PciDevice, uapi::errno::Result};
+use crate::uapi::errno::Result;
 
-// ----------------------------------------------------------------------------
-// Device Registries
-// ----------------------------------------------------------------------------
-
-pub static CHAR_DEVICES: Mutex<Vec<Arc<dyn CharacterDevice>>> = Mutex::new(Vec::new());
-pub static BLK_DEVICES: Mutex<Vec<Arc<dyn BlockDevice>>> = Mutex::new(Vec::new());
-pub static NET_DEVICES: Mutex<Vec<Arc<dyn NetDevice>>> = Mutex::new(Vec::new());
-
-/// Base Device Trait
-pub trait Device: Send + Sync {
-    fn name(&self) -> String;
-    fn device_type(&self) -> DeviceType;
-}
+// ---------------------------------------------------------------------------
+// Device payload traits
+// ---------------------------------------------------------------------------
 
 /// A character device that provides unstructured read/write character streams.
 pub trait CharacterDevice: Send + Sync {
@@ -131,90 +123,95 @@ pub trait BlockDevice: Send + Sync {
     }
 }
 
-/// Category / type of the device.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DeviceType {
-    /// Block storage device (NVMe, SATA, RAM disk)
-    Block,
-    /// Character device (UART, TTY, random)
-    Char,
-    /// Network interface (Ethernet, Wi-Fi)
-    Network,
-    /// System bus or bridge (PCI, USB, I2C)
-    Bus,
-    /// Display or graphics controller
-    Display,
+// ---------------------------------------------------------------------------
+// Device classes
+// ---------------------------------------------------------------------------
+
+/// The class of character stream devices.
+pub struct CharClass;
+
+impl device::Class for CharClass {
+    type Device = dyn CharacterDevice;
 }
 
-impl fmt::Display for DeviceType {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Block => write!(f, "block"),
-            Self::Char => write!(f, "char"),
-            Self::Network => write!(f, "network"),
-            Self::Bus => write!(f, "bus"),
-            Self::Display => write!(f, "display"),
-        }
-    }
+/// The class of block storage devices.
+pub struct BlockClass;
+
+impl device::Class for BlockClass {
+    type Device = dyn BlockDevice;
 }
 
-/// Base trait for hardware device drivers capable of binding to devices.
-pub trait Driver: Send + Sync {
-    /// Human-readable name of the driver (e.g. "nvme", "e1000").
-    fn name(&self) -> &'static str;
+/// The class of network interfaces.
+pub struct NetClass;
 
-    /// Probe a discovered PCI device to determine if this driver can manage it.
-    fn probe_pci(&self, dev: &PciDevice) -> Result<bool> {
-        let _ = dev;
-        Ok(false)
-    }
+impl device::Class for NetClass {
+    type Device = dyn NetDevice;
 }
 
-/// Register a Character Device in the global registry.
-pub fn register_chrdev(device: Arc<dyn CharacterDevice>) {
-    let mut reg = CHAR_DEVICES.lock();
-    reg.push(device);
+static CHAR_CLASS: device::ClassHandle<CharClass> = device::ClassHandle::new();
+static BLOCK_CLASS: device::ClassHandle<BlockClass> = device::ClassHandle::new();
+static NET_CLASS: device::ClassHandle<NetClass> = device::ClassHandle::new();
+
+// ---------------------------------------------------------------------------
+// Registration helpers (also the module ABI entry points)
+// ---------------------------------------------------------------------------
+
+/// Registers a Character Device in the character device class.
+pub fn register_chrdev(device: Arc<dyn CharacterDevice>) -> Result<()> {
+    let name = device.name();
+    CHAR_CLASS.register(&name, device)?;
+    Ok(())
 }
 
-/// Register a Block Device in the global registry.
-pub fn register_blkdev(device: Arc<dyn BlockDevice>) {
-    let mut reg = BLK_DEVICES.lock();
-    reg.push(device);
+/// Unregisters a Character Device by name.
+pub fn unregister_chrdev(name: &str) -> Result<()> {
+    CHAR_CLASS.unregister(name)?;
+    Ok(())
 }
 
-/// Register a Network Device in the global registry.
-pub fn register_netdev(device: Arc<dyn NetDevice>) {
-    let mut reg = NET_DEVICES.lock();
-    reg.push(device);
+/// Registers a Block Device in the block device class.
+pub fn register_blkdev(device: Arc<dyn BlockDevice>) -> Result<()> {
+    let name = device.name();
+    BLOCK_CLASS.register(&name, device)?;
+    Ok(())
 }
 
-/// Unregister a Network Device by name.
-pub fn unregister_netdev(name: &str) {
-    let mut reg = NET_DEVICES.lock();
-    reg.retain(|d| d.name() != name);
+/// Unregisters a Block Device by name.
+pub fn unregister_blkdev(name: &str) -> Result<()> {
+    BLOCK_CLASS.unregister(name)?;
+    Ok(())
 }
 
-/// Returns a snapshot list of all registered Character Devices.
+/// Registers a Network Device in the network device class.
+pub fn register_netdev(device: Arc<dyn NetDevice>) -> Result<()> {
+    let name = device.name();
+    NET_CLASS.register(&name, device)?;
+    Ok(())
+}
+
+/// Unregisters a Network Device by name.
+pub fn unregister_netdev(name: &str) -> Result<()> {
+    NET_CLASS.unregister(name)?;
+    Ok(())
+}
+
+/// Returns a snapshot of all registered Character Devices.
 pub fn get_chrdevs() -> Vec<Arc<dyn CharacterDevice>> {
-    let reg = CHAR_DEVICES.lock();
-    reg.clone()
+    CHAR_CLASS.payloads()
 }
 
-/// Returns a snapshot list of all registered Block Devices.
+/// Returns a snapshot of all registered Block Devices.
 pub fn get_blkdevs() -> Vec<Arc<dyn BlockDevice>> {
-    let reg = BLK_DEVICES.lock();
-    reg.clone()
+    BLOCK_CLASS.payloads()
 }
 
-/// Returns a snapshot list of all registered Network Devices.
+/// Returns a snapshot of all registered Network Devices.
 pub fn get_netdevs() -> Vec<Arc<dyn NetDevice>> {
-    let reg = NET_DEVICES.lock();
-    reg.clone()
+    NET_CLASS.payloads()
 }
 
 /// Initializes the driver subsystem and probes system buses.
 pub fn init() -> Result<()> {
     ostd::info!("Initializing driver subsystem...");
-    bus::pci::init()?;
-    Ok(())
+    bus::pci::init()
 }

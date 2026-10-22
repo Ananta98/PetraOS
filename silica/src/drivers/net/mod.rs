@@ -39,8 +39,8 @@ pub trait NetDevice: Send + Sync {
     }
 }
 
-/// Registers a network device into the global network driver layer and devfs.
-pub fn register_network_device(device: Arc<dyn NetDevice>) {
+/// Registers a network device into the network device class and the network stack.
+pub fn register_network_device(device: Arc<dyn NetDevice>) -> Result<()> {
     ostd::info!(
         "Net: Registered network device \"/dev/{}\" (MAC: {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}, MTU: {})",
         device.name(),
@@ -52,14 +52,16 @@ pub fn register_network_device(device: Arc<dyn NetDevice>) {
         device.mac_address()[5],
         device.mtu(),
     );
-    crate::drivers::register_netdev(device.clone());
+    crate::drivers::register_netdev(device.clone())?;
     crate::net::attach_device(device);
+    Ok(())
 }
 
 /// Unregisters a network device by name.
-pub fn unregister_network_device(name: &str) {
-    crate::drivers::unregister_netdev(name);
+pub fn unregister_network_device(name: &str) -> Result<()> {
+    crate::drivers::unregister_netdev(name)?;
     crate::net::detach_device(name);
+    Ok(())
 }
 
 /// Retrieves a network device by name.

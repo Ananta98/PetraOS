@@ -19,7 +19,7 @@ use super::{
     hba::*,
 };
 use crate::{
-    drivers::{BlockDeviceStats, Device, DeviceType, block::BlockDevice},
+    drivers::{BlockDeviceStats, block::BlockDevice},
     uapi::errno::{Errno, Result},
 };
 
@@ -610,16 +610,6 @@ impl AhciPort {
         }
 
         Ok(byte_count as usize)
-    }
-}
-
-impl Device for AhciPort {
-    fn name(&self) -> String {
-        self.name.clone()
-    }
-
-    fn device_type(&self) -> DeviceType {
-        DeviceType::Block
     }
 }
 

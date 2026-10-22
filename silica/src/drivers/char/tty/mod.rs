@@ -92,6 +92,7 @@ impl Tty {
     pub fn hangup(&self) {
         self.hangup.store(true, Ordering::Release);
         self.wq.wake_all();
+        crate::fs::poll::notify();
     }
 
     /// Returns whether the TTY has been hung up.
@@ -111,8 +112,13 @@ impl Tty {
     }
 
     /// Wakes up threads waiting for input data.
+    ///
+    /// Also releases pollers that blocked on the global poll queue (`select`,
+    /// `poll`, `epoll`): tty readiness only changes here, so a wakeup that
+    /// stayed local to `wq` would strand them.
     pub fn wake_readers(&self) {
         self.wq.wake_all();
+        crate::fs::poll::notify();
     }
 
     /// Feeds a raw byte into the line discipline and writes any resulting echo to the driver.
@@ -680,8 +686,8 @@ pub fn init() -> Result<()> {
     let console_tty = Tty::new(String::from("tty0"), driver);
     Console::set_active(Arc::clone(&console_tty));
 
-    register_chrdev(Arc::new(Console));
-    register_chrdev(Arc::clone(&console_tty) as Arc<dyn CharacterDevice>);
+    register_chrdev(Arc::new(Console))?;
+    register_chrdev(Arc::clone(&console_tty) as Arc<dyn CharacterDevice>)?;
 
     pty::init()?;
 

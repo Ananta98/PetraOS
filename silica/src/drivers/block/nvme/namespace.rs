@@ -16,7 +16,7 @@ use super::{
     queue::NvmeQueuePair,
 };
 use crate::{
-    drivers::{BlockDeviceStats, Device, DeviceType, block::BlockDevice},
+    drivers::{BlockDeviceStats, block::BlockDevice},
     uapi::errno::{Errno, Result},
 };
 
@@ -32,16 +32,6 @@ pub struct NvmeNamespace {
     pub sectors_read: AtomicU64,
     pub writes_completed: AtomicU64,
     pub sectors_written: AtomicU64,
-}
-
-impl Device for NvmeNamespace {
-    fn name(&self) -> String {
-        self.name.clone()
-    }
-
-    fn device_type(&self) -> DeviceType {
-        DeviceType::Block
-    }
 }
 
 impl BlockDevice for NvmeNamespace {

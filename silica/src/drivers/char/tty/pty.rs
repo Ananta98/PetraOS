@@ -86,6 +86,7 @@ impl TtyDriver for PtySlaveTtyDriver {
         drop(mbuf);
 
         pair.master_wq.wake_all();
+        crate::fs::poll::notify();
         Ok(())
     }
 
@@ -194,6 +195,7 @@ impl FileOps for PtyMasterFileOps {
                 }
                 drop(mbuf);
                 self.pair.master_wq.wake_all();
+                crate::fs::poll::notify();
             }
         }
         Ok(buf.len())
@@ -274,6 +276,7 @@ impl Drop for PtyMasterFileOps {
     fn drop(&mut self) {
         self.pair.tty.hangup();
         self.pair.master_wq.wake_all();
+        crate::fs::poll::notify();
         PTY_TABLE.lock().remove(&self.pair.index);
     }
 }
@@ -406,6 +409,6 @@ impl FileOps for PtsDirFileOps {
 
 /// Registers the /dev/ptmx character device.
 pub fn init() -> Result<()> {
-    register_chrdev(Arc::new(PtmxDevice));
+    register_chrdev(Arc::new(PtmxDevice))?;
     Ok(())
 }

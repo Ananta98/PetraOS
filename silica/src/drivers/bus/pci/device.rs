@@ -26,15 +26,9 @@ pub struct PciDevice {
     pub bars: [Option<PciBar>; 6],
     pub interrupt_line: u8,
     pub interrupt_pin: u8,
-    pub bound_driver: Option<&'static str>,
 }
 
 impl PciDevice {
-    /// Returns `true` if this device has been bound to a driver.
-    pub fn is_bound(&self) -> bool {
-        self.bound_driver.is_some()
-    }
-
     /// Read an 8-bit byte from this device's configuration space.
     pub fn read_config_u8(&self, offset: u8) -> u8 {
         pci_read_config_u8(self.address, offset)

@@ -179,7 +179,7 @@ pub fn init(controller: &I8042Controller) -> Result<()> {
     }
 
     // Register into unified driver registry
-    crate::drivers::register_chrdev(Arc::new(MouseDevice));
+    crate::drivers::register_chrdev(Arc::new(MouseDevice))?;
 
     ostd::info!("PS/2 Mouse: Driver registered successfully.");
     Ok(())

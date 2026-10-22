@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: GPL-2.0
 
-//! PCI Driver Model & Registration Subsystem.
+//! PCI Driver Registration on the Generic Device Model.
 //!
-//! Provides a Linux-compatible PCI driver registration and device binding model.
-//! Drivers implement [`PciDriver`] and declare their supported hardware via [`PciDeviceId`] tables.
+//! Drivers implement [`Driver<PciBus>`] and declare their supported hardware
+//! through [`PciDeviceId`] tables supplied as the bus's match data.
 
-use alloc::{sync::Arc, vec::Vec};
-use spin::Mutex;
+use alloc::sync::Arc;
 
-use super::device::PciDevice;
+use super::{PciBus, PCI_BUS};
+use crate::drivers::device::Driver;
 use crate::uapi::errno::Result;
 
 /// Wildcard value matching any PCI vendor, device, or class ID.
@@ -65,7 +65,7 @@ impl PciDeviceId {
     }
 
     /// Tests whether a given `PciDevice` matches this device ID filter.
-    pub fn matches(&self, dev: &PciDevice) -> bool {
+    pub fn matches(&self, dev: &super::PciDevice) -> bool {
         let vendor_match = self.vendor_id == PCI_ANY_ID || self.vendor_id == dev.vendor_id;
         let device_match = self.device_id == PCI_ANY_ID || self.device_id == dev.device_id;
         let class_match = self.class_code == PCI_ANY_ID || self.class_code as u8 == dev.class_code;
@@ -76,90 +76,17 @@ impl PciDeviceId {
     }
 }
 
-/// Trait implemented by all PCI drivers in PetraOS.
-pub trait PciDriver: Send + Sync {
-    /// Human-readable name of the driver (e.g., "nvme", "e1000").
-    fn name(&self) -> &'static str;
-
-    /// Table of supported PCI device IDs.
-    fn id_table(&self) -> &[PciDeviceId];
-
-    /// Probes and initializes a matching, unbound PCI device.
-    fn probe(&self, dev: &PciDevice) -> Result<()>;
-
-    /// Cleans up device resources when the device is removed or driver is unloaded.
-    fn remove(&self, _dev: &PciDevice) -> Result<()> {
-        Ok(())
-    }
-}
-
-/// Global list of registered PCI drivers.
-pub static PCI_DRIVERS: Mutex<Vec<Arc<dyn PciDriver>>> = Mutex::new(Vec::new());
-
-/// Registers a PCI driver with the PCI bus subsystem.
+/// Registers a PCI driver with the PCI bus.
 ///
-/// When a driver is registered, the PCI core matches it against all already
-/// enumerated and unbound PCI devices, invoking `probe()` on each match.
-pub fn pci_register_driver(driver: Arc<dyn PciDriver>) -> Result<()> {
+/// The driver is probed against every unbound PCI device already on the bus;
+/// later devices are probed against this driver when they are discovered.
+pub fn pci_register_driver(driver: Arc<dyn Driver<PciBus>>) -> Result<()> {
     ostd::info!("PCI: Registering driver \"{}\"...", driver.name());
-
-    let matching: Vec<PciDevice> = {
-        let dev_list = super::PCI_DEVICES.lock();
-        dev_list
-            .iter()
-            .filter(|dev| !dev.is_bound() && driver.id_table().iter().any(|id| id.matches(dev)))
-            .cloned()
-            .collect()
-    };
-
-    for dev in matching {
-        ostd::info!(
-            "PCI: Probing device [{}] {:04x}:{:04x} with driver \"{}\"...",
-            dev.address,
-            dev.vendor_id,
-            dev.device_id,
-            driver.name()
-        );
-
-        match driver.probe(&dev) {
-            Ok(()) => {
-                let mut dev_list = super::PCI_DEVICES.lock();
-                if let Some(target) = dev_list.iter_mut().find(|d| d.address == dev.address) {
-                    target.bound_driver = Some(driver.name());
-                }
-                ostd::info!(
-                    "PCI: Device [{}] successfully bound to driver \"{}\"",
-                    dev.address,
-                    driver.name()
-                );
-            }
-            Err(err) => {
-                ostd::error!(
-                    "PCI: Driver \"{}\" failed to probe device [{}]: {:?}",
-                    driver.name(),
-                    dev.address,
-                    err
-                );
-            }
-        }
-    }
-
-    PCI_DRIVERS.lock().push(driver);
+    PCI_BUS.register_driver(driver)?;
     Ok(())
 }
 
 /// Unregisters a PCI driver and detaches it from bound devices.
 pub fn pci_unregister_driver(name: &str) -> Result<()> {
-    let mut drivers = PCI_DRIVERS.lock();
-    if let Some(pos) = drivers.iter().position(|d| d.name() == name) {
-        let driver = drivers.remove(pos);
-        let mut dev_list = super::PCI_DEVICES.lock();
-        for dev in dev_list.iter_mut() {
-            if dev.bound_driver == Some(driver.name()) {
-                let _ = driver.remove(dev);
-                dev.bound_driver = None;
-            }
-        }
-    }
-    Ok(())
+    PCI_BUS.unregister_driver(name)
 }

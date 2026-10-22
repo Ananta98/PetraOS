@@ -16,7 +16,7 @@ use ostd::mm::io::{VmIo, VmIoOnce};
 use spin::Mutex;
 
 use super::caps::{find_caps, map_cap};
-use crate::drivers::bus::pci::{PCI_DEVICES, PciDevice};
+use crate::drivers::bus::pci::PciDevice;
 use crate::uapi::errno::{Errno, Result};
 
 // `virtio_pci_common_cfg` register offsets (virtio 1.0 spec).
@@ -283,16 +283,6 @@ impl VirtioTransport {
             .map_err(|_| Errno::EIO)
     }
 
-    /// Marks the host PCI records the device as claimed by this driver.
-    pub(crate) fn mark_bound(&self) {
-        let mut devices = PCI_DEVICES.lock();
-        if let Some(target) = devices
-            .iter_mut()
-            .find(|d| d.address == self.device.address)
-        {
-            target.bound_driver = Some("virtio");
-        }
-    }
 }
 
 impl Drop for VirtioTransport {
@@ -308,21 +298,17 @@ static TRANSPORTS: Mutex<Vec<Arc<VirtioTransport>>> = Mutex::new(Vec::new());
 /// The device drivers registered with the bus.
 static DRIVERS: Mutex<Vec<Arc<dyn VirtioDevice>>> = Mutex::new(Vec::new());
 
-/// Bring-up: scans the enumerated PCI list for modern virtio devices.
+/// Bring-up: scans the PCI bus for unbound modern virtio devices.
 pub fn init() -> Result<()> {
-    let candidates: Vec<PciDevice> = PCI_DEVICES
-        .lock()
-        .iter()
-        .filter(|device| device.bound_driver.is_none())
-        .cloned()
-        .collect();
-
-    for device in candidates {
+    for device in crate::drivers::bus::pci::PCI_BUS.devices() {
         // RedHat vendor's modern device ids are `0x1040 + virtio type`.
         if device.vendor_id != 0x1AF4 || !(0x1040..0x1080).contains(&device.device_id) {
             continue;
         }
-        match VirtioTransport::new(device) {
+        if device.driver().is_some() {
+            continue;
+        }
+        match VirtioTransport::new(device.payload().clone()) {
             Ok(transport) => {
                 TRANSPORTS.lock().push(transport);
             }
@@ -349,7 +335,6 @@ pub fn register_virtio_device(device: Arc<dyn VirtioDevice>) -> Result<()> {
                     device.name(),
                     transport.pci_device_id()
                 );
-                transport.mark_bound();
             }
             Err(err) => {
                 ostd::error!("virtio: {} activation failed: {:?}", device.name(), err);
@@ -371,8 +356,6 @@ fn bind_devices() {
             }
             if let Err(err) = transport.activate(Arc::clone(&driver)) {
                 ostd::error!("virtio: {} activation failed: {:?}", driver.name(), err);
-            } else {
-                transport.mark_bound();
             }
         }
     }

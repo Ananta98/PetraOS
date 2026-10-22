@@ -48,7 +48,7 @@ impl CharacterDevice for UsbKeyboardDevice {
 
 pub fn init_usb_keyboard() -> Result<()> {
     KEYBOARD_REGISTERED.call_once(|| {
-        crate::drivers::register_chrdev(Arc::new(UsbKeyboardDevice::new()));
+        let _ = crate::drivers::register_chrdev(Arc::new(UsbKeyboardDevice::new()));
     });
     ostd::info!("USB Keyboard: Driver registered into unified character devices");
     Ok(())

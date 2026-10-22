@@ -47,7 +47,7 @@ impl CharacterDevice for UsbMouseDevice {
 
 pub fn init_usb_mouse() -> Result<()> {
     MOUSE_REGISTERED.call_once(|| {
-        crate::drivers::register_chrdev(Arc::new(UsbMouseDevice::new()));
+        let _ = crate::drivers::register_chrdev(Arc::new(UsbMouseDevice::new()));
     });
     ostd::info!("USB Mouse: Driver registered into unified character devices");
     Ok(())

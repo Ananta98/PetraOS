@@ -251,7 +251,7 @@ pub fn probe_storage_interface(
         block_count,
     ));
 
-    crate::drivers::block::register_block_device(&dev.name(), dev.clone());
+    crate::drivers::block::register_block_device(&dev.name(), dev.clone())?;
     ostd::info!(
         "USB Storage: Device \"/dev/{}\" registered (Capacity: {} MB)",
         dev.name(),

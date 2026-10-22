@@ -29,7 +29,8 @@ use self::{
 use crate::{
     drivers::{
         block::register_block_device,
-        bus::pci::{self, PciDevice, PciDeviceId, PciDriver, pci_register_driver},
+        device::{BusDevice, Driver},
+        bus::pci::{PciBus, PciDevice, PciDeviceId, pci_register_driver, self},
     },
     uapi::errno::{Errno, Result},
 };
@@ -200,7 +201,7 @@ pub fn probe_controller(dev: &PciDevice) -> Result<Arc<NvmeController>> {
                     sectors_written: AtomicU64::new(0),
                 });
 
-                register_block_device(&name, Arc::clone(&ns) as _);
+                register_block_device(&name, Arc::clone(&ns) as _)?;
                 namespaces.push(ns);
             }
         }
@@ -226,17 +227,17 @@ static NVME_PCI_IDS: [PciDeviceId; 1] = [PciDeviceId::match_class(
     pci::ids::mass_storage::nvm::NVME,
 )];
 
-impl PciDriver for NvmePciDriver {
+impl Driver<PciBus> for NvmePciDriver {
     fn name(&self) -> &'static str {
         "nvme"
     }
 
-    fn id_table(&self) -> &[PciDeviceId] {
+    fn match_data(&self) -> &[PciDeviceId] {
         &NVME_PCI_IDS
     }
 
-    fn probe(&self, dev: &PciDevice) -> Result<()> {
-        probe_controller(dev).map(|_| ())
+    fn on_probe(&self, device: &BusDevice<PciBus>) -> Result<()> {
+        probe_controller(device).map(|_| ())
     }
 }
 

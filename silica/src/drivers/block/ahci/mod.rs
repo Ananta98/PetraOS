@@ -19,7 +19,8 @@ use self::{
 use crate::{
     drivers::{
         block::register_block_device,
-        bus::pci::{self, PciDevice, PciDeviceId, PciDriver, pci_register_driver},
+        device::{BusDevice, Driver},
+        bus::pci::{PciBus, PciDevice, PciDeviceId, pci_register_driver, self},
     },
     uapi::errno::{Errno, Result},
 };
@@ -100,7 +101,7 @@ pub fn probe_controller(dev: &PciDevice) -> Result<Arc<AhciController>> {
                 match AhciPort::new(port_no, mmio.clone(), name.clone()) {
                     Ok(port) => {
                         let port_arc = Arc::new(port);
-                        register_block_device(&name, Arc::clone(&port_arc) as _);
+                        register_block_device(&name, Arc::clone(&port_arc) as _)?;
                         ports.push(port_arc);
                     }
                     Err(e) => {
@@ -148,17 +149,17 @@ static AHCI_PCI_IDS: [PciDeviceId; 1] = [PciDeviceId::match_class(
     0x01, // AHCI 1.0 programming interface
 )];
 
-impl PciDriver for AhciPciDriver {
+impl Driver<PciBus> for AhciPciDriver {
     fn name(&self) -> &'static str {
         "ahci"
     }
 
-    fn id_table(&self) -> &[PciDeviceId] {
+    fn match_data(&self) -> &[PciDeviceId] {
         &AHCI_PCI_IDS
     }
 
-    fn probe(&self, dev: &PciDevice) -> Result<()> {
-        probe_controller(dev).map(|_| ())
+    fn on_probe(&self, device: &BusDevice<PciBus>) -> Result<()> {
+        probe_controller(device).map(|_| ())
     }
 }
 

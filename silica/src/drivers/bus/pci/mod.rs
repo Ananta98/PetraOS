@@ -7,6 +7,7 @@
 //! - [`config`]: Low-level PCI configuration space port I/O and register definitions.
 //! - [`bar`]: Base Address Register (BAR) decoding and probing.
 //! - [`device`]: Discovered PCI device model and control helpers.
+//! - [`driver`]: PCI driver registration on the generic device model bus.
 //! - [`scan`]: PCI bus enumeration.
 //! - [`ids`]: Standard PCI class and subclass IDs.
 
@@ -18,8 +19,7 @@ pub mod driver;
 pub mod ids;
 pub mod scan;
 
-use alloc::vec::Vec;
-use spin::Mutex;
+use alloc::format;
 
 pub use address::PciAddress;
 pub use bar::{BarType, PciBar, probe_bar};
@@ -32,15 +32,27 @@ pub use config::{
     pci_write_config_u32,
 };
 pub use device::PciDevice;
-pub use driver::{
-    PCI_ANY_ID, PCI_DRIVERS, PciDeviceId, PciDriver, pci_register_driver, pci_unregister_driver,
-};
+pub use driver::{PCI_ANY_ID, PciDeviceId, pci_register_driver, pci_unregister_driver};
 pub use scan::scan_bus;
 
+use crate::drivers::device::{Bus, BusHandle};
 use crate::uapi::errno::Result;
 
-/// Global registry of discovered PCI devices.
-pub static PCI_DEVICES: Mutex<Vec<PciDevice>> = Mutex::new(Vec::new());
+/// The PCI bus on the generic device model.
+pub struct PciBus;
+
+impl Bus for PciBus {
+    type Device = PciDevice;
+
+    type MatchData = [PciDeviceId];
+
+    fn matches(&self, device: &PciDevice, driver: &[PciDeviceId]) -> bool {
+        driver.iter().any(|id| id.matches(device))
+    }
+}
+
+/// Global registry of discovered PCI devices and their drivers.
+pub static PCI_BUS: BusHandle<PciBus> = BusHandle::new(PciBus);
 
 /// Initializes the PCI subsystem, enumerating all connected devices.
 pub fn init() -> Result<()> {
@@ -48,33 +60,30 @@ pub fn init() -> Result<()> {
     let devices = scan_bus();
 
     ostd::info!("PCI: Discovered {} device(s)", devices.len());
-    for dev in &devices {
+    for payload in devices {
         ostd::info!(
             "PCI: [{}] {:04x}:{:04x} class {:02x}:{:02x} (prog_if {:02x})",
-            dev.address,
-            dev.vendor_id,
-            dev.device_id,
-            dev.class_code,
-            dev.subclass,
-            dev.prog_if
+            payload.address,
+            payload.vendor_id,
+            payload.device_id,
+            payload.class_code,
+            payload.subclass,
+            payload.prog_if
         );
-
-        for bar in dev.bars.iter().flatten() {
+        for bar in payload.bars.iter().flatten() {
             ostd::info!(
-                "  BAR{}: {:?} base {:#x} (size: {} KB)",
+                "PCI: [{}] BAR{}: {:?} base {:#x} (size: {} KB)",
+                payload.address,
                 bar.index,
                 bar.bar_type,
                 bar.address,
                 bar.size / 1024
             );
         }
+
+        let name = format!("{}", payload.address);
+        PCI_BUS.add_device(&name, payload)?;
     }
 
-    *PCI_DEVICES.lock() = devices;
-
     Ok(())
-}
-
-pub fn get_devices() -> Vec<PciDevice> {
-    PCI_DEVICES.lock().clone()
 }

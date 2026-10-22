@@ -12,7 +12,8 @@ use ostd::io::IoMem;
 
 use crate::{
     drivers::{
-        bus::pci::{PciDevice, PciDeviceId, PciDriver, pci_register_driver},
+        bus::pci::{PciBus, PciDevice, PciDeviceId, pci_register_driver},
+        device::{BusDevice, Driver},
         net::register_network_device,
     },
     uapi::errno::{Errno, Result},
@@ -44,18 +45,18 @@ static E1000_PCI_IDS: [PciDeviceId; 10] = [
     PciDeviceId::match_device(0x8086, 0x1502),
 ];
 
-impl PciDriver for E1000PciDriver {
+impl Driver<PciBus> for E1000PciDriver {
     fn name(&self) -> &'static str {
         "e1000"
     }
 
-    fn id_table(&self) -> &[PciDeviceId] {
+    fn match_data(&self) -> &[PciDeviceId] {
         &E1000_PCI_IDS
     }
 
-    fn probe(&self, dev: &PciDevice) -> Result<()> {
+    fn on_probe(&self, device: &BusDevice<PciBus>) -> Result<()> {
         let index = self.counter.fetch_add(1, Ordering::Relaxed);
-        probe_device(dev, index)
+        probe_device(device, index)
     }
 }
 
@@ -86,7 +87,7 @@ pub fn probe_device(dev: &PciDevice, index: usize) -> Result<()> {
     let e1000 = E1000Device::new(name, mmio)?;
 
     // 3. Register device in drivers, devfs, and network stack
-    register_network_device(e1000);
+    register_network_device(e1000)?;
 
     Ok(())
 }
