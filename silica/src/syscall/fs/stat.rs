@@ -268,7 +268,7 @@ pub fn sys_newfstatat(
     flags: i32,
     _ctx: &mut UserContext,
 ) -> Result<usize> {
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     let vmar = proc.vmspace();
 
     let inode = if path_ptr == 0 {
@@ -278,7 +278,7 @@ pub fn sys_newfstatat(
         if dirfd == AT_FDCWD {
             proc.cwd()?.dentry.get_inode().ok_or(Errno::ENOENT)?
         } else {
-            proc.fd_table.lock().get(dirfd)?.inode.clone()
+            proc.file(dirfd)?.inode.clone()
         }
     } else {
         let path = UserCStr::new(path_ptr).read_string(&vmar, 4096)?;
@@ -287,7 +287,7 @@ pub fn sys_newfstatat(
                 if dirfd == AT_FDCWD {
                     proc.cwd()?.dentry.get_inode().ok_or(Errno::ENOENT)?
                 } else {
-                    proc.fd_table.lock().get(dirfd)?.inode.clone()
+                    proc.file(dirfd)?.inode.clone()
                 }
             } else {
                 return Err(Errno::ENOENT);
@@ -321,8 +321,8 @@ pub fn sys_lstat(path_ptr: usize, statbuf_ptr: usize, ctx: &mut UserContext) -> 
 
 /// System call `fstat(int fd, struct stat *statbuf)` (Syscall #5).
 pub fn sys_fstat(fd: i32, statbuf_ptr: usize, _ctx: &mut UserContext) -> Result<usize> {
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
-    let file = proc.fd_table.lock().get(fd)?;
+    let proc = Thread::proc_or_esrch()?;
+    let file = proc.file(fd)?;
     stat_inode_to_user(&file.inode, statbuf_ptr, &proc.vmspace())?;
     Ok(0)
 }
@@ -338,7 +338,7 @@ pub fn sys_statx(
     statbuf_ptr: usize,
     _ctx: &mut UserContext,
 ) -> Result<usize> {
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     let vmar = proc.vmspace();
 
     let inode = if path_ptr == 0 {
@@ -348,7 +348,7 @@ pub fn sys_statx(
         if dirfd == AT_FDCWD {
             proc.cwd()?.dentry.get_inode().ok_or(Errno::ENOENT)?
         } else {
-            proc.fd_table.lock().get(dirfd)?.inode.clone()
+            proc.file(dirfd)?.inode.clone()
         }
     } else {
         let path = UserCStr::new(path_ptr).read_string(&vmar, 4096)?;
@@ -357,7 +357,7 @@ pub fn sys_statx(
                 if dirfd == AT_FDCWD {
                     proc.cwd()?.dentry.get_inode().ok_or(Errno::ENOENT)?
                 } else {
-                    proc.fd_table.lock().get(dirfd)?.inode.clone()
+                    proc.file(dirfd)?.inode.clone()
                 }
             } else {
                 return Err(Errno::ENOENT);

@@ -14,7 +14,7 @@ const O_CLOEXEC: i32 = 0o2000000;
 
 /// System call `dup(int oldfd)` (Syscall #32).
 pub fn sys_dup(oldfd: i32, _ctx: &mut UserContext) -> Result<usize> {
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     let mut table = proc.fd_table.lock();
     let file = table.get(oldfd)?;
     let new_fd = table.alloc_fd(file, FdFlags::empty())?;
@@ -23,7 +23,7 @@ pub fn sys_dup(oldfd: i32, _ctx: &mut UserContext) -> Result<usize> {
 
 /// System call `dup2(int oldfd, int newfd)` (Syscall #33).
 pub fn sys_dup2(oldfd: i32, newfd: i32, _ctx: &mut UserContext) -> Result<usize> {
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     let mut table = proc.fd_table.lock();
     let res = table.dup2(oldfd, newfd, FdFlags::empty())?;
     Ok(res as usize)
@@ -43,7 +43,7 @@ pub fn sys_dup3(oldfd: i32, newfd: i32, flags: i32, _ctx: &mut UserContext) -> R
         fd_flags |= FdFlags::FD_CLOEXEC;
     }
 
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     let mut table = proc.fd_table.lock();
     let res = table.dup2(oldfd, newfd, fd_flags)?;
     Ok(res as usize)

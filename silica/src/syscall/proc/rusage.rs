@@ -23,7 +23,7 @@ pub fn sys_getrusage(who: i32, usage_ptr: usize, _ctx: &mut UserContext) -> Resu
         return Err(Errno::EINVAL);
     }
 
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     let ru = match who {
         RUSAGE_CHILDREN => proc.inner.lock().children_rusage,
         RUSAGE_SELF | RUSAGE_THREAD => {

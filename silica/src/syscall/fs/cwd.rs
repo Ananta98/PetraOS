@@ -18,7 +18,7 @@ pub fn sys_getcwd(buf_ptr: usize, size: usize, _ctx: &mut UserContext) -> Result
     if size == 0 {
         return Err(Errno::EINVAL);
     }
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     let vmar = proc.vmspace();
 
     let cwd = proc.cwd()?;
@@ -40,7 +40,7 @@ pub fn sys_getcwd(buf_ptr: usize, size: usize, _ctx: &mut UserContext) -> Result
 
 /// System call `chdir(const char *path)` (Syscall #80).
 pub fn sys_chdir(path_ptr: usize, _ctx: &mut UserContext) -> Result<usize> {
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     let vmar = proc.vmspace();
     let path = UserCStr::new(path_ptr).read_string(&vmar, 4096)?;
 
@@ -68,8 +68,8 @@ pub fn sys_chdir(path_ptr: usize, _ctx: &mut UserContext) -> Result<usize> {
 
 /// System call `fchdir(int fd)` (Syscall #81).
 pub fn sys_fchdir(fd: i32, _ctx: &mut UserContext) -> Result<usize> {
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
-    let file = proc.fd_table.lock().get(fd)?;
+    let proc = Thread::proc_or_esrch()?;
+    let file = proc.file(fd)?;
 
     if !file.inode.is_dir() {
         return Err(Errno::ENOTDIR);

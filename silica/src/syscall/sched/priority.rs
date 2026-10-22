@@ -82,7 +82,7 @@ fn find_matching_procs(caller: &Arc<Proc>, which: i32, who: i32) -> Result<Vec<A
 ///
 /// In the Linux kernel ABI, the return value on success is `20 - nice` (range 1..=40).
 pub fn sys_getpriority(which: i32, who: i32, _ctx: &mut UserContext) -> Result<usize> {
-    let caller = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let caller = Thread::proc_or_esrch()?;
     let procs = find_matching_procs(&caller, which, who)?;
 
     let mut min_nice = i32::MAX;
@@ -108,7 +108,7 @@ pub fn sys_getpriority(which: i32, who: i32, _ctx: &mut UserContext) -> Result<u
 
 /// `setpriority(2)` - Sets scheduling priority (nice value) for specified processes.
 pub fn sys_setpriority(which: i32, who: i32, prio: i32, _ctx: &mut UserContext) -> Result<usize> {
-    let caller = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let caller = Thread::proc_or_esrch()?;
     let procs = find_matching_procs(&caller, which, who)?;
 
     let target_nice = prio.clamp(PRIO_MIN, PRIO_MAX);
@@ -137,11 +137,7 @@ pub fn sys_setpriority(which: i32, who: i32, prio: i32, _ctx: &mut UserContext) 
 
 /// `sched_rr_get_interval(2)` - Retrieves round-robin time quantum for a process.
 pub fn sys_sched_rr_get_interval(pid: i32, tp_ptr: usize, _ctx: &mut UserContext) -> Result<usize> {
-    if tp_ptr == 0 {
-        return Err(Errno::EFAULT);
-    }
-
-    let caller = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let caller = Thread::proc_or_esrch()?;
     let target = resolve_target_proc(&caller, pid)?;
     crate::sched::check_sched_permission(&caller, &target)?;
 

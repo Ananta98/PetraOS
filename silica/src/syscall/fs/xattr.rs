@@ -18,7 +18,7 @@ pub fn sys_listxattr(
     _size: usize,
     _ctx: &mut UserContext,
 ) -> Result<usize> {
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     let vmar = proc.vmspace();
 
     let path = UserCStr::new(path_ptr).read_string(&vmar, 4096)?;

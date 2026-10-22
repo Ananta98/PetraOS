@@ -5,7 +5,7 @@
 use ostd::arch::cpu::context::UserContext;
 
 use crate::{
-    api::errno::{Errno, Result},
+    api::errno::Result,
     fs::vfs::StatFs,
     proc::thread::Thread,
     syscall::fs::utils::{UserCStr, UserPtr},
@@ -73,7 +73,7 @@ impl From<StatFs> for LinuxStatFs {
 
 /// System call `statfs(const char *path, struct statfs *buf)` (Syscall #137).
 pub fn sys_statfs(path_ptr: usize, buf_ptr: usize, _ctx: &mut UserContext) -> Result<usize> {
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     let vmar = proc.vmspace();
     let path = UserCStr::new(path_ptr).read_string(&vmar, 4096)?;
 
@@ -86,9 +86,9 @@ pub fn sys_statfs(path_ptr: usize, buf_ptr: usize, _ctx: &mut UserContext) -> Re
 
 /// System call `fstatfs(int fd, struct statfs *buf)` (Syscall #138).
 pub fn sys_fstatfs(fd: i32, buf_ptr: usize, _ctx: &mut UserContext) -> Result<usize> {
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     let vmar = proc.vmspace();
-    let file = proc.fd_table.lock().get(fd)?;
+    let file = proc.file(fd)?;
 
     let statfs = if let Some(path_node) = &file.path_node {
         path_node.mount.fs.statfs()?

@@ -27,7 +27,7 @@ pub fn sys_pipe2(pipefd_ptr: usize, flags: i32, _ctx: &mut UserContext) -> Resul
     };
 
     let (read_end, write_end) = crate::fs::pipe::create_pipe(nonblock);
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     let mut table = proc.fd_table.lock();
 
     let fd0 = table.alloc_fd(read_end, cloexec)?;

@@ -27,7 +27,7 @@ pub fn sys_fadvise64(
     if !(0..=5).contains(&advice) {
         return Err(Errno::EINVAL);
     }
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
-    let _file = proc.fd_table.lock().get(fd)?;
+    let proc = Thread::proc_or_esrch()?;
+    let _file = proc.file(fd)?;
     Ok(0)
 }

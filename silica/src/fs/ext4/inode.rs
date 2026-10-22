@@ -31,7 +31,7 @@ pub mod iflags {
 
 /// Time-of-day helper: seconds since boot, as stored on disk.
 pub fn nowsecs32() -> u32 {
-    (crate::sched::now() / crate::sched::TIMER_HZ) as u32
+    crate::time::uptime_secs() as u32
 }
 
 /// A parsed on-disk inode; retains the full raw bytes for round-tripping.

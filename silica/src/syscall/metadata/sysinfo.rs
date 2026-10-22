@@ -5,7 +5,7 @@
 use ostd::arch::cpu::context::UserContext;
 
 use crate::{
-    api::errno::{Errno, Result},
+    api::errno::Result,
     proc::thread::Thread,
     utils::userspace::user_ptr::UserPtr,
 };
@@ -57,14 +57,10 @@ impl SysInfo {
 
 /// Retrieves overall system statistics.
 pub fn sys_sysinfo(info_ptr: usize, _ctx: &mut UserContext) -> Result<usize> {
-    if info_ptr == 0 {
-        return Err(Errno::EFAULT);
-    }
-
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     let vmar = proc.vmspace();
 
-    let uptime = (crate::sched::now() / crate::sched::TIMER_HZ) as i64;
+    let uptime = crate::time::uptime_secs() as i64;
     let load = crate::sched::loadavg();
     // In Linux sysinfo, loads are scaled by 2^16 (SI_LOAD_SHIFT = 16)
     let loads = [load.one >> 8, load.five >> 8, load.fifteen >> 8];

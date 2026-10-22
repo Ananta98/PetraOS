@@ -5,7 +5,7 @@
 use ostd::arch::cpu::context::UserContext;
 
 use crate::{
-    api::errno::{Errno, Result},
+    api::errno::Result,
     fs::vfs::Mode,
     proc::thread::Thread,
     syscall::fs::utils::{AT_FDCWD, UserCStr, parse_open_flags, resolve_at_start},
@@ -19,7 +19,7 @@ pub fn sys_openat(
     mode: u32,
     _ctx: &mut UserContext,
 ) -> Result<usize> {
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     let vmar = proc.vmspace();
     let path = UserCStr::new(path_ptr).read_string(&vmar, 4096)?;
 

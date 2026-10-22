@@ -50,7 +50,7 @@ impl Tms {
 /// Retrieves process execution times and returns elapsed system ticks (`times(2)`, Syscall #100).
 pub fn sys_times(buf_ptr: usize, _ctx: &mut UserContext) -> Result<usize> {
     if buf_ptr != 0 {
-        let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+        let proc = Thread::proc_or_esrch()?;
         let vmar = proc.vmspace();
 
         let td = Thread::current().ok_or(Errno::ESRCH)?;

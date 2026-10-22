@@ -24,7 +24,7 @@ use crate::api::termios::{Termios, VMIN, VTIME, winsize};
 use crate::drivers::{CharacterDevice, register_chrdev};
 use crate::fs::poll::PollEvents;
 use crate::fs::vfs::{File, FileOps, INode, Mode, OpenFlags};
-use crate::proc::thread::{Thread, ThreadFlags};
+use crate::proc::thread::Thread;
 use crate::proc::{PID_INIT, Pid, pgrp_for_each};
 use crate::utils::ring_buffer::RingBuffer;
 use crate::utils::userspace::user_ptr::UserPtr;
@@ -193,12 +193,9 @@ impl Tty {
             ready
         };
 
-        let cancel = || {
-            if let Some(td) = Thread::current()
-                && td.inner.lock().flags.contains(ThreadFlags::TDF_ASTPENDING)
-            {
-                return Err(Errno::EINTR);
-            }
+        let cancel = || if Thread::should_interrupt() {
+            Err(Errno::EINTR)
+        } else {
             Ok(())
         };
 
@@ -406,7 +403,7 @@ impl Tty {
 
     /// Standard ioctl dispatching to current process address space.
     pub fn ioctl(&self, cmd: u32, arg: usize) -> Result<usize> {
-        let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+        let proc = Thread::proc_or_esrch()?;
         let vmar = proc.vmspace();
         self.ioctl_with_vmar(cmd, arg, &vmar, Some(&proc))
     }

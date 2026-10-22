@@ -5,7 +5,7 @@
 use ostd::arch::cpu::context::UserContext;
 
 use crate::{
-    api::errno::{Errno, Result},
+    api::errno::Result,
     fs::procfs::sys::get_hostname,
     proc::thread::Thread,
     utils::userspace::user_ptr::UserPtr,
@@ -73,11 +73,7 @@ fn copy_cstr(dst: &mut [u8; UTS_LEN], src: &[u8]) {
 
 /// Retrieves system identification information.
 pub fn sys_uname(buf_ptr: usize, _ctx: &mut UserContext) -> Result<usize> {
-    if buf_ptr == 0 {
-        return Err(Errno::EFAULT);
-    }
-
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     let vmar = proc.vmspace();
 
     let uts = UtsName::new();

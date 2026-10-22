@@ -26,11 +26,7 @@ pub fn resolve_target_proc(caller: &Arc<Proc>, pid_val: i32) -> Result<Arc<Proc>
 
 /// Handles `sched_setparam(2)` system call (`SYS_SCHED_SETPARAM = 142`).
 pub fn sys_sched_setparam(pid: i32, param_ptr: usize, _ctx: &mut UserContext) -> Result<usize> {
-    if param_ptr == 0 {
-        return Err(Errno::EFAULT);
-    }
-
-    let caller = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let caller = Thread::proc_or_esrch()?;
     let vmar = caller.vmspace();
 
     let mut buf = [0u8; 4];
@@ -65,11 +61,7 @@ pub fn sys_sched_setparam(pid: i32, param_ptr: usize, _ctx: &mut UserContext) ->
 
 /// Handles `sched_getparam(2)` system call (`SYS_SCHED_GETPARAM = 143`).
 pub fn sys_sched_getparam(pid: i32, param_ptr: usize, _ctx: &mut UserContext) -> Result<usize> {
-    if param_ptr == 0 {
-        return Err(Errno::EFAULT);
-    }
-
-    let caller = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let caller = Thread::proc_or_esrch()?;
     let target = resolve_target_proc(&caller, pid)?;
     crate::sched::check_sched_permission(&caller, &target)?;
 
@@ -87,10 +79,6 @@ pub fn sys_sched_setscheduler(
     param_ptr: usize,
     _ctx: &mut UserContext,
 ) -> Result<usize> {
-    if param_ptr == 0 {
-        return Err(Errno::EFAULT);
-    }
-
     let reset_on_fork = (policy & SCHED_RESET_ON_FORK) != 0;
     let base_policy = policy & !SCHED_RESET_ON_FORK;
 
@@ -99,7 +87,7 @@ pub fn sys_sched_setscheduler(
         _ => return Err(Errno::EINVAL),
     }
 
-    let caller = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let caller = Thread::proc_or_esrch()?;
     let vmar = caller.vmspace();
 
     let mut buf = [0u8; 4];
@@ -142,7 +130,7 @@ pub fn sys_sched_setscheduler(
 
 /// Handles `sched_getscheduler(2)` system call (`SYS_SCHED_GETSCHEDULER = 145`).
 pub fn sys_sched_getscheduler(pid: i32, _ctx: &mut UserContext) -> Result<usize> {
-    let caller = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let caller = Thread::proc_or_esrch()?;
     let target = resolve_target_proc(&caller, pid)?;
     crate::sched::check_sched_permission(&caller, &target)?;
 

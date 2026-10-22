@@ -44,7 +44,7 @@ pub fn sys_wait4(
     rusage_ptr: usize,
     _ctx: &mut UserContext,
 ) -> Result<usize> {
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
 
     let idtype = if pid_val < -1 {
         IdType::Pgid((-pid_val) as u32)
@@ -86,7 +86,7 @@ pub fn sys_waitid(
     rusage_ptr: usize,
     _ctx: &mut UserContext,
 ) -> Result<usize> {
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
 
     let idtype = match which {
         P_ALL => IdType::All,

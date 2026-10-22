@@ -15,7 +15,7 @@ use crate::{
 
 /// System call `truncate(const char *path, off_t length)` (Syscall #76).
 pub fn sys_truncate(path_ptr: usize, length: usize, _ctx: &mut UserContext) -> Result<usize> {
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     let vmar = proc.vmspace();
     let path = UserCStr::new(path_ptr).read_string(&vmar, 4096)?;
 
@@ -25,8 +25,8 @@ pub fn sys_truncate(path_ptr: usize, length: usize, _ctx: &mut UserContext) -> R
 
 /// System call `ftruncate(int fd, off_t length)` (Syscall #77).
 pub fn sys_ftruncate(fd: i32, length: usize, _ctx: &mut UserContext) -> Result<usize> {
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
-    let file = proc.fd_table.lock().get(fd)?;
+    let proc = Thread::proc_or_esrch()?;
+    let file = proc.file(fd)?;
 
     if !file.flags.lock().contains(OpenFlags::WRITE) {
         return Err(Errno::EBADF);
@@ -98,7 +98,7 @@ pub fn sys_mkdirat(
     mode: u32,
     _ctx: &mut UserContext,
 ) -> Result<usize> {
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     let vmar = proc.vmspace();
     let path = UserCStr::new(path_ptr).read_string(&vmar, 4096)?;
 
@@ -115,7 +115,7 @@ pub fn sys_mknodat(
     dev: u64,
     _ctx: &mut UserContext,
 ) -> Result<usize> {
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     let vmar = proc.vmspace();
     let path = UserCStr::new(path_ptr).read_string(&vmar, 4096)?;
 
@@ -131,7 +131,7 @@ pub fn sys_unlinkat(
     flags: i32,
     _ctx: &mut UserContext,
 ) -> Result<usize> {
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     let vmar = proc.vmspace();
     let path = UserCStr::new(path_ptr).read_string(&vmar, 4096)?;
 
@@ -152,7 +152,7 @@ pub fn sys_renameat(
     newpath_ptr: usize,
     _ctx: &mut UserContext,
 ) -> Result<usize> {
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     let vmar = proc.vmspace();
     let oldpath = UserCStr::new(oldpath_ptr).read_string(&vmar, 4096)?;
     let newpath = UserCStr::new(newpath_ptr).read_string(&vmar, 4096)?;
@@ -188,7 +188,7 @@ pub fn sys_linkat(
     flags: i32,
     _ctx: &mut UserContext,
 ) -> Result<usize> {
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     let vmar = proc.vmspace();
     let oldpath = UserCStr::new(oldpath_ptr).read_string(&vmar, 4096)?;
     let newpath = UserCStr::new(newpath_ptr).read_string(&vmar, 4096)?;
@@ -207,7 +207,7 @@ pub fn sys_symlinkat(
     linkpath_ptr: usize,
     _ctx: &mut UserContext,
 ) -> Result<usize> {
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     let vmar = proc.vmspace();
     let target = UserCStr::new(target_ptr).read_string(&vmar, 4096)?;
     let linkpath = UserCStr::new(linkpath_ptr).read_string(&vmar, 4096)?;
@@ -225,7 +225,7 @@ pub fn sys_readlinkat(
     bufsiz: usize,
     _ctx: &mut UserContext,
 ) -> Result<usize> {
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     let vmar = proc.vmspace();
     let path = UserCStr::new(path_ptr).read_string(&vmar, 4096)?;
 

@@ -57,7 +57,7 @@ pub fn sys_timer_create(
         return Err(Errno::EFAULT);
     }
 
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     let vmar = proc.vmspace();
 
     let (sigev_notify, sigev_signo, sigev_value, sigev_tid) = if sevp_ptr != 0 {
@@ -163,7 +163,7 @@ pub fn sys_timer_settime(
         return Err(Errno::EINVAL);
     }
 
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     let vmar = proc.vmspace();
 
     let mut new_buf = [0u8; 32];
@@ -269,7 +269,7 @@ pub fn sys_timer_gettime(
         return Err(Errno::EFAULT);
     }
 
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     let vmar = proc.vmspace();
 
     let timer = proc
@@ -306,7 +306,7 @@ pub fn sys_timer_gettime(
 
 /// Retrieves the overrun count of an interval timer (`timer_getoverrun(2)`, Syscall #225).
 pub fn sys_timer_getoverrun(timerid: i32, _ctx: &mut UserContext) -> Result<usize> {
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     let timer = proc
         .posix_timers
         .lock()
@@ -321,7 +321,7 @@ pub fn sys_timer_getoverrun(timerid: i32, _ctx: &mut UserContext) -> Result<usiz
 
 /// Deletes an interval timer (`timer_delete(2)`, Syscall #226).
 pub fn sys_timer_delete(timerid: i32, _ctx: &mut UserContext) -> Result<usize> {
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     let timer = proc
         .posix_timers
         .lock()

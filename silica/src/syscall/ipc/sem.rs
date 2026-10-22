@@ -14,7 +14,7 @@ use crate::{
 
 /// `semget(2)` - Allocates or accesses a System V semaphore set.
 pub fn sys_semget(key: i32, nsems: i32, semflg: i32, _ctx: &mut UserContext) -> Result<usize> {
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     let cred = proc.cred();
     let semid = crate::ipc::sem::sem_get(key, nsems, semflg, &cred)?;
     Ok(semid as usize)
@@ -22,7 +22,7 @@ pub fn sys_semget(key: i32, nsems: i32, semflg: i32, _ctx: &mut UserContext) -> 
 
 /// `semop(2)` - Performs atomic semaphore operations on a set.
 pub fn sys_semop(semid: i32, sops: usize, nsops: usize, _ctx: &mut UserContext) -> Result<usize> {
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     let cred = proc.cred();
     crate::ipc::sem::sem_op(semid, sops, nsops, None, &cred, &proc)
 }
@@ -35,7 +35,7 @@ pub fn sys_semctl(
     arg: usize,
     _ctx: &mut UserContext,
 ) -> Result<usize> {
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     let cred = proc.cred();
     crate::ipc::sem::sem_ctl(semid, semnum, cmd, arg, &cred, &proc)
 }
@@ -48,7 +48,7 @@ pub fn sys_semtimedop(
     timeout_ptr: usize,
     _ctx: &mut UserContext,
 ) -> Result<usize> {
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     let cred = proc.cred();
 
     let timeout = if timeout_ptr != 0 {

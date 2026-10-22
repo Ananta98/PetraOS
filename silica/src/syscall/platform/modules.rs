@@ -23,7 +23,7 @@ pub fn sys_init_module(
     param_values: usize,
     _ctx: &mut UserContext,
 ) -> Result<usize> {
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     if !proc.cred().is_superuser() {
         return Err(Errno::EPERM);
     }
@@ -54,12 +54,12 @@ pub fn sys_finit_module(
     _flags: i32,
     _ctx: &mut UserContext,
 ) -> Result<usize> {
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     if !proc.cred().is_superuser() {
         return Err(Errno::EPERM);
     }
 
-    let file = proc.fd_table.lock().get(fd)?;
+    let file = proc.file(fd)?;
     let size = file.inode.size() as usize;
     if size == 0 || size > 64 * 1024 * 1024 {
         return Err(Errno::EINVAL);
@@ -87,7 +87,7 @@ pub fn sys_finit_module(
 ///
 /// Unloads a kernel module by name.
 pub fn sys_delete_module(name_ptr: usize, _flags: i32, _ctx: &mut UserContext) -> Result<usize> {
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     if !proc.cred().is_superuser() {
         return Err(Errno::EPERM);
     }

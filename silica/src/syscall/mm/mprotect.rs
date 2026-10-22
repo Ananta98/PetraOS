@@ -30,7 +30,7 @@ pub fn sys_mprotect(
 
     let perms = VmPerms::from_prot(prot_val)?;
 
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     proc.vmspace().mprotect(perms, addr..end)?;
 
     Ok(0)

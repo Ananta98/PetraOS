@@ -35,7 +35,7 @@ pub fn sys_prctl(
     _arg5: usize,
     _ctx: &mut UserContext,
 ) -> Result<usize> {
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     let vmar = proc.vmspace();
 
     match option {
@@ -102,7 +102,7 @@ pub fn sys_arch_prctl(code: i32, addr: usize, _ctx: &mut UserContext) -> Result<
             if addr == 0 {
                 return Err(Errno::EFAULT);
             }
-            let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+            let proc = Thread::proc_or_esrch()?;
             let vmar = proc.vmspace();
             let base = td.fs_base();
             UserPtr::new(addr).write_bytes(&vmar, &base.to_ne_bytes())?;
@@ -113,7 +113,7 @@ pub fn sys_arch_prctl(code: i32, addr: usize, _ctx: &mut UserContext) -> Result<
             if addr == 0 {
                 return Err(Errno::EFAULT);
             }
-            let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+            let proc = Thread::proc_or_esrch()?;
             let vmar = proc.vmspace();
             UserPtr::new(addr).write_bytes(&vmar, &0usize.to_ne_bytes())?;
             Ok(0)

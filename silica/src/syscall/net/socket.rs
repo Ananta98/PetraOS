@@ -5,7 +5,7 @@
 use ostd::arch::cpu::context::UserContext;
 
 use crate::{
-    api::errno::{Errno, Result},
+    api::errno::Result,
     fs::{fd::FdFlags, socket::create_socket_file},
     net::socket::{
         AF_INET, AF_INET6, AF_NETLINK, AF_UNIX, IPPROTO_IP, IPPROTO_TCP, IPPROTO_UDP, KernelSocket,
@@ -25,7 +25,7 @@ pub fn sys_socket(
     protocol: i32,
     _ctx: &mut UserContext,
 ) -> Result<usize> {
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
 
     let nonblocking = (sock_type & SOCK_NONBLOCK) != 0;
     let cloexec = (sock_type & SOCK_CLOEXEC) != 0;
@@ -87,10 +87,6 @@ pub fn sys_socketpair(
     sv_ptr: usize,
     _ctx: &mut UserContext,
 ) -> Result<usize> {
-    if sv_ptr == 0 {
-        return Err(Errno::EFAULT);
-    }
-
     // Linux only supports AF_UNIX for socketpair
     if domain != AF_UNIX {
         crate::return_errno!(EAFNOSUPPORT, "socketpair only supported for AF_UNIX domain");
@@ -123,7 +119,7 @@ pub fn sys_socketpair(
         fd_flags |= FdFlags::FD_CLOEXEC;
     }
 
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     let mut table = proc.fd_table.lock();
 
     let fd0 = table.alloc_fd(file_a, fd_flags)?;

@@ -19,7 +19,7 @@ use crate::{
         limit::{Plimit, Rusage},
         signal::{SigActs, SigInfo, Signal, code},
     },
-    fs::{PathNode, fd::Filedesc},
+    fs::{PathNode, fd::Filedesc, vfs::File},
     proc::{
         signal::SigQueue,
         thread::{Thread, Tid},
@@ -308,6 +308,14 @@ impl Proc {
     /// Returns active address space.
     pub fn vmspace(&self) -> Arc<Vmar> {
         Arc::clone(&*self.vmspace.lock())
+    }
+
+    /// Looks up the open file behind a descriptor.
+    ///
+    /// The single fd-lookup entry (one lock acquisition) for syscall
+    /// handlers; bad descriptors fail with `EBADF`.
+    pub fn file(&self, fd: i32) -> Result<Arc<File>> {
+        self.fd_table.lock().get(fd)
     }
 
     /// Replaces address space.

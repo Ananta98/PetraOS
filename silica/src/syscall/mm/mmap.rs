@@ -23,7 +23,7 @@ pub fn sys_mmap(
     offset: usize,
     _ctx: &mut UserContext,
 ) -> Result<usize> {
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     let vmar = proc.vmspace();
 
     let mut perms = VmPerms::empty();
@@ -73,7 +73,7 @@ pub fn sys_mmap(
         let res = vmar.mmap_anonymous(addr, len, perms, flags)?;
         Ok(res)
     } else {
-        let file = proc.fd_table.lock().get(fd)?;
+        let file = proc.file(fd)?;
 
         // Linux rule: MAP_SHARED with PROT_WRITE requires the file to be opened for writing
         if flags.contains(MmapFlags::SHARED) && perms.contains(VmPerms::WRITE) {

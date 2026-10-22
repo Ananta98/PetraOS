@@ -201,6 +201,19 @@ pub fn get_monotonic_ns() -> u64 {
     clocksource::monotonic_now_ns()
 }
 
+/// Returns monotonic uptime in whole seconds since boot.
+///
+/// The single definition of the seconds conversion timer ticks use;
+/// filesystem/IPC timestamps and `/proc/uptime` all delegate here.
+pub fn uptime_secs() -> u64 {
+    crate::sched::now() / crate::sched::TIMER_HZ
+}
+
+/// Returns real-time wall-clock time in whole seconds since UNIX epoch.
+pub fn realtime_secs() -> i64 {
+    (get_realtime_ns() / 1_000_000_000) as i64
+}
+
 /// Returns the current real-time wall-clock time in nanoseconds since UNIX epoch.
 pub fn get_realtime_ns() -> u64 {
     let boot_ns = (BOOT_EPOCH_SECS.load(Ordering::Relaxed) as u128) * 1_000_000_000;

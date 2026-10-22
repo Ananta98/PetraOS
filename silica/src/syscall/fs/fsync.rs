@@ -14,8 +14,8 @@ pub fn sys_fsync(fd: i32, _ctx: &mut UserContext) -> Result<usize> {
     if fd < 0 {
         return Err(Errno::EBADF);
     }
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
-    let file = proc.fd_table.lock().get(fd)?;
+    let proc = Thread::proc_or_esrch()?;
+    let file = proc.file(fd)?;
     file.fsync(false)?;
     Ok(0)
 }
@@ -25,8 +25,8 @@ pub fn sys_fdatasync(fd: i32, _ctx: &mut UserContext) -> Result<usize> {
     if fd < 0 {
         return Err(Errno::EBADF);
     }
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
-    let file = proc.fd_table.lock().get(fd)?;
+    let proc = Thread::proc_or_esrch()?;
+    let file = proc.file(fd)?;
     file.fsync(true)?;
     Ok(0)
 }
@@ -42,8 +42,8 @@ pub fn sys_syncfs(fd: i32, _ctx: &mut UserContext) -> Result<usize> {
     if fd < 0 {
         return Err(Errno::EBADF);
     }
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
-    let file = proc.fd_table.lock().get(fd)?;
+    let proc = Thread::proc_or_esrch()?;
+    let file = proc.file(fd)?;
     file.fsync(false)?;
     if let Some(ref pn) = file.path_node {
         let _ = pn.mount.fs.sync();

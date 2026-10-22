@@ -16,7 +16,7 @@ use spin::{Lazy, Mutex};
 
 use crate::{
     api::errno::{Errno, Result},
-    proc::thread::{Thread, ThreadFlags},
+    proc::thread::Thread,
     utils::userspace::user_ptr::UserPtr,
     vm::vmar::Vmar,
 };
@@ -160,7 +160,7 @@ pub fn sys_futex(
     let is_private = (op & FUTEX_PRIVATE_FLAG) != 0;
     let is_realtime = (op & FUTEX_CLOCK_REALTIME) != 0;
 
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     let vmar = proc.vmspace();
 
     match cmd {
@@ -214,9 +214,7 @@ pub fn sys_futex(
                     break Ok(0);
                 }
 
-                if let Some(td) = Thread::current()
-                    && td.inner.lock().flags.contains(ThreadFlags::TDF_ASTPENDING)
-                {
+                if Thread::should_interrupt() {
                     remove_waiter(&key, &woken);
                     if woken.load(Ordering::Acquire) {
                         break Ok(0);

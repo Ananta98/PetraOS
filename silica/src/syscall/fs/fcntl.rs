@@ -28,7 +28,7 @@ pub fn sys_fcntl(fd: i32, cmd: i32, arg: usize, _ctx: &mut UserContext) -> Resul
         return Err(Errno::EBADF);
     }
 
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
 
     match cmd {
         F_DUPFD => {
@@ -129,7 +129,7 @@ pub fn sys_flock(fd: i32, _operation: i32, _ctx: &mut UserContext) -> Result<usi
     if fd < 0 {
         return Err(Errno::EBADF);
     }
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
-    let _file = proc.fd_table.lock().get(fd)?;
+    let proc = Thread::proc_or_esrch()?;
+    let _file = proc.file(fd)?;
     Ok(0)
 }

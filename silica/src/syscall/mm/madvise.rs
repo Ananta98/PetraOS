@@ -30,7 +30,7 @@ pub fn sys_madvise(
         .ok_or(Errno::EINVAL)?;
     let end = addr.checked_add(aligned_len).ok_or(Errno::EINVAL)?;
 
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     proc.vmspace().madvise(advice, addr..end)?;
 
     Ok(0)

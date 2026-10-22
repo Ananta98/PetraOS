@@ -15,7 +15,7 @@ pub struct UptimeFileOps;
 
 impl ProcFileOps for UptimeFileOps {
     fn generate_content(&self) -> Vec<u8> {
-        let uptime = crate::sched::now() / crate::sched::TIMER_HZ;
+        let uptime = crate::time::uptime_secs();
         format!("{}.00 {}.00\n", uptime, uptime).into_bytes()
     }
 }

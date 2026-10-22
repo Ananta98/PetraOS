@@ -56,7 +56,7 @@ pub fn sys_membarrier(cmd: i32, flags: u32, _cpu_id: i32, _ctx: &mut UserContext
         return Err(Errno::EINVAL);
     }
 
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
 
     match cmd {
         MEMBARRIER_CMD_GLOBAL => {

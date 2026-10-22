@@ -55,3 +55,43 @@ pub const NSEC_PER_TICK: u64 = 1_000_000_000 / TIMER_HZ;
 pub(crate) fn now() -> u64 {
     Jiffies::elapsed().as_u64()
 }
+
+/// Polling deadline for blocking-syscall wait loops (`poll`, `select`,
+/// `epoll_wait`, `futex`). A negative millisecond timeout means "wait
+/// forever", hence `from_timeout_ms` returns `None` for it.
+pub struct Deadline {
+    start: u64,
+    duration: u64,
+}
+
+impl Deadline {
+    /// Starts a deadline from the current tick.
+    pub fn from_timeout_ms(timeout_ms: i32) -> Option<Self> {
+        if timeout_ms < 0 {
+            return None;
+        }
+        let duration = if timeout_ms == 0 {
+            0
+        } else {
+            (timeout_ms as u64 * TIMER_HZ).div_ceil(1_000)
+        };
+        Some(Self {
+            start: now(),
+            duration,
+        })
+    }
+
+    /// Returns `true` once the deadline has elapsed.
+    pub fn expired(&self) -> bool {
+        now().saturating_sub(self.start) >= self.duration
+    }
+
+    /// Busy-transfers until the deadline elapses, yielding each iteration.
+    ///
+    /// Used by the empty-fd-set fast paths, where there is nothing to poll.
+    pub fn wait_out(&self) {
+        while now().saturating_sub(self.start) < self.duration {
+            ostd::task::Task::yield_now();
+        }
+    }
+}

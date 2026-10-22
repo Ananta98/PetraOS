@@ -5,14 +5,14 @@
 use ostd::arch::cpu::context::UserContext;
 
 use crate::{
-    api::errno::{Errno, Result},
+    api::errno::Result,
     proc::thread::Thread,
     utils::userspace::user_ptr::UserPtr,
 };
 
 /// Gets time of day and timezone.
 pub fn sys_gettimeofday(tv_ptr: usize, tz_ptr: usize, _ctx: &mut UserContext) -> Result<usize> {
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     let vmar = proc.vmspace();
 
     if tv_ptr != 0 {

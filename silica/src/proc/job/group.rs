@@ -15,7 +15,7 @@ impl Proc {
     /// - A session leader cannot change its process group ID (`EPERM`).
     /// - Target group must belong to the same session (`EPERM`).
     pub fn set_pgid(&self, pgid: Pid) -> Result<()> {
-        let caller = Thread::current_proc().ok_or(Errno::ESRCH)?;
+        let caller = Thread::proc_or_esrch()?;
 
         // A session leader cannot change its PGID
         if self.is_session_leader() {

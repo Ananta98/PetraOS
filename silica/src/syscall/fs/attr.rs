@@ -29,7 +29,7 @@ pub fn sys_fchmodat2(
     flags: i32,
     _ctx: &mut UserContext,
 ) -> Result<usize> {
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     let vmar = proc.vmspace();
 
     let inode = if path_ptr == 0 {
@@ -39,7 +39,7 @@ pub fn sys_fchmodat2(
         if dirfd == AT_FDCWD {
             proc.cwd()?.dentry.get_inode().ok_or(Errno::ENOENT)?
         } else {
-            proc.fd_table.lock().get(dirfd)?.inode.clone()
+            proc.file(dirfd)?.inode.clone()
         }
     } else {
         let path = UserCStr::new(path_ptr).read_string(&vmar, 4096)?;
@@ -48,7 +48,7 @@ pub fn sys_fchmodat2(
                 if dirfd == AT_FDCWD {
                     proc.cwd()?.dentry.get_inode().ok_or(Errno::ENOENT)?
                 } else {
-                    proc.fd_table.lock().get(dirfd)?.inode.clone()
+                    proc.file(dirfd)?.inode.clone()
                 }
             } else {
                 return Err(Errno::ENOENT);
@@ -103,8 +103,8 @@ pub fn sys_chmod(path_ptr: usize, mode: u32, ctx: &mut UserContext) -> Result<us
 
 /// System call `fchmod(int fd, mode_t mode)` (Syscall #91).
 pub fn sys_fchmod(fd: i32, mode: u32, _ctx: &mut UserContext) -> Result<usize> {
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
-    let file = proc.fd_table.lock().get(fd)?;
+    let proc = Thread::proc_or_esrch()?;
+    let file = proc.file(fd)?;
 
     let cred = proc.cred();
     let mut attr = file
@@ -134,7 +134,7 @@ pub fn sys_fchownat(
     flags: i32,
     _ctx: &mut UserContext,
 ) -> Result<usize> {
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     let vmar = proc.vmspace();
 
     let inode = if path_ptr == 0 {
@@ -144,7 +144,7 @@ pub fn sys_fchownat(
         if dirfd == AT_FDCWD {
             proc.cwd()?.dentry.get_inode().ok_or(Errno::ENOENT)?
         } else {
-            proc.fd_table.lock().get(dirfd)?.inode.clone()
+            proc.file(dirfd)?.inode.clone()
         }
     } else {
         let path = UserCStr::new(path_ptr).read_string(&vmar, 4096)?;
@@ -153,7 +153,7 @@ pub fn sys_fchownat(
                 if dirfd == AT_FDCWD {
                     proc.cwd()?.dentry.get_inode().ok_or(Errno::ENOENT)?
                 } else {
-                    proc.fd_table.lock().get(dirfd)?.inode.clone()
+                    proc.file(dirfd)?.inode.clone()
                 }
             } else {
                 return Err(Errno::ENOENT);
@@ -205,8 +205,8 @@ pub fn sys_lchown(path_ptr: usize, owner: u32, group: u32, ctx: &mut UserContext
 
 /// System call `fchown(int fd, uid_t owner, gid_t group)` (Syscall #93).
 pub fn sys_fchown(fd: i32, owner: u32, group: u32, _ctx: &mut UserContext) -> Result<usize> {
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
-    let file = proc.fd_table.lock().get(fd)?;
+    let proc = Thread::proc_or_esrch()?;
+    let file = proc.file(fd)?;
 
     let cred = proc.cred();
     if !cred.is_superuser() {
@@ -233,7 +233,7 @@ pub fn sys_fchown(fd: i32, owner: u32, group: u32, _ctx: &mut UserContext) -> Re
 
 /// System call `umask(mode_t mask)` (Syscall #95).
 pub fn sys_umask(mask: u32, _ctx: &mut UserContext) -> Result<usize> {
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     let mut table = proc.fd_table.lock();
     let old = table.cmask;
     table.cmask = mask & 0o777;
@@ -248,11 +248,11 @@ pub fn sys_utimensat(
     flags: i32,
     _ctx: &mut UserContext,
 ) -> Result<usize> {
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     let vmar = proc.vmspace();
 
     let inode: Arc<INode> = if path_ptr == 0 {
-        let file = proc.fd_table.lock().get(dirfd)?;
+        let file = proc.file(dirfd)?;
         file.inode.clone()
     } else {
         let path = UserCStr::new(path_ptr).read_string(&vmar, 4096)?;
@@ -261,7 +261,7 @@ pub fn sys_utimensat(
                 if dirfd == AT_FDCWD {
                     proc.cwd()?.dentry.get_inode().ok_or(Errno::ENOENT)?
                 } else {
-                    proc.fd_table.lock().get(dirfd)?.inode.clone()
+                    proc.file(dirfd)?.inode.clone()
                 }
             } else {
                 return Err(Errno::ENOENT);
@@ -285,7 +285,7 @@ pub fn sys_utimensat(
         return Err(Errno::EPERM);
     }
 
-    let now = crate::sched::now() / crate::sched::TIMER_HZ;
+    let now = crate::time::uptime_secs();
     let mut cur_times = inode.times();
 
     if times_ptr == 0 {
@@ -332,11 +332,11 @@ pub fn sys_futimesat(
     times_ptr: usize,
     _ctx: &mut UserContext,
 ) -> Result<usize> {
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     let vmar = proc.vmspace();
 
     let inode: Arc<INode> = if path_ptr == 0 {
-        let file = proc.fd_table.lock().get(dirfd)?;
+        let file = proc.file(dirfd)?;
         file.inode.clone()
     } else {
         let path = UserCStr::new(path_ptr).read_string(&vmar, 4096)?;
@@ -344,7 +344,7 @@ pub fn sys_futimesat(
             if dirfd == AT_FDCWD {
                 proc.cwd()?.dentry.get_inode().ok_or(Errno::ENOENT)?
             } else {
-                proc.fd_table.lock().get(dirfd)?.inode.clone()
+                proc.file(dirfd)?.inode.clone()
             }
         } else {
             let start = resolve_at_start(&proc, dirfd, &path)?;
@@ -360,7 +360,7 @@ pub fn sys_futimesat(
         return Err(Errno::EPERM);
     }
 
-    let now = crate::sched::now() / crate::sched::TIMER_HZ;
+    let now = crate::time::uptime_secs();
     let mut cur_times = inode.times();
 
     if times_ptr == 0 {

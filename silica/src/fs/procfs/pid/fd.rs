@@ -38,7 +38,7 @@ impl ProcDirOps for ProcPidFdDirOps {
     fn lookup_child(&self, name: &str) -> Result<Arc<INode>> {
         let fd: i32 = name.parse().map_err(|_| Errno::ENOENT)?;
         let proc = allproc_find(self.pid).ok_or(Errno::ENOENT)?;
-        let _ = proc.fd_table.lock().get(fd)?;
+        let _ = proc.file(fd)?;
 
         let fd_tag = TAG_FD_BASE | (fd as u16 & 0x0FFF);
         Ok(sym_node(
@@ -71,7 +71,7 @@ pub struct ProcFdSymlinkOps {
 impl ProcSymOps for ProcFdSymlinkOps {
     fn readlink(&self) -> Result<String> {
         let proc = allproc_find(self.pid).ok_or(Errno::ENOENT)?;
-        let file = proc.fd_table.lock().get(self.fd)?;
+        let file = proc.file(self.fd)?;
 
         if let Some(s) = file
             .abs_path

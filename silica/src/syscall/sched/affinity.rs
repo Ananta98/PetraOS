@@ -23,11 +23,7 @@ pub fn sys_sched_setaffinity(
     if cpusetsize < MIN_CPUSET_SIZE {
         return Err(Errno::EINVAL);
     }
-    if mask_ptr == 0 {
-        return Err(Errno::EFAULT);
-    }
-
-    let caller = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let caller = Thread::proc_or_esrch()?;
     let vmar = caller.vmspace();
 
     let read_len = cpusetsize.min(CPU_BYTES);
@@ -74,11 +70,7 @@ pub fn sys_sched_getaffinity(
     if cpusetsize < MIN_CPUSET_SIZE {
         return Err(Errno::EINVAL);
     }
-    if mask_ptr == 0 {
-        return Err(Errno::EFAULT);
-    }
-
-    let caller = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let caller = Thread::proc_or_esrch()?;
     let target = resolve_target_proc(&caller, pid)?;
     crate::sched::check_sched_permission(&caller, &target)?;
 

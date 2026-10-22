@@ -11,7 +11,7 @@ use crate::{
 
 /// `setpgid(2)` - sets process group ID for process.
 pub fn sys_setpgid(pid: i32, pgid: i32, _ctx: &mut UserContext) -> Result<usize> {
-    let caller = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let caller = Thread::proc_or_esrch()?;
 
     let target = if pid == 0 || pid as u32 == caller.pid.as_u32() {
         caller
@@ -38,14 +38,14 @@ pub fn sys_setpgid(pid: i32, pgid: i32, _ctx: &mut UserContext) -> Result<usize>
 
 /// `getpgrp(2)` - returns current process group ID.
 pub fn sys_getpgrp(_ctx: &mut UserContext) -> Result<usize> {
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     Ok(proc.pgid().as_u32() as usize)
 }
 
 /// `getpgid(2)` - returns process group ID of target process.
 pub fn sys_getpgid(pid: i32, _ctx: &mut UserContext) -> Result<usize> {
     let target = if pid == 0 {
-        Thread::current_proc().ok_or(Errno::ESRCH)?
+        Thread::proc_or_esrch()?
     } else {
         if pid < 0 {
             return Err(Errno::EINVAL);
@@ -59,7 +59,7 @@ pub fn sys_getpgid(pid: i32, _ctx: &mut UserContext) -> Result<usize> {
 
 /// `setsid(2)` - creates a new session and sets process group ID.
 pub fn sys_setsid(_ctx: &mut UserContext) -> Result<usize> {
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     let sid = proc.setsid()?;
     Ok(sid.as_u32() as usize)
 }
@@ -67,7 +67,7 @@ pub fn sys_setsid(_ctx: &mut UserContext) -> Result<usize> {
 /// `getsid(2)` - returns session ID of target process.
 pub fn sys_getsid(pid: i32, _ctx: &mut UserContext) -> Result<usize> {
     let target = if pid == 0 {
-        Thread::current_proc().ok_or(Errno::ESRCH)?
+        Thread::proc_or_esrch()?
     } else {
         if pid < 0 {
             return Err(Errno::EINVAL);

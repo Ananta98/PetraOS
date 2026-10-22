@@ -4,17 +4,12 @@
 
 use ostd::{arch::cpu::context::UserContext, task::Task};
 
-use crate::{
-    api::errno::{Errno, Result},
-    proc::thread::{Thread, ThreadFlags},
-};
+use crate::{api::errno::{Errno, Result}, proc::thread::Thread};
 
 /// `pause(2)` - suspends execution until a signal is delivered.
 pub fn sys_pause(_ctx: &mut UserContext) -> Result<usize> {
     loop {
-        if let Some(td) = Thread::current()
-            && td.inner.lock().flags.contains(ThreadFlags::TDF_ASTPENDING)
-        {
+        if Thread::should_interrupt() {
             return Err(Errno::EINTR);
         }
         Task::yield_now();

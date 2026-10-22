@@ -13,7 +13,7 @@ use crate::{
         },
         fd::FdFlags,
     },
-    proc::thread::{Thread, ThreadFlags},
+    proc::thread::Thread,
     syscall::fs::utils::UserPtr,
 };
 
@@ -37,7 +37,7 @@ pub fn sys_epoll_create1(flags: i32, _ctx: &mut UserContext) -> Result<usize> {
         fd_flags |= FdFlags::FD_CLOEXEC;
     }
 
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     let fd = proc.fd_table.lock().alloc_fd(file, fd_flags)?;
     Ok(fd as usize)
 }
@@ -54,8 +54,8 @@ pub fn sys_epoll_ctl(
         return Err(Errno::EINVAL);
     }
 
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
-    let ep_file = proc.fd_table.lock().get(epfd)?;
+    let proc = Thread::proc_or_esrch()?;
+    let ep_file = proc.file(epfd)?;
     let epoll = ep_file.as_epoll().ok_or(Errno::EINVAL)?;
 
     match op {
@@ -67,7 +67,7 @@ pub fn sys_epoll_ctl(
             if event_ptr == 0 {
                 return Err(Errno::EFAULT);
             }
-            let target_file = proc.fd_table.lock().get(fd)?;
+            let target_file = proc.file(fd)?;
             let vmar = proc.vmspace();
             let mut raw = [0u8; 12];
             UserPtr::new(event_ptr).read_bytes(&vmar, &mut raw)?;
@@ -107,21 +107,15 @@ pub fn sys_epoll_wait(
         return Err(Errno::EFAULT);
     }
 
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
-    let ep_file = proc.fd_table.lock().get(epfd)?;
+    let proc = Thread::proc_or_esrch()?;
+    let ep_file = proc.file(epfd)?;
     let epoll = ep_file.as_epoll().ok_or(Errno::EINVAL)?;
     let vmar = proc.vmspace();
 
     let max_n = maxevents as usize;
     let mut ready_evs = alloc::vec![EpollEvent::default(); max_n];
 
-    let start_tick = crate::sched::now();
-    let has_timeout = timeout_ms >= 0;
-    let dur_ticks = if timeout_ms > 0 {
-        (timeout_ms as u64 * crate::sched::TIMER_HZ).div_ceil(1000)
-    } else {
-        0
-    };
+    let deadline = crate::sched::Deadline::from_timeout_ms(timeout_ms);
 
     loop {
         let ready = epoll.scan_ready(&mut ready_evs);
@@ -136,16 +130,12 @@ pub fn sys_epoll_wait(
             return Ok(ready);
         }
 
-        if has_timeout
-            && (timeout_ms == 0 || crate::sched::now().saturating_sub(start_tick) >= dur_ticks)
-        {
+        if deadline.as_ref().is_some_and(|d| d.expired()) {
             return Ok(0);
         }
 
-        if let Some(td) = Thread::current() {
-            if td.inner.lock().flags.contains(ThreadFlags::TDF_ASTPENDING) {
-                return Err(Errno::EINTR);
-            }
+        if Thread::should_interrupt() {
+            return Err(Errno::EINTR);
         }
 
         Task::yield_now();

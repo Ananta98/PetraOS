@@ -24,7 +24,7 @@ pub fn sys_mincore(
         crate::return_errno!(ENOMEM, "the length overflows");
     };
     let num_pages = page_len / ostd::mm::PAGE_SIZE;
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     let mut vec = alloc::vec![0u8; num_pages];
     let range = addr..addr.checked_add(page_len).ok_or(Errno::ENOMEM)?;
     proc.vmspace().mincore(range, &mut vec)?;

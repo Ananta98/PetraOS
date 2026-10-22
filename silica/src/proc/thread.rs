@@ -203,9 +203,35 @@ impl Thread {
         Self::current()?.proc()
     }
 
+    /// Resolves the currently running `Proc`, failing with `ESRCH` when the
+    /// caller is not a user task (e.g. a kernel thread).
+    ///
+    /// The canonical entry for syscall handlers; avoids repeating the
+    /// `ok_or(Errno::ESRCH)` chain at every handler.
+    pub fn proc_or_esrch() -> Result<Arc<Proc>> {
+        Self::current_proc().ok_or(Errno::ESRCH)
+    }
+
     /// Marks the thread runnable and notifies OSTD scheduler.
     pub fn run(&self) {
         self.td_kstack.run();
+    }
+
+    /// Returns `true` if this thread has an asynchronous system trap
+    /// outstanding: a pending signal or termination flag that must be
+    /// delivered before the thread may proceed.
+    ///
+    /// Blocking syscalls consult this from their wait loops instead of
+    /// inspecting `TDF_ASTPENDING` directly.
+    pub fn has_pending_ast(&self) -> bool {
+        self.inner.lock().flags.contains(ThreadFlags::TDF_ASTPENDING)
+    }
+
+    /// Returns `true` when the calling thread must abandon a blocked
+    /// operation and return to user mode to take delivery of a signal
+    /// (the "pending AST ⇒ `EINTR`" rule).
+    pub fn should_interrupt() -> bool {
+        Thread::current().is_some_and(|td| td.has_pending_ast())
     }
 
     /// Queues a signal against this thread alone.

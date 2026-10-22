@@ -43,8 +43,8 @@ pub fn sys_fallocate(
         return Err(Errno::EINVAL);
     }
 
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
-    let file = proc.fd_table.lock().get(fd)?;
+    let proc = Thread::proc_or_esrch()?;
+    let file = proc.file(fd)?;
 
     if !file.flags.lock().contains(OpenFlags::WRITE) {
         return Err(Errno::EBADF);

@@ -37,7 +37,7 @@ pub fn sys_kill(pid: i32, sig: i32, _ctx: &mut UserContext) -> Result<usize> {
         return Ok(0);
     }
 
-    let caller = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let caller = Thread::proc_or_esrch()?;
     let wanted_group = if pid == 0 {
         caller.pgid()
     } else {

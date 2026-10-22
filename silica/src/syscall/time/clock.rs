@@ -11,7 +11,7 @@ use ostd::arch::cpu::context::UserContext;
 
 use crate::{
     api::errno::{Errno, Result},
-    proc::thread::{Thread, ThreadFlags},
+    proc::thread::Thread,
     time::{
         CLOCK_MONOTONIC, CLOCK_PROCESS_CPUTIME_ID, CLOCK_REALTIME, CLOCK_THREAD_CPUTIME_ID,
         Timespec,
@@ -27,7 +27,7 @@ pub fn sys_clock_gettime(clock_id: i32, tp_ptr: usize, _ctx: &mut UserContext) -
         return Err(Errno::EFAULT);
     }
 
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     let vmar = proc.vmspace();
 
     let ts = match clock_id {
@@ -53,7 +53,7 @@ pub fn sys_clock_getres(clock_id: i32, res_ptr: usize, _ctx: &mut UserContext) -
     let res = crate::time::get_resolution(clock_id)?;
 
     if res_ptr != 0 {
-        let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+        let proc = Thread::proc_or_esrch()?;
         let vmar = proc.vmspace();
         UserPtr::new(res_ptr).write_bytes(&vmar, &res.to_bytes())?;
     }
@@ -67,7 +67,7 @@ pub fn sys_clock_settime(clock_id: i32, tp_ptr: usize, _ctx: &mut UserContext) -
         return Err(Errno::EFAULT);
     }
 
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     let vmar = proc.vmspace();
 
     // Only root may set the system time
@@ -113,7 +113,7 @@ pub fn sys_clock_nanosleep(
         return Err(Errno::ENOTSUP);
     }
 
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     let vmar = proc.vmspace();
 
     let mut raw = [0u8; 16];
@@ -149,9 +149,7 @@ pub fn sys_clock_nanosleep(
         }
 
         // Check for pending signal
-        if let Some(td) = Thread::current()
-            && td.inner.lock().flags.contains(ThreadFlags::TDF_ASTPENDING)
-        {
+        if Thread::should_interrupt() {
             // Only write remaining time for relative sleeps
             if !is_abstime && rem_ptr != 0 {
                 let remaining_ns = target_ns.saturating_sub(now_ns);
@@ -175,7 +173,7 @@ pub fn sys_time(tloc_ptr: usize, _ctx: &mut UserContext) -> Result<usize> {
     let now_sec = (crate::time::get_realtime_ns() / 1_000_000_000) as i64;
 
     if tloc_ptr != 0 {
-        let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+        let proc = Thread::proc_or_esrch()?;
         let vmar = proc.vmspace();
         UserPtr::new(tloc_ptr).write_bytes(&vmar, &now_sec.to_ne_bytes())?;
     }

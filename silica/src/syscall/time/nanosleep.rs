@@ -6,18 +6,14 @@ use ostd::arch::cpu::context::UserContext;
 
 use crate::{
     api::errno::{Errno, Result},
-    proc::thread::{Thread, ThreadFlags},
+    proc::thread::Thread,
     time::Timespec,
     utils::userspace::user_ptr::UserPtr,
 };
 
 /// High-resolution sleep for the specified duration.
 pub fn sys_nanosleep(req_ptr: usize, rem_ptr: usize, _ctx: &mut UserContext) -> Result<usize> {
-    if req_ptr == 0 {
-        return Err(Errno::EFAULT);
-    }
-
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     let vmar = proc.vmspace();
 
     let mut raw = [0u8; 16];
@@ -44,9 +40,7 @@ pub fn sys_nanosleep(req_ptr: usize, rem_ptr: usize, _ctx: &mut UserContext) -> 
         }
 
         // Check for pending signals interrupting sleep
-        if let Some(td) = Thread::current()
-            && td.inner.lock().flags.contains(ThreadFlags::TDF_ASTPENDING)
-        {
+        if Thread::should_interrupt() {
             if rem_ptr != 0 {
                 let remaining_ns = end_ns.saturating_sub(now_ns);
                 let rem_ts = Timespec {

@@ -23,11 +23,7 @@ pub fn sys_sched_setattr(
     if flags != 0 {
         return Err(Errno::EINVAL);
     }
-    if attr_ptr == 0 {
-        return Err(Errno::EFAULT);
-    }
-
-    let caller = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let caller = Thread::proc_or_esrch()?;
     let vmar = caller.vmspace();
 
     // Read the size field first
@@ -125,7 +121,7 @@ pub fn sys_sched_getattr(
         return Err(Errno::EINVAL);
     }
 
-    let caller = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let caller = Thread::proc_or_esrch()?;
     let target = resolve_target_proc(&caller, pid)?;
     crate::sched::check_sched_permission(&caller, &target)?;
 

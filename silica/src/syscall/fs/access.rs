@@ -35,7 +35,7 @@ pub fn sys_faccessat2(
         return Err(Errno::EINVAL);
     }
 
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     let vmar = proc.vmspace();
 
     let inode = if path_ptr == 0 {
@@ -45,7 +45,7 @@ pub fn sys_faccessat2(
         if dirfd == AT_FDCWD {
             proc.cwd()?.dentry.get_inode().ok_or(Errno::ENOENT)?
         } else {
-            proc.fd_table.lock().get(dirfd)?.inode.clone()
+            proc.file(dirfd)?.inode.clone()
         }
     } else {
         let path = UserCStr::new(path_ptr).read_string(&vmar, 4096)?;
@@ -54,7 +54,7 @@ pub fn sys_faccessat2(
                 if dirfd == AT_FDCWD {
                     proc.cwd()?.dentry.get_inode().ok_or(Errno::ENOENT)?
                 } else {
-                    proc.fd_table.lock().get(dirfd)?.inode.clone()
+                    proc.file(dirfd)?.inode.clone()
                 }
             } else {
                 return Err(Errno::ENOENT);

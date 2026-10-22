@@ -17,7 +17,7 @@ use crate::{
 /// System call `bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen)` (Syscall #49).
 pub fn sys_bind(fd: i32, addr_ptr: usize, addrlen: u32, _ctx: &mut UserContext) -> Result<usize> {
     let socket = get_socket(fd)?;
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     let endpoint = read_sockaddr(&proc, addr_ptr, addrlen)?;
     socket.bind(endpoint)?;
     Ok(0)
@@ -31,7 +31,7 @@ pub fn sys_connect(
     _ctx: &mut UserContext,
 ) -> Result<usize> {
     let socket = get_socket(fd)?;
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     let endpoint = read_sockaddr(&proc, addr_ptr, addrlen)?;
     socket.connect(endpoint)?;
     Ok(0)
@@ -57,7 +57,7 @@ pub fn sys_accept4(
     }
 
     let socket = get_socket(fd)?;
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
 
     let (client_sock, remote_endpoint) = socket.accept()?;
 

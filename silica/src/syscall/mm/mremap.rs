@@ -5,7 +5,7 @@
 use ostd::arch::cpu::context::UserContext;
 
 use crate::{
-    api::errno::{Errno, Result},
+    api::errno::Result,
     proc::thread::Thread,
     vm::flags::MremapFlags,
 };
@@ -26,7 +26,7 @@ pub fn sys_mremap(
         None
     };
 
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     let addr = proc
         .vmspace()
         .mremap(old_addr, old_size, new_size, flags, new_addr)?;

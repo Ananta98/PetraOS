@@ -7,7 +7,7 @@ use ostd::{arch::cpu::context::UserContext, task::Task};
 use crate::{
     api::errno::{Errno, Result},
     fs::poll::{PollEvents, PollFd},
-    proc::thread::{Thread, ThreadFlags},
+    proc::thread::Thread,
     syscall::fs::utils::UserPtr,
     vm::vmar::Vmar,
 };
@@ -68,16 +68,18 @@ pub fn sys_poll(
     }
     if nfds == 0 {
         if timeout_ms > 0 {
-            let start_tick = crate::sched::now();
-            let dur_ticks = (timeout_ms as u64 * crate::sched::TIMER_HZ).div_ceil(1000);
-            while crate::sched::now().saturating_sub(start_tick) < dur_ticks {
+            let deadline = crate::sched::Deadline::from_timeout_ms(timeout_ms).unwrap();
+            while !deadline.expired() {
+                if Thread::should_interrupt() {
+                    return Err(Errno::EINTR);
+                }
                 Task::yield_now();
             }
         }
         return Ok(0);
     }
 
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     let vmar = proc.vmspace();
 
     let byte_len = nfds * core::mem::size_of::<PollFd>();
@@ -92,13 +94,7 @@ pub fn sys_poll(
         pfd.revents = i16::from_ne_bytes(raw[off + 6..off + 8].try_into().unwrap());
     }
 
-    let start_tick = crate::sched::now();
-    let has_timeout = timeout_ms >= 0;
-    let dur_ticks = if timeout_ms > 0 {
-        (timeout_ms as u64 * crate::sched::TIMER_HZ).div_ceil(1000)
-    } else {
-        0
-    };
+    let deadline = crate::sched::Deadline::from_timeout_ms(timeout_ms);
 
     loop {
         let mut ready_count = 0;
@@ -133,9 +129,7 @@ pub fn sys_poll(
             return Ok(ready_count);
         }
 
-        if has_timeout
-            && (timeout_ms == 0 || crate::sched::now().saturating_sub(start_tick) >= dur_ticks)
-        {
+        if deadline.as_ref().is_some_and(|d| d.expired()) {
             for (i, pfd) in fds.iter().enumerate() {
                 let off = i * 8 + 6;
                 let revents_bytes = pfd.revents.to_ne_bytes();
@@ -144,10 +138,8 @@ pub fn sys_poll(
             return Ok(0);
         }
 
-        if let Some(td) = Thread::current() {
-            if td.inner.lock().flags.contains(ThreadFlags::TDF_ASTPENDING) {
-                return Err(Errno::EINTR);
-            }
+        if Thread::should_interrupt() {
+            return Err(Errno::EINTR);
         }
 
         Task::yield_now();
@@ -166,7 +158,7 @@ pub fn sys_ppoll(
     let timeout_ms = if tmo_ptr == 0 {
         -1
     } else {
-        let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+        let proc = Thread::proc_or_esrch()?;
         let vmar = proc.vmspace();
         let mut raw = [0u8; 16];
         UserPtr::new(tmo_ptr).read_bytes(&vmar, &mut raw)?;
@@ -193,16 +185,18 @@ fn do_select(
     }
     if nfds == 0 {
         if timeout_ms > 0 {
-            let start_tick = crate::sched::now();
-            let dur_ticks = (timeout_ms as u64 * crate::sched::TIMER_HZ).div_ceil(1000);
-            while crate::sched::now().saturating_sub(start_tick) < dur_ticks {
+            let deadline = crate::sched::Deadline::from_timeout_ms(timeout_ms).unwrap();
+            while !deadline.expired() {
+                if Thread::should_interrupt() {
+                    return Err(Errno::EINTR);
+                }
                 Task::yield_now();
             }
         }
         return Ok(0);
     }
 
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     let vmar = proc.vmspace();
 
     let rfds = if readfds_ptr != 0 {
@@ -221,13 +215,7 @@ fn do_select(
         None
     };
 
-    let start_tick = crate::sched::now();
-    let has_timeout = timeout_ms >= 0;
-    let dur_ticks = if timeout_ms > 0 {
-        (timeout_ms as u64 * crate::sched::TIMER_HZ).div_ceil(1000)
-    } else {
-        0
-    };
+    let deadline = crate::sched::Deadline::from_timeout_ms(timeout_ms);
 
     loop {
         let mut ready_count = 0;
@@ -280,9 +268,7 @@ fn do_select(
             return Ok(ready_count);
         }
 
-        if has_timeout
-            && (timeout_ms == 0 || crate::sched::now().saturating_sub(start_tick) >= dur_ticks)
-        {
+        if deadline.as_ref().is_some_and(|d| d.expired()) {
             if readfds_ptr != 0 {
                 write_fd_set(&vmar, readfds_ptr, &out_rfds)?;
             }
@@ -295,10 +281,8 @@ fn do_select(
             return Ok(0);
         }
 
-        if let Some(td) = Thread::current() {
-            if td.inner.lock().flags.contains(ThreadFlags::TDF_ASTPENDING) {
-                return Err(Errno::EINTR);
-            }
+        if Thread::should_interrupt() {
+            return Err(Errno::EINTR);
         }
 
         Task::yield_now();
@@ -317,7 +301,7 @@ pub fn sys_select(
     let timeout_ms = if timeout_ptr == 0 {
         -1
     } else {
-        let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+        let proc = Thread::proc_or_esrch()?;
         let vmar = proc.vmspace();
         let mut raw = [0u8; 16];
         UserPtr::new(timeout_ptr).read_bytes(&vmar, &mut raw)?;
@@ -345,7 +329,7 @@ pub fn sys_pselect6(
     let timeout_ms = if timeout_ptr == 0 {
         -1
     } else {
-        let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+        let proc = Thread::proc_or_esrch()?;
         let vmar = proc.vmspace();
         let mut raw = [0u8; 16];
         UserPtr::new(timeout_ptr).read_bytes(&vmar, &mut raw)?;

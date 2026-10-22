@@ -19,7 +19,7 @@ pub fn sys_reboot(
     _arg: usize,
     _ctx: &mut UserContext,
 ) -> Result<usize> {
-    let caller_proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let caller_proc = Thread::proc_or_esrch()?;
     if !caller_proc.cred().is_superuser() {
         return Err(Errno::EPERM);
     }

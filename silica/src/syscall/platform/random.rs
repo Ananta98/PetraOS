@@ -46,7 +46,7 @@ pub fn sys_getrandom(
         crate::crypto::ensure_initialized();
     }
 
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     let vmar = proc.vmspace();
 
     const CHUNK_SIZE: usize = 4096;

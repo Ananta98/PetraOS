@@ -50,8 +50,8 @@ pub fn read_executable_file(dirfd: i32, path: &str, flags: i32) -> Result<(Vec<u
     if path.is_empty() {
         if (flags & AT_EMPTY_PATH) != 0 {
             // Executing via file descriptor directly (fexecve)
-            let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
-            let file = proc.fd_table.lock().get(dirfd)?;
+            let proc = Thread::proc_or_esrch()?;
+            let file = proc.file(dirfd)?;
             let inode = file.inode.clone();
             if inode.is_dir() {
                 return Err(Errno::EACCES);
@@ -98,8 +98,8 @@ pub fn read_executable_file(dirfd: i32, path: &str, flags: i32) -> Result<(Vec<u
             root.clone()
         }
     } else {
-        let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
-        let dir_file = proc.fd_table.lock().get(dirfd)?;
+        let proc = Thread::proc_or_esrch()?;
+        let dir_file = proc.file(dirfd)?;
         let node = dir_file.path_node.clone().ok_or(Errno::ENOTDIR)?;
         let inode = node.dentry.get_inode().ok_or(Errno::ENOENT)?;
         if !inode.is_dir() {

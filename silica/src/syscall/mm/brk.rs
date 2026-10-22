@@ -6,7 +6,7 @@ use ostd::{arch::cpu::context::UserContext, mm::PAGE_SIZE};
 
 use crate::{
     api::{
-        errno::{Errno, Result},
+        errno::{Result},
         limit::{RLIM_INFINITY, Resource},
     },
     proc::thread::Thread,
@@ -20,7 +20,7 @@ use crate::{
 /// On failure, Linux returns the current break.
 /// Calling `brk(0)` queries the current break.
 pub fn sys_brk(new_brk: usize, _ctx: &mut UserContext) -> Result<usize> {
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     let vmar = proc.vmspace();
 
     let (start_brk, current_brk) = {

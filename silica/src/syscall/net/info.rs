@@ -6,7 +6,7 @@ use ostd::arch::cpu::context::UserContext;
 
 use super::addr::{get_socket, write_sockaddr};
 use crate::{
-    api::errno::{Errno, Result},
+    api::errno::Result,
     proc::thread::Thread,
 };
 
@@ -18,7 +18,7 @@ pub fn sys_getsockname(
     _ctx: &mut UserContext,
 ) -> Result<usize> {
     let socket = get_socket(fd)?;
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     let endpoint = socket.getsockname()?;
     write_sockaddr(&proc, endpoint, addr_ptr, addrlen_ptr)?;
     Ok(0)
@@ -32,7 +32,7 @@ pub fn sys_getpeername(
     _ctx: &mut UserContext,
 ) -> Result<usize> {
     let socket = get_socket(fd)?;
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     let endpoint = socket.getpeername()?;
     write_sockaddr(&proc, endpoint, addr_ptr, addrlen_ptr)?;
     Ok(0)

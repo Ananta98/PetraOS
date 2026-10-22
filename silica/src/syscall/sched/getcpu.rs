@@ -6,7 +6,7 @@ use ostd::arch::cpu::context::UserContext;
 use ostd::cpu::CpuId;
 
 use crate::{
-    api::errno::{Errno, Result},
+    api::errno::Result,
     proc::thread::Thread,
     utils::userspace::UserPtr,
 };
@@ -18,7 +18,7 @@ pub fn sys_getcpu(
     _tcache_ptr: usize,
     _ctx: &mut UserContext,
 ) -> Result<usize> {
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     let vmar = proc.vmspace();
 
     if cpu_ptr != 0 {

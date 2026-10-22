@@ -12,7 +12,7 @@ use crate::{
 
 /// `msgget(2)` - Allocates or accesses a System V message queue.
 pub fn sys_msgget(key: i32, msgflg: i32, _ctx: &mut UserContext) -> Result<usize> {
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     let cred = proc.cred();
     let msqid = crate::ipc::msg::msg_get(key, msgflg, &cred)?;
     Ok(msqid as usize)
@@ -26,7 +26,7 @@ pub fn sys_msgsnd(
     msgflg: i32,
     _ctx: &mut UserContext,
 ) -> Result<usize> {
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     if msgp == 0 {
         return Err(Errno::EFAULT);
     }
@@ -61,7 +61,7 @@ pub fn sys_msgrcv(
     msgflg: i32,
     _ctx: &mut UserContext,
 ) -> Result<usize> {
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     if msgp == 0 {
         return Err(Errno::EFAULT);
     }
@@ -79,7 +79,7 @@ pub fn sys_msgrcv(
 
 /// `msgctl(2)` - System V message queue control operations.
 pub fn sys_msgctl(msqid: i32, cmd: i32, buf: usize, _ctx: &mut UserContext) -> Result<usize> {
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     let cred = proc.cred();
     crate::ipc::msg::msg_ctl(msqid, cmd, buf, &cred, &proc)
 }

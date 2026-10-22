@@ -5,13 +5,13 @@
 use ostd::arch::cpu::context::UserContext;
 
 use crate::{
-    api::errno::{Errno, Result},
+    api::errno::Result,
     proc::thread::Thread,
 };
 
 /// System call `close(int fd)` (Syscall #3).
 pub fn sys_close(fd: i32, _ctx: &mut UserContext) -> Result<usize> {
-    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let proc = Thread::proc_or_esrch()?;
     proc.fd_table.lock().close(fd)?;
     Ok(0)
 }

@@ -172,7 +172,7 @@ pub struct INodeTimes {
 pub const DEFAULT_BLKSIZE: usize = 4096;
 
 fn now_secs() -> u64 {
-    crate::sched::now() / crate::sched::TIMER_HZ
+    crate::time::uptime_secs()
 }
 
 /// A standalone file system node (vnode).
