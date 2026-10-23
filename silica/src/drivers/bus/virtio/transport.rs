@@ -102,6 +102,9 @@ pub struct VirtioTransport {
 impl VirtioTransport {
     /// Walks the caps of `device` and maps the virtio PCI windows.
     pub fn new(device: PciDevice) -> Result<Arc<Self>> {
+        device.enable_bus_mastering();
+        device.enable_memory_space();
+
         let caps = find_caps(&device)?;
         let common = map_cap(&device, caps.common.as_ref().unwrap())?;
         let notify_cap = caps.notify.unwrap();

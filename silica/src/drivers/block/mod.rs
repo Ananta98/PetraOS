@@ -8,6 +8,7 @@
 
 pub mod ahci;
 pub mod nvme;
+pub mod virtio;
 
 use alloc::sync::Arc;
 
