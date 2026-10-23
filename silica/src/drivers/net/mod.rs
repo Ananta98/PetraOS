@@ -3,9 +3,10 @@
 //! Network Device Driver Abstractions.
 //!
 //! Provides the core [`NetDevice`] trait, dynamic registration/unregistration for kernel modules,
-//! and network device drivers such as `e1000`.
+//! and network device drivers such as `e1000` and `virtio-net`.
 
 pub mod e1000;
+pub mod virtio;
 
 use crate::uapi::errno::Result;
 use alloc::{string::String, sync::Arc, vec::Vec};

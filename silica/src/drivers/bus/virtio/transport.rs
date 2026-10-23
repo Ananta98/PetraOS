@@ -173,6 +173,15 @@ impl VirtioTransport {
             .map_err(|_| Errno::EIO)
     }
 
+    /// Reads a `u8` from the device-specific config.
+    pub fn device_read8(&self, offset: usize) -> Result<u8> {
+        self.device_cfg
+            .as_ref()
+            .ok_or(Errno::ENODEV)?
+            .read_val::<u8>(offset)
+            .map_err(|_| Errno::EIO)
+    }
+
     /// The configured queues, in activation order.
     pub fn queues(&self) -> Vec<Arc<super::queue::VirtQueue>> {
         self.queues.lock().clone()

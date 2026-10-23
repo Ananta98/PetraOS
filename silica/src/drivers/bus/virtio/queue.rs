@@ -129,6 +129,73 @@ impl VirtQueue {
         )
     }
 
+    /// Returns the number of descriptor entries in this virtqueue.
+    pub fn size(&self) -> u16 {
+        self.size
+    }
+
+    /// Returns `true` if the device has placed at least one unconsumed entry in the used ring.
+    pub fn has_used(&self) -> bool {
+        let Ok(used_idx) = self.used_dma.read_val::<u16>(2) else {
+            return false;
+        };
+        let inner = self.inner.lock();
+        used_idx != inner.last_used
+    }
+
+    /// Programs single descriptor `desc_id` with `buffer` and publishes it to the avail ring
+    /// without blocking. Call [`Self::notify`] afterwards to ring the queue doorbell.
+    pub fn push_avail_desc(&self, desc_id: u16, buffer: SubmitBuffer) -> Result<()> {
+        if desc_id >= self.size {
+            crate::return_errno!(EINVAL, "descriptor index out of range");
+        }
+        let mut inner = self.inner.lock();
+        if inner.free_count == 0 {
+            crate::return_errno!(ENOMEM, "virtqueue descriptors exhausted");
+        }
+        inner.free_count -= 1;
+
+        let desc = Desc {
+            addr: buffer.addr,
+            len: buffer.len,
+            flags: if buffer.writable { DESC_FLAG_WRITE } else { 0 },
+            next: 0,
+        };
+        self.desc_dma
+            .write_val(desc_id as usize * Self::DESC_SIZE, &desc)
+            .map_err(|_| Errno::EIO)?;
+
+        let avail_slot = (inner.last_avail % self.size) as usize;
+        self.avail_dma
+            .write_val(4 + avail_slot * 2, &desc_id)
+            .map_err(|_| Errno::EIO)?;
+        inner.last_avail = inner.last_avail.wrapping_add(1);
+        self.avail_dma
+            .write_val(2, &inner.last_avail)
+            .map_err(|_| Errno::EIO)?;
+        Ok(())
+    }
+
+    /// Reaps one completed single-descriptor entry `(desc_id, len)` from the used ring,
+    /// or returns `Ok(None)` if no completed entry is available.
+    pub fn pop_used_desc(&self) -> Result<Option<(u16, u32)>> {
+        let used_idx: u16 = self.used_dma.read_val(2).map_err(|_| Errno::EIO)?;
+        let mut inner = self.inner.lock();
+        if used_idx == inner.last_used {
+            return Ok(None);
+        }
+        let slot = (inner.last_used % self.size) as usize;
+        let (id, len) = self.read_used_elem(slot)?;
+        inner.last_used = inner.last_used.wrapping_add(1);
+        inner.free_count = (inner.free_count + 1).min(self.size);
+        Ok(Some((id, len)))
+    }
+
+    /// Rings this queue's doorbell via the transport's notification window.
+    pub fn notify(&self) -> Result<()> {
+        self.ring_bell()
+    }
+
     /// Submits `buffers` to the device and waits for it to consume them.
     ///
     /// Returns the length the device reports for the writable buffers.
