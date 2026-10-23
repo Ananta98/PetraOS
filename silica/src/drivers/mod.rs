@@ -3,11 +3,12 @@
 //! Unified Kernel Driver Model and Device Abstractions.
 //!
 //! Provides the payload traits devices expose to consumers
-//! ([`CharacterDevice`], [`BlockDevice`], [`NetDevice`]) and registers them
-//! through the generic device classes from [`device`]. Bus-level discovery
-//! and driver binding live in [`device::bus`], used in particular by the PCI
-//! subsystem.
+//! ([`CharacterDevice`], [`BlockDevice`], [`NetDevice`], [`AudioDevice`]) and
+//! registers them through the generic device classes from [`device`]. Bus-level
+//! discovery and driver binding live in [`device::bus`], used in particular by
+//! the PCI subsystem.
 
+pub mod audio;
 pub mod block;
 pub mod bus;
 pub mod char;
@@ -17,6 +18,7 @@ pub mod net;
 
 use alloc::{string::String, sync::Arc, vec::Vec};
 
+pub use audio::AudioDevice;
 pub use device::{BusDevice, Driver};
 pub use net::NetDevice;
 
@@ -149,9 +151,17 @@ impl device::Class for NetClass {
     type Device = dyn NetDevice;
 }
 
+/// The class of audio PCM devices.
+pub struct AudioClass;
+
+impl device::Class for AudioClass {
+    type Device = dyn AudioDevice;
+}
+
 static CHAR_CLASS: device::ClassHandle<CharClass> = device::ClassHandle::new();
 static BLOCK_CLASS: device::ClassHandle<BlockClass> = device::ClassHandle::new();
 static NET_CLASS: device::ClassHandle<NetClass> = device::ClassHandle::new();
+static AUDIO_CLASS: device::ClassHandle<AudioClass> = device::ClassHandle::new();
 
 // ---------------------------------------------------------------------------
 // Registration helpers (also the module ABI entry points)
@@ -196,6 +206,19 @@ pub fn unregister_netdev(name: &str) -> Result<()> {
     Ok(())
 }
 
+/// Registers an Audio Device in the audio device class.
+pub fn register_audiodev(device: Arc<dyn AudioDevice>) -> Result<()> {
+    let name = device.name();
+    AUDIO_CLASS.register(&name, device)?;
+    Ok(())
+}
+
+/// Unregisters an Audio Device by name.
+pub fn unregister_audiodev(name: &str) -> Result<()> {
+    AUDIO_CLASS.unregister(name)?;
+    Ok(())
+}
+
 /// Returns a snapshot of all registered Character Devices.
 pub fn get_chrdevs() -> Vec<Arc<dyn CharacterDevice>> {
     CHAR_CLASS.payloads()
@@ -209,6 +232,11 @@ pub fn get_blkdevs() -> Vec<Arc<dyn BlockDevice>> {
 /// Returns a snapshot of all registered Network Devices.
 pub fn get_netdevs() -> Vec<Arc<dyn NetDevice>> {
     NET_CLASS.payloads()
+}
+
+/// Returns a snapshot of all registered Audio Devices.
+pub fn get_audiodevs() -> Vec<Arc<dyn AudioDevice>> {
+    AUDIO_CLASS.payloads()
 }
 
 /// Initializes the driver subsystem and probes system buses.
