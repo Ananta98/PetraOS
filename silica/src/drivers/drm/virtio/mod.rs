@@ -20,6 +20,7 @@ pub mod protocol;
 use alloc::sync::Arc;
 
 pub use device::{VirtioGpu, VirtioGpuDevice};
+pub use modes::{EDID_BLOCK_BYTES, build_scanout_modes};
 pub use protocol::PCI_DEVICE_ID_VIRTIO_GPU;
 
 use crate::drivers::bus::virtio::register_virtio_device;

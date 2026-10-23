@@ -16,6 +16,7 @@
 pub mod core;
 pub mod framebuffer;
 pub mod gem;
+pub mod intel;
 pub mod kms;
 pub mod virtio;
 
@@ -24,3 +25,4 @@ pub(crate) use core::{read_uapi, write_uapi};
 pub use framebuffer::get_framebuffer;
 pub use gem::GemObject;
 pub use kms::{DisplayDriver, Framebuffer, KmsPipeline, KmsState};
+pub use virtio::{EDID_BLOCK_BYTES, build_scanout_modes};

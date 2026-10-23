@@ -452,6 +452,227 @@ pub struct DrmModeCursor2 {
     pub hot_y: i32,
 }
 
+/// `DRM_MODE_CONNECTOR_HDMIA` — HDMI Type-A connector.
+pub const DRM_MODE_CONNECTOR_HDMIA: u32 = 11;
+/// `DRM_MODE_CONNECTOR_DisplayPort` — DisplayPort connector.
+pub const DRM_MODE_CONNECTOR_DISPLAYPORT: u32 = 10;
+/// `DRM_MODE_CONNECTOR_eDP` — Embedded DisplayPort connector.
+pub const DRM_MODE_CONNECTOR_EDP: u32 = 14;
+/// `DRM_MODE_ENCODER_TMDS` — TMDS encoder (DVI / HDMI / DP).
+pub const DRM_MODE_ENCODER_TMDS: u32 = 2;
+
+// ----------------------------------------------------------------------------
+// Intel i915 device-specific ioctls (`drm/i915_drm.h`, 0x40..0x9F)
+// ----------------------------------------------------------------------------
+
+pub const DRM_I915_GETPARAM: u32 = 0x06;
+pub const DRM_I915_GEM_BUSY: u32 = 0x17;
+pub const DRM_I915_GEM_CREATE: u32 = 0x1B;
+pub const DRM_I915_GEM_PREAD: u32 = 0x1C;
+pub const DRM_I915_GEM_PWRITE: u32 = 0x1D;
+pub const DRM_I915_GEM_MMAP: u32 = 0x1E;
+pub const DRM_I915_GEM_SET_DOMAIN: u32 = 0x1F;
+pub const DRM_I915_GEM_SW_FINISH: u32 = 0x20;
+pub const DRM_I915_GEM_SET_TILING: u32 = 0x21;
+pub const DRM_I915_GEM_GET_TILING: u32 = 0x22;
+pub const DRM_I915_GEM_MMAP_GTT: u32 = 0x24;
+pub const DRM_I915_GEM_WAIT: u32 = 0x2C;
+pub const DRM_I915_GET_RESET_STATS: u32 = 0x32;
+pub const DRM_I915_QUERY: u32 = 0x39;
+
+pub const DRM_IOCTL_I915_GETPARAM: u32 =
+    _iowr::<DrmI915GetParam>(DRM_IOCTL_BASE, DRM_COMMAND_BASE + DRM_I915_GETPARAM);
+pub const DRM_IOCTL_I915_GEM_BUSY: u32 =
+    _iowr::<DrmI915GemBusy>(DRM_IOCTL_BASE, DRM_COMMAND_BASE + DRM_I915_GEM_BUSY);
+pub const DRM_IOCTL_I915_GEM_CREATE: u32 =
+    _iowr::<DrmI915GemCreate>(DRM_IOCTL_BASE, DRM_COMMAND_BASE + DRM_I915_GEM_CREATE);
+pub const DRM_IOCTL_I915_GEM_PREAD: u32 =
+    _iow::<DrmI915GemPread>(DRM_IOCTL_BASE, DRM_COMMAND_BASE + DRM_I915_GEM_PREAD);
+pub const DRM_IOCTL_I915_GEM_PWRITE: u32 =
+    _iow::<DrmI915GemPwrite>(DRM_IOCTL_BASE, DRM_COMMAND_BASE + DRM_I915_GEM_PWRITE);
+pub const DRM_IOCTL_I915_GEM_MMAP: u32 =
+    _iowr::<DrmI915GemMmap>(DRM_IOCTL_BASE, DRM_COMMAND_BASE + DRM_I915_GEM_MMAP);
+pub const DRM_IOCTL_I915_GEM_SET_DOMAIN: u32 =
+    _iow::<DrmI915GemSetDomain>(DRM_IOCTL_BASE, DRM_COMMAND_BASE + DRM_I915_GEM_SET_DOMAIN);
+pub const DRM_IOCTL_I915_GEM_SW_FINISH: u32 =
+    _iow::<DrmI915GemSwFinish>(DRM_IOCTL_BASE, DRM_COMMAND_BASE + DRM_I915_GEM_SW_FINISH);
+pub const DRM_IOCTL_I915_GEM_SET_TILING: u32 =
+    _iowr::<DrmI915GemTiling>(DRM_IOCTL_BASE, DRM_COMMAND_BASE + DRM_I915_GEM_SET_TILING);
+pub const DRM_IOCTL_I915_GEM_GET_TILING: u32 =
+    _iowr::<DrmI915GemTiling>(DRM_IOCTL_BASE, DRM_COMMAND_BASE + DRM_I915_GEM_GET_TILING);
+pub const DRM_IOCTL_I915_GEM_MMAP_GTT: u32 =
+    _iowr::<DrmI915GemMmapGtt>(DRM_IOCTL_BASE, DRM_COMMAND_BASE + DRM_I915_GEM_MMAP_GTT);
+pub const DRM_IOCTL_I915_GEM_MMAP_OFFSET: u32 =
+    _iowr::<DrmI915GemMmapOffset>(DRM_IOCTL_BASE, DRM_COMMAND_BASE + DRM_I915_GEM_MMAP_GTT);
+pub const DRM_IOCTL_I915_GEM_WAIT: u32 =
+    _iowr::<DrmI915GemWait>(DRM_IOCTL_BASE, DRM_COMMAND_BASE + DRM_I915_GEM_WAIT);
+pub const DRM_IOCTL_I915_GET_RESET_STATS: u32 =
+    _iowr::<DrmI915ResetStats>(DRM_IOCTL_BASE, DRM_COMMAND_BASE + DRM_I915_GET_RESET_STATS);
+pub const DRM_IOCTL_I915_QUERY: u32 =
+    _iowr::<DrmI915Query>(DRM_IOCTL_BASE, DRM_COMMAND_BASE + DRM_I915_QUERY);
+
+// `I915_PARAM_*` parameter keys for `DRM_IOCTL_I915_GETPARAM`.
+pub const I915_PARAM_IRQ_ACTIVE: i32 = 1;
+pub const I915_PARAM_ALLOW_BATCHBUFFER: i32 = 2;
+pub const I915_PARAM_CHIPSET_ID: i32 = 4;
+pub const I915_PARAM_HAS_GEM: i32 = 11;
+pub const I915_PARAM_HAS_COHERENT_RINGS: i32 = 13;
+pub const I915_PARAM_HAS_EXECBUF2: i32 = 14;
+pub const I915_PARAM_HAS_LLC: i32 = 17;
+pub const I915_PARAM_HAS_WAIT_TIMEOUT: i32 = 21;
+pub const I915_PARAM_MMAP_VERSION: i32 = 30;
+pub const I915_PARAM_REVISION: i32 = 32;
+pub const I915_PARAM_SUBSLICE_TOTAL: i32 = 33;
+pub const I915_PARAM_EU_TOTAL: i32 = 34;
+pub const I915_PARAM_HAS_EXEC_SOFTPIN: i32 = 37;
+pub const I915_PARAM_MIN_EU_IN_POOL: i32 = 39;
+pub const I915_PARAM_MMAP_GTT_VERSION: i32 = 40;
+pub const I915_PARAM_HAS_EXEC_NO_RELOC: i32 = 42;
+pub const I915_PARAM_HAS_EXEC_BATCH_FIRST: i32 = 48;
+pub const I915_PARAM_CS_TIMESTAMP_FREQUENCY: i32 = 51;
+
+// `I915_TILING_*` constants.
+pub const I915_TILING_NONE: u32 = 0;
+pub const I915_TILING_X: u32 = 1;
+pub const I915_TILING_Y: u32 = 2;
+pub const I915_BIT_6_SWIZZLE_NONE: u32 = 0;
+
+/// `struct drm_i915_getparam` — `DRM_IOCTL_I915_GETPARAM`.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, FromBytes, IntoBytes, KnownLayout, Immutable, Default)]
+pub struct DrmI915GetParam {
+    pub param: i32,
+    pub pad: u32,
+    pub value: usize,
+}
+
+/// `struct drm_i915_gem_create` — `DRM_IOCTL_I915_GEM_CREATE`.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, FromBytes, IntoBytes, KnownLayout, Immutable, Default)]
+pub struct DrmI915GemCreate {
+    pub size: u64,
+    pub handle: u32,
+    pub pad: u32,
+}
+
+/// `struct drm_i915_gem_pread` — `DRM_IOCTL_I915_GEM_PREAD`.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, FromBytes, IntoBytes, KnownLayout, Immutable, Default)]
+pub struct DrmI915GemPread {
+    pub handle: u32,
+    pub pad: u32,
+    pub offset: u64,
+    pub size: u64,
+    pub data_ptr: usize,
+}
+
+/// `struct drm_i915_gem_pwrite` — `DRM_IOCTL_I915_GEM_PWRITE`.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, FromBytes, IntoBytes, KnownLayout, Immutable, Default)]
+pub struct DrmI915GemPwrite {
+    pub handle: u32,
+    pub pad: u32,
+    pub offset: u64,
+    pub size: u64,
+    pub data_ptr: usize,
+}
+
+/// `struct drm_i915_gem_mmap` — `DRM_IOCTL_I915_GEM_MMAP`.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, FromBytes, IntoBytes, KnownLayout, Immutable, Default)]
+pub struct DrmI915GemMmap {
+    pub handle: u32,
+    pub pad: u32,
+    pub offset: u64,
+    pub size: u64,
+    pub addr_ptr: u64,
+    pub flags: u64,
+}
+
+/// `struct drm_i915_gem_mmap_gtt` — `DRM_IOCTL_I915_GEM_MMAP_GTT`.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, FromBytes, IntoBytes, KnownLayout, Immutable, Default)]
+pub struct DrmI915GemMmapGtt {
+    pub handle: u32,
+    pub pad: u32,
+    pub offset: u64,
+}
+
+/// `struct drm_i915_gem_mmap_offset` — `DRM_IOCTL_I915_GEM_MMAP_OFFSET`.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, FromBytes, IntoBytes, KnownLayout, Immutable, Default)]
+pub struct DrmI915GemMmapOffset {
+    pub handle: u32,
+    pub pad: u32,
+    pub offset: u64,
+    pub flags: u64,
+    pub extensions: u64,
+}
+
+/// `struct drm_i915_gem_set_domain` — `DRM_IOCTL_I915_GEM_SET_DOMAIN`.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, FromBytes, IntoBytes, KnownLayout, Immutable, Default)]
+pub struct DrmI915GemSetDomain {
+    pub handle: u32,
+    pub read_domains: u32,
+    pub write_domain: u32,
+}
+
+/// `struct drm_i915_gem_sw_finish` — `DRM_IOCTL_I915_GEM_SW_FINISH`.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, FromBytes, IntoBytes, KnownLayout, Immutable, Default)]
+pub struct DrmI915GemSwFinish {
+    pub handle: u32,
+}
+
+/// `struct drm_i915_gem_set_tiling` / `drm_i915_gem_get_tiling`.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, FromBytes, IntoBytes, KnownLayout, Immutable, Default)]
+pub struct DrmI915GemTiling {
+    pub handle: u32,
+    pub tiling_mode: u32,
+    pub stride: u32,
+    pub swizzle_mode: u32,
+}
+
+/// `struct drm_i915_gem_busy` — `DRM_IOCTL_I915_GEM_BUSY`.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, FromBytes, IntoBytes, KnownLayout, Immutable, Default)]
+pub struct DrmI915GemBusy {
+    pub handle: u32,
+    pub busy: u32,
+}
+
+/// `struct drm_i915_gem_wait` — `DRM_IOCTL_I915_GEM_WAIT`.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, FromBytes, IntoBytes, KnownLayout, Immutable, Default)]
+pub struct DrmI915GemWait {
+    pub bo_handle: u32,
+    pub flags: u32,
+    pub timeout_ns: i64,
+}
+
+/// `struct drm_i915_reset_stats` — `DRM_IOCTL_I915_GET_RESET_STATS`.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, FromBytes, IntoBytes, KnownLayout, Immutable, Default)]
+pub struct DrmI915ResetStats {
+    pub ctx_id: u32,
+    pub flags: u32,
+    pub reset_count: u32,
+    pub batch_active: u32,
+    pub batch_pending: u32,
+    pub pad: u32,
+}
+
+/// `struct drm_i915_query` — `DRM_IOCTL_I915_QUERY`.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, FromBytes, IntoBytes, KnownLayout, Immutable, Default)]
+pub struct DrmI915Query {
+    pub num_items: u32,
+    pub flags: u32,
+    pub items_ptr: usize,
+}
+
 /// `struct drm_mode_set_plane` — `DRM_IOCTL_MODE_SETPLANE`.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, FromBytes, IntoBytes, KnownLayout, Immutable, Default)]

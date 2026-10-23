@@ -167,8 +167,8 @@ fn ioctl_create_dumb(file: &mut DrmFile, arg: usize) -> Result<usize> {
     }
 
     // The dumb-buffer contract: driver-aligned pitch, kernel-chosen layout.
-    let pitch = (req.width as usize * req.bpp as usize / 8) as u32;
-    let size = (req.height as usize) * pitch as usize;
+    let pitch = file.device.dumb_pitch(req.width, req.bpp);
+    let size = (req.height as usize).saturating_mul(pitch as usize);
 
     let object = file.device.create_object(size)?;
     req.size = object.size() as u64;

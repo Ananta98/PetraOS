@@ -51,8 +51,6 @@ pub struct FrameBuffer {
     cmap: Mutex<FbCmap>,
 }
 
-pub type Framebuffer = FrameBuffer;
-
 impl FrameBuffer {
     /// Probes the linear framebuffer provided by boot information.
     pub fn probe() -> Result<Self> {

@@ -17,6 +17,7 @@ pub mod net;
 
 use alloc::{string::String, sync::Arc, vec::Vec};
 
+pub use device::{BusDevice, Driver};
 pub use net::NetDevice;
 
 use crate::uapi::errno::Result;

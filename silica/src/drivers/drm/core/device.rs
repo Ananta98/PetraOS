@@ -54,6 +54,15 @@ pub trait DrmDevice: Send + Sync {
         gem::GemObject::alloc(size)
     }
 
+    /// Computes the row stride in bytes for a dumb buffer of `width` and `bpp`.
+    ///
+    /// Defaults to packed linear pitch (`width * (bpp / 8)`); hardware drivers
+    /// with scanout stride alignment rules (such as Intel's 64-byte requirement)
+    /// override this method.
+    fn dumb_pitch(&self, width: u32, bpp: u32) -> u32 {
+        width.saturating_mul(bpp.div_ceil(8))
+    }
+
     /// Custom ioctls that fall outside the standard DRM numbering.
     fn driver_ioctl(&self, _file: &mut DrmFile, _cmd: u32, _arg: usize) -> Result<usize> {
         crate::return_errno!(ENOTTY, "driver does not support this ioctl");
