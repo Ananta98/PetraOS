@@ -1,503 +1,463 @@
 // SPDX-License-Identifier: GPL-2.0
 
-//! The virtio-gpu control plane.
+//! `virtio-gpu` PCI device glue and KMS [`DisplayDriver`] implementation.
 //!
-//! [`VirtioGpuDevice`] is the PCI-facing glue; it builds one [`VirtioGpu`]
-//! per attached transport. [`VirtioGpu`] turns the KMS scanout callbacks
-//! into the 2D command stream of the device (display info, resource
-//! create/attach, set scanout, flush) while tracking dumb buffers as
-//! resources keyed by their framebuffer id.
+//! [`VirtioGpuDevice`] registers with the VirtIO bus and constructs one
+//! [`VirtioGpu`] instance per attached PCI transport. [`VirtioGpu`] bridges
+//! the kernel's DRM/KMS callbacks to the wire protocol in [`super::protocol`],
+//! the resource/cursor pipeline in [`super::pipeline`], and the EDID/mode
+//! synthesizer in [`super::modes`].
 
 use alloc::boxed::Box;
-use alloc::collections::BTreeMap;
+use alloc::format;
+use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::mem::size_of;
-use ostd::mm::{HasPaddr, VmIo, dma::DmaCoherent, io::util::HasVmReaderWriter};
+use ostd::mm::{HasPaddr, VmIo, VmReader, dma::DmaCoherent, io::util::HasVmReaderWriter};
 use spin::{Mutex, Once};
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
-use crate::drivers::bus::virtio::{SubmitBuffer, VirtQueue, VirtioDevice, VirtioTransport};
-use crate::drivers::drm::core::{DrmDevice, register_drm_device};
-use crate::drivers::drm::gem::GemObject;
-use crate::drivers::drm::kms::{DisplayDriver, Framebuffer, KmsPipeline, KmsState};
+use super::modes::build_scanout_modes;
+use super::pipeline::{
+    Pipeline, ResourceGeometry, TransferOffset, build_attach_backing, build_create_2d,
+    build_detach_backing, build_flush, build_move_cursor, build_set_scanout, build_transfer_2d,
+    build_unref, build_update_cursor, validate_cursor_dimensions,
+};
+use super::protocol::{
+    CMD_GET_DISPLAY_INFO, CMD_GET_EDID, CONFIG_EVENTS_CLEAR, CONFIG_EVENTS_READ, CONTROL_QUEUE,
+    CURSOR_QUEUE, CURSOR_SIZE, CtrlHdr, DisplayOne, EDID_MAX_BYTES, EVENT_DISPLAY, FEATURE_EDID,
+    GetEdid, GpuConfig, GpuFormat, PCI_DEVICE_ID_VIRTIO_GPU, RESP_OK_DISPLAY_INFO, RESP_OK_EDID,
+    RESP_OK_NODATA, Rect, RespDisplayInfo, RespEdid, UpdateCursor, check_response_code,
+};
+use crate::drivers::bus::virtio::{
+    SubmitBuffer, VIRTIO_F_VERSION_1, VirtQueue, VirtioDevice, VirtioTransport,
+};
+use crate::drivers::drm::{
+    DisplayDriver, DrmDevice, Framebuffer, GemObject, KmsPipeline, KmsState, register_drm_device,
+};
 use crate::uapi::drm;
 use crate::uapi::errno::{Errno, Result};
 
-// 2D control commands (`VIRTIO_GPU_CMD_*`) and responses.
-const VG_CMD_GET_DISPLAY_INFO: u32 = 0x0100;
-const VG_CMD_RESOURCE_CREATE_2D: u32 = 0x0101;
-const VG_CMD_SET_SCANOUT: u32 = 0x0103;
-const VG_CMD_RESOURCE_FLUSH: u32 = 0x0104;
-const VG_CMD_TRANSFER_TO_HOST_2D: u32 = 0x0105;
-const VG_CMD_RESOURCE_ATTACH_BACKING: u32 = 0x0106;
-const VG_RESP_OK_NODATA: u32 = 0x1100;
-const VG_RESP_OK_DISPLAY_INFO: u32 = 0x1101;
-/// `VIRTIO_GPU_MAX_SCANOUTS`.
-const VG_MAX_SCANOUTS: usize = 16;
-
-/// `struct virtio_gpu_ctrl_hdr`, the first 24 bytes in both directions.
-#[repr(C)]
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    Default,
-    zerocopy::FromBytes,
-    zerocopy::IntoBytes,
-    zerocopy::KnownLayout,
-    zerocopy::Immutable,
-)]
-struct VgCtrlHdr {
-    kind: u32,
-    flags: u32,
-    fence_id: u64,
-    ctx_id: u32,
-    pad: u32,
+/// Coherent DMA staging pages used to serialize control and cursor commands.
+struct CommandStaging {
+    request_dma: DmaCoherent,
+    response_dma: DmaCoherent,
+    cursor_dma: DmaCoherent,
 }
 
-/// `struct virtio_gpu_rect`.
-#[repr(C)]
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    Default,
-    zerocopy::FromBytes,
-    zerocopy::IntoBytes,
-    zerocopy::KnownLayout,
-    zerocopy::Immutable,
-)]
-struct VgRect {
-    x: u32,
-    y: u32,
-    width: u32,
-    height: u32,
+impl CommandStaging {
+    fn new() -> Result<Self> {
+        Ok(Self {
+            request_dma: DmaCoherent::alloc(1, false).map_err(|_| Errno::ENOMEM)?,
+            response_dma: DmaCoherent::alloc(1, false).map_err(|_| Errno::ENOMEM)?,
+            cursor_dma: DmaCoherent::alloc(1, false).map_err(|_| Errno::ENOMEM)?,
+        })
+    }
 }
 
-/// `struct virtio_gpu_resource_create_2d`.
-#[repr(C)]
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    Default,
-    zerocopy::FromBytes,
-    zerocopy::IntoBytes,
-    zerocopy::KnownLayout,
-    zerocopy::Immutable,
-)]
-struct VgResourceCreate2d {
-    hdr: VgCtrlHdr,
-    resource_id: u32,
-    format: u32,
-    width: u32,
-    height: u32,
-}
-
-/// `struct virtio_gpu_resource_attach_backing` + one `mem_entry`.
-#[repr(C)]
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    Default,
-    zerocopy::FromBytes,
-    zerocopy::IntoBytes,
-    zerocopy::KnownLayout,
-    zerocopy::Immutable,
-)]
-struct VgAttachBacking {
-    hdr: VgCtrlHdr,
-    resource_id: u32,
-    nr_entries: u32,
-    entry_addr: u64,
-    entry_len: u32,
-    entry_pad: u32,
-}
-
-/// `struct virtio_gpu_set_scanout`.
-#[repr(C)]
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    Default,
-    zerocopy::FromBytes,
-    zerocopy::IntoBytes,
-    zerocopy::KnownLayout,
-    zerocopy::Immutable,
-)]
-struct VgSetScanout {
-    hdr: VgCtrlHdr,
-    rect: VgRect,
-    scanout_id: u32,
-    resource_id: u32,
-}
-
-/// `struct virtio_gpu_resource_flush`.
-#[repr(C)]
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    Default,
-    zerocopy::FromBytes,
-    zerocopy::IntoBytes,
-    zerocopy::KnownLayout,
-    zerocopy::Immutable,
-)]
-struct VgResourceFlush {
-    hdr: VgCtrlHdr,
-    rect: VgRect,
-    resource_id: u32,
-    pad: u32,
-}
-
-/// `struct virtio_gpu_transfer_to_host_2d`.
-#[repr(C)]
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    Default,
-    zerocopy::FromBytes,
-    zerocopy::IntoBytes,
-    zerocopy::KnownLayout,
-    zerocopy::Immutable,
-)]
-struct VgTransferToHost2d {
-    hdr: VgCtrlHdr,
-    rect: VgRect,
-    offset: u64,
-    resource_id: u32,
-    pad: u32,
-}
-
-/// `struct virtio_gpu_display_one` from `resp_display_info`.
-#[repr(C)]
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    Default,
-    zerocopy::FromBytes,
-    zerocopy::IntoBytes,
-    zerocopy::KnownLayout,
-    zerocopy::Immutable,
-)]
-struct VgDisplayOne {
-    rect: VgRect,
-    enabled: u32,
-    flags: u32,
-}
-
-/// `struct virtio_gpu_resp_display_info` (response of GET_DISPLAY_INFO).
-#[repr(C)]
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    Default,
-    zerocopy::FromBytes,
-    zerocopy::IntoBytes,
-    zerocopy::KnownLayout,
-    zerocopy::Immutable,
-)]
-struct VgDisplayInfo {
-    hdr: VgCtrlHdr,
-    num_scanouts: u32,
-    pad: u32,
-    pmodes: [VgDisplayOne; VG_MAX_SCANOUTS],
-}
-
-/// The virtio-gpu 2D formats matching the scanout-capable DRM formats.
-const VG_FORMAT_B8G8R8A8_UNORM: u32 = 1;
-const VG_FORMAT_B8G8R8X8_UNORM: u32 = 2;
-
-/// The control path of the device is queue 0; the cursor queue is unused.
-const CONTROL_QUEUE: usize = 0;
-
-/// One live virtio-gpu instance (one attached PCI device).
+/// One live `virtio-gpu` instance bound to a PCI transport.
 pub struct VirtioGpu {
     transport: Arc<VirtioTransport>,
-    /// Control queue 0.
-    control: Arc<VirtQueue>,
-    /// Staging DMA buffer for command structs (whole page).
-    request_dma: DmaCoherent,
-    /// Staging DMA buffer for responses (display info needs 416 bytes).
-    response_dma: DmaCoherent,
-    /// Next 2D resource id; 0 is disabled/reserved on the device side.
-    next_resource_id: Mutex<u32>,
-    /// Framebuffer id → host resource id.
-    resources: Mutex<BTreeMap<u32, u32>>,
-    /// The KMS object tables (leaked; see [`DrmDevice::kms`]).
+    control_queue: Arc<VirtQueue>,
+    cursor_queue: Option<Arc<VirtQueue>>,
+    staging: Mutex<CommandStaging>,
+    pipeline: Mutex<Pipeline>,
+    config: GpuConfig,
     kms: Once<&'static KmsState>,
 }
 
 impl VirtioGpu {
+    /// Initializes a `VirtioGpu` instance over an activated [`VirtioTransport`].
     fn new(transport: &Arc<VirtioTransport>) -> Result<Arc<Self>> {
-        let Some(control) = transport.queue(CONTROL_QUEUE) else {
-            ostd::info!(
-                "virtio-gpu: no control queue; activated = {}",
+        let Some(control_queue) = transport.queue(CONTROL_QUEUE) else {
+            ostd::error!(
+                "virtio-gpu: missing control queue (activated queues = {})",
                 transport.queues().len()
             );
-            crate::return_errno!(ENODEV, "device does not expose its control queue");
+            crate::return_errno!(ENODEV, "virtio-gpu does not expose a control queue");
         };
-        Ok(Arc::new(Self {
+        let cursor_queue = transport.queue(CURSOR_QUEUE);
+        let config = GpuConfig::read(transport)?;
+        let transfer_offset = TransferOffset::for_device(
+            transport.pci_device_id(),
+            transport.pci_subsystem_vendor_id(),
+            transport.pci_subsystem_id(),
+        );
+
+        let gpu = Arc::new(Self {
             transport: Arc::clone(transport),
-            control,
-            request_dma: DmaCoherent::alloc(1, false).map_err(|_| Errno::ENOMEM)?,
-            response_dma: DmaCoherent::alloc(1, false).map_err(|_| Errno::ENOMEM)?,
-            next_resource_id: Mutex::new(1),
-            resources: Mutex::new(BTreeMap::new()),
+            control_queue,
+            cursor_queue,
+            staging: Mutex::new(CommandStaging::new()?),
+            pipeline: Mutex::new(Pipeline::new(transfer_offset)),
+            config,
             kms: Once::new(),
-        }))
+        });
+        gpu.acknowledge_events();
+        Ok(gpu)
     }
 
-    /// Submits `request` and expects a `resp_len`-byte response.
-    fn ctrl<T: zerocopy::IntoBytes + zerocopy::Immutable>(
-        &self,
-        request: &T,
-        resp_len: usize,
-    ) -> Result<()> {
-        let bytes = request.as_bytes();
-        if bytes.len() > ostd::mm::PAGE_SIZE || resp_len > ostd::mm::PAGE_SIZE {
-            crate::return_errno!(EINVAL, "command overflows the staging page");
-        }
+    /// Clears any pending device configuration events (such as `EVENT_DISPLAY`).
+    pub fn acknowledge_events(&self) {
+        if let Ok(events) = self.transport.device_read32(CONFIG_EVENTS_READ)
+            && events & EVENT_DISPLAY != 0
         {
-            let mut writer = self.request_dma.writer();
-            writer.write(&mut ostd::mm::VmReader::from(bytes));
+            let _ = self
+                .transport
+                .device_write32(CONFIG_EVENTS_CLEAR, events & EVENT_DISPLAY);
         }
-        self.control
-            .submit_wait(&[
-                SubmitBuffer {
-                    addr: self.request_dma.paddr() as u64,
-                    len: bytes.len() as u32,
-                    writable: false,
-                },
-                SubmitBuffer {
-                    addr: self.response_dma.paddr() as u64,
-                    len: resp_len as u32,
-                    writable: true,
-                },
-            ])
-            .map(|_| ())
     }
 
-    fn ctrl_with_response<
-        T: zerocopy::IntoBytes + zerocopy::Immutable,
-        R: zerocopy::FromBytes
-            + zerocopy::IntoBytes
-            + zerocopy::KnownLayout
-            + zerocopy::Immutable
-            + Copy,
-    >(
-        &self,
-        request: &T,
-    ) -> Result<R> {
-        self.ctrl(request, size_of::<R>())?;
-        self.response_dma.read_val::<R>(0).map_err(|_| Errno::EIO)
-    }
+    /// Submits `request` on the control queue and reads back a typed `R` response.
+    fn submit_control<T, R>(&self, request: &T) -> Result<R>
+    where
+        T: IntoBytes + Immutable,
+        R: FromBytes + IntoBytes + KnownLayout + Immutable + Copy,
+    {
+        let req_bytes = request.as_bytes();
+        let resp_len = size_of::<R>();
+        if req_bytes.len() > ostd::mm::PAGE_SIZE || resp_len > ostd::mm::PAGE_SIZE {
+            crate::return_errno!(EINVAL, "virtio-gpu command exceeds DMA page size");
+        }
 
-    fn response_kind(&self) -> Result<u32> {
-        self.response_dma
-            .read_val::<VgCtrlHdr>(0)
-            .map(|hdr| hdr.kind)
+        let staging = self.staging.lock();
+        staging
+            .request_dma
+            .writer()
+            .write(&mut VmReader::from(req_bytes));
+
+        self.control_queue.submit_wait(&[
+            SubmitBuffer {
+                addr: staging.request_dma.paddr() as u64,
+                len: req_bytes.len() as u32,
+                writable: false,
+            },
+            SubmitBuffer {
+                addr: staging.response_dma.paddr() as u64,
+                len: resp_len as u32,
+                writable: true,
+            },
+        ])?;
+
+        staging
+            .response_dma
+            .read_val::<R>(0)
             .map_err(|_| Errno::EIO)
     }
 
-    /// Submits `request` and requires `VIRTIO_GPU_RESP_OK_NODATA`.
-    fn ctrl_ok<T: zerocopy::IntoBytes + zerocopy::Immutable>(&self, request: &T) -> Result<()> {
-        self.ctrl(request, size_of::<VgCtrlHdr>())?;
-        if self.response_kind()? != VG_RESP_OK_NODATA {
-            crate::return_errno!(EIO, "device rejected the command");
+    /// Submits `request` on the control queue and requires `RESP_OK_NODATA`.
+    fn submit_control_nodata<T: IntoBytes + Immutable>(&self, request: &T) -> Result<()> {
+        let hdr: CtrlHdr = self.submit_control(request)?;
+        check_response_code(hdr.kind, RESP_OK_NODATA)
+    }
+
+    /// Submits a cursor command on the cursor queue (or falls back to the control
+    /// queue if the device only exposed one queue).
+    fn submit_cursor(&self, cmd: &UpdateCursor) -> Result<()> {
+        let Some(ref cursor_q) = self.cursor_queue else {
+            return Ok(());
+        };
+        let bytes = cmd.as_bytes();
+        let staging = self.staging.lock();
+        staging
+            .cursor_dma
+            .writer()
+            .write(&mut VmReader::from(bytes));
+
+        cursor_q
+            .submit_wait(&[SubmitBuffer {
+                addr: staging.cursor_dma.paddr() as u64,
+                len: bytes.len() as u32,
+                writable: false,
+            }])
+            .map(|_| ())
+    }
+
+    /// Queries `VIRTIO_GPU_CMD_GET_DISPLAY_INFO` and returns enabled scanouts.
+    fn query_display_info(&self) -> Result<Vec<(u32, DisplayOne)>> {
+        let req = CtrlHdr::new(CMD_GET_DISPLAY_INFO);
+        let info: RespDisplayInfo = self.submit_control(&req)?;
+        check_response_code(info.hdr.kind, RESP_OK_DISPLAY_INFO)?;
+
+        let max_scanouts = (self.config.num_scanouts as usize).min(info.pmodes.len());
+        let enabled = info.pmodes[..max_scanouts]
+            .iter()
+            .copied()
+            .enumerate()
+            .filter(|(_, pmode)| pmode.enabled != 0 && pmode.rect.width > 0 && pmode.rect.height > 0)
+            .map(|(idx, pmode)| (idx as u32, pmode))
+            .collect();
+        Ok(enabled)
+    }
+
+    /// Queries `VIRTIO_GPU_CMD_GET_EDID` for `scanout` when `FEATURE_EDID` is negotiated.
+    fn query_edid(&self, scanout: u32) -> Option<Vec<u8>> {
+        if self.transport.negotiated_features() & FEATURE_EDID == 0 {
+            return None;
+        }
+        let req = GetEdid {
+            hdr: CtrlHdr::new(CMD_GET_EDID),
+            scanout,
+            pad: 0,
+        };
+        let resp: RespEdid = self.submit_control(&req).ok()?;
+        check_response_code(resp.hdr.kind, RESP_OK_EDID).ok()?;
+        let size = (resp.size as usize).min(EDID_MAX_BYTES);
+        if size == 0 {
+            return None;
+        }
+        Some(resp.edid[..size].to_vec())
+    }
+
+    /// Creates a 2D host resource and attaches `object`'s physical backing.
+    /// Automatically rolls back with `RESOURCE_UNREF` if `ATTACH_BACKING` fails.
+    fn create_and_attach_resource(
+        &self,
+        resource_id: u32,
+        object: &GemObject,
+        format: GpuFormat,
+        width: u32,
+        height: u32,
+    ) -> Result<()> {
+        let create_cmd = build_create_2d(resource_id, format, width, height)?;
+        let attach_cmd = build_attach_backing(resource_id, object.paddr() as u64, object.size())?;
+
+        self.submit_control_nodata(&create_cmd)?;
+        if let Err(err) = self.submit_control_nodata(&attach_cmd) {
+            let _ = self.submit_control_nodata(&build_unref(resource_id));
+            return Err(err);
         }
         Ok(())
     }
 
-    /// `VIRTIO_GPU_CMD_GET_DISPLAY_INFO`.
-    fn get_display_info(&self) -> Result<Vec<VgDisplayOne>> {
-        let info: VgDisplayInfo = self.ctrl_with_response(&VgCtrlHdr {
-            kind: VG_CMD_GET_DISPLAY_INFO,
-            ..Default::default()
-        })?;
-        if info.hdr.kind != VG_RESP_OK_DISPLAY_INFO {
-            crate::return_errno!(EIO, "display info protocol error");
+    /// Detaches backing memory from `resource_id` and unreferences it on the host.
+    /// If `DETACH_BACKING` fails, `RESOURCE_UNREF` is skipped so the host does
+    /// not access unreferenced state inconsistently.
+    fn detach_and_unref_resource(&self, resource_id: u32) {
+        if resource_id == 0 {
+            return;
         }
-        Ok(info
-            .pmodes
-            .iter()
-            .copied()
-            .filter(|pmode| pmode.enabled == 1 && pmode.rect.width > 0 && pmode.rect.height > 0)
-            .collect())
+        if self
+            .submit_control_nodata(&build_detach_backing(resource_id))
+            .is_ok()
+        {
+            let _ = self.submit_control_nodata(&build_unref(resource_id));
+        }
     }
 
-    /// Creates a 2D resource covering `geometry` backed by `object`.
-    fn create_resource(
-        &self,
-        object: &GemObject,
-        format: u32,
-        width: u32,
-        height: u32,
-    ) -> Result<u32> {
-        let resource_id = {
-            let mut next = self.next_resource_id.lock();
-            let id = *next;
-            *next += 1;
-            id
-        };
-        self.ctrl_ok(&VgResourceCreate2d {
-            hdr: VgCtrlHdr {
-                kind: VG_CMD_RESOURCE_CREATE_2D,
-                ..Default::default()
-            },
+    /// Returns the [`ResourceGeometry`] for `fb`, creating and attaching the
+    /// host 2D resource on first use.
+    fn ensure_fb_resource(&self, fb: &Framebuffer) -> Result<ResourceGeometry> {
+        if let Some(existing) = self.pipeline.lock().fb_resource(fb.id) {
+            return Ok(existing);
+        }
+
+        let format = GpuFormat::from_drm_fourcc(fb.format)?;
+        let resource_id = self.pipeline.lock().alloc_resource_id()?;
+        self.create_and_attach_resource(resource_id, &fb.object, format, fb.width, fb.height)?;
+
+        let geometry = ResourceGeometry {
             resource_id,
             format,
-            width,
-            height,
-        })?;
-        self.ctrl_ok(&VgAttachBacking {
-            hdr: VgCtrlHdr {
-                kind: VG_CMD_RESOURCE_ATTACH_BACKING,
-                ..Default::default()
-            },
-            resource_id,
-            nr_entries: 1,
-            entry_addr: object.paddr() as u64,
-            entry_len: object.size() as u32,
-            entry_pad: 0,
-        })?;
-        Ok(resource_id)
-    }
-
-    fn set_scanout_cmd(&self, scanout: u32, resource: u32, rect: VgRect) -> Result<()> {
-        self.ctrl_ok(&VgSetScanout {
-            hdr: VgCtrlHdr {
-                kind: VG_CMD_SET_SCANOUT,
-                ..Default::default()
-            },
-            rect,
-            scanout_id: scanout,
-            resource_id: resource,
-        })
-    }
-
-    fn flush_cmd(&self, resource: u32, rect: VgRect) -> Result<()> {
-        self.ctrl_ok(&VgResourceFlush {
-            hdr: VgCtrlHdr {
-                kind: VG_CMD_RESOURCE_FLUSH,
-                ..Default::default()
-            },
-            rect,
-            resource_id: resource,
-            pad: 0,
-        })
-    }
-
-    fn transfer_cmd(&self, resource: u32, rect: VgRect, offset: u64) -> Result<()> {
-        self.ctrl_ok(&VgTransferToHost2d {
-            hdr: VgCtrlHdr {
-                kind: VG_CMD_TRANSFER_TO_HOST_2D,
-                ..Default::default()
-            },
-            rect,
-            offset,
-            resource_id: resource,
-            pad: 0,
-        })
-    }
-
-    /// The host resource of `fb`, created on first use. Dumb buffers are
-    /// whole-object 2D surfaces, so one framebuffer is exactly one resource.
-    fn resource_for_fb(&self, fb: &Framebuffer) -> Result<u32> {
-        if let Some(id) = self.resources.lock().get(&fb.id) {
-            return Ok(*id);
-        }
-        let format = match fb.format {
-            drm::DRM_FORMAT_XRGB8888 => VG_FORMAT_B8G8R8X8_UNORM,
-            drm::DRM_FORMAT_ARGB8888 => VG_FORMAT_B8G8R8A8_UNORM,
-            _ => crate::return_errno!(EINVAL, "format not supported by the host"),
+            width: fb.width,
+            height: fb.height,
+            pitch: fb.pitch,
         };
-        let resource = self.create_resource(&fb.object, format, fb.width, fb.height)?;
-        self.resources.lock().insert(fb.id, resource);
-        Ok(resource)
+        self.pipeline.lock().register_fb_resource(fb.id, geometry);
+        Ok(geometry)
     }
 
-    /// Builds the KMS pipelines from the enabled scanouts reported by the
-    /// host and leaks the state (the trait hands out `'static`).
+    /// Transfers `rect` of `geometry` from guest DMA memory to the host resource
+    /// and flushes the region to any bound scanouts.
+    fn transfer_and_flush(&self, geometry: &ResourceGeometry, rect: Rect) -> Result<()> {
+        let offset = self.pipeline.lock().transfer_offset_for(geometry, rect);
+        self.submit_control_nodata(&build_transfer_2d(geometry.resource_id, rect, offset))?;
+        self.submit_control_nodata(&build_flush(geometry.resource_id, rect))
+    }
+
+    /// Probes enabled scanouts and their EDID blobs to build the KMS state.
     fn build_kms(self: &Arc<Self>) -> Result<&'static KmsState> {
-        let scanouts = self.get_display_info()?;
-        ostd::info!("virtio-gpu: {} scanout(s) reported", scanouts.len());
+        let scanouts = self.query_display_info()?;
+        ostd::info!("virtio-gpu: {} enabled scanout(s) detected", scanouts.len());
         if scanouts.is_empty() {
-            crate::return_errno!(ENODEV, "host exposes no enabled scanout");
+            crate::return_errno!(ENODEV, "virtio-gpu host exposes no enabled scanout");
         }
-        let pipelines: alloc::vec::Vec<KmsPipeline> = scanouts
-            .iter()
-            .map(|pmode| {
+
+        let pipelines: Vec<KmsPipeline> = scanouts
+            .into_iter()
+            .map(|(scanout_id, pmode)| {
                 let (width, height) = (pmode.rect.width, pmode.rect.height);
-                let mut mode = drm::DrmModeModeInfo::default();
-                mode.hdisplay = width as u16;
-                mode.htotal = width as u16;
-                mode.vdisplay = height as u16;
-                mode.vtotal = height as u16;
-                mode.type_ = drm::DRM_MODE_TYPE_PREFERRED;
-                let mut name = [0u8; drm::DRM_DISPLAY_MODE_LEN];
-                let label = alloc::format!("{width}x{height}");
-                let used = label.len().min(drm::DRM_DISPLAY_MODE_LEN - 1);
-                name[..used].copy_from_slice(&label.as_bytes()[..used]);
-                mode.name = name;
+                let edid = self.query_edid(scanout_id);
+                let modes = build_scanout_modes(width, height, edid.as_deref());
                 KmsPipeline {
-                    modes: alloc::vec![mode],
+                    modes,
                     connector_type: drm::DRM_MODE_CONNECTOR_VIRTUAL,
                     encoder_type: drm::DRM_MODE_ENCODER_VIRTUAL,
-                    // A virtual display has no measurable physical sink.
                     mm_width: 320,
                     mm_height: 240,
                 }
             })
             .collect();
+
         let state = KmsState::new(Arc::clone(self), pipelines);
         Ok(Box::leak(Box::new(state)))
     }
 }
 
 impl DisplayDriver for VirtioGpu {
-    /// Programs `pipeline` with `fb`, then flushes it to the host surface.
     fn set_scanout(
         &self,
         pipeline: usize,
         fb: &Framebuffer,
-        mode: &crate::uapi::drm::DrmModeModeInfo,
+        mode: &drm::DrmModeModeInfo,
     ) -> Result<()> {
-        let resource = self.resource_for_fb(fb)?;
-        let rect = VgRect {
-            x: 0,
-            y: 0,
-            width: mode.hdisplay as u32,
-            height: mode.vdisplay as u32,
-        };
-        self.set_scanout_cmd(pipeline as u32, resource, rect)?;
-        self.flush_cmd(resource, rect)
+        let geometry = self.ensure_fb_resource(fb)?;
+        let rect = Rect::sized(u32::from(mode.hdisplay), u32::from(mode.vdisplay));
+        if !rect.fits(geometry.width, geometry.height) {
+            crate::return_errno!(EINVAL, "mode dimensions exceed framebuffer resource");
+        }
+        let offset = self.pipeline.lock().transfer_offset_for(&geometry, rect);
+        self.submit_control_nodata(&build_transfer_2d(geometry.resource_id, rect, offset))?;
+        self.submit_control_nodata(&build_set_scanout(
+            pipeline as u32,
+            geometry.resource_id,
+            rect,
+        ))?;
+        self.submit_control_nodata(&build_flush(geometry.resource_id, rect))
     }
 
     fn disable_scanout(&self, pipeline: usize) -> Result<()> {
-        // Resource 0 is "no resource" per the spec.
-        self.set_scanout_cmd(pipeline as u32, 0, VgRect::default())
+        self.submit_control_nodata(&build_set_scanout(pipeline as u32, 0, Rect::default()))
     }
 
-    /// The `DIRTYFB` half: copy the guest buffer up, then flush it out.
-    fn refresh(&self, pipeline: usize, fb: &Framebuffer) -> Result<()> {
-        let resource = self.resource_for_fb(fb)?;
-        let rect = VgRect {
-            x: 0,
-            y: 0,
-            width: fb.width,
-            height: fb.height,
+    fn refresh(&self, _pipeline: usize, fb: &Framebuffer) -> Result<()> {
+        let geometry = self.ensure_fb_resource(fb)?;
+        self.transfer_and_flush(&geometry, geometry.full_rect())
+    }
+
+    fn refresh_rect(
+        &self,
+        _pipeline: usize,
+        fb: &Framebuffer,
+        x: u32,
+        y: u32,
+        width: u32,
+        height: u32,
+    ) -> Result<()> {
+        let geometry = self.ensure_fb_resource(fb)?;
+        let Some(rect) = geometry.clamp_rect(x, y, width, height) else {
+            return Ok(());
         };
-        self.transfer_cmd(resource, rect, 0)?;
-        self.flush_cmd(resource, rect)?;
-        let _ = pipeline; // the flush covers the whole buffer surface
+        self.transfer_and_flush(&geometry, rect)
+    }
+
+    fn release_fb(&self, fb: &Framebuffer) {
+        let removed = self.pipeline.lock().take_fb_resource(fb.id);
+        if let Some(geometry) = removed {
+            self.detach_and_unref_resource(geometry.resource_id);
+        }
+    }
+
+    fn set_cursor(
+        &self,
+        pipeline: usize,
+        bo: Option<&Arc<GemObject>>,
+        width: u32,
+        height: u32,
+        x: i32,
+        y: i32,
+        hot_x: i32,
+        hot_y: i32,
+    ) -> Result<()> {
+        let pos_x = x.max(0) as u32;
+        let pos_y = y.max(0) as u32;
+        let hotspot_x = hot_x.max(0) as u32;
+        let hotspot_y = hot_y.max(0) as u32;
+
+        let Some(object) = bo else {
+            let (old_res, cmd) = {
+                let mut pipe = self.pipeline.lock();
+                let state = pipe.cursor_mut(pipeline).ok_or(Errno::EINVAL)?;
+                let prev = state.resource_id;
+                state.resource_id = 0;
+                state.bo_paddr = 0;
+                state.x = pos_x;
+                state.y = pos_y;
+                state.hot_x = hotspot_x;
+                state.hot_y = hotspot_y;
+                (prev, build_update_cursor(state))
+            };
+            self.submit_cursor(&cmd)?;
+            if old_res != 0 {
+                self.detach_and_unref_resource(old_res);
+            }
+            return Ok(());
+        };
+
+        validate_cursor_dimensions(width, height, object.size())?;
+        let paddr = object.paddr();
+        let existing_res = self
+            .pipeline
+            .lock()
+            .cursor(pipeline)
+            .ok_or(Errno::EINVAL)?
+            .matching_resource(paddr);
+
+        let (resource_id, old_res_to_free) = if let Some(res_id) = existing_res {
+            (res_id, 0)
+        } else {
+            let new_res = self.pipeline.lock().alloc_resource_id()?;
+            self.create_and_attach_resource(
+                new_res,
+                object,
+                GpuFormat::B8G8R8A8Unorm,
+                CURSOR_SIZE,
+                CURSOR_SIZE,
+            )?;
+            let prev = self
+                .pipeline
+                .lock()
+                .cursor(pipeline)
+                .map(|c| c.resource_id)
+                .unwrap_or(0);
+            (new_res, prev)
+        };
+
+        let cursor_rect = Rect::sized(CURSOR_SIZE, CURSOR_SIZE);
+        self.submit_control_nodata(&build_transfer_2d(resource_id, cursor_rect, 0))?;
+
+        let cmd = {
+            let mut pipe = self.pipeline.lock();
+            let state = pipe.cursor_mut(pipeline).ok_or(Errno::EINVAL)?;
+            state.resource_id = resource_id;
+            state.bo_paddr = paddr;
+            state.x = pos_x;
+            state.y = pos_y;
+            state.hot_x = hotspot_x;
+            state.hot_y = hotspot_y;
+            build_update_cursor(state)
+        };
+        self.submit_cursor(&cmd)?;
+
+        if old_res_to_free != 0 && old_res_to_free != resource_id {
+            self.detach_and_unref_resource(old_res_to_free);
+        }
         Ok(())
+    }
+
+    fn move_cursor(&self, pipeline: usize, x: i32, y: i32) -> Result<()> {
+        let cmd = {
+            let mut pipe = self.pipeline.lock();
+            let state = pipe.cursor_mut(pipeline).ok_or(Errno::EINVAL)?;
+            state.x = x.max(0) as u32;
+            state.y = y.max(0) as u32;
+            if state.resource_id == 0 {
+                return Ok(());
+            }
+            build_move_cursor(state)
+        };
+        self.submit_cursor(&cmd)
     }
 }
 
@@ -506,10 +466,10 @@ impl DrmDevice for VirtioGpu {
         "virtio-gpu"
     }
 
-    fn driver_info(&self) -> (alloc::string::String, alloc::string::String) {
+    fn driver_info(&self) -> (String, String) {
         (
-            alloc::format!("20260101"),
-            alloc::format!("Virtio GPU 2D (dumb buffers)"),
+            format!("20260101"),
+            format!("Virtio GPU 2D (KMS + EDID + Cursor)"),
         )
     }
 
@@ -518,7 +478,7 @@ impl DrmDevice for VirtioGpu {
     }
 }
 
-/// The PCI-facing registration glue for the virtio bus.
+/// VirtIO bus registration adapter for `virtio-gpu`.
 pub struct VirtioGpuDevice;
 
 impl VirtioDevice for VirtioGpuDevice {
@@ -530,9 +490,13 @@ impl VirtioDevice for VirtioGpuDevice {
         "virtio-gpu"
     }
 
-    /// The control queue; the cursor queue is not used by this driver.
+    /// Requests both the control queue (0) and the cursor queue (1).
     fn queue_count(&self) -> usize {
-        1
+        2
+    }
+
+    fn accept_features(&self, device_features: u64) -> u64 {
+        device_features & (VIRTIO_F_VERSION_1 | FEATURE_EDID)
     }
 
     fn on_init(&self, transport: &Arc<VirtioTransport>) -> Result<()> {
@@ -543,6 +507,3 @@ impl VirtioDevice for VirtioGpuDevice {
         Ok(())
     }
 }
-
-/// virtio-gpu over PCI: `VIRTIO_ID_GPU = 16`, i.e. modern id 0x1050.
-const PCI_DEVICE_ID_VIRTIO_GPU: u16 = 0x1050;

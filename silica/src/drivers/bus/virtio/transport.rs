@@ -11,6 +11,7 @@
 
 use alloc::sync::Arc;
 use alloc::vec::Vec;
+use core::sync::atomic::{AtomicU64, Ordering};
 use ostd::io::IoMem;
 use ostd::mm::io::{VmIo, VmIoOnce};
 use spin::Mutex;
@@ -90,6 +91,8 @@ pub struct VirtioTransport {
     notify_multiplier: u32,
     /// The device-specific config window, if present.
     device_cfg: Option<IoMem>,
+    /// Features negotiated during activation.
+    negotiated_features: AtomicU64,
     /// The activated queues, in creation order.
     queues: Mutex<Vec<Arc<super::queue::VirtQueue>>>,
     /// The single attached device driver.
@@ -114,6 +117,7 @@ impl VirtioTransport {
             notify,
             notify_multiplier: notify_cap.notify_multiplier,
             device_cfg,
+            negotiated_features: AtomicU64::new(0),
             queues: Mutex::new(Vec::new()),
             driver: Mutex::new(None),
         }))
@@ -124,12 +128,36 @@ impl VirtioTransport {
         self.device.device_id
     }
 
+    /// The PCI subsystem vendor id.
+    pub fn pci_subsystem_vendor_id(&self) -> u16 {
+        self.device.subsystem_vendor_id()
+    }
+
+    /// The PCI subsystem device id.
+    pub fn pci_subsystem_id(&self) -> u16 {
+        self.device.subsystem_id()
+    }
+
+    /// Returns the feature bits negotiated with the device during activation.
+    pub fn negotiated_features(&self) -> u64 {
+        self.negotiated_features.load(Ordering::Relaxed)
+    }
+
     /// Reads a `__le32` from the device-specific config.
     pub fn device_read32(&self, offset: usize) -> Result<u32> {
         self.device_cfg
             .as_ref()
             .ok_or(Errno::ENODEV)?
             .read_val::<u32>(offset)
+            .map_err(|_| Errno::EIO)
+    }
+
+    /// Writes a `__le32` to the device-specific config.
+    pub fn device_write32(&self, offset: usize, value: u32) -> Result<()> {
+        self.device_cfg
+            .as_ref()
+            .ok_or(Errno::ENODEV)?
+            .write_val::<u32>(offset, &value)
             .map_err(|_| Errno::EIO)
     }
 
@@ -220,6 +248,7 @@ impl VirtioTransport {
             self.set_status(STATUS_FAILED)?;
             crate::return_errno!(EIO, "device did not accept the feature set");
         }
+        self.negotiated_features.store(accepted, Ordering::Relaxed);
 
         // Queues.
         let num_queues = self.read16(CFG_NUM_QUEUES)?;

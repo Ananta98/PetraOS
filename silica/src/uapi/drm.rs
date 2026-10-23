@@ -164,6 +164,8 @@ pub const DRM_IOCTL_MODE_GETRESOURCES: u32 = _iowr::<DrmModeCardRes>(DRM_IOCTL_B
 pub const DRM_IOCTL_MODE_GETCRTC: u32 = _iowr::<DrmModeCrtc>(DRM_IOCTL_BASE, 0xA1);
 /// Enable a CRTC with a framebuffer and connector list.
 pub const DRM_IOCTL_MODE_SETCRTC: u32 = _iowr::<DrmModeCrtc>(DRM_IOCTL_BASE, 0xA2);
+/// Set or move the hardware cursor on a CRTC.
+pub const DRM_IOCTL_MODE_CURSOR: u32 = _iowr::<DrmModeCursor>(DRM_IOCTL_BASE, 0xA3);
 /// Query an encoder.
 pub const DRM_IOCTL_MODE_GETENCODER: u32 = _iowr::<DrmModeGetEncoder>(DRM_IOCTL_BASE, 0xA6);
 /// Query a connector.
@@ -182,6 +184,8 @@ pub const DRM_IOCTL_MODE_DIRTYFB: u32 = _iowr::<DrmModeFbDirtyCmd>(DRM_IOCTL_BAS
 pub const DRM_IOCTL_MODE_SETPLANE: u32 = _iowr::<DrmModeSetPlane>(DRM_IOCTL_BASE, 0xB7);
 /// Register a framebuffer from a GEM handle (multi-plane, fourcc form).
 pub const DRM_IOCTL_MODE_ADDFB2: u32 = _iowr::<DrmModeFbCmd2>(DRM_IOCTL_BASE, 0xB8);
+/// Set or move the hardware cursor on a CRTC with hotspot coordinates.
+pub const DRM_IOCTL_MODE_CURSOR2: u32 = _iowr::<DrmModeCursor2>(DRM_IOCTL_BASE, 0xBB);
 
 // ----------------------------------------------------------------------------
 // Capabilities (verified against /usr/include/drm/drm.h)
@@ -244,6 +248,14 @@ pub const DRM_DISPLAY_MODE_LEN: usize = 32;
 
 /// `DRM_MODE_TYPE_PREFERRED` — mode user space should pick by default.
 pub const DRM_MODE_TYPE_PREFERRED: u32 = 1 << 3;
+/// `DRM_MODE_TYPE_DRIVER` — mode reported by the display driver.
+pub const DRM_MODE_TYPE_DRIVER: u32 = 1 << 6;
+
+/// `DRM_MODE_FLAG_*` — sync polarity bits in `DrmModeModeInfo::flags`.
+pub const DRM_MODE_FLAG_PHSYNC: u32 = 1 << 0;
+pub const DRM_MODE_FLAG_NHSYNC: u32 = 1 << 1;
+pub const DRM_MODE_FLAG_PVSYNC: u32 = 1 << 2;
+pub const DRM_MODE_FLAG_NVSYNC: u32 = 1 << 3;
 
 /// `enum drm_connector_status` — `drm_mode_get_connector::connection`.
 pub const DRM_MODE_CONNECTED: u32 = 1;
@@ -392,6 +404,52 @@ pub struct DrmModeFbDirtyCmd {
     pub color: u32,
     pub num_clips: u32,
     pub clips_ptr: usize,
+}
+
+/// `struct drm_clip_rect` — clip rectangle passed in `DrmModeFbDirtyCmd::clips_ptr`.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, FromBytes, IntoBytes, KnownLayout, Immutable, Default)]
+pub struct DrmClipRect {
+    pub x1: u16,
+    pub y1: u16,
+    pub x2: u16,
+    pub y2: u16,
+}
+
+/// Maximum number of dirty clip rectangles accepted in a single `DIRTYFB` call.
+pub const DRM_MODE_FB_DIRTY_MAX_CLIPS: u32 = 256;
+
+/// Cursor operation flags for `DRM_IOCTL_MODE_CURSOR` and `DRM_IOCTL_MODE_CURSOR2`.
+pub const DRM_MODE_CURSOR_BO: u32 = 0x01;
+pub const DRM_MODE_CURSOR_MOVE: u32 = 0x02;
+pub const DRM_MODE_CURSOR_FLAGS: u32 = 0x03;
+
+/// `struct drm_mode_cursor` — `DRM_IOCTL_MODE_CURSOR`.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, FromBytes, IntoBytes, KnownLayout, Immutable, Default)]
+pub struct DrmModeCursor {
+    pub flags: u32,
+    pub crtc_id: u32,
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+    pub handle: u32,
+}
+
+/// `struct drm_mode_cursor2` — `DRM_IOCTL_MODE_CURSOR2`.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, FromBytes, IntoBytes, KnownLayout, Immutable, Default)]
+pub struct DrmModeCursor2 {
+    pub flags: u32,
+    pub crtc_id: u32,
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+    pub handle: u32,
+    pub hot_x: i32,
+    pub hot_y: i32,
 }
 
 /// `struct drm_mode_set_plane` — `DRM_IOCTL_MODE_SETPLANE`.

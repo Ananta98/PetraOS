@@ -6,9 +6,9 @@ use super::{
     address::PciAddress,
     bar::PciBar,
     config::{
-        PCI_COMMAND, PCI_COMMAND_BUS_MASTER, PCI_COMMAND_MEMORY_SPACE, pci_read_config_u8,
-        pci_read_config_u16, pci_read_config_u32, pci_write_config_u8, pci_write_config_u16,
-        pci_write_config_u32,
+        PCI_COMMAND, PCI_COMMAND_BUS_MASTER, PCI_COMMAND_MEMORY_SPACE, PCI_SUBSYSTEM_ID,
+        PCI_SUBSYSTEM_VENDOR_ID, pci_read_config_u8, pci_read_config_u16, pci_read_config_u32,
+        pci_write_config_u8, pci_write_config_u16, pci_write_config_u32,
     },
 };
 
@@ -69,5 +69,15 @@ impl PciDevice {
     pub fn enable_memory_space(&self) {
         let cmd = self.read_config_u16(PCI_COMMAND);
         self.write_config_u16(PCI_COMMAND, cmd | PCI_COMMAND_MEMORY_SPACE);
+    }
+
+    /// Reads the PCI Subsystem Vendor ID (`0x2C`).
+    pub fn subsystem_vendor_id(&self) -> u16 {
+        self.read_config_u16(PCI_SUBSYSTEM_VENDOR_ID)
+    }
+
+    /// Reads the PCI Subsystem ID (`0x2E`).
+    pub fn subsystem_id(&self) -> u16 {
+        self.read_config_u16(PCI_SUBSYSTEM_ID)
     }
 }

@@ -13,7 +13,7 @@ use alloc::{collections::BTreeMap, sync::Arc, vec::Vec};
 use core::sync::atomic::{AtomicU32, Ordering};
 use ostd::sync::SpinLock;
 
-use crate::drivers::drm::gem::GemObject;
+use crate::drivers::drm::GemObject;
 use crate::uapi::drm;
 use crate::uapi::errno::{Errno, Result};
 
@@ -63,6 +63,45 @@ pub trait DisplayDriver: Send + Sync {
     /// Refresh hook after user space marks an on-screen framebuffer dirty
     /// (`DIRTYFB`); drivers pushing contents on demand flush here.
     fn refresh(&self, pipeline: usize, fb: &Framebuffer) -> Result<()>;
+
+    /// Refresh hook for a partial damage rectangle `(x, y, width, height)`
+    /// within `fb`. Defaults to refreshing the entire framebuffer.
+    fn refresh_rect(
+        &self,
+        pipeline: usize,
+        fb: &Framebuffer,
+        _x: u32,
+        _y: u32,
+        _width: u32,
+        _height: u32,
+    ) -> Result<()> {
+        self.refresh(pipeline, fb)
+    }
+
+    /// Invoked when a framebuffer is unregistered via `RMFB` so the driver
+    /// can detach and release any host-side resources bound to `fb`.
+    fn release_fb(&self, _fb: &Framebuffer) {}
+
+    /// Updates or hides the hardware cursor image on `pipeline`.
+    #[expect(clippy::too_many_arguments)]
+    fn set_cursor(
+        &self,
+        _pipeline: usize,
+        _bo: Option<&Arc<GemObject>>,
+        _width: u32,
+        _height: u32,
+        _x: i32,
+        _y: i32,
+        _hot_x: i32,
+        _hot_y: i32,
+    ) -> Result<()> {
+        Ok(())
+    }
+
+    /// Moves the hardware cursor on `pipeline` to `(x, y)`.
+    fn move_cursor(&self, _pipeline: usize, _x: i32, _y: i32) -> Result<()> {
+        Ok(())
+    }
 }
 
 /// A registered framebuffer: geometry plus the scanout buffer it slices out.
@@ -132,11 +171,11 @@ impl KmsState {
         })
     }
 
-    /// Returns the KMS state if the ioctl number is in the mode-setting
-    /// range (0xA0..0xB8), else `None` (not a KMS request).
+    /// Returns true if the ioctl number is in the mode-setting range
+    /// (`0xA0..=0xBF`), excluding the dumb-buffer range (`0xB2..=0xB4`).
     pub fn is_kms_ioctl(cmd: u32) -> bool {
         let nr = cmd & 0xFF;
-        nr >= 0xA0 && nr <= 0xB8
+        (0xA0..=0xBF).contains(&nr) && !(0xB2..=0xB4).contains(&nr)
     }
 
     /// The pipeline index owning CRTC id `id`, if known.
@@ -230,6 +269,49 @@ impl KmsState {
         Ok(())
     }
 
+    /// Refreshes a partial damage rectangle `(x, y, width, height)` of `fb`
+    /// on its active pipeline.
+    pub fn refresh_rect(
+        &self,
+        fb: &Framebuffer,
+        x: u32,
+        y: u32,
+        width: u32,
+        height: u32,
+    ) -> Result<()> {
+        let pipeline = self
+            .states
+            .iter()
+            .position(|s| s.fb.lock().as_ref().is_some_and(|f| f.id == fb.id));
+        if let Some(pipeline) = pipeline {
+            self.driver
+                .refresh_rect(pipeline, fb, x, y, width, height)?;
+        }
+        Ok(())
+    }
+
+    /// Updates the hardware cursor image (and position/hotspot) on `pipeline`.
+    #[expect(clippy::too_many_arguments)]
+    pub fn set_cursor(
+        &self,
+        pipeline: usize,
+        bo: Option<&Arc<GemObject>>,
+        width: u32,
+        height: u32,
+        x: i32,
+        y: i32,
+        hot_x: i32,
+        hot_y: i32,
+    ) -> Result<()> {
+        self.driver
+            .set_cursor(pipeline, bo, width, height, x, y, hot_x, hot_y)
+    }
+
+    /// Moves the hardware cursor on `pipeline` to `(x, y)`.
+    pub fn move_cursor(&self, pipeline: usize, x: i32, y: i32) -> Result<()> {
+        self.driver.move_cursor(pipeline, x, y)
+    }
+
     /// The registered framebuffer with object id `id`.
     pub fn fb(&self, id: u32) -> Option<Arc<Framebuffer>> {
         self.fbs.lock().get(&id).cloned()
@@ -257,6 +339,8 @@ impl KmsState {
         {
             crate::return_errno!(EINVAL, "framebuffer is in use on a CRTC");
         }
-        self.fbs.lock().remove(&id).ok_or(Errno::EINVAL)
+        let fb = self.fbs.lock().remove(&id).ok_or(Errno::EINVAL)?;
+        self.driver.release_fb(&fb);
+        Ok(fb)
     }
 }

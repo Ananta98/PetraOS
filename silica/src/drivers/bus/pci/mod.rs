@@ -27,9 +27,9 @@ pub use config::{
     PCI_BAR0, PCI_CLASS_CODE, PCI_COMMAND, PCI_COMMAND_BUS_MASTER, PCI_COMMAND_INTX_DISABLE,
     PCI_COMMAND_IO_SPACE, PCI_COMMAND_MEMORY_SPACE, PCI_CONFIG_ADDRESS_PORT, PCI_CONFIG_DATA_PORT,
     PCI_DEVICE_ID, PCI_HEADER_TYPE, PCI_INTERRUPT_LINE, PCI_INTERRUPT_PIN, PCI_PROG_IF,
-    PCI_REVISION_ID, PCI_STATUS, PCI_SUBCLASS, PCI_VENDOR_ID, pci_read_config_u8,
-    pci_read_config_u16, pci_read_config_u32, pci_write_config_u8, pci_write_config_u16,
-    pci_write_config_u32,
+    PCI_REVISION_ID, PCI_STATUS, PCI_SUBCLASS, PCI_SUBSYSTEM_ID, PCI_SUBSYSTEM_VENDOR_ID,
+    PCI_VENDOR_ID, pci_read_config_u8, pci_read_config_u16, pci_read_config_u32,
+    pci_write_config_u8, pci_write_config_u16, pci_write_config_u32,
 };
 pub use device::PciDevice;
 pub use driver::{PCI_ANY_ID, PciDeviceId, pci_register_driver, pci_unregister_driver};

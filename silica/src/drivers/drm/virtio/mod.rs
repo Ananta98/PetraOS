@@ -1,29 +1,39 @@
 // SPDX-License-Identifier: GPL-2.0
 
-//! Virtio GPU 2D device driver.
+//! Virtio GPU 2D device driver (`virtio 1.2` §5.7).
 //!
-//! Attaches a modern virtio-gpu PCI device to the DRM stack: dumb buffers
-//! become 2D resources backed by their GEM object, `SETCRTC`/`PAGE_FLIP`
-//! program a scanout with `[SET_SCANOUT, RESOURCE_FLUSH]`, and `DIRTYFB`
-//! triggers a `[TRANSFER_TO_HOST_2D, RESOURCE_FLUSH]` refresh so user-space
-//! drawing becomes visible.
+//! Structured into focused modules:
+//! - [`protocol`]: 2D, cursor, and EDID wire command/response definitions,
+//!   feature bits, pixel formats, and configuration space access.
+//! - [`pipeline`]: 2D resource lifecycle management, damage rectangle clamping,
+//!   `TransferOffset` handling (`QEMU` vs `crosvm`), and hardware cursor state.
+//! - [`modes`]: EDID validation, preferred timing extraction, and virtual
+//!   connector mode synthesis.
+//! - [`device`]: [`VirtioGpu`] KMS/DRM driver implementation and VirtIO bus
+//!   registration ([`VirtioGpuDevice`]).
 
 pub mod device;
+pub mod modes;
+pub mod pipeline;
+pub mod protocol;
 
-pub use device::VirtioGpuDevice;
+use alloc::sync::Arc;
 
-/// virtio-gpu over PCI: `VIRTIO_ID_GPU = 16`, modern ids `0x1040 + type`.
-pub const PCI_DEVICE_ID_VIRTIO_GPU: u16 = 0x1050;
+pub use device::{VirtioGpu, VirtioGpuDevice};
+pub use protocol::PCI_DEVICE_ID_VIRTIO_GPU;
 
-/// Registers the driver with the virtio bus, which binds it to any
-/// unclaimed matching PCI device.
-pub fn init() -> crate::uapi::errno::Result<()> {
-    crate::drivers::bus::virtio::register_virtio_device(alloc::sync::Arc::new(VirtioGpuDevice))
+use crate::drivers::bus::virtio::register_virtio_device;
+use crate::modules::InitcallLevel;
+use crate::uapi::errno::Result;
+
+/// Registers the `virtio-gpu` driver with the VirtIO bus.
+pub fn init() -> Result<()> {
+    register_virtio_device(Arc::new(VirtioGpuDevice))
 }
 
 crate::module!(
     "Virtio GPU 2D Driver",
     "Ananta98",
-    crate::modules::InitcallLevel::Device,
+    InitcallLevel::Device,
     init
 );

@@ -25,6 +25,8 @@ pub const PCI_SUBCLASS: u8 = 0x0A;
 pub const PCI_CLASS_CODE: u8 = 0x0B;
 pub const PCI_HEADER_TYPE: u8 = 0x0E;
 pub const PCI_BAR0: u8 = 0x10;
+pub const PCI_SUBSYSTEM_VENDOR_ID: u8 = 0x2C;
+pub const PCI_SUBSYSTEM_ID: u8 = 0x2E;
 pub const PCI_INTERRUPT_LINE: u8 = 0x3C;
 pub const PCI_INTERRUPT_PIN: u8 = 0x3D;
 

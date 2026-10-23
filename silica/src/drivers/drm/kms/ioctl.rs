@@ -12,9 +12,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use super::state::{Framebuffer, KmsState};
-use crate::drivers::drm::core::file::DrmFile;
-use crate::drivers::drm::core::ioctl::{read_uapi, write_uapi};
-use crate::drivers::drm::gem::GemObject;
+use crate::drivers::drm::{DrmFile, GemObject, read_uapi, write_uapi};
 use crate::proc::thread::Thread;
 use crate::uapi::drm;
 use crate::uapi::errno::{Errno, Result};
@@ -27,6 +25,7 @@ pub fn dispatch(kms: &KmsState, file: &mut DrmFile, cmd: u32, arg: usize) -> Res
         drm::DRM_IOCTL_MODE_GETRESOURCES => get_resources(kms, arg),
         drm::DRM_IOCTL_MODE_GETCRTC => get_crtc(kms, arg),
         drm::DRM_IOCTL_MODE_SETCRTC => set_crtc(kms, arg),
+        drm::DRM_IOCTL_MODE_CURSOR => mode_cursor(kms, file, arg),
         drm::DRM_IOCTL_MODE_GETENCODER => get_encoder(kms, arg),
         drm::DRM_IOCTL_MODE_GETCONNECTOR => get_connector(kms, arg),
         drm::DRM_IOCTL_MODE_GETFB => get_fb(kms, file, arg),
@@ -36,6 +35,7 @@ pub fn dispatch(kms: &KmsState, file: &mut DrmFile, cmd: u32, arg: usize) -> Res
         drm::DRM_IOCTL_MODE_DIRTYFB => dirty_fb(kms, arg),
         drm::DRM_IOCTL_MODE_SETPLANE => set_plane(kms, arg),
         drm::DRM_IOCTL_MODE_ADDFB2 => add_fb2(kms, file, arg),
+        drm::DRM_IOCTL_MODE_CURSOR2 => mode_cursor2(kms, file, arg),
         _ => crate::return_errno!(ENOTTY, "ioctl does not exist on this device"),
     }
 }
@@ -395,9 +395,138 @@ fn set_plane(kms: &KmsState, arg: usize) -> Result<usize> {
 fn dirty_fb(kms: &KmsState, arg: usize) -> Result<usize> {
     let req = read_uapi::<drm::DrmModeFbDirtyCmd>(arg)?;
     let fb = kms.fb(req.fb_id).ok_or(Errno::EINVAL)?;
-    // Dirty-region clips are ignored: the whole staging area is written
-    // back, which is correct though less fine-grained.
+    if req.num_clips > drm::DRM_MODE_FB_DIRTY_MAX_CLIPS {
+        crate::return_errno!(EINVAL, "too many dirty clip rectangles");
+    }
+
+    if req.num_clips > 0 && req.clips_ptr != 0 {
+        if let Some((x, y, width, height)) =
+            read_clip_bounding_box(req.clips_ptr, req.num_clips as usize, fb.width, fb.height)?
+        {
+            let row_start = (y as usize)
+                .saturating_mul(fb.pitch as usize)
+                .min(fb.object.size());
+            let row_end = (y.saturating_add(height) as usize)
+                .saturating_mul(fb.pitch as usize)
+                .min(fb.object.size());
+            if row_start < row_end {
+                fb.object.flush_pages(row_start..row_end);
+            }
+            kms.refresh_rect(&fb, x, y, width, height)?;
+        }
+        return Ok(0);
+    }
+
     fb.object.flush_pages(0..fb.object.size());
     kms.refresh(&fb)?;
+    Ok(0)
+}
+
+/// Reads `count` clip rectangles from `ptr` and computes their bounding box
+/// clamped to `fb_width x fb_height`. Returns `Ok(None)` if all clips are empty.
+fn read_clip_bounding_box(
+    ptr: usize,
+    count: usize,
+    fb_width: u32,
+    fb_height: u32,
+) -> Result<Option<(u32, u32, u32, u32)>> {
+    let clip_size = core::mem::size_of::<drm::DrmClipRect>();
+    let vmar = Thread::proc_or_esrch()?.vmspace();
+    let mut raw = vec![0u8; count * clip_size];
+    UserPtr::new(ptr).read_bytes(&vmar, &mut raw)?;
+
+    let mut min_x = fb_width;
+    let mut min_y = fb_height;
+    let mut max_x = 0u32;
+    let mut max_y = 0u32;
+
+    for chunk in raw.chunks_exact(clip_size) {
+        let x1 = (u16::from_ne_bytes([chunk[0], chunk[1]]) as u32).min(fb_width);
+        let y1 = (u16::from_ne_bytes([chunk[2], chunk[3]]) as u32).min(fb_height);
+        let x2 = (u16::from_ne_bytes([chunk[4], chunk[5]]) as u32).min(fb_width);
+        let y2 = (u16::from_ne_bytes([chunk[6], chunk[7]]) as u32).min(fb_height);
+        if x1 < x2 && y1 < y2 {
+            min_x = min_x.min(x1);
+            min_y = min_y.min(y1);
+            max_x = max_x.max(x2);
+            max_y = max_y.max(y2);
+        }
+    }
+
+    if min_x < max_x && min_y < max_y {
+        Ok(Some((min_x, min_y, max_x - min_x, max_y - min_y)))
+    } else {
+        Ok(None)
+    }
+}
+
+fn mode_cursor(kms: &KmsState, file: &mut DrmFile, arg: usize) -> Result<usize> {
+    let req = read_uapi::<drm::DrmModeCursor>(arg)?;
+    apply_cursor(
+        kms,
+        file,
+        req.flags,
+        req.crtc_id,
+        req.x,
+        req.y,
+        req.width,
+        req.height,
+        req.handle,
+        0,
+        0,
+    )
+}
+
+fn mode_cursor2(kms: &KmsState, file: &mut DrmFile, arg: usize) -> Result<usize> {
+    let req = read_uapi::<drm::DrmModeCursor2>(arg)?;
+    apply_cursor(
+        kms,
+        file,
+        req.flags,
+        req.crtc_id,
+        req.x,
+        req.y,
+        req.width,
+        req.height,
+        req.handle,
+        req.hot_x,
+        req.hot_y,
+    )
+}
+
+#[expect(clippy::too_many_arguments)]
+fn apply_cursor(
+    kms: &KmsState,
+    file: &mut DrmFile,
+    flags: u32,
+    crtc_id: u32,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+    handle: u32,
+    hot_x: i32,
+    hot_y: i32,
+) -> Result<usize> {
+    if flags & !drm::DRM_MODE_CURSOR_FLAGS != 0 || flags == 0 {
+        crate::return_errno!(EINVAL, "invalid cursor flags");
+    }
+    let Some(pipeline) = kms.pipeline_of_crtc(crtc_id) else {
+        crate::return_errno!(EINVAL, "unknown CRTC id");
+    };
+
+    if flags & drm::DRM_MODE_CURSOR_BO != 0 {
+        let bo = if handle == 0 {
+            None
+        } else {
+            let obj = file.handles.get(handle).ok_or(Errno::ENOENT)?;
+            obj.flush_pages(0..obj.size());
+            Some(obj)
+        };
+        kms.set_cursor(pipeline, bo.as_ref(), width, height, x, y, hot_x, hot_y)?;
+    } else if flags & drm::DRM_MODE_CURSOR_MOVE != 0 {
+        kms.move_cursor(pipeline, x, y)?;
+    }
+
     Ok(0)
 }

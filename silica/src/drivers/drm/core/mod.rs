@@ -17,6 +17,7 @@ pub mod ioctl;
 
 pub use device::{DRM_DEVICES, DrmDevice, get_device, register_drm_device};
 pub use file::{ClientCaps, DrmFile};
+pub(crate) use ioctl::{read_uapi, write_uapi};
 
 /// Initializes the DRM core; a no-op for now, present so the module! entry
 /// exists and ordering of later GPU drivers is defined.

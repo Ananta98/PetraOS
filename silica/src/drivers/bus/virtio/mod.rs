@@ -15,7 +15,7 @@ pub mod transport;
 
 pub use caps::{VirtioCap, VirtioCapType};
 pub use queue::{SubmitBuffer, VirtQueue};
-pub use transport::{VirtioDevice, VirtioTransport, register_virtio_device};
+pub use transport::{VIRTIO_F_VERSION_1, VirtioDevice, VirtioTransport, register_virtio_device};
 
 /// Scans the enumerated PCI devices for modern virtio ones and binds the
 /// registered drivers (runs before `Device`-level GPU drivers register).

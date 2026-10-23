@@ -19,4 +19,8 @@ pub mod gem;
 pub mod kms;
 pub mod virtio;
 
+pub use core::{DrmDevice, DrmFile, register_drm_device};
+pub(crate) use core::{read_uapi, write_uapi};
 pub use framebuffer::get_framebuffer;
+pub use gem::GemObject;
+pub use kms::{DisplayDriver, Framebuffer, KmsPipeline, KmsState};
