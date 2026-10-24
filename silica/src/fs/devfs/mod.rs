@@ -28,8 +28,10 @@ use crate::{
     uapi::errno::{Errno, Result},
     fs::vfs::{FileOps, FileSystem, INode, INodeAttr, Mode, NodeOps, OpenFlags, StatFs},
 };
+use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::{boxed::Box, sync::Arc, vec::Vec};
+use spin::RwLock;
 use blk::GenericBlkNodeOps;
 use chr::GenericChrNodeOps;
 use null::NullNodeOps;
@@ -37,11 +39,36 @@ use random::{RandomNodeOps, UrandomNodeOps};
 use zero::ZeroNodeOps;
 
 /// Operations on the `/dev` root directory inode.
-pub struct DevFsDirOps;
+pub struct DevFsDirOps {
+    pub(crate) dynamic_entries: Arc<RwLock<BTreeMap<String, Arc<INode>>>>,
+}
+
+impl DevFsDirOps {
+    pub fn new() -> Self {
+        Self {
+            dynamic_entries: Arc::new(RwLock::new(BTreeMap::new())),
+        }
+    }
+
+    pub fn with_entries(dynamic_entries: Arc<RwLock<BTreeMap<String, Arc<INode>>>>) -> Self {
+        Self { dynamic_entries }
+    }
+}
+
+impl Default for DevFsDirOps {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl NodeOps for DevFsDirOps {
     fn lookup(&self, name: &str) -> Result<Arc<INode>> {
-        // 1. Check static dev nodes first
+        // 1. Check dynamic dev entries first (created directories, symlinks, files)
+        if let Some(node) = self.dynamic_entries.read().get(name) {
+            return Ok(Arc::clone(node));
+        }
+
+        // 2. Check static dev nodes
         match name {
             "null" => {
                 return Ok(Arc::new(INode::new(
@@ -163,74 +190,10 @@ impl NodeOps for DevFsDirOps {
                     13,
                 )));
             }
-            "fd" => {
-                return Ok(Arc::new(INode::new_with_attr(
-                    Box::new(DevSymlinkNodeOps {
-                        target: "/proc/self/fd",
-                    }),
-                    6,
-                    INodeAttr {
-                        size: "/proc/self/fd".len(),
-                        mode: Mode::LINK | Mode::from_bits_truncate(0o777),
-                        nlink: 1,
-                        uid: 0,
-                        gid: 0,
-                        rdev: 0,
-                    },
-                )));
-            }
-            "stdin" => {
-                return Ok(Arc::new(INode::new_with_attr(
-                    Box::new(DevSymlinkNodeOps {
-                        target: "/proc/self/fd/0",
-                    }),
-                    7,
-                    INodeAttr {
-                        size: "/proc/self/fd/0".len(),
-                        mode: Mode::LINK | Mode::from_bits_truncate(0o777),
-                        nlink: 1,
-                        uid: 0,
-                        gid: 0,
-                        rdev: 0,
-                    },
-                )));
-            }
-            "stdout" => {
-                return Ok(Arc::new(INode::new_with_attr(
-                    Box::new(DevSymlinkNodeOps {
-                        target: "/proc/self/fd/1",
-                    }),
-                    8,
-                    INodeAttr {
-                        size: "/proc/self/fd/1".len(),
-                        mode: Mode::LINK | Mode::from_bits_truncate(0o777),
-                        nlink: 1,
-                        uid: 0,
-                        gid: 0,
-                        rdev: 0,
-                    },
-                )));
-            }
-            "stderr" => {
-                return Ok(Arc::new(INode::new_with_attr(
-                    Box::new(DevSymlinkNodeOps {
-                        target: "/proc/self/fd/2",
-                    }),
-                    9,
-                    INodeAttr {
-                        size: "/proc/self/fd/2".len(),
-                        mode: Mode::LINK | Mode::from_bits_truncate(0o777),
-                        nlink: 1,
-                        uid: 0,
-                        gid: 0,
-                        rdev: 0,
-                    },
-                )));
-            }
             _ => {}
         }
 
-        // 2. Check character devices
+        // 3. Check character devices
         for dev in crate::drivers::get_chrdevs() {
             if dev.name() == name {
                 return Ok(Arc::new(INode::new(
@@ -247,7 +210,7 @@ impl NodeOps for DevFsDirOps {
             }
         }
 
-        // 3. Check block devices
+        // 4. Check block devices
         for dev in crate::drivers::get_blkdevs() {
             if dev.name() == name {
                 return Ok(Arc::new(INode::new(
@@ -258,7 +221,7 @@ impl NodeOps for DevFsDirOps {
             }
         }
 
-        // 4. Check network devices
+        // 5. Check network devices
         for dev in crate::drivers::get_netdevs() {
             if dev.name() == name {
                 return Ok(Arc::new(INode::new(
@@ -276,7 +239,9 @@ impl NodeOps for DevFsDirOps {
         if flags.contains(OpenFlags::WRITE) {
             crate::return_errno!(EPERM, "cannot open /dev directory for writing");
         }
-        Ok(Box::new(DevFsDirFileOps))
+        Ok(Box::new(DevFsDirFileOps {
+            dynamic_entries: Arc::clone(&self.dynamic_entries),
+        }))
     }
 
     fn getattr(&self) -> Result<INodeAttr> {
@@ -287,8 +252,10 @@ impl NodeOps for DevFsDirOps {
                 | Mode::WUSR
                 | Mode::XUSR
                 | Mode::RGRP
+                | Mode::WGRP
                 | Mode::XGRP
                 | Mode::ROTH
+                | Mode::WOTH
                 | Mode::XOTH,
             nlink: 2,
             uid: 0,
@@ -296,10 +263,134 @@ impl NodeOps for DevFsDirOps {
             rdev: 0,
         })
     }
+
+    fn mkdir(&self, name: &str, mode: Mode) -> Result<Arc<INode>> {
+        static NEXT_INO: core::sync::atomic::AtomicUsize =
+            core::sync::atomic::AtomicUsize::new(100_000);
+        let ino = NEXT_INO.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+        let dir_entries = Arc::new(RwLock::new(BTreeMap::new()));
+        let node = Arc::new(INode::new(
+            Box::new(crate::fs::initramfs::InitramfsDirNodeOps {
+                entries: dir_entries,
+            }),
+            mode | Mode::DIR,
+            ino,
+        ));
+        self.dynamic_entries
+            .write()
+            .insert(String::from(name), node.clone());
+        Ok(node)
+    }
+
+    fn symlink(&self, name: &str, target: &str) -> Result<Arc<INode>> {
+        static NEXT_INO: core::sync::atomic::AtomicUsize =
+            core::sync::atomic::AtomicUsize::new(100_000);
+        let ino = NEXT_INO.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+        let node = Arc::new(INode::new_with_attr(
+            Box::new(DevSymlinkNodeOps {
+                target: String::from(target),
+            }),
+            ino,
+            INodeAttr {
+                size: target.len(),
+                mode: Mode::LINK | Mode::from_bits_truncate(0o777),
+                nlink: 1,
+                uid: 0,
+                gid: 0,
+                rdev: 0,
+            },
+        ));
+        self.dynamic_entries
+            .write()
+            .insert(String::from(name), node.clone());
+        Ok(node)
+    }
+
+    fn unlink(&self, name: &str) -> Result<()> {
+        if self.dynamic_entries.write().remove(name).is_some() {
+            return Ok(());
+        }
+        crate::return_errno!(ENOENT, "file not found in /dev")
+    }
+
+    fn rmdir(&self, name: &str) -> Result<()> {
+        let mut entries = self.dynamic_entries.write();
+        let child = entries.get(name).ok_or(Errno::ENOENT)?;
+        if !child.is_dir() {
+            return Err(Errno::ENOTDIR);
+        }
+        entries.remove(name);
+        Ok(())
+    }
+
+    fn create(&self, name: &str, mode: Mode) -> Result<Arc<INode>> {
+        static NEXT_INO: core::sync::atomic::AtomicUsize =
+            core::sync::atomic::AtomicUsize::new(100_000);
+        let ino = NEXT_INO.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+        let data = Arc::new(RwLock::new(Vec::new()));
+        let attr = INodeAttr {
+            size: 0,
+            mode,
+            nlink: 1,
+            uid: 0,
+            gid: 0,
+            rdev: 0,
+        };
+        let node = Arc::new(INode::new_with_attr(
+            Box::new(crate::fs::initramfs::InitramfsRamFileNodeOps::new_with_attr(data, attr)),
+            ino,
+            attr,
+        ));
+        self.dynamic_entries
+            .write()
+            .insert(String::from(name), node.clone());
+        Ok(node)
+    }
+
+    fn link(&self, name: &str, other: Arc<INode>) -> Result<()> {
+        self.dynamic_entries
+            .write()
+            .insert(String::from(name), other);
+        Ok(())
+    }
+
+    fn mknod(&self, name: &str, mode: Mode, rdev: u64) -> Result<Arc<INode>> {
+        static NEXT_INO: core::sync::atomic::AtomicUsize =
+            core::sync::atomic::AtomicUsize::new(100_000);
+        let ino = NEXT_INO.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+        let attr = INodeAttr {
+            size: 0,
+            mode,
+            nlink: 1,
+            uid: 0,
+            gid: 0,
+            rdev,
+        };
+        let node = Arc::new(INode::new_with_attr(
+            Box::new(DevSpecialNodeOps),
+            ino,
+            attr,
+        ));
+        self.dynamic_entries
+            .write()
+            .insert(String::from(name), node.clone());
+        Ok(node)
+    }
+
+    fn rename(&self, old_name: &str, new_dir: &Arc<INode>, new_name: &str) -> Result<()> {
+        let node = self.dynamic_entries.write().remove(old_name).ok_or(Errno::ENOENT)?;
+        if let Err(e) = new_dir.node_ops.link(new_name, node.clone()) {
+            self.dynamic_entries.write().insert(String::from(old_name), node);
+            return Err(e);
+        }
+        Ok(())
+    }
 }
 
 /// Directory file operations for reading `/dev`.
-pub struct DevFsDirFileOps;
+pub struct DevFsDirFileOps {
+    pub(crate) dynamic_entries: Arc<RwLock<BTreeMap<String, Arc<INode>>>>,
+}
 
 impl FileOps for DevFsDirFileOps {
     fn read(&self, _offset: u64, _buf: &mut [u8]) -> Result<usize> {
@@ -318,12 +409,15 @@ impl FileOps for DevFsDirFileOps {
         out.extend_from_slice(b"random\n");
         out.extend_from_slice(b"urandom\n");
         out.extend_from_slice(b"tty\n");
+        out.extend_from_slice(b"ptmx\n");
+        out.extend_from_slice(b"pts\n");
         out.extend_from_slice(b"dri\n");
         out.extend_from_slice(b"input\n");
-        out.extend_from_slice(b"fd\n");
-        out.extend_from_slice(b"stdin\n");
-        out.extend_from_slice(b"stdout\n");
-        out.extend_from_slice(b"stderr\n");
+
+        for key in self.dynamic_entries.read().keys() {
+            out.extend_from_slice(key.as_bytes());
+            out.push(b'\n');
+        }
 
         for dev in crate::drivers::get_chrdevs() {
             out.extend_from_slice(dev.name().as_bytes());
@@ -344,14 +438,23 @@ impl FileOps for DevFsDirFileOps {
     }
 }
 
+/// Special device node operations created via `mknod` in `/dev`.
+pub struct DevSpecialNodeOps;
+
+impl NodeOps for DevSpecialNodeOps {
+    fn open(&self, _flags: OpenFlags) -> Result<Box<dyn FileOps>> {
+        crate::return_errno!(ENODEV, "device not configured");
+    }
+}
+
 /// Symbolic link node operations in `/dev`.
 pub struct DevSymlinkNodeOps {
-    pub target: &'static str,
+    pub target: String,
 }
 
 impl NodeOps for DevSymlinkNodeOps {
     fn readlink(&self) -> Result<String> {
-        Ok(String::from(self.target))
+        Ok(self.target.clone())
     }
 
     fn getattr(&self) -> Result<INodeAttr> {
@@ -394,11 +497,59 @@ impl NodeOps for TtyNodeOps {
 }
 
 /// The DevFS filesystem representation.
-pub struct DevFs;
+pub struct DevFs {
+    root: Arc<INode>,
+}
 
 impl DevFs {
-    pub const fn new() -> Self {
-        Self
+    pub fn new() -> Self {
+        let entries = Arc::new(RwLock::new(BTreeMap::new()));
+
+        let default_symlinks = [
+            ("fd", "/proc/self/fd"),
+            ("stdin", "/proc/self/fd/0"),
+            ("stdout", "/proc/self/fd/1"),
+            ("stderr", "/proc/self/fd/2"),
+        ];
+        static NEXT_INO: core::sync::atomic::AtomicUsize =
+            core::sync::atomic::AtomicUsize::new(6);
+        for (name, target) in default_symlinks {
+            let ino = NEXT_INO.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+            let node = Arc::new(INode::new_with_attr(
+                Box::new(DevSymlinkNodeOps {
+                    target: String::from(target),
+                }),
+                ino,
+                INodeAttr {
+                    size: target.len(),
+                    mode: Mode::LINK | Mode::from_bits_truncate(0o777),
+                    nlink: 1,
+                    uid: 0,
+                    gid: 0,
+                    rdev: 0,
+                },
+            ));
+            entries.write().insert(String::from(name), node);
+        }
+
+        let dir_ops = Box::new(DevFsDirOps {
+            dynamic_entries: entries,
+        });
+        let root = Arc::new(INode::new(
+            dir_ops,
+            Mode::DIR
+                | Mode::RUSR
+                | Mode::WUSR
+                | Mode::XUSR
+                | Mode::RGRP
+                | Mode::WGRP
+                | Mode::XGRP
+                | Mode::ROTH
+                | Mode::WOTH
+                | Mode::XOTH,
+            0,
+        ));
+        Self { root }
     }
 }
 
@@ -414,18 +565,7 @@ impl FileSystem for DevFs {
     }
 
     fn root(&self) -> Result<Arc<INode>> {
-        Ok(Arc::new(INode::new(
-            Box::new(DevFsDirOps),
-            Mode::DIR
-                | Mode::RUSR
-                | Mode::WUSR
-                | Mode::XUSR
-                | Mode::RGRP
-                | Mode::XGRP
-                | Mode::ROTH
-                | Mode::XOTH,
-            0,
-        )))
+        Ok(Arc::clone(&self.root))
     }
 
     fn statfs(&self) -> Result<StatFs> {
@@ -496,3 +636,62 @@ crate::module!(
     crate::modules::InitcallLevel::Fs,
     init
 );
+
+#[cfg(ktest)]
+mod tests {
+    use super::*;
+    use ostd::prelude::ktest;
+
+    #[ktest]
+    fn devfs_mkdir_and_symlink_operations() {
+        let devfs = DevFs::new();
+        let root = devfs.root().expect("devfs root");
+
+        // Verify default symlinks exist
+        let fd_node = root.node_ops.lookup("fd").expect("lookup fd");
+        assert_eq!(fd_node.node_ops.readlink().expect("readlink fd"), "/proc/self/fd");
+
+        // Test mkdir
+        let shm_node = root
+            .node_ops
+            .mkdir("shm", Mode::DIR | Mode::RUSR | Mode::WUSR | Mode::XUSR)
+            .expect("mkdir shm");
+        assert!(shm_node.is_dir());
+
+        let lookup_shm = root.node_ops.lookup("shm").expect("lookup shm");
+        assert!(lookup_shm.is_dir());
+
+        // Test symlink
+        let symlink_node = root
+            .node_ops
+            .symlink("my_link", "/proc/self/fd/0")
+            .expect("symlink my_link");
+        assert_eq!(
+            symlink_node.node_ops.readlink().expect("readlink my_link"),
+            "/proc/self/fd/0"
+        );
+
+        let lookup_link = root.node_ops.lookup("my_link").expect("lookup my_link");
+        assert_eq!(
+            lookup_link.node_ops.readlink().expect("readlink lookup_link"),
+            "/proc/self/fd/0"
+        );
+
+        // Test readdir
+        let file_ops = root.node_ops.open(OpenFlags::READ).expect("open devfs dir");
+        let readdir_bytes = file_ops.readdir().expect("readdir");
+        let readdir_str = core::str::from_utf8(&readdir_bytes).expect("utf8 readdir");
+        assert!(readdir_str.contains("shm\n"));
+        assert!(readdir_str.contains("my_link\n"));
+        assert!(readdir_str.contains("null\n"));
+        assert!(readdir_str.contains("fd\n"));
+
+        // Test unlink
+        root.node_ops.unlink("my_link").expect("unlink my_link");
+        assert!(root.node_ops.lookup("my_link").is_err());
+
+        // Test rmdir
+        root.node_ops.rmdir("shm").expect("rmdir shm");
+        assert!(root.node_ops.lookup("shm").is_err());
+    }
+}
