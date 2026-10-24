@@ -16,8 +16,8 @@ use crate::proc::{PID_INIT, Pid};
 use crate::utils::userspace::user_ptr::UserPtr;
 use crate::vm::vmar::Vmar;
 
-use super::core::Tty;
-use super::input_queue::{drain_input, flush_input_queue};
+use super::input::{drain_input, flush_input_queue};
+use super::tty::Tty;
 
 pub fn handle_termios_ioctl(tty: &Tty, cmd: u32, arg: usize, vmar: &Arc<Vmar>) -> Result<usize> {
     match cmd {

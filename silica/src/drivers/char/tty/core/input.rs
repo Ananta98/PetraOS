@@ -29,7 +29,7 @@ pub fn queue_input(ch: u8) {
     INPUT_QUEUE.push_overwrite(ch);
     INPUT_PENDING.store(true, Ordering::Release);
     INPUT_WAIT_QUEUE.wake_one();
-    if let Some(console) = super::get_console() {
+    if let Some(console) = crate::drivers::char::tty::get_console() {
         console.wake_readers();
     }
 }
@@ -39,7 +39,7 @@ pub fn drain_input() {
     let Some(_guard) = DRAIN_LOCK.try_lock() else {
         return;
     };
-    let Some(console) = super::get_console() else {
+    let Some(console) = crate::drivers::char::tty::get_console() else {
         return;
     };
     while let Some(b) = INPUT_QUEUE.pop() {

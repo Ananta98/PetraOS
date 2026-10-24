@@ -8,7 +8,7 @@
 
 use alloc::{collections::VecDeque, vec::Vec};
 
-use super::Tty;
+use super::tty::Tty;
 use crate::uapi::signal::Signal;
 use crate::uapi::termios::{
     ECHO, ECHOE, ECHOK, ICANON, ICRNL, IGNCR, INLCR, ISIG, ISTRIP, NOFLSH, ONLCR, OPOST, Termios,

@@ -14,7 +14,7 @@ use core::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicUsize, Ordering}
 use ostd::sync::WaitQueue;
 use spin::Mutex;
 
-use super::{Tty, TtyDriver};
+use crate::drivers::char::tty::core::{Tty, TtyDriver};
 use crate::{
     drivers::{CharacterDevice, register_chrdev},
     fs::poll::PollEvents,

@@ -18,7 +18,7 @@ use crate::proc::thread::Thread;
 use crate::proc::{Pid, pgrp_for_each};
 use crate::vm::vmar::Vmar;
 
-use super::input_queue::drain_input;
+use super::input::drain_input;
 use super::ioctl::handle_ioctl;
 use super::ldisc::LineDiscipline;
 

@@ -8,26 +8,24 @@ use ostd::sync::{LocalIrqDisabled, SpinLock};
 use crate::drivers::CharacterDevice;
 use crate::fs::poll::PollEvents;
 use crate::fs::vfs::{File, FileOps, INode, Mode, OpenFlags};
-use crate::proc::PID_INIT;
 use crate::uapi::errno::{Errno, Result};
 use crate::uapi::signal::Signal;
-use crate::uapi::termios::{Termios, winsize};
+use crate::uapi::termios::winsize;
 
-use super::core::{Tty, TtyDriver};
-use super::input_queue::flush_input_queue;
-use super::terminal;
+use crate::drivers::char::tty::core::{Tty, TtyDriver};
+use crate::drivers::char::tty::vt;
 
 /// Driver delivering TTY output directly to the Framebuffer Console.
 pub struct FramebufferConsoleDriver;
 
 impl TtyDriver for FramebufferConsoleDriver {
     fn write_output(&self, data: &[u8]) -> Result<()> {
-        terminal::write_output(data);
+        vt::write_output(data);
         Ok(())
     }
 
     fn get_winsize(&self) -> winsize {
-        terminal::get_winsize()
+        vt::get_winsize()
     }
 }
 
@@ -141,36 +139,6 @@ pub fn update_console_winsize() {
         };
         if changed {
             console.signal_foreground(Signal::SIGWINCH);
-        }
-    }
-}
-
-/// Called when a process terminates.
-pub fn on_proc_exit(proc: &crate::proc::Proc) {
-    if let Ok(tty) = Console::get_active() {
-        let is_fg = tty
-            .foreground_pgrp
-            .lock()
-            .map_or(false, |pgid| pgid == proc.pgid() || pgid == proc.pid);
-        let is_child_of_init = proc.ppid() == Some(PID_INIT);
-        let is_session_member = proc.sid() == PID_INIT;
-
-        if is_fg || is_child_of_init || is_session_member {
-            let mut ldisc = tty.ldisc.lock();
-            let needs_reset = !ldisc.is_canon() || !ldisc.is_onlcr() || !ldisc.is_echo();
-            if needs_reset {
-                ldisc.termios = Termios::default();
-                ldisc.read_buf.clear();
-                ldisc.canon_buf.clear();
-                flush_input_queue();
-                drop(ldisc);
-
-                // Exit alternate screen, reset text attributes, make cursor visible, and set steady block cursor
-                terminal::write_output(b"\x1b[?1049l\x1b[0m\x1b[?25h\x1b[2 q");
-            }
-            if is_fg {
-                *tty.foreground_pgrp.lock() = Some(PID_INIT);
-            }
         }
     }
 }
