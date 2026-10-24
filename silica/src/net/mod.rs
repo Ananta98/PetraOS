@@ -24,6 +24,25 @@ pub fn detach_device(name: &str) {
     NET_MANAGER.lock().detach_device(name);
 }
 
+/// Background worker thread that continuously polls network devices and dispatches events.
+fn net_poller_entry() {
+    loop {
+        let changed = crate::net::poll();
+        if changed {
+            ostd::task::Task::yield_now();
+        } else {
+            crate::kpi::time::arm(core::time::Duration::from_millis(1), None).wait();
+        }
+    }
+}
+
+/// Spawns the background network polling daemon (`net_poller`).
+pub fn init_net_daemon() {
+    let _ = crate::proc::kthread::kproc_create("net_poller", net_poller_entry, -5)
+        .expect("failed to spawn net_poller daemon");
+    ostd::info!("Net: Background network polling daemon started");
+}
+
 /// Initializes the network subsystem.
 pub fn init() -> Result<()> {
     ostd::info!("Net: Network subsystem initialized");

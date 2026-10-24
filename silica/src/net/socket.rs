@@ -751,11 +751,17 @@ impl KernelSocket {
 
                 if socket.can_recv() {
                     let n = socket.recv_slice(buf).map_err(|_| Errno::EIO)?;
+                    net.poll();
+                    crate::fs::poll::notify();
                     return Ok(n);
                 }
 
                 match socket.state() {
-                    TcpState::Closed | TcpState::CloseWait | TcpState::TimeWait => {
+                    TcpState::Closed
+                    | TcpState::CloseWait
+                    | TcpState::TimeWait
+                    | TcpState::LastAck
+                    | TcpState::Closing => {
                         return Ok(0); // EOF
                     }
                     _ => {}

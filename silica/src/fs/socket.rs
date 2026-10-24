@@ -63,7 +63,7 @@ impl FileOps for SocketFileOps {
                 }
                 if s.state() == TcpState::CloseWait {
                     events |= PollEvents::IN | PollEvents::RDNORM | PollEvents::HUP;
-                } else if s.state() == TcpState::Closed {
+                } else if s.state() == TcpState::Closed || s.state() == TcpState::TimeWait {
                     events |= PollEvents::IN
                         | PollEvents::OUT
                         | PollEvents::RDNORM
