@@ -70,7 +70,14 @@ impl MouseAccumulator {
 
         self.dx = 0;
         self.dy = 0;
-        self.waitq.wake_all();
+        if crate::arch::can_wait_ipi() {
+            self.waitq.wake_all();
+        } else if crate::kpi::task::is_initialized() {
+            crate::kpi::task::schedule_work_fn(|| {
+                let acc = MICE_ACCUMULATOR.lock();
+                acc.waitq.wake_all();
+            });
+        }
         crate::fs::poll::notify();
     }
 }

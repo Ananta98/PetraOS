@@ -148,6 +148,15 @@ impl Proc {
             return Err(Errno::ESRCH);
         }
 
+        // Under POSIX/Linux semantics, PID 1 (init) ignores all signals with
+        // default actions (e.g., SIGINT, SIGTERM, SIGQUIT, SIGHUP).
+        if self.pid == crate::proc::types::PID_INIT {
+            let handler = self.sigacts.lock().get(sig).sa_handler;
+            if matches!(handler, SigHandler::Default | SigHandler::Ignore) {
+                return Ok(());
+            }
+        }
+
         // An ignored signal needs no queue entry, and a process with no handler
         // takes the default action when a thread next looks, not when it is sent.
         if matches!(self.sigacts.lock().get(sig).sa_handler, SigHandler::Ignore) {
@@ -214,6 +223,14 @@ pub fn run_default_action(td: &Thread, sig: Signal) -> bool {
     if sig.default_is_stop() {
         stop_thread(td, sig);
         return false;
+    }
+
+    // PID 1 (init) cannot be terminated by unhandled signals.
+    if let Some(proc) = td.proc() {
+        if proc.pid == crate::proc::types::PID_INIT {
+            ostd::info!("proc: pid 1 ignoring default action for signal {sig}");
+            return false;
+        }
     }
 
     exit1(

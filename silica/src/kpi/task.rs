@@ -35,6 +35,11 @@ static WORKQ: Once<Arc<Inner>> = Once::new();
 /// Number of worker threads serving the workqueue.
 const WORKERS: usize = 4;
 
+/// Returns whether the global workqueue has been initialized.
+pub fn is_initialized() -> bool {
+    WORKQ.get().is_some()
+}
+
 /// Schedules a boxed work item to run in workqueue context.
 ///
 /// Must be called after [`init`]; panics otherwise, to surface ordering bugs

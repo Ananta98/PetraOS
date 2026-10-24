@@ -13,6 +13,8 @@ use alloc::sync::Arc;
 use bitflags::bitflags;
 use ostd::sync::WaitQueue;
 
+use core::sync::atomic::{AtomicBool, Ordering};
+
 use super::vfs::File;
 use crate::uapi::errno::Result;
 
@@ -63,6 +65,7 @@ pub enum PollTimeout {
 }
 
 static POLL_WAITQ: WaitQueue = WaitQueue::new();
+static NOTIFY_PENDING: AtomicBool = AtomicBool::new(false);
 
 /// Returns the global poll waitqueue.
 pub fn waitq() -> &'static WaitQueue {
@@ -70,8 +73,25 @@ pub fn waitq() -> &'static WaitQueue {
 }
 
 /// Wakes all pollers; call after any readiness change.
+///
+/// If invoked with local IRQs disabled (such as from hardware interrupt
+/// handlers), the wakeup is deferred to the kernel workqueue. This prevents
+/// tasks or address spaces whose sole remaining references are held by
+/// stale waitqueue wakers from being dropped in IRQ context, which would
+/// panic when performing TLB shootdown IPI waits.
 pub fn notify() {
-    POLL_WAITQ.wake_all();
+    if !crate::arch::can_wait_ipi() {
+        if crate::kpi::task::is_initialized() {
+            if !NOTIFY_PENDING.swap(true, Ordering::SeqCst) {
+                crate::kpi::task::schedule_work_fn(|| {
+                    NOTIFY_PENDING.store(false, Ordering::SeqCst);
+                    POLL_WAITQ.wake_all();
+                });
+            }
+        }
+    } else {
+        POLL_WAITQ.wake_all();
+    }
 }
 
 /// Scans `fds` once, filling `revents`. Returns the number of ready entries.
