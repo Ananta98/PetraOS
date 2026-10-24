@@ -355,7 +355,6 @@ impl VmMapping {
             .cursor_mut(&guard, &range)
             .expect("the mapping lies inside the VM space");
         let num_unmapped = cursor.unmap(range.len());
-        cursor.flusher().sync_tlb_flush();
         num_unmapped
     }
 

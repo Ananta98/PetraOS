@@ -123,6 +123,10 @@ pub fn sys_alarm(seconds: u32, _ctx: &mut UserContext) -> Result<usize> {
     inner.generation = inner.generation.wrapping_add(1);
     let generation = inner.generation;
 
+    if let Some(old_ktimer) = inner.ktimer.take() {
+        old_ktimer.cancel();
+    }
+
     if seconds == 0 {
         inner.armed = false;
         inner.interval_ns = 0;
@@ -135,16 +139,17 @@ pub fn sys_alarm(seconds: u32, _ctx: &mut UserContext) -> Result<usize> {
     inner.interval_ns = 0;
     let clock_now = get_clock_now(timer.clock_id);
     inner.next_deadline_ns = clock_now.saturating_add(val_ns);
-    drop(inner);
 
     let timer_clone = Arc::clone(&timer);
     let proc_id = proc.pid;
-    crate::kpi::task::schedule_delayed_work_fn(
+    let ktimer = crate::kpi::task::schedule_delayed_work_fn(
         move || {
             on_timer_expire(timer_clone, proc_id, generation);
         },
         Duration::from_nanos(val_ns),
     );
+    inner.ktimer = Some(ktimer);
+    drop(inner);
 
     Ok(old_remaining_secs as usize)
 }
@@ -223,6 +228,10 @@ pub fn sys_setitimer(
     inner.generation = inner.generation.wrapping_add(1);
     let generation = inner.generation;
 
+    if let Some(old_ktimer) = inner.ktimer.take() {
+        old_ktimer.cancel();
+    }
+
     let val_ns = new_val.it_value.total_nanos().ok_or(Errno::EINVAL)?;
     let interval_ns = new_val.it_interval.total_nanos().ok_or(Errno::EINVAL)?;
 
@@ -237,16 +246,17 @@ pub fn sys_setitimer(
     inner.interval_ns = interval_ns;
     let clock_now = get_clock_now(timer.clock_id);
     inner.next_deadline_ns = clock_now.saturating_add(val_ns);
-    drop(inner);
 
     let timer_clone = Arc::clone(&timer);
     let proc_id = proc.pid;
-    crate::kpi::task::schedule_delayed_work_fn(
+    let ktimer = crate::kpi::task::schedule_delayed_work_fn(
         move || {
             on_timer_expire(timer_clone, proc_id, generation);
         },
         Duration::from_nanos(val_ns),
     );
+    inner.ktimer = Some(ktimer);
+    drop(inner);
 
     Ok(0)
 }
@@ -435,6 +445,10 @@ pub fn sys_timer_settime(
     inner.generation = inner.generation.wrapping_add(1);
     let generation = inner.generation;
 
+    if let Some(old_ktimer) = inner.ktimer.take() {
+        old_ktimer.cancel();
+    }
+
     let val_ns = new_val.it_value.total_nanos().ok_or(Errno::EINVAL)?;
     let interval_ns = new_val.it_interval.total_nanos().ok_or(Errno::EINVAL)?;
 
@@ -462,22 +476,25 @@ pub fn sys_timer_settime(
     };
 
     inner.next_deadline_ns = target_ns;
-    drop(inner);
 
     let timer_clone = Arc::clone(&timer);
     let proc_id = proc.pid;
 
     if delay_ns == 0 {
+        inner.ktimer = None;
+        drop(inner);
         crate::kpi::task::schedule_work_fn(move || {
             on_timer_expire(timer_clone, proc_id, generation);
         });
     } else {
-        crate::kpi::task::schedule_delayed_work_fn(
+        let ktimer = crate::kpi::task::schedule_delayed_work_fn(
             move || {
                 on_timer_expire(timer_clone, proc_id, generation);
             },
             Duration::from_nanos(delay_ns),
         );
+        inner.ktimer = Some(ktimer);
+        drop(inner);
     }
 
     Ok(0)
@@ -564,5 +581,8 @@ pub fn sys_timer_delete(timerid: i32, _ctx: &mut UserContext) -> Result<usize> {
     let mut inner = timer.inner.lock();
     inner.armed = false;
     inner.generation = inner.generation.wrapping_add(1);
+    if let Some(ktimer) = inner.ktimer.take() {
+        ktimer.cancel();
+    }
     Ok(0)
 }

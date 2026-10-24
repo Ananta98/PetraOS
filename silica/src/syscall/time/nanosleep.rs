@@ -33,26 +33,46 @@ pub fn sys_nanosleep(req_ptr: usize, rem_ptr: usize, _ctx: &mut UserContext) -> 
     let start_ns = crate::time::get_monotonic_ns();
     let end_ns = start_ns.saturating_add(sleep_ns);
 
-    loop {
+    let (waiter, _) = ostd::sync::Waiter::new_pair();
+    let waker = waiter.waker();
+    let ktimer = crate::kpi::time::arm(
+        core::time::Duration::from_nanos(sleep_ns),
+        Some(alloc::boxed::Box::new(move || {
+            waker.wake_up();
+        })),
+    );
+
+    let cond = || {
         let now_ns = crate::time::get_monotonic_ns();
         if now_ns >= end_ns {
-            break;
+            Some(())
+        } else {
+            None
         }
+    };
 
-        // Check for pending signals interrupting sleep
+    let cancel = || {
         if Thread::should_interrupt() {
-            if rem_ptr != 0 {
-                let remaining_ns = end_ns.saturating_sub(now_ns);
-                let rem_ts = Timespec {
-                    tv_sec: (remaining_ns / 1_000_000_000) as i64,
-                    tv_nsec: (remaining_ns % 1_000_000_000) as i64,
-                };
-                UserPtr::new(rem_ptr).write_bytes(&vmar, &rem_ts.to_bytes())?;
-            }
-            return Err(Errno::EINTR);
+            Err(Errno::EINTR)
+        } else {
+            Ok(())
         }
+    };
 
-        ostd::task::Task::yield_now();
+    let res = waiter.wait_until_or_cancelled(cond, cancel);
+    ktimer.cancel();
+
+    if let Err(Errno::EINTR) = res {
+        if rem_ptr != 0 {
+            let now_ns = crate::time::get_monotonic_ns();
+            let remaining_ns = end_ns.saturating_sub(now_ns);
+            let rem_ts = Timespec {
+                tv_sec: (remaining_ns / 1_000_000_000) as i64,
+                tv_nsec: (remaining_ns % 1_000_000_000) as i64,
+            };
+            UserPtr::new(rem_ptr).write_bytes(&vmar, &rem_ts.to_bytes())?;
+        }
+        return Err(Errno::EINTR);
     }
 
     Ok(0)

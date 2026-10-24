@@ -14,6 +14,7 @@ pub mod bus;
 pub mod char;
 pub mod device;
 pub mod drm;
+pub mod input;
 pub mod net;
 
 use alloc::{string::String, sync::Arc, vec::Vec};

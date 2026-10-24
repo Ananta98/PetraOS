@@ -4,16 +4,38 @@
 //!
 //! Handles USB HID Boot Protocol keyboard reports, keycode translation,
 //! modifier state decoding, DevFS character device registration (`/dev/usb_kbd`),
-//! and forwards keystrokes to the kernel TTY line discipline.
+//! and reports key transitions to the input subsystem.
+//!
+//! The console is *not* fed from here: [`handle_usb_keyboard_report`] emits
+//! `EV_KEY` events into the input core, and the console keyboard handler
+//! (`drivers::char::tty::kbd`) turns those into terminal input. The `KeyCode`
+//! and modifier conversion below therefore only serves the legacy
+//! `/dev/usb_kbd` byte stream, exactly like the PS/2 driver keeps its own.
 
 use alloc::{string::String, sync::Arc};
 use spin::{Mutex, Once};
 
-use crate::{drivers::CharacterDevice, uapi::errno::Result, utils::ring_buffer::RingBuffer};
+use crate::{
+    drivers::{
+        CharacterDevice,
+        input::{self, InputDevice, keymap},
+    },
+    uapi::{
+        errno::Result,
+        input::{InputId, bus},
+    },
+    utils::ring_buffer::RingBuffer,
+};
 
 /// Interrupt-safe, lock-free ring buffer for USB keyboard characters.
 static KEYBOARD_BUFFER: RingBuffer<1024> = RingBuffer::new();
 static KEYBOARD_REGISTERED: Once<()> = Once::new();
+
+/// The input device this keyboard reports to (`/dev/input/eventN`).
+static INPUT_DEVICE: Once<Arc<InputDevice>> = Once::new();
+
+/// HID modifier byte of the previous report, for edge detection.
+static PREV_MODIFIERS: Mutex<u8> = Mutex::new(0);
 
 pub struct UsbKeyboardDevice;
 
@@ -50,26 +72,39 @@ pub fn init_usb_keyboard() -> Result<()> {
     KEYBOARD_REGISTERED.call_once(|| {
         let _ = crate::drivers::register_chrdev(Arc::new(UsbKeyboardDevice::new()));
     });
+    INPUT_DEVICE.call_once(|| {
+        input::register_device(
+            "USB HID Keyboard",
+            "usb-hid/keyboard",
+            InputId {
+                bustype: bus::USB,
+                vendor: 0x0000,
+                product: 0x0000,
+                version: 0x0100,
+            },
+            keymap::keyboard_capabilities(),
+        )
+    });
     ostd::info!("USB Keyboard: Driver registered into unified character devices");
     Ok(())
 }
 
-/// Dispatches a decoded character or ANSI escape sequence to the character buffer and TTY layer.
+/// Dispatches a decoded character or ANSI escape sequence to the legacy
+/// `/dev/usb_kbd` byte stream.
 pub fn handle_usb_keyboard_char(ch: char) {
     KEYBOARD_BUFFER.push_overwrite(ch as u8);
-    crate::drivers::char::tty::handle_keyboard_char(ch as u8);
-    ostd::info!(
+    ostd::debug!(
         "[USB-KEYBOARD] Key: '{}' ({:#04X})",
         ch.escape_default(),
         ch as u32
     );
 }
 
-/// Dispatches raw string/sequence (such as escape sequences for arrow keys) to the TTY layer.
+/// Dispatches a raw string/sequence (such as escape sequences for arrow keys)
+/// to the legacy `/dev/usb_kbd` byte stream.
 pub fn handle_usb_keyboard_str(s: &str) {
     for b in s.bytes() {
         KEYBOARD_BUFFER.push_overwrite(b);
-        crate::drivers::char::tty::handle_keyboard_char(b);
     }
 }
 
@@ -342,17 +377,25 @@ static CAPS_LOCK: Mutex<bool> = Mutex::new(false);
 static NUM_LOCK: Mutex<bool> = Mutex::new(true);
 
 pub fn handle_usb_keyboard_report(report: &[u8; 8]) {
-    let mods = Modifiers::from(report[0]);
+    let modifiers = report[0];
     let current_keys: [u8; 6] = [
         report[2], report[3], report[4], report[5], report[6], report[7],
     ];
+    let previous_keys = *PREV_USB_KEYS.lock();
 
-    let mut prev_keys = PREV_USB_KEYS.lock();
+    // Report the transition to the input core: this is the path evdev clients
+    // and the console keyboard handler consume.
+    if let Some(device) = INPUT_DEVICE.get() {
+        report_key_events(device, modifiers, &previous_keys, &current_keys);
+    }
+
+    // Legacy `/dev/usb_kbd` byte stream, unchanged in behaviour.
+    let mods = Modifiers::from(modifiers);
     let mut caps_lock = CAPS_LOCK.lock();
     let mut num_lock = NUM_LOCK.lock();
 
     for &raw_code in &current_keys {
-        if raw_code == 0 || prev_keys.contains(&raw_code) {
+        if raw_code == 0 || previous_keys.contains(&raw_code) {
             continue; // Empty or already pressed
         }
 
@@ -386,7 +429,59 @@ pub fn handle_usb_keyboard_report(report: &[u8; 8]) {
             handle_usb_keyboard_char(ch);
         }
     }
-    *prev_keys = current_keys;
+    *PREV_USB_KEYS.lock() = current_keys;
+}
+
+/// Emits the `EV_KEY` edges of one report, then a single `SYN_REPORT`.
+///
+/// A boot keyboard report is a snapshot of the keys currently held, so the
+/// edges are the difference between this and the previous report — both for the
+/// modifier byte and for the six usage slots.
+fn report_key_events(
+    device: &InputDevice,
+    modifiers: u8,
+    previous_keys: &[u8; 6],
+    current_keys: &[u8; 6],
+) {
+    let mut reported = false;
+
+    {
+        let mut previous_modifiers = PREV_MODIFIERS.lock();
+        for (bit, code) in keymap::USB_MODIFIERS {
+            let was = *previous_modifiers & bit != 0;
+            let is = modifiers & bit != 0;
+            if was != is {
+                device.report_key(code, is as i32);
+                reported = true;
+            }
+        }
+        *previous_modifiers = modifiers;
+    }
+
+    for &usage in current_keys {
+        // 0x00 is "no key"; 0x01..=0x03 are rollover/error codes.
+        if usage < 0x04 || previous_keys.contains(&usage) {
+            continue;
+        }
+        if let Some(code) = keymap::usb_usage(usage) {
+            device.report_key(code, 1);
+            reported = true;
+        }
+    }
+
+    for &usage in previous_keys {
+        if usage < 0x04 || current_keys.contains(&usage) {
+            continue;
+        }
+        if let Some(code) = keymap::usb_usage(usage) {
+            device.report_key(code, 0);
+            reported = true;
+        }
+    }
+
+    if reported {
+        device.sync();
+    }
 }
 
 fn keycode_to_escape_seq(key: KeyCode) -> Option<&'static str> {

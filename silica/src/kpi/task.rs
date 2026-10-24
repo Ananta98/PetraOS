@@ -58,7 +58,7 @@ where
 
 /// Schedules a closure to run in workqueue context after `after` elapses,
 /// mirroring the delayed-work half of Linux workqueue usage.
-pub fn schedule_delayed_work_fn<F>(f: F, after: Duration)
+pub fn schedule_delayed_work_fn<F>(f: F, after: Duration) -> super::time::KTimer
 where
     F: FnOnce() + Send + 'static,
 {
@@ -73,7 +73,7 @@ where
                 schedule_work(item);
             }
         })),
-    );
+    )
 }
 
 /// Returns the number of work items currently queued.

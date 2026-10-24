@@ -274,19 +274,23 @@ impl Thread {
             });
 
         let Some(queued) = queued else {
-            // Nothing was deliverable, but the trap only stands down once both
-            // queues are genuinely empty: a signal that is merely masked is
-            // deferred, not lost, and clearing the flag here would strand it with
-            // nothing left to re-arm.
-            let thread_empty = self.inner.lock().sigqueue.is_empty();
-            let proc_empty = self.proc().is_none_or(|proc| proc.sigqueue.is_empty());
-            if thread_empty && proc_empty {
-                self.inner.lock().flags.remove(ThreadFlags::TDF_ASTPENDING);
-            }
+            // No deliverable (unmasked) signal is currently available.
+            // Stand down TDF_ASTPENDING so the thread does not falsely abort
+            // subsequent blocking operations (poll, select, read) with EINTR.
+            self.inner.lock().flags.remove(ThreadFlags::TDF_ASTPENDING);
             return false;
         };
 
-        self.deliver_signal(queued)
+        let delivered = self.deliver_signal(queued);
+        let mut inner = self.inner.lock();
+        if inner.sigqueue.has_unmasked(&inner.sigmask)
+            || self.proc().is_some_and(|p| p.sigqueue.has_unmasked(&inner.sigmask))
+        {
+            inner.flags.insert(ThreadFlags::TDF_ASTPENDING);
+        } else {
+            inner.flags.remove(ThreadFlags::TDF_ASTPENDING);
+        }
+        delivered
     }
 
     /// Applies the disposition for one signal.
@@ -427,6 +431,11 @@ impl Thread {
         inner.handler_mask = SigSet::empty();
         inner.handler_frame = None;
         inner.flags.remove(ThreadFlags::IN_HANDLER);
+        if inner.sigqueue.has_unmasked(&restored_mask)
+            || proc.sigqueue.has_unmasked(&restored_mask)
+        {
+            inner.flags.insert(ThreadFlags::TDF_ASTPENDING);
+        }
         Ok(())
     }
 

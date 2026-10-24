@@ -252,8 +252,10 @@ impl Vmar {
         let mut cursor = vm_space
             .cursor_mut(&guard, &full_range)
             .expect("the VM space covers the whole range");
-        cursor.unmap(full_range.len());
-        cursor.flusher().sync_tlb_flush();
+        let num_unmapped = cursor.unmap(full_range.len());
+        if num_unmapped > 0 {
+            cursor.flusher().sync_tlb_flush();
+        }
 
         inner.mappings.clear();
         inner.total_vm = 0;

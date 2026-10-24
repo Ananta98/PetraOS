@@ -74,7 +74,13 @@ pub fn sys_rt_sigprocmask(
         UserPtr::new(old_set_ptr).write_bytes(&vmar, &encode_sigset(&previous)[..sigsetsize])?;
     }
 
-    inner.flags.insert(ThreadFlags::TDF_ASTPENDING);
+    let has_unmasked = inner.sigqueue.has_unmasked(&updated)
+        || td.proc().is_some_and(|p| p.sigqueue.has_unmasked(&updated));
+    if has_unmasked {
+        inner.flags.insert(ThreadFlags::TDF_ASTPENDING);
+    } else {
+        inner.flags.remove(ThreadFlags::TDF_ASTPENDING);
+    }
     drop(inner);
 
     Ok(sigsetsize)

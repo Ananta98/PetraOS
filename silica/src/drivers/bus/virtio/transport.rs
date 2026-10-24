@@ -173,6 +173,15 @@ impl VirtioTransport {
             .map_err(|_| Errno::EIO)
     }
 
+    /// Writes a `__le16` to the device-specific config.
+    pub fn device_write16(&self, offset: usize, value: u16) -> Result<()> {
+        self.device_cfg
+            .as_ref()
+            .ok_or(Errno::ENODEV)?
+            .write_val::<u16>(offset, &value)
+            .map_err(|_| Errno::EIO)
+    }
+
     /// Reads a `u8` from the device-specific config.
     pub fn device_read8(&self, offset: usize) -> Result<u8> {
         self.device_cfg
@@ -181,6 +190,25 @@ impl VirtioTransport {
             .read_val::<u8>(offset)
             .map_err(|_| Errno::EIO)
     }
+
+    /// Writes a `u8` to the device-specific config.
+    pub fn device_write8(&self, offset: usize, value: u8) -> Result<()> {
+        self.device_cfg
+            .as_ref()
+            .ok_or(Errno::ENODEV)?
+            .write_val::<u8>(offset, &value)
+            .map_err(|_| Errno::EIO)
+    }
+
+    /// Reads multiple bytes from the device-specific config into `buf`.
+    pub fn device_read_bytes(&self, offset: usize, buf: &mut [u8]) -> Result<()> {
+        let cfg = self.device_cfg.as_ref().ok_or(Errno::ENODEV)?;
+        for (i, byte) in buf.iter_mut().enumerate() {
+            *byte = cfg.read_val::<u8>(offset + i).map_err(|_| Errno::EIO)?;
+        }
+        Ok(())
+    }
+
 
     /// The configured queues, in activation order.
     pub fn queues(&self) -> Vec<Arc<super::queue::VirtQueue>> {

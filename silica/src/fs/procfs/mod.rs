@@ -17,6 +17,7 @@
 //! - one flat module per root file, matching upstream names
 //!   (`meminfo.rs`, `loadavg.rs`, ...).
 
+pub mod bus;
 pub mod cmdline;
 pub mod cpuinfo;
 pub mod diskstats;
@@ -166,6 +167,10 @@ static PROC_ROOT_ENTRIES: &[template::StaticDirEntry] = &[
     template::StaticDirEntry {
         name: "partitions",
         ctor: partitions::PartitionsFileOps::new_inode,
+    },
+    template::StaticDirEntry {
+        name: "bus",
+        ctor: bus::new_bus_inode,
     },
 ];
 

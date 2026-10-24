@@ -7,6 +7,7 @@
 //! integration (`/dev/mouse`).
 
 use alloc::{string::String, sync::Arc};
+use core::sync::atomic::{AtomicU8, Ordering};
 use ostd::{
     arch::{
         irq::{IRQ_CHIP, MappedIrqLine},
@@ -18,7 +19,17 @@ pub use ps2_mouse::{Mouse, MouseFlags, MouseState};
 use spin::{Mutex, Once};
 
 use super::controller::{I8042_CONTROLLER, I8042Controller, StatusFlags};
-use crate::{drivers::CharacterDevice, uapi::errno::Result, utils::ring_buffer::RingBuffer};
+use crate::{
+    drivers::{
+        CharacterDevice,
+        input::{self, InputDevice, keymap},
+    },
+    uapi::{
+        errno::Result,
+        input::{InputId, bus, key, rel},
+    },
+    utils::ring_buffer::RingBuffer,
+};
 
 const ISA_MOUSE_IRQ: u8 = 12;
 
@@ -30,6 +41,19 @@ static MOUSE_BUFFER: RingBuffer<2048> = RingBuffer::new();
 
 /// Global mouse driver instance from ps2-mouse.
 static MOUSE: Mutex<Mouse> = Mutex::new(Mouse::new());
+
+/// The input device this mouse reports to (`/dev/input/eventN`).
+static INPUT_DEVICE: Once<Arc<InputDevice>> = Once::new();
+
+/// Buttons held down at the previous report, as `EV_KEY` bit flags.
+static BUTTON_STATE: AtomicU8 = AtomicU8::new(0);
+
+/// `BTN_LEFT` bit in [`BUTTON_STATE`].
+const BUTTON_LEFT: u8 = 1 << 0;
+/// `BTN_RIGHT` bit in [`BUTTON_STATE`].
+const BUTTON_RIGHT: u8 = 1 << 1;
+/// `BTN_MIDDLE` bit in [`BUTTON_STATE`].
+const BUTTON_MIDDLE: u8 = 1 << 2;
 
 /// Collector for 3-byte PS/2 mouse packets to feed `/dev/mouse`.
 static PACKET_COLLECTOR: Mutex<PacketCollector> = Mutex::new(PacketCollector::new());
@@ -89,24 +113,69 @@ fn handle_mouse_irq(_frame: &TrapFrame) {
             drop(ctrl); // release controller lock
 
             let mut mouse = MOUSE.lock();
+            mouse.process_packet(byte);
+
             let mut collector = PACKET_COLLECTOR.lock();
             if collector.feed(byte) {
                 for &b in collector.raw_packet() {
                     MOUSE_BUFFER.push_overwrite(b);
                 }
-            }
-            mouse.process_packet(byte);
-            let state = mouse.get_state();
-            if state.left_button_down() || state.right_button_down() || state.moved() {
-                ostd::debug!(
-                    "[MOUSE] L={}, R={}, dx={}, dy={}",
-                    state.left_button_down(),
-                    state.right_button_down(),
-                    state.get_x(),
-                    state.get_y()
-                );
+                // The status byte carries the middle-button bit; `ps2-mouse`
+                // exposes only left/right through `MouseState`.
+                let middle = collector.raw_packet()[0] & 0x04 != 0;
+                if let Some(device) = INPUT_DEVICE.get() {
+                    report_motion(device, &mouse.get_state(), middle);
+                }
             }
         }
+    }
+}
+
+/// Emits one motion/button report into the input core.
+///
+/// PS/2 reports Y positive-up; evdev (`REL_Y`) is positive-down, hence the
+/// negation. Only changed buttons produce `EV_KEY`, and an idle packet produces
+/// no report at all.
+fn report_motion(device: &InputDevice, state: &MouseState, middle: bool) {
+    let mut buttons = 0u8;
+    if state.left_button_down() {
+        buttons |= BUTTON_LEFT;
+    }
+    if state.right_button_down() {
+        buttons |= BUTTON_RIGHT;
+    }
+    if middle {
+        buttons |= BUTTON_MIDDLE;
+    }
+    let previous = BUTTON_STATE.swap(buttons, Ordering::Relaxed);
+
+    let mut reported = false;
+    for (bit, code) in [
+        (BUTTON_LEFT, key::BTN_LEFT),
+        (BUTTON_RIGHT, key::BTN_RIGHT),
+        (BUTTON_MIDDLE, key::BTN_MIDDLE),
+    ] {
+        let was = previous & bit != 0;
+        let is = buttons & bit != 0;
+        if was != is {
+            device.report_key(code, is as i32);
+            reported = true;
+        }
+    }
+
+    let dx = state.get_x() as i32;
+    let dy = -(state.get_y() as i32);
+    if dx != 0 {
+        device.report_rel(rel::X, dx);
+        reported = true;
+    }
+    if dy != 0 {
+        device.report_rel(rel::Y, dy);
+        reported = true;
+    }
+
+    if reported {
+        device.sync();
     }
 }
 
@@ -157,6 +226,21 @@ pub fn init(controller: &I8042Controller) -> Result<()> {
     }
     drop(mouse);
     controller.flush_buffer();
+
+    // Register the evdev device (`/dev/input/eventN`) before interrupts can
+    // deliver the first packet.
+    let device = input::register_device(
+        "PS/2 Generic Mouse",
+        "isa0060/serio1/input0",
+        InputId {
+            bustype: bus::I8042,
+            vendor: 0x0002,
+            product: 0x0001,
+            version: 0x0000,
+        },
+        keymap::mouse_capabilities(&[key::BTN_LEFT, key::BTN_RIGHT, key::BTN_MIDDLE], false),
+    );
+    INPUT_DEVICE.call_once(|| device);
 
     // Allocate and map ISA IRQ 12
     if let Some(chip) = IRQ_CHIP.get() {

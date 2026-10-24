@@ -8,6 +8,7 @@
 pub mod blk;
 pub mod chr;
 pub mod drm;
+pub mod input;
 pub mod net;
 pub mod null;
 pub mod random;
@@ -146,6 +147,20 @@ impl NodeOps for DevFsDirOps {
                         | Mode::ROTH
                         | Mode::XOTH,
                     12,
+                )));
+            }
+            "input" => {
+                return Ok(Arc::new(INode::new(
+                    Box::new(input::InputDirNodeOps),
+                    Mode::DIR
+                        | Mode::RUSR
+                        | Mode::WUSR
+                        | Mode::XUSR
+                        | Mode::RGRP
+                        | Mode::XGRP
+                        | Mode::ROTH
+                        | Mode::XOTH,
+                    13,
                 )));
             }
             "fd" => {
@@ -304,6 +319,7 @@ impl FileOps for DevFsDirFileOps {
         out.extend_from_slice(b"urandom\n");
         out.extend_from_slice(b"tty\n");
         out.extend_from_slice(b"dri\n");
+        out.extend_from_slice(b"input\n");
         out.extend_from_slice(b"fd\n");
         out.extend_from_slice(b"stdin\n");
         out.extend_from_slice(b"stdout\n");

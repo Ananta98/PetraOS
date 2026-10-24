@@ -146,6 +146,7 @@ macro_rules! impl_syscall_nums_and_dispatch_fn {
                 ostd::info!("syscall: pid {} sys_{} args={:x?}", pid_val, sys_no, args);
             }
 
+            let t_start = $crate::time::get_monotonic_ns();
             let res = match sys_no {
                 $(
                     $num => $crate::invoke_syscall_handler!($($handler)::+, args, ctx $(, $arg_ty)*),
@@ -155,6 +156,10 @@ macro_rules! impl_syscall_nums_and_dispatch_fn {
                     Err($crate::uapi::errno::Errno::ENOSYS)
                 }
             };
+            let t_dur_us = ($crate::time::get_monotonic_ns().saturating_sub(t_start)) / 1000;
+            if t_dur_us > 50_000 {
+                ostd::info!("SLOWSYS: pid {} sys_{} took {} ms", pid_val, sys_no, t_dur_us / 1000);
+            }
 
             ctx.general_regs_mut().rax = match res {
                 Ok(val) => {

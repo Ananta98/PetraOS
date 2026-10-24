@@ -64,6 +64,11 @@ pub enum PollTimeout {
 
 static POLL_WAITQ: WaitQueue = WaitQueue::new();
 
+/// Returns the global poll waitqueue.
+pub fn waitq() -> &'static WaitQueue {
+    &POLL_WAITQ
+}
+
 /// Wakes all pollers; call after any readiness change.
 pub fn notify() {
     POLL_WAITQ.wake_all();

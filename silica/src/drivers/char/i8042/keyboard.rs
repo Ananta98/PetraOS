@@ -26,7 +26,15 @@ use super::{
     ps2::{CMD_ENABLE_SCANNING, CMD_RESET, send_keyboard_cmd},
 };
 use crate::{
-    drivers::CharacterDevice, drivers::char::tty, uapi::errno::Result,
+    drivers::{
+        CharacterDevice,
+        char::tty,
+        input::{self, InputDevice, keymap},
+    },
+    uapi::{
+        errno::Result,
+        input::{InputId, bus},
+    },
     utils::ring_buffer::RingBuffer,
 };
 
@@ -37,6 +45,9 @@ static KEYBOARD_IRQ_LINE: Once<MappedIrqLine> = Once::new();
 
 /// Global lock-free ring buffer storing received keyboard ASCII characters.
 pub static KEYBOARD_BUFFER: RingBuffer<1024> = RingBuffer::new();
+
+/// The input device this keyboard reports to (`/dev/input/eventN`).
+static INPUT_DEVICE: Once<Arc<InputDevice>> = Once::new();
 
 /// Global PS/2 keyboard state machine backed by `pc-keyboard`.
 static KEYBOARD: Mutex<PS2Keyboard<Us104Key, ScancodeSet1>> = Mutex::new(PS2Keyboard::new(
@@ -112,18 +123,23 @@ fn handle_keyboard_irq(_frame: &TrapFrame) {
 
         let mut keyboard = KEYBOARD.lock();
         if let Ok(Some(key_event)) = keyboard.add_byte(data) {
+            // Report the key transition to the input core first: this is what
+            // evdev clients and the console keyboard handler consume.
+            if let Some(device) = INPUT_DEVICE.get() {
+                report_key(device, &key_event);
+            }
+
+            // Legacy `/dev/keyboard` byte stream.
             if let Some(decoded) = keyboard.process_keyevent(key_event) {
                 match decoded {
                     DecodedKey::Unicode(ch) => {
                         // Return/Enter translates to carriage return \r for terminal line discipline
                         if ch == '\n' {
                             KEYBOARD_BUFFER.push_overwrite(b'\r');
-                            tty::queue_input(b'\r');
                         } else {
                             let mut buf = [0u8; 4];
                             for &b in ch.encode_utf8(&mut buf).as_bytes() {
                                 KEYBOARD_BUFFER.push_overwrite(b);
-                                tty::queue_input(b);
                             }
                         }
                     }
@@ -131,7 +147,6 @@ fn handle_keyboard_irq(_frame: &TrapFrame) {
                         if let Some(seq) = raw_key_to_escape_seq(code) {
                             for b in seq.bytes() {
                                 KEYBOARD_BUFFER.push_overwrite(b);
-                                tty::queue_input(b);
                             }
                         }
                     }
@@ -139,6 +154,16 @@ fn handle_keyboard_irq(_frame: &TrapFrame) {
             }
         }
     }
+}
+
+/// Emits one `EV_KEY` transition plus its `SYN_REPORT` into the input core.
+fn report_key(device: &InputDevice, event: &pc_keyboard::KeyEvent) {
+    let Some(code) = keymap::ps2_keycode(event.code) else {
+        return;
+    };
+    let pressed = !matches!(event.state, KeyState::Up);
+    device.report_key(code, pressed as i32);
+    device.sync();
 }
 
 // ----------------------------------------------------------------------------
@@ -206,7 +231,21 @@ pub fn init(controller: &I8042Controller) -> Result<()> {
         ostd::warn!("PS/2 Keyboard: Enable scanning error (ignored): {:?}", err);
     }
 
-    // 3. Allocate and map ISA IRQ 1
+    // 3. Register the evdev device (`/dev/input/eventN`)
+    let device = input::register_device(
+        "AT Translated Set 2 keyboard",
+        "isa0060/serio0/input0",
+        InputId {
+            bustype: bus::I8042,
+            vendor: 0x0001,
+            product: 0x0001,
+            version: 0xab41,
+        },
+        keymap::keyboard_capabilities(),
+    );
+    INPUT_DEVICE.call_once(|| device);
+
+    // 4. Allocate and map ISA IRQ 1
     if let Some(chip) = IRQ_CHIP.get() {
         if let Ok(irq_line) = IrqLine::alloc() {
             match chip.map_isa_pin_to(irq_line, ISA_KEYBOARD_IRQ) {
@@ -229,7 +268,7 @@ pub fn init(controller: &I8042Controller) -> Result<()> {
         }
     }
 
-    // 4. Register into unified driver registry
+    // 5. Register into unified driver registry
     crate::drivers::register_chrdev(Arc::new(KeyboardDevice))?;
 
     ostd::info!("PS/2 Keyboard: Driver registered successfully.");

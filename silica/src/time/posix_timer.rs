@@ -34,6 +34,7 @@ pub struct PosixTimerInner {
     pub next_deadline_ns: u64,
     pub overrun: i32,
     pub generation: u64,
+    pub ktimer: Option<crate::kpi::time::KTimer>,
 }
 
 /// A POSIX per-process timer descriptor.
@@ -72,6 +73,7 @@ impl PosixTimer {
                 next_deadline_ns: 0,
                 overrun: 0,
                 generation: 0,
+                ktimer: None,
             }),
         }
     }
@@ -150,16 +152,24 @@ pub fn on_timer_expire(timer: Arc<PosixTimer>, proc_id: Pid, generation: u64) {
 
     // If periodic and still armed with matching generation, schedule the next iteration
     if interval_ns > 0 {
-        let inner = timer.inner.lock();
+        let mut inner = timer.inner.lock();
         if inner.generation == generation && inner.armed {
-            drop(inner);
+            if let Some(old) = inner.ktimer.take() {
+                old.cancel();
+            }
             let timer_clone = Arc::clone(&timer);
-            crate::kpi::task::schedule_delayed_work_fn(
+            let ktimer = crate::kpi::task::schedule_delayed_work_fn(
                 move || {
                     on_timer_expire(timer_clone, proc_id, generation);
                 },
                 Duration::from_nanos(interval_ns),
             );
+            inner.ktimer = Some(ktimer);
+        }
+    } else {
+        let mut inner = timer.inner.lock();
+        if inner.generation == generation {
+            inner.ktimer = None;
         }
     }
 }
@@ -171,6 +181,9 @@ pub fn on_proc_exit(proc: &Proc) {
         let mut inner = timer.inner.lock();
         inner.armed = false;
         inner.generation = inner.generation.wrapping_add(1);
+        if let Some(ktimer) = inner.ktimer.take() {
+            ktimer.cancel();
+        }
     }
     timers.clear();
 }

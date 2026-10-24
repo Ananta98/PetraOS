@@ -14,6 +14,7 @@
 //! | [`drm`] | `drm.h`/`drm_mode.h` UAPI: LGPL-style ioctl numbers, GEM flink
 //!   structs and the KMS mode tables |
 //! | [`cred`] | `uid_t`, `gid_t` and `struct ucred` |
+//! | [`input`] | evdev UAPI: `struct input_event`, `EV_*`/`KEY_*` codes, capability ioctls |
 //! | [`ipc`] | System V IPC common constants and `struct ipc_perm` |
 //! | [`shm`] | System V Shared Memory `struct shmid_ds`, `struct shminfo`, and `SHM_*` constants |
 //! | [`sem`] | System V Semaphore `struct sembuf`, `struct semid_ds`, and `SEM_*` commands |
@@ -32,6 +33,7 @@
 pub mod cred;
 pub mod drm;
 pub mod errno;
+pub mod input;
 pub mod ioctl;
 pub mod ipc;
 pub mod limit;

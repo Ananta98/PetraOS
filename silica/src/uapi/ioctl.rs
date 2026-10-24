@@ -47,6 +47,29 @@ pub const fn _iowr<T>(ty: u32, nr: u32) -> u32 {
     _ioc(IOC_READ | IOC_WRITE, ty, nr, size_of::<T>())
 }
 
+/// `_IOC_DIR(cmd)`: the direction field of a request number.
+pub const fn ioc_dir(cmd: u32) -> u32 {
+    cmd >> IOC_DIRSHIFT & 0x3
+}
+
+/// `_IOC_TYPE(cmd)`: the request type byte.
+pub const fn ioc_type(cmd: u32) -> u32 {
+    cmd >> IOC_TYPESHIFT & 0xFF
+}
+
+/// `_IOC_NR(cmd)`: the request number.
+pub const fn ioc_nr(cmd: u32) -> u32 {
+    cmd >> IOC_NRSHIFT & 0xFF
+}
+
+/// `_IOC_SIZE(cmd)`: the payload length encoded by the caller.
+///
+/// Variable-length requests such as `EVIOCGNAME(len)` carry their buffer size
+/// here rather than in the request's own definition.
+pub const fn ioc_size(cmd: u32) -> usize {
+    (cmd >> IOC_SIZESHIFT & 0x3FFF) as usize
+}
+
 pub const TCGETS: u32 = 0x5401;
 pub const TCSETS: u32 = 0x5402;
 pub const TCSETSW: u32 = 0x5403;

@@ -7,6 +7,7 @@
 //! and hardware display drivers.
 
 pub mod font;
+pub mod kbd;
 pub mod ldisc;
 pub mod pty;
 pub mod terminal;
@@ -159,6 +160,22 @@ impl Tty {
         };
 
         let (waiter, _) = Waiter::new_pair();
+        let ktimer = if !canon && vtime > 0 {
+            let waker = waiter.waker();
+            Some(crate::kpi::time::arm(
+                core::time::Duration::from_millis((vtime as u64) * 100),
+                Some(alloc::boxed::Box::new(move || {
+                    waker.wake_up();
+                })),
+            ))
+        } else {
+            None
+        };
+        let deadline_ns = if !canon && vtime > 0 {
+            Some(crate::time::get_monotonic_ns().saturating_add((vtime as u64) * 100_000_000))
+        } else {
+            None
+        };
 
         let cond = || -> Option<usize> {
             drain_input();
@@ -179,10 +196,12 @@ impl Tty {
             } else if vmin == 0 {
                 if avail > 0 {
                     Some(ldisc.read_into(buf))
-                } else {
+                } else if vtime == 0 || deadline_ns.is_some_and(|dl| crate::time::get_monotonic_ns() >= dl) {
                     Some(0)
+                } else {
+                    None
                 }
-            } else if avail > 0 && (avail >= vmin.min(buf.len()) || vtime > 0) {
+            } else if avail > 0 && (avail >= vmin.min(buf.len()) || deadline_ns.is_some_and(|dl| crate::time::get_monotonic_ns() >= dl)) {
                 Some(ldisc.read_into(buf))
             } else if self.is_hung_up() {
                 Some(ldisc.read_into(buf))
@@ -205,7 +224,11 @@ impl Tty {
             Ok(())
         };
 
-        waiter.wait_until_or_cancelled(cond, cancel)
+        let res = waiter.wait_until_or_cancelled(cond, cancel);
+        if let Some(t) = ktimer {
+            t.cancel();
+        }
+        res
     }
 
     /// Writes data through the line discipline to the backing driver.
@@ -638,13 +661,6 @@ pub fn flush_input_queue() {
     while INPUT_QUEUE.pop().is_some() {}
 }
 
-/// Dispatches an incoming character from the keyboard into the console TTY.
-pub fn handle_keyboard_char(ch: u8) {
-    if let Some(console) = get_console() {
-        console.input_byte(ch);
-    }
-}
-
 /// Called when a process terminates.
 /// If the process left the active console TTY in raw mode or with disabled ONLCR,
 /// restores canonical termios, exits alternate screen, and unhides cursor,
@@ -690,6 +706,9 @@ pub fn init() -> Result<()> {
     register_chrdev(Arc::clone(&console_tty) as Arc<dyn CharacterDevice>)?;
 
     pty::init()?;
+
+    // Console keyboard input arrives as EV_KEY events from the input core.
+    kbd::init();
 
     update_console_winsize();
 
