@@ -1,35 +1,21 @@
 // SPDX-License-Identifier: GPL-2.0
 
-//! VirtIO Input Device Driver (`virtio 1.1` §5.8).
-//!
-//! Provides support for QEMU / KVM VirtIO input devices (keyboards, mice,
-//! tablets, multi-touch devices). Reads capabilities and absolute axis info
-//! from device config space, registers an [`InputDevice`], manages `eventq`
-//! (Queue 0) for the incoming event stream, and `statusq` (Queue 1) for
-//! host feedback (keyboard LEDs, sound, repeat).
+//! VirtIO Input Device Implementation.
 
 use alloc::{
     format,
     string::{String, ToString},
     sync::Arc,
-    vec::Vec,
 };
 use core::mem::size_of;
-use ostd::{
-    mm::{HasPaddr, VmIo, dma::DmaCoherent},
-    sync::{LocalIrqDisabled, SpinLock},
-};
+use ostd::mm::{HasPaddr, VmIo, dma::DmaCoherent};
 use spin::Mutex;
 
 use crate::{
     drivers::{
-        bus::virtio::{
-            SubmitBuffer, VIRTIO_F_VERSION_1, VirtQueue, VirtioDevice, VirtioTransport,
-            register_virtio_device,
-        },
+        bus::virtio::{SubmitBuffer, VirtQueue, VirtioTransport},
         input::{Capabilities, InputDevice, register_device_full},
     },
-    modules::InitcallLevel,
     uapi::{
         errno::{Errno, Result},
         input::{
@@ -39,58 +25,10 @@ use crate::{
     },
 };
 
-/// PCI Device ID for modern VirtIO Input devices (`0x1040 + 18`).
-pub const PCI_DEVICE_ID_VIRTIO_INPUT: u16 = 0x1052;
-
-/// VirtQueue indices for VirtIO Input.
-pub const EVENT_QUEUE: usize = 0;
-pub const STATUS_QUEUE: usize = 1;
-pub const QUEUE_COUNT: usize = 2;
-
-/// VirtIO Input configuration selection registers (`virtio 1.1` §5.8.4).
-pub const VIRTIO_INPUT_CFG_UNSET: u8 = 0x00;
-pub const VIRTIO_INPUT_CFG_ID_NAME: u8 = 0x01;
-pub const VIRTIO_INPUT_CFG_ID_SERIAL: u8 = 0x02;
-pub const VIRTIO_INPUT_CFG_ID_DEVIDS: u8 = 0x03;
-pub const VIRTIO_INPUT_CFG_PROP_BITS: u8 = 0x10;
-pub const VIRTIO_INPUT_CFG_EV_BITS: u8 = 0x11;
-pub const VIRTIO_INPUT_CFG_ABS_INFO: u8 = 0x12;
-
-/// Maximum number of event descriptors pre-populated in `eventq`.
-pub const MAX_EVENT_BUFFERS: usize = 64;
-
-/// A single event transmitted across `eventq` or `statusq` (`virtio 1.1` §5.8.6.1).
-#[repr(C)]
-#[derive(
-    Clone,
-    Copy,
-    Debug,
-    Default,
-    zerocopy::FromBytes,
-    zerocopy::IntoBytes,
-    zerocopy::KnownLayout,
-    zerocopy::Immutable,
-)]
-pub struct VirtioInputEvent {
-    pub type_: u16,
-    pub code: u16,
-    pub value: u32,
-}
-
-/// Global registry of active `VirtioInput` devices.
-static VIRTIO_INPUT_DEVICES: SpinLock<Vec<Arc<VirtioInput>>, LocalIrqDisabled> =
-    SpinLock::new(Vec::new());
-
-/// Polls all registered `VirtioInput` devices for pending events in `eventq`.
-pub fn poll_all() {
-    let devices = VIRTIO_INPUT_DEVICES.lock().clone();
-    for dev in devices {
-        dev.poll_events();
-    }
-}
+use super::protocol::*;
 
 /// Helper function to query device config space by `select` and `subsel`.
-fn query_config(
+pub fn query_config(
     transport: &VirtioTransport,
     select: u8,
     subsel: u8,
@@ -364,7 +302,7 @@ impl VirtioInput {
             }
         });
 
-        VIRTIO_INPUT_DEVICES.lock().push(Arc::clone(&virtio_input));
+        super::register_active_device(Arc::clone(&virtio_input));
 
         ostd::info!(
             "virtio-input: initialized \"{}\" (uniq: \"{}\", phys: \"{}\")",
@@ -423,52 +361,3 @@ impl VirtioInput {
         Ok(())
     }
 }
-
-/// VirtIO bus registration driver for `virtio-input`.
-pub struct VirtioInputDriver;
-
-impl VirtioDevice for VirtioInputDriver {
-    fn device_id(&self) -> u16 {
-        PCI_DEVICE_ID_VIRTIO_INPUT
-    }
-
-    fn name(&self) -> &'static str {
-        "virtio-input"
-    }
-
-    fn queue_count(&self) -> usize {
-        QUEUE_COUNT
-    }
-
-    fn accept_features(&self, device_features: u64) -> u64 {
-        device_features & VIRTIO_F_VERSION_1
-    }
-
-    fn on_init(&self, transport: &Arc<VirtioTransport>) -> Result<()> {
-        let _dev = VirtioInput::new(transport)?;
-        Ok(())
-    }
-}
-
-/// Background worker thread that periodically polls VirtIO input queues (100 Hz).
-fn virtio_input_poller_entry() {
-    loop {
-        poll_all();
-        crate::kpi::time::arm(core::time::Duration::from_millis(10), None).wait();
-    }
-}
-
-/// Initializes the `virtio-input` driver, registering with the VirtIO bus
-/// and starting the background event polling worker.
-pub fn init() -> Result<()> {
-    register_virtio_device(Arc::new(VirtioInputDriver))?;
-    let _ = crate::proc::kthread::kproc_create("virtio_input", virtio_input_poller_entry, 0);
-    Ok(())
-}
-
-crate::module!(
-    "Virtio Input Driver",
-    "Ananta",
-    InitcallLevel::Device,
-    init
-);

@@ -6,7 +6,6 @@
 //! and ATA Read/Write operations via DMA.
 
 use alloc::string::String;
-use core::sync::atomic::{AtomicU64, Ordering};
 use spin::Mutex;
 
 use ostd::{
@@ -19,7 +18,10 @@ use super::{
     hba::*,
 };
 use crate::{
-    drivers::{BlockDeviceStats, block::BlockDevice},
+    drivers::{
+        BlockDeviceStats,
+        block::{BlockDevice, BlockDeviceCounters},
+    },
     uapi::errno::{Errno, Result},
 };
 
@@ -50,10 +52,7 @@ pub struct AhciPort {
     // Command Table for Slot 0: 256 bytes (64B CFIS + 16B ACMD + 48B RSV + 128B PRDT)
     pub cmd_table_dma: DmaCoherent,
     pub lock: Mutex<()>,
-    pub reads_completed: AtomicU64,
-    pub sectors_read: AtomicU64,
-    pub writes_completed: AtomicU64,
-    pub sectors_written: AtomicU64,
+    pub counters: BlockDeviceCounters,
 }
 
 impl AhciPort {
@@ -187,10 +186,7 @@ impl AhciPort {
             rx_fis_dma,
             cmd_table_dma,
             lock: Mutex::new(()),
-            reads_completed: AtomicU64::new(0),
-            sectors_read: AtomicU64::new(0),
-            writes_completed: AtomicU64::new(0),
-            sectors_written: AtomicU64::new(0),
+            counters: BlockDeviceCounters::new(),
         };
 
         port.rebase()?;
@@ -430,8 +426,15 @@ impl AhciPort {
         Ok(())
     }
 
-    /// Read sectors using ATA READ DMA EXT (Command 0x25).
-    pub fn read_dma_ext(&self, start_lba: u64, sector_count: u16, buf: &mut [u8]) -> Result<usize> {
+    /// Execute an ATA DMA EXT command (READ_DMA_EXT or WRITE_DMA_EXT).
+    fn exec_dma_ext(
+        &self,
+        start_lba: u64,
+        sector_count: u16,
+        is_write: bool,
+        mut read_buf: Option<&mut [u8]>,
+        write_buf: Option<&[u8]>,
+    ) -> Result<usize> {
         if sector_count == 0 {
             return Ok(0);
         }
@@ -443,11 +446,23 @@ impl AhciPort {
         let dma_frames = (byte_count as usize + ostd::mm::PAGE_SIZE - 1) / ostd::mm::PAGE_SIZE;
         let dma_buf = DmaCoherent::alloc(dma_frames, true).map_err(|_| Errno::ENOMEM)?;
 
+        if is_write {
+            if let Some(src) = write_buf {
+                let mut reader = VmReader::from(src);
+                let mut writer = dma_buf.writer();
+                let _ = reader.read(&mut writer);
+            }
+        }
+
         // 1. Construct CFIS
         let mut cfis = FisRegH2D::default();
         cfis.fis_type = FisType::RegH2D as u8;
         cfis.pmport_c = 0x80;
-        cfis.command = ATA_CMD_READ_DMA_EXT;
+        cfis.command = if is_write {
+            ATA_CMD_WRITE_DMA_EXT
+        } else {
+            ATA_CMD_READ_DMA_EXT
+        };
         cfis.device = ATA_DEV_LBA;
 
         cfis.lba0 = (start_lba & 0xFF) as u8;
@@ -477,10 +492,10 @@ impl AhciPort {
 
         self.write_bytes_to_dma(&mut table_writer, &prdt.to_bytes());
 
-        // 3. Command Header (Write = 0)
+        // 3. Command Header (Write bit 6)
         let ctba_phys = self.cmd_table_dma.paddr() as u64;
         let cmd_header = HbaCmdHeader {
-            flags: 5, // Read: Write bit 6 is 0
+            flags: if is_write { 5 | (1 << 6) } else { 5 },
             prdtl: 1,
             prdbc: 0,
             ctba: ctba_phys as u32,
@@ -510,106 +525,28 @@ impl AhciPort {
         }
 
         if !completed {
-            crate::return_errno!(ETIMEDOUT, "AHCI read_dma_ext command timed out");
+            crate::return_errno!(ETIMEDOUT, "AHCI DMA command timed out");
         }
 
-        // Copy read data from DMA buffer to caller's buffer
-        let mut reader = dma_buf.reader();
-        let mut writer = VmWriter::from(buf);
-        let bytes_copied = reader.read(&mut writer);
+        if !is_write {
+            if let Some(dst) = read_buf.take() {
+                let mut reader = dma_buf.reader();
+                let mut writer = VmWriter::from(dst);
+                return Ok(reader.read(&mut writer));
+            }
+        }
 
-        Ok(bytes_copied)
+        Ok(byte_count as usize)
+    }
+
+    /// Read sectors using ATA READ DMA EXT (Command 0x25).
+    pub fn read_dma_ext(&self, start_lba: u64, sector_count: u16, buf: &mut [u8]) -> Result<usize> {
+        self.exec_dma_ext(start_lba, sector_count, false, Some(buf), None)
     }
 
     /// Write sectors using ATA WRITE DMA EXT (Command 0x35).
     pub fn write_dma_ext(&self, start_lba: u64, sector_count: u16, buf: &[u8]) -> Result<usize> {
-        if sector_count == 0 {
-            return Ok(0);
-        }
-
-        let _guard = self.lock.lock();
-        self.wait_ready()?;
-
-        let byte_count = sector_count as u32 * 512;
-        let dma_frames = (byte_count as usize + ostd::mm::PAGE_SIZE - 1) / ostd::mm::PAGE_SIZE;
-        let dma_buf = DmaCoherent::alloc(dma_frames, true).map_err(|_| Errno::ENOMEM)?;
-
-        // Stage data into DMA buffer
-        let mut reader = VmReader::from(buf);
-        let mut writer = dma_buf.writer();
-        let _ = reader.read(&mut writer);
-
-        // 1. Construct CFIS
-        let mut cfis = FisRegH2D::default();
-        cfis.fis_type = FisType::RegH2D as u8;
-        cfis.pmport_c = 0x80;
-        cfis.command = ATA_CMD_WRITE_DMA_EXT;
-        cfis.device = ATA_DEV_LBA;
-
-        cfis.lba0 = (start_lba & 0xFF) as u8;
-        cfis.lba1 = ((start_lba >> 8) & 0xFF) as u8;
-        cfis.lba2 = ((start_lba >> 16) & 0xFF) as u8;
-        cfis.lba3 = ((start_lba >> 24) & 0xFF) as u8;
-        cfis.lba4 = ((start_lba >> 32) & 0xFF) as u8;
-        cfis.lba5 = ((start_lba >> 40) & 0xFF) as u8;
-
-        cfis.count_l = (sector_count & 0xFF) as u8;
-        cfis.count_h = ((sector_count >> 8) & 0xFF) as u8;
-
-        // 2. PRDT entry
-        let prdt = HbaPrdtEntry {
-            dba: dma_buf.paddr() as u32,
-            dbau: (dma_buf.paddr() >> 32) as u32,
-            rsv0: 0,
-            dbc_i: (byte_count - 1) | (1 << 31),
-        };
-
-        // Write CFIS + PRDT to command table
-        let mut table_writer = self.cmd_table_dma.writer();
-        self.write_bytes_to_dma(&mut table_writer, &cfis.to_bytes());
-
-        let zero_pad = [0u8; 128 - FisRegH2D::SIZE];
-        self.write_bytes_to_dma(&mut table_writer, &zero_pad);
-
-        self.write_bytes_to_dma(&mut table_writer, &prdt.to_bytes());
-
-        // 3. Command Header (Write = 1 -> Bit 6 set: 5 | (1 << 6) = 0x45)
-        let ctba_phys = self.cmd_table_dma.paddr() as u64;
-        let cmd_header = HbaCmdHeader {
-            flags: 5 | (1 << 6), // Write bit set
-            prdtl: 1,
-            prdbc: 0,
-            ctba: ctba_phys as u32,
-            ctbau: (ctba_phys >> 32) as u32,
-            rsv: [0; 4],
-        };
-
-        let mut cl_writer = self.cmd_list_dma.writer();
-        self.write_bytes_to_dma(&mut cl_writer, &cmd_header.to_bytes());
-
-        // 4. Issue command
-        self.mmio
-            .write_once(self.port_base + PORT_CI, &1u32)
-            .map_err(|_| Errno::EIO)?;
-
-        // 5. Poll for completion
-        let mut completed = false;
-        for _ in 0..1_000_000 {
-            let ci: u32 = self
-                .mmio
-                .read_once(self.port_base + PORT_CI)
-                .map_err(|_| Errno::EIO)?;
-            if (ci & 1) == 0 {
-                completed = true;
-                break;
-            }
-        }
-
-        if !completed {
-            crate::return_errno!(ETIMEDOUT, "AHCI write_dma_ext command timed out");
-        }
-
-        Ok(byte_count as usize)
+        self.exec_dma_ext(start_lba, sector_count, true, None, Some(buf))
     }
 }
 
@@ -637,9 +574,7 @@ impl BlockDevice for AhciPort {
         let sector_count = (buf.len() / self.sector_size) as u16;
         let res = self.read_dma_ext(block_id, sector_count, buf);
         if res.is_ok() {
-            self.reads_completed.fetch_add(1, Ordering::Relaxed);
-            self.sectors_read
-                .fetch_add(sector_count as u64, Ordering::Relaxed);
+            self.counters.record_read(sector_count as u64);
         }
         res
     }
@@ -655,9 +590,7 @@ impl BlockDevice for AhciPort {
         let sector_count = (buf.len() / self.sector_size) as u16;
         let res = self.write_dma_ext(block_id, sector_count, buf);
         if res.is_ok() {
-            self.writes_completed.fetch_add(1, Ordering::Relaxed);
-            self.sectors_written
-                .fetch_add(sector_count as u64, Ordering::Relaxed);
+            self.counters.record_write(sector_count as u64);
         }
         res
     }
@@ -667,18 +600,6 @@ impl BlockDevice for AhciPort {
     }
 
     fn stats(&self) -> BlockDeviceStats {
-        BlockDeviceStats {
-            reads_completed: self.reads_completed.load(Ordering::Relaxed),
-            reads_merged: 0,
-            sectors_read: self.sectors_read.load(Ordering::Relaxed),
-            read_ms: 0,
-            writes_completed: self.writes_completed.load(Ordering::Relaxed),
-            writes_merged: 0,
-            sectors_written: self.sectors_written.load(Ordering::Relaxed),
-            write_ms: 0,
-            io_in_progress: 0,
-            io_ms: 0,
-            weighted_io_ms: 0,
-        }
+        self.counters.to_stats()
     }
 }

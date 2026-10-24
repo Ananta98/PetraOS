@@ -12,7 +12,6 @@ pub mod queue;
 pub mod regs;
 
 use alloc::{format, sync::Arc, vec::Vec};
-use core::sync::atomic::AtomicU64;
 use spin::Mutex;
 
 use ostd::{
@@ -28,7 +27,7 @@ use self::{
 };
 use crate::{
     drivers::{
-        block::register_block_device,
+        block::{BlockDeviceCounters, register_block_device},
         device::{BusDevice, Driver},
         bus::pci::{PciBus, PciDevice, PciDeviceId, pci_register_driver, self},
     },
@@ -48,20 +47,10 @@ pub fn probe_controller(dev: &PciDevice) -> Result<Arc<NvmeController>> {
     ostd::info!("NVMe: Initializing controller at PCI {}", dev.address);
 
     // 1. Enable Bus Mastering (DMA) and Memory Mapped I/O
-    dev.enable_bus_mastering();
-    dev.enable_memory_space();
+    dev.enable_device_and_dma();
 
     // 2. Locate BAR0 (Memory BAR for NVMe Registers)
-    let bar0 = dev.bars[0].ok_or_else(|| {
-        ostd::error!("NVMe: Controller has no valid BAR0");
-        Errno::ENODEV
-    })?;
-
-    let mmio_range = (bar0.address as usize)..(bar0.address as usize + bar0.size as usize);
-    let mmio = IoMem::acquire(mmio_range).map_err(|_| {
-        ostd::error!("NVMe: Failed to map BAR0 MMIO region");
-        Errno::EIO
-    })?;
+    let mmio = dev.map_bar(0)?;
 
     // 3. Read Controller Capabilities (CAP)
     let _cap_low: u32 = mmio.read_once(NVME_REG_CAP).map_err(|_| Errno::EIO)?;
@@ -195,10 +184,7 @@ pub fn probe_controller(dev: &PciDevice) -> Result<Arc<NvmeController>> {
                     block_count,
                     io_queue: Arc::clone(&io_queue),
                     mmio: mmio.clone(),
-                    reads_completed: AtomicU64::new(0),
-                    sectors_read: AtomicU64::new(0),
-                    writes_completed: AtomicU64::new(0),
-                    sectors_written: AtomicU64::new(0),
+                    counters: BlockDeviceCounters::new(),
                 });
 
                 register_block_device(&name, Arc::clone(&ns) as _)?;

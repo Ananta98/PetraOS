@@ -36,23 +36,10 @@ pub fn probe_controller(dev: &PciDevice) -> Result<Arc<AhciController>> {
     ostd::info!("AHCI: Initializing SATA controller at PCI {}", dev.address);
 
     // 1. Enable Bus Mastering (DMA) and Memory Mapped I/O
-    dev.enable_bus_mastering();
-    dev.enable_memory_space();
+    dev.enable_device_and_dma();
 
     // 2. Locate BAR5 (ABAR - AHCI Base Address Register)
-    let bar5 = dev.bars[5].ok_or_else(|| {
-        ostd::error!("AHCI: Controller at {} has no valid BAR5", dev.address);
-        Errno::ENODEV
-    })?;
-
-    let mmio_range = (bar5.address as usize)..(bar5.address as usize + bar5.size as usize);
-    let mmio = IoMem::acquire(mmio_range).map_err(|_| {
-        ostd::error!(
-            "AHCI: Failed to map BAR5 MMIO region at {:#X}",
-            bar5.address
-        );
-        Errno::EIO
-    })?;
+    let mmio = dev.map_bar(5)?;
 
     // 3. Enable AHCI Mode (GHC.AE = 1)
     let mut ghc: u32 = mmio.read_once(AHCI_GHC).map_err(|_| Errno::EIO)?;

@@ -68,6 +68,15 @@ impl<C: Class> ClassHandle<C> {
             .cloned()
     }
 
+    /// Returns the payload of the device named `name`, if present, without cloning the full list.
+    pub fn find_payload(&self, name: &str) -> Option<Arc<C::Device>> {
+        self.devices
+            .read()
+            .iter()
+            .find(|d| d.name() == name)
+            .map(|d| Arc::clone(&d.payload))
+    }
+
     /// Returns a snapshot of the payloads backing the class devices.
     pub fn payloads(&self) -> Vec<Arc<C::Device>> {
         self.devices

@@ -12,7 +12,13 @@ pub mod input;
 pub mod net;
 pub mod null;
 pub mod random;
+pub mod registry;
 pub mod zero;
+
+pub use registry::{
+    DevFsRegistry, DevNodeEntry, GLOBAL_DEVFS_REGISTRY, register_dev_dir, register_dev_node,
+    register_dev_symlink,
+};
 
 pub use null::NullFile;
 pub use random::{RandomFile, UrandomFile};
@@ -68,7 +74,12 @@ impl NodeOps for DevFsDirOps {
             return Ok(Arc::clone(node));
         }
 
-        // 2. Check static dev nodes
+        // 2. Check dynamic devfs registry entries
+        if let Some(node) = GLOBAL_DEVFS_REGISTRY.lookup(name, 20) {
+            return Ok(node);
+        }
+
+        // 3. Check static dev nodes
         match name {
             "null" => {
                 return Ok(Arc::new(INode::new(
@@ -416,6 +427,11 @@ impl FileOps for DevFsDirFileOps {
 
         for key in self.dynamic_entries.read().keys() {
             out.extend_from_slice(key.as_bytes());
+            out.push(b'\n');
+        }
+
+        for name in GLOBAL_DEVFS_REGISTRY.names() {
+            out.extend_from_slice(name.as_bytes());
             out.push(b'\n');
         }
 

@@ -3,7 +3,6 @@
 //! NVMe Active Namespace representing a block storage device.
 
 use alloc::{string::String, sync::Arc};
-use core::sync::atomic::{AtomicU64, Ordering};
 use spin::Mutex;
 
 use ostd::{
@@ -16,7 +15,10 @@ use super::{
     queue::NvmeQueuePair,
 };
 use crate::{
-    drivers::{BlockDeviceStats, block::BlockDevice},
+    drivers::{
+        BlockDeviceStats,
+        block::{BlockDevice, BlockDeviceCounters},
+    },
     uapi::errno::{Errno, Result},
 };
 
@@ -28,10 +30,7 @@ pub struct NvmeNamespace {
     pub block_count: u64,
     pub io_queue: Arc<Mutex<NvmeQueuePair>>,
     pub mmio: IoMem,
-    pub reads_completed: AtomicU64,
-    pub sectors_read: AtomicU64,
-    pub writes_completed: AtomicU64,
-    pub sectors_written: AtomicU64,
+    pub counters: BlockDeviceCounters,
 }
 
 impl BlockDevice for NvmeNamespace {
@@ -71,8 +70,7 @@ impl BlockDevice for NvmeNamespace {
         let bytes_copied = reader.read(&mut writer);
 
         let sectors = (num_blocks as u64) * (self.block_size as u64 / 512);
-        self.reads_completed.fetch_add(1, Ordering::Relaxed);
-        self.sectors_read.fetch_add(sectors, Ordering::Relaxed);
+        self.counters.record_read(sectors);
 
         Ok(bytes_copied)
     }
@@ -101,8 +99,7 @@ impl BlockDevice for NvmeNamespace {
         queue.submit_and_wait(sqe, &self.mmio)?;
 
         let sectors = (num_blocks as u64) * (self.block_size as u64 / 512);
-        self.writes_completed.fetch_add(1, Ordering::Relaxed);
-        self.sectors_written.fetch_add(sectors, Ordering::Relaxed);
+        self.counters.record_write(sectors);
 
         Ok(buf.len())
     }
@@ -122,18 +119,6 @@ impl BlockDevice for NvmeNamespace {
     }
 
     fn stats(&self) -> BlockDeviceStats {
-        BlockDeviceStats {
-            reads_completed: self.reads_completed.load(Ordering::Relaxed),
-            reads_merged: 0,
-            sectors_read: self.sectors_read.load(Ordering::Relaxed),
-            read_ms: 0,
-            writes_completed: self.writes_completed.load(Ordering::Relaxed),
-            writes_merged: 0,
-            sectors_written: self.sectors_written.load(Ordering::Relaxed),
-            write_ms: 0,
-            io_in_progress: 0,
-            io_ms: 0,
-            weighted_io_ms: 0,
-        }
+        self.counters.to_stats()
     }
 }

@@ -67,9 +67,7 @@ pub fn unregister_network_device(name: &str) -> Result<()> {
 
 /// Retrieves a network device by name.
 pub fn get_network_device(name: &str) -> Option<Arc<dyn NetDevice>> {
-    crate::drivers::get_netdevs()
-        .into_iter()
-        .find(|d| d.name() == name)
+    crate::drivers::get_netdev(name)
 }
 
 /// Lists all registered network device names.

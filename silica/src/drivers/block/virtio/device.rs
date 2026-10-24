@@ -9,7 +9,7 @@ use alloc::format;
 use alloc::string::String;
 use alloc::sync::Arc;
 use core::mem::size_of;
-use core::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use core::sync::atomic::{AtomicU32, Ordering};
 use ostd::mm::{
     HasPaddr, PAGE_SIZE, VmIo, VmReader, VmWriter, dma::DmaCoherent, io::util::HasVmReaderWriter,
 };
@@ -23,7 +23,10 @@ use super::protocol::{
 use crate::drivers::bus::virtio::{
     SubmitBuffer, VIRTIO_F_VERSION_1, VirtQueue, VirtioDevice, VirtioTransport,
 };
-use crate::drivers::{BlockDevice, BlockDeviceStats, block::register_block_device};
+use crate::drivers::{
+    BlockDevice, BlockDeviceStats,
+    block::{BlockDeviceCounters, register_block_device},
+};
 use crate::uapi::errno::{Errno, Result};
 
 /// Offset within the command staging page where the 1-byte status sits.
@@ -53,15 +56,6 @@ impl RequestStaging {
     }
 }
 
-/// Live I/O counters backing [`BlockDevice::stats`].
-#[derive(Default)]
-struct IoCounters {
-    reads_completed: AtomicU64,
-    sectors_read: AtomicU64,
-    writes_completed: AtomicU64,
-    sectors_written: AtomicU64,
-}
-
 /// One active `virtio-blk` block device bound to a PCI transport.
 pub struct VirtioBlk {
     _transport: Arc<VirtioTransport>,
@@ -71,7 +65,7 @@ pub struct VirtioBlk {
     disk_index: u32,
     name: String,
     block_count: u64,
-    counters: IoCounters,
+    counters: BlockDeviceCounters,
 }
 
 impl VirtioBlk {
@@ -113,7 +107,7 @@ impl VirtioBlk {
             disk_index,
             name,
             block_count,
-            counters: IoCounters::default(),
+            counters: BlockDeviceCounters::new(),
         }))
     }
 
@@ -227,12 +221,7 @@ impl BlockDevice for VirtioBlk {
         }
 
         let sectors = (buf.len() / VIRTIO_BLK_SECTOR_SIZE) as u64;
-        self.counters
-            .reads_completed
-            .fetch_add(1, Ordering::Relaxed);
-        self.counters
-            .sectors_read
-            .fetch_add(sectors, Ordering::Relaxed);
+        self.counters.record_read(sectors);
 
         Ok(buf.len())
     }
@@ -272,12 +261,7 @@ impl BlockDevice for VirtioBlk {
         }
 
         let sectors = (buf.len() / VIRTIO_BLK_SECTOR_SIZE) as u64;
-        self.counters
-            .writes_completed
-            .fetch_add(1, Ordering::Relaxed);
-        self.counters
-            .sectors_written
-            .fetch_add(sectors, Ordering::Relaxed);
+        self.counters.record_write(sectors);
 
         Ok(buf.len())
     }
@@ -324,19 +308,7 @@ impl BlockDevice for VirtioBlk {
     }
 
     fn stats(&self) -> BlockDeviceStats {
-        BlockDeviceStats {
-            reads_completed: self.counters.reads_completed.load(Ordering::Relaxed),
-            reads_merged: 0,
-            sectors_read: self.counters.sectors_read.load(Ordering::Relaxed),
-            read_ms: 0,
-            writes_completed: self.counters.writes_completed.load(Ordering::Relaxed),
-            writes_merged: 0,
-            sectors_written: self.counters.sectors_written.load(Ordering::Relaxed),
-            write_ms: 0,
-            io_in_progress: 0,
-            io_ms: 0,
-            weighted_io_ms: 0,
-        }
+        self.counters.to_stats()
     }
 }
 

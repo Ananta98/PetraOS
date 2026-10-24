@@ -29,6 +29,17 @@ pub const PCI_SUBSYSTEM_VENDOR_ID: u8 = 0x2C;
 pub const PCI_SUBSYSTEM_ID: u8 = 0x2E;
 pub const PCI_INTERRUPT_LINE: u8 = 0x3C;
 pub const PCI_INTERRUPT_PIN: u8 = 0x3D;
+pub const PCI_CAPABILITY_POINTER: u8 = 0x34;
+
+// PCI Status Register Bit Flags
+pub const PCI_STATUS_CAP_LIST: u16 = 1 << 4;
+
+// PCI Standard Capability IDs
+pub const PCI_CAP_ID_PM: u8 = 0x01;
+pub const PCI_CAP_ID_MSI: u8 = 0x05;
+pub const PCI_CAP_ID_VNDR: u8 = 0x09;
+pub const PCI_CAP_ID_EXP: u8 = 0x10;
+pub const PCI_CAP_ID_MSIX: u8 = 0x11;
 
 // PCI Command Register Bit Flags
 pub const PCI_COMMAND_IO_SPACE: u16 = 1 << 0;

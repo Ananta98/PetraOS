@@ -17,6 +17,7 @@ pub mod config;
 pub mod device;
 pub mod driver;
 pub mod ids;
+pub mod msix;
 pub mod scan;
 
 use alloc::format;
@@ -33,6 +34,7 @@ pub use config::{
 };
 pub use device::PciDevice;
 pub use driver::{PCI_ANY_ID, PciDeviceId, pci_register_driver, pci_unregister_driver};
+pub use msix::MsixCapability;
 pub use scan::scan_bus;
 
 use crate::drivers::device::{Bus, BusHandle};

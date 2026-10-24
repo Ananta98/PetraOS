@@ -12,7 +12,8 @@ pub mod audio;
 pub mod block;
 pub mod bus;
 pub mod char;
-pub mod device;
+pub mod core;
+pub use self::core as device;
 pub mod drm;
 pub mod input;
 pub mod net;
@@ -20,7 +21,7 @@ pub mod net;
 use alloc::{string::String, sync::Arc, vec::Vec};
 
 pub use audio::AudioDevice;
-pub use device::{BusDevice, Driver};
+pub use self::core::{BusDevice, Driver};
 pub use net::NetDevice;
 
 use crate::uapi::errno::Result;
@@ -225,9 +226,19 @@ pub fn get_chrdevs() -> Vec<Arc<dyn CharacterDevice>> {
     CHAR_CLASS.payloads()
 }
 
+/// Finds a Character Device by name.
+pub fn get_chrdev(name: &str) -> Option<Arc<dyn CharacterDevice>> {
+    CHAR_CLASS.find_payload(name)
+}
+
 /// Returns a snapshot of all registered Block Devices.
 pub fn get_blkdevs() -> Vec<Arc<dyn BlockDevice>> {
     BLOCK_CLASS.payloads()
+}
+
+/// Finds a Block Device by name.
+pub fn get_blkdev(name: &str) -> Option<Arc<dyn BlockDevice>> {
+    BLOCK_CLASS.find_payload(name)
 }
 
 /// Returns a snapshot of all registered Network Devices.
@@ -235,9 +246,19 @@ pub fn get_netdevs() -> Vec<Arc<dyn NetDevice>> {
     NET_CLASS.payloads()
 }
 
+/// Finds a Network Device by name.
+pub fn get_netdev(name: &str) -> Option<Arc<dyn NetDevice>> {
+    NET_CLASS.find_payload(name)
+}
+
 /// Returns a snapshot of all registered Audio Devices.
 pub fn get_audiodevs() -> Vec<Arc<dyn AudioDevice>> {
     AUDIO_CLASS.payloads()
+}
+
+/// Finds an Audio Device by name.
+pub fn get_audiodev(name: &str) -> Option<Arc<dyn AudioDevice>> {
+    AUDIO_CLASS.find_payload(name)
 }
 
 /// Initializes the driver subsystem and probes system buses.

@@ -7,6 +7,7 @@
 //! adds block devices to the `block` class.
 
 pub mod ahci;
+pub mod counters;
 pub mod nvme;
 pub mod virtio;
 
@@ -14,6 +15,7 @@ use alloc::sync::Arc;
 
 use crate::uapi::errno::Result;
 
+pub use counters::BlockDeviceCounters;
 pub use crate::drivers::BlockDevice;
 
 /// Registers a block device into the block device class.
@@ -30,7 +32,5 @@ pub fn register_block_device(name: &str, device: Arc<dyn BlockDevice>) -> Result
 
 /// Retrieves a block device by name.
 pub fn get_block_device(name: &str) -> Option<Arc<dyn BlockDevice>> {
-    crate::drivers::get_blkdevs()
-        .into_iter()
-        .find(|d| d.name() == name)
+    crate::drivers::get_blkdev(name)
 }
