@@ -139,7 +139,7 @@ pub fn handle_user_page_fault(exception: &CpuException) -> Result<()> {
 pub(crate) mod tests {
     use core::ops::Range;
 
-    use ostd::mm::{HasPaddr, Paddr, PageFlags, Vaddr};
+    use ostd::mm::{HasPaddr, Paddr, PageFlags, Vaddr, vm_space::VmQueriedItem};
 
     use super::*;
     use crate::vm::perms::VmPerms;
@@ -194,8 +194,6 @@ pub(crate) mod tests {
     /// Returns what the page table holds for the page containing `addr`: the
     /// frame's physical address and the page's flags.
     pub(crate) fn page_at(vmar: &Vmar, addr: Vaddr) -> Option<(Paddr, PageFlags)> {
-        use ostd::mm::vm_space::VmQueriedItem;
-
         let range = page_of(addr);
         vmar.activate();
         let guard = ostd::task::disable_preempt();

@@ -439,6 +439,10 @@ impl Mappings {
         self.map.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.map.is_empty()
+    }
+
     pub fn get(&self, addr: Vaddr) -> Option<&VmMapping> {
         let mapping = self.map.range(..=addr).next_back().map(|(_, m)| m)?;
         (mapping.end() > addr).then_some(mapping)

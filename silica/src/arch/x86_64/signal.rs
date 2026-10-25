@@ -58,7 +58,7 @@ use ostd::{arch::cpu::context::UserContext, mm::PAGE_SIZE, user::UserContextApi}
 use crate::{
     uapi::{
         errno::{Errno, Result},
-        signal::{SIGSET_WORDS, SigInfo, SigSet, SigStack, Signal},
+        signal::{SIGSET_WORDS, SigInfo, SigSet, SigStack, Signal, code},
     },
     utils::userspace::UserPtr,
     vm::{Vmar, flags::MmapFlags, perms::VmPerms},
@@ -469,13 +469,15 @@ mod offset {
     pub const INFO_SI_STATUS: usize = INFO + 32;
 }
 
+use offset::*;
+
 /// Encodes a `SigInfo` structure into 128-byte Linux `siginfo_t` user-space layout.
 pub fn encode_siginfo(info: &SigInfo) -> [u8; 128] {
     let mut buf = [0u8; 128];
     buf[0..4].copy_from_slice(&info.si_signo.to_le_bytes());
     buf[4..8].copy_from_slice(&info.si_errno.to_le_bytes());
     buf[8..12].copy_from_slice(&info.si_code.to_le_bytes());
-    if info.si_code == crate::uapi::signal::code::TIMER {
+    if info.si_code == code::TIMER {
         buf[16..20].copy_from_slice(&(info.si_addr as u32).to_le_bytes());
         buf[20..24].copy_from_slice(&0u32.to_le_bytes());
         buf[24..32].copy_from_slice(&info.si_value.to_le_bytes());
@@ -496,7 +498,6 @@ impl SigFrame {
     /// if a struct changes shape, the sizes below stop matching and the build
     /// fails instead of a signal arriving corrupted.
     pub fn to_bytes(&self) -> [u8; Self::LEN] {
-        use offset::*;
         let mut buf = [0u8; Self::LEN];
 
         buf[PRETCODE..PRETCODE + 8].copy_from_slice(&self.pretcode.to_le_bytes());
@@ -523,7 +524,6 @@ impl SigFrame {
 
     /// The frame from bytes in that layout. The inverse of [`Self::to_bytes`].
     pub fn from_bytes(buf: &[u8; Self::LEN]) -> Self {
-        use offset::*;
         let mut gregs = [0u64; NGREG];
         for (i, slot) in gregs.iter_mut().enumerate() {
             let at = GREGS + i * 8;
@@ -532,7 +532,7 @@ impl SigFrame {
 
         let si_code = read_u32(&buf[INFO + 8..INFO + 12]) as i32;
         let (si_addr, si_pid, si_uid, si_status, si_value) =
-            if si_code == crate::uapi::signal::code::TIMER {
+            if si_code == code::TIMER {
                 (
                     read_u32(&buf[INFO + 16..INFO + 20]) as u64,
                     0,

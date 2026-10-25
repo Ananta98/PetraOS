@@ -90,3 +90,9 @@ impl<const CAP: usize> RingBuffer<CAP> {
         CAP
     }
 }
+
+impl<const CAP: usize> Default for RingBuffer<CAP> {
+    fn default() -> Self {
+        Self::new()
+    }
+}

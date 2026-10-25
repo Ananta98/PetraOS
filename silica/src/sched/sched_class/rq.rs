@@ -352,3 +352,9 @@ impl RunQueue {
         self.last_flags
     }
 }
+
+impl Default for RunQueue {
+    fn default() -> Self {
+        Self::new()
+    }
+}

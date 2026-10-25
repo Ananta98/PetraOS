@@ -166,3 +166,9 @@ impl PidAllocator {
         Ok(())
     }
 }
+
+impl Default for PidAllocator {
+    fn default() -> Self {
+        Self::new()
+    }
+}

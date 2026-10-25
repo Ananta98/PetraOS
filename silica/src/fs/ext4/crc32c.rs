@@ -44,7 +44,6 @@ static CRC32C_TABLE: [u32; 256] = crc32c_table();
 /// Start a checksum with `0xFFFFFFFF`; the state passed back and forth is the
 /// raw register value (no inversion), matching `ext4_chksum` semantics.
 #[must_use]
-#[expect(clippy::index_refutable_slice)]
 pub fn crc32c(mut state: u32, data: &[u8]) -> u32 {
     let table = &CRC32C_TABLE;
     for &b in data {

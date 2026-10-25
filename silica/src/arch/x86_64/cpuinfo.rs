@@ -7,6 +7,7 @@
 //! Output matches Linux standard `/proc/cpuinfo` format.
 
 use alloc::{string::String, vec::Vec};
+use core::fmt::Write;
 use core::{arch::x86_64::CpuidResult, fmt, str};
 use ostd::arch::cpu::cpuid::cpuid;
 
@@ -565,7 +566,6 @@ pub fn generate_cpuinfo() -> Vec<u8> {
 
     for cpu_id in 0..num_cpus {
         let info = CpuInformation::new(cpu_id as u32);
-        use core::fmt::Write;
         let _ = writeln!(s, "{}", info);
     }
 

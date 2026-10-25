@@ -11,7 +11,9 @@
 //!   TTY keyboard handler uses. Keeping it here rather than in the drivers
 //!   means the console behaves identically for PS/2 and USB keyboards.
 
-use crate::uapi::input::{key, rel};
+use pc_keyboard::KeyCode as P;
+
+use crate::uapi::input::{ev, key, rel};
 
 use super::Capabilities;
 
@@ -80,7 +82,6 @@ impl KeyMods {
 
 /// Maps a `pc-keyboard` key to its Linux `KEY_*` code.
 pub fn ps2_keycode(code: pc_keyboard::KeyCode) -> Option<u16> {
-    use pc_keyboard::KeyCode as P;
     Some(match code {
         P::Escape => key::ESC,
         P::F1 => key::F1,
@@ -496,8 +497,6 @@ fn navigation(code: u16) -> Option<&'static [u8]> {
 /// Both the PS/2 and the USB driver advertise this, so userspace sees the same
 /// key bitmap regardless of the transport.
 pub fn keyboard_capabilities() -> Capabilities {
-    use crate::uapi::input::ev;
-
     let mut caps = Capabilities::new();
     caps.set_ev(ev::KEY);
     caps.set_ev(ev::REP);
@@ -521,8 +520,6 @@ pub fn keyboard_capabilities() -> Capabilities {
 
 /// The capability set of a mouse reporting `buttons` and optional wheel axes.
 pub fn mouse_capabilities(buttons: &[u16], wheel: bool) -> Capabilities {
-    use crate::uapi::input::ev;
-
     let mut caps = Capabilities::new();
     caps.set_ev(ev::KEY);
     caps.set_ev(ev::REL);

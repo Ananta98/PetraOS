@@ -15,6 +15,7 @@ use super::{
 };
 
 /// Central process registry maintaining primary and secondary group/session indices.
+#[derive(Default)]
 pub struct ProcessTable {
     pub allproc: BTreeMap<Pid, Arc<Proc>>,
     pub pgrp_map: BTreeMap<Pid, BTreeSet<Pid>>,

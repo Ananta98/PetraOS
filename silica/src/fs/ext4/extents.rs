@@ -63,7 +63,6 @@ pub fn block_capacity(block_size: usize, csum_on: bool) -> usize {
 // ---------------------------------------------------------------------------
 
 /// Decodes an extent (depth-0) entry: block, len, start_hi, start_lo.
-#[expect(clippy::missing_panics_doc)]
 fn parse_extent_entry(b: &[u8]) -> Extent {
     let log = u32::from_le_bytes(b[0..4].try_into().expect("4 bytes"));
     let len = u16::from_le_bytes(b[4..6].try_into().expect("2 bytes")) as u32;

@@ -5,6 +5,9 @@
 use alloc::{borrow::ToOwned, collections::btree_map::BTreeMap, string::String};
 use spin::Mutex;
 
+use crate::drivers::block::register_block_device;
+use crate::drivers::{register_blkdev, register_chrdev, register_netdev};
+
 /// Global symbol table for resolving module symbols.
 pub static SYMBOL_TABLE: Mutex<BTreeMap<String, usize>> = Mutex::new(BTreeMap::new());
 
@@ -25,9 +28,6 @@ pub fn lookup_symbol(name: &str) -> Option<usize> {
 ///
 /// Extend this list as more subsystems become linkable from modules.
 pub(crate) fn register_core_symbols() {
-    use crate::drivers::block::register_block_device;
-    use crate::drivers::{register_blkdev, register_chrdev, register_netdev};
-
     crate::export_symbol!(register_chrdev);
     crate::export_symbol!(register_blkdev);
     crate::export_symbol!(register_netdev);

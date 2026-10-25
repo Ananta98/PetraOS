@@ -539,7 +539,7 @@ impl KernelSocket {
                     Task::yield_now();
                 }
             }
-            SocketKind::UnixListener(ref listener) => loop {
+            SocketKind::UnixListener(ref listener) => {
                 if let Some((client_sock, remote_path)) = listener.accept_queue.lock().pop_front() {
                     let addr = SocketAddress::Unix(remote_path.unwrap_or_default());
                     return Ok((client_sock, addr));
@@ -552,8 +552,8 @@ impl KernelSocket {
                 let step = || listener.accept_queue.lock().pop_front();
                 let (client_sock, remote_path) = listener.wq.wait_until(step);
                 let addr = SocketAddress::Unix(remote_path.unwrap_or_default());
-                return Ok((client_sock, addr));
-            },
+                Ok((client_sock, addr))
+            }
             SocketKind::Udp(_) => {
                 crate::return_errno!(EOPNOTSUPP, "accept not supported on UDP socket")
             }

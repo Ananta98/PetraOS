@@ -213,6 +213,12 @@ impl ClocksourceManager {
     }
 }
 
+impl Default for ClocksourceManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 // ----------------------------------------------------------------------------
 // Global Manager Instance & Public API
 // ----------------------------------------------------------------------------

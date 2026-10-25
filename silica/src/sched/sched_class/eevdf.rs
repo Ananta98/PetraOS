@@ -191,6 +191,7 @@ impl EevdfRunKey {
 }
 
 /// EEVDF runqueue for a single CPU.
+#[derive(Default)]
 pub struct EevdfRunQueue {
     /// Tasks queued waiting for execution, ordered by `EevdfRunKey`.
     queued: BTreeMap<EevdfRunKey, SchedEntry>,
