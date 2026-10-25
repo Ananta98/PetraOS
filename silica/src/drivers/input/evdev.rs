@@ -425,3 +425,38 @@ pub fn open(device: Arc<InputDevice>) -> Arc<EvdevClient> {
     EvdevClient::new(device)
 }
 
+#[cfg(ktest)]
+mod tests {
+    use super::*;
+    use crate::uapi::input::{InputId, bus, key};
+
+    #[ktest]
+    fn evdev_client_event_dispatch_and_read() {
+        let caps = crate::drivers::input::keymap::keyboard_capabilities();
+        let dev = crate::drivers::input::register_device(
+            "Test Kbd",
+            "test/input0",
+            InputId {
+                bustype: bus::I8042,
+                vendor: 1,
+                product: 1,
+                version: 1,
+            },
+            caps,
+        );
+        let client = EvdevClient::new(Arc::clone(&dev));
+        assert_eq!(client.available(), 0);
+
+        dev.report_key(key::KEY_A, 1);
+        dev.sync();
+
+        assert!(client.available() >= InputEvent::SIZE * 2);
+        let mut buf = [0u8; InputEvent::SIZE * 2];
+        let n = client.try_read(&mut buf).expect("try_read");
+        assert_eq!(n, InputEvent::SIZE * 2);
+
+        crate::drivers::input::unregister_device(&dev);
+    }
+}
+
+

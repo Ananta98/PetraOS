@@ -37,6 +37,21 @@ pub struct InputDirNodeOps;
 
 impl NodeOps for InputDirNodeOps {
     fn lookup(&self, name: &str) -> Result<Arc<INode>> {
+        if name == "." || name == ".." {
+            return Ok(Arc::new(INode::new(
+                Box::new(InputDirNodeOps),
+                Mode::DIR
+                    | Mode::RUSR
+                    | Mode::WUSR
+                    | Mode::XUSR
+                    | Mode::RGRP
+                    | Mode::XGRP
+                    | Mode::ROTH
+                    | Mode::XOTH,
+                13,
+            )));
+        }
+
         if name == "uinput" {
             return Ok(Arc::new(INode::new(
                 Box::new(UinputNodeOps),
@@ -103,6 +118,7 @@ impl FileOps for InputDirFileOps {
 
     fn readdir(&self) -> Result<Vec<u8>> {
         let mut out = Vec::new();
+        out.extend_from_slice(b".\n..\n");
         out.extend_from_slice(b"uinput\n");
         out.extend_from_slice(b"mice\n");
         out.extend_from_slice(b"mouse0\n");
