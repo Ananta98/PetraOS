@@ -467,6 +467,84 @@ impl Thread {
         }
     }
 
+    /// Cleans up child tid and removes thread if marked dead. Returns true if dead.
+    fn cleanup_if_dead(&self, proc: &Arc<Proc>) -> bool {
+        if self.is_dead() {
+            self.handle_clear_child_tid(proc);
+            proc.remove_thread(self.tid);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Waits on the process stop queue while the thread is stopped.
+    fn wait_while_stopped(&self, proc: &Arc<Proc>) {
+        while self.is_stopped() && !self.is_dead() {
+            proc.stop_queue.wait_until(|| {
+                if !self.is_stopped() || self.is_dead() {
+                    Some(())
+                } else {
+                    None
+                }
+            });
+        }
+    }
+
+    /// Dispatches a CPU exception occurring in userspace.
+    fn handle_user_exception(
+        &self,
+        proc: &Arc<Proc>,
+        vmar: &Arc<crate::vm::vmar::Vmar>,
+        exception: CpuException,
+    ) {
+        match exception {
+            CpuException::PageFault(raw_pf) => {
+                if crate::syscall::TRACE_SYSCALLS {
+                    ostd::info!(
+                        "user_page_fault: pid {} addr={:#x} code={:?}",
+                        proc.pid,
+                        raw_pf.addr,
+                        raw_pf.error_code
+                    );
+                }
+                let info = crate::vm::vmar::page_fault::PageFaultInfo::from_fault(
+                    raw_pf.addr,
+                    raw_pf.error_code,
+                );
+                let unresolved = match info {
+                    None => {
+                        ostd::error!("User fault outside user range: {:#x}", raw_pf.addr);
+                        Some(code::SEGV_MAPERR)
+                    }
+                    Some(info) => match vmar.handle_page_fault(&info) {
+                        Ok(()) => None,
+                        Err(err) => {
+                            ostd::error!("Fatal user page fault at {:#x}: {err:?}", raw_pf.addr);
+                            Some(code::SEGV_ACCERR)
+                        }
+                    },
+                };
+                if let Some(si_code) = unresolved {
+                    let queued = QueuedSignal {
+                        info: SigInfo::fault(Signal::SIGSEGV, si_code, raw_pf.addr),
+                    };
+                    self.deliver_signal(queued);
+                }
+            }
+            other => {
+                let (sig, code) = signal_and_code_for_exception(&other);
+                ostd::error!(
+                    "Unhandled user CPU exception: pid {} {other:?} -> {sig} (code {code})",
+                    proc.pid
+                );
+                self.deliver_signal(QueuedSignal {
+                    info: SigInfo::kernel(sig, code),
+                });
+            }
+        }
+    }
+
     /// Primary userspace execution loop for user threads.
     ///
     /// Returns when the thread dies, or when its process has been collected and
@@ -492,25 +570,12 @@ impl Thread {
 
             // Check AST / pending signals prior to entering Ring 3
             self.handle_ast();
-            if self.is_dead() {
-                self.handle_clear_child_tid(&proc);
-                proc.remove_thread(self.tid);
+            if self.cleanup_if_dead(&proc) {
                 return;
             }
 
-            while self.is_stopped() && !self.is_dead() {
-                proc.stop_queue.wait_until(|| {
-                    if !self.is_stopped() || self.is_dead() {
-                        Some(())
-                    } else {
-                        None
-                    }
-                });
-            }
-
-            if self.is_dead() {
-                self.handle_clear_child_tid(&proc);
-                proc.remove_thread(self.tid);
+            self.wait_while_stopped(&proc);
+            if self.cleanup_if_dead(&proc) {
                 return;
             }
 
@@ -541,62 +606,7 @@ impl Thread {
                 }
                 ReturnReason::UserException => {
                     if let Some(exception) = user_mode.context_mut().take_exception() {
-                        match exception {
-                            CpuException::PageFault(raw_pf) => {
-                                if crate::syscall::TRACE_SYSCALLS {
-                                    ostd::info!(
-                                        "user_page_fault: pid {} addr={:#x} code={:?}",
-                                        proc.pid,
-                                        raw_pf.addr,
-                                        raw_pf.error_code
-                                    );
-                                }
-                                let info = crate::vm::vmar::page_fault::PageFaultInfo::from_fault(
-                                    raw_pf.addr,
-                                    raw_pf.error_code,
-                                );
-                                let unresolved = match info {
-                                    // The address is outside the range user space
-                                    // may touch at all, so no mapping can help.
-                                    None => {
-                                        ostd::error!(
-                                            "User fault outside user range: {:#x}",
-                                            raw_pf.addr
-                                        );
-                                        Some(code::SEGV_MAPERR)
-                                    }
-                                    Some(info) => match vmar.handle_page_fault(&info) {
-                                        Ok(()) => None,
-                                        Err(err) => {
-                                            ostd::error!(
-                                                "Fatal user page fault at {:#x}: {err:?}",
-                                                raw_pf.addr
-                                            );
-                                            Some(code::SEGV_ACCERR)
-                                        }
-                                    },
-                                };
-                                if let Some(si_code) = unresolved {
-                                    // The address goes into the `siginfo_t`, which
-                                    // is the only way a handler learns where it
-                                    // faulted.
-                                    let queued = QueuedSignal {
-                                        info: SigInfo::fault(Signal::SIGSEGV, si_code, raw_pf.addr),
-                                    };
-                                    self.deliver_signal(queued);
-                                }
-                            }
-                            other => {
-                                let (sig, code) = signal_and_code_for_exception(&other);
-                                ostd::error!(
-                                    "Unhandled user CPU exception: pid {} {other:?} -> {sig} (code {code})",
-                                    proc.pid
-                                );
-                                self.deliver_signal(QueuedSignal {
-                                    info: SigInfo::kernel(sig, code),
-                                });
-                            }
-                        }
+                        self.handle_user_exception(&proc, &vmar, exception);
                     }
                 }
                 ReturnReason::KernelEvent => {
@@ -606,9 +616,7 @@ impl Thread {
 
             // A signal handled above may have run the default terminating action,
             // which is what marks the thread dead.
-            if self.is_dead() {
-                self.handle_clear_child_tid(&proc);
-                proc.remove_thread(self.tid);
+            if self.cleanup_if_dead(&proc) {
                 return;
             }
         }

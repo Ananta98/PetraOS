@@ -67,6 +67,76 @@ impl Default for DevFsDirOps {
     }
 }
 
+fn lookup_static_dev(name: &str) -> Option<Arc<INode>> {
+    let chr_mode = Mode::CHAR
+        | Mode::RUSR
+        | Mode::WUSR
+        | Mode::RGRP
+        | Mode::WGRP
+        | Mode::ROTH
+        | Mode::WOTH;
+    let dir_mode = Mode::DIR
+        | Mode::RUSR
+        | Mode::WUSR
+        | Mode::XUSR
+        | Mode::RGRP
+        | Mode::XGRP
+        | Mode::ROTH
+        | Mode::XOTH;
+
+    let (ops, mode, ino): (Box<dyn NodeOps>, Mode, usize) = match name {
+        "null" => (Box::new(NullNodeOps), chr_mode, 1),
+        "zero" => (Box::new(ZeroNodeOps), chr_mode, 2),
+        "random" => (Box::new(RandomNodeOps), chr_mode, 3),
+        "urandom" => (Box::new(UrandomNodeOps), chr_mode, 4),
+        "tty" => (Box::new(TtyNodeOps), chr_mode, 5),
+        "ptmx" => (Box::new(crate::drivers::char::tty::pty::PtmxNodeOps), chr_mode, 10),
+        "pts" => (Box::new(crate::drivers::char::tty::pty::PtsDirNodeOps), dir_mode, 11),
+        "dri" => (Box::new(drm::DriDirNodeOps), dir_mode, 12),
+        "input" => (Box::new(input::InputDirNodeOps), dir_mode, 13),
+        _ => return None,
+    };
+    Some(Arc::new(INode::new(ops, mode, ino)))
+}
+
+fn lookup_driver_device(name: &str) -> Option<Arc<INode>> {
+    let chr_mode = Mode::CHAR
+        | Mode::RUSR
+        | Mode::WUSR
+        | Mode::RGRP
+        | Mode::WGRP
+        | Mode::ROTH
+        | Mode::WOTH;
+    for dev in crate::drivers::get_chrdevs() {
+        if dev.name() == name {
+            return Some(Arc::new(INode::new(
+                Box::new(GenericChrNodeOps::new(Arc::clone(&dev))),
+                chr_mode,
+                100,
+            )));
+        }
+    }
+    for dev in crate::drivers::get_blkdevs() {
+        if dev.name() == name {
+            return Some(Arc::new(INode::new(
+                Box::new(GenericBlkNodeOps::new(Arc::clone(&dev))),
+                Mode::BLOCK | Mode::RUSR | Mode::WUSR | Mode::RGRP | Mode::WGRP,
+                100,
+            )));
+        }
+    }
+    for dev in crate::drivers::get_netdevs() {
+        if dev.name() == name {
+            return Some(Arc::new(INode::new(
+                Box::new(net::GenericNetNodeOps::new(Arc::clone(&dev))),
+                Mode::CHAR | Mode::RUSR | Mode::WUSR | Mode::RGRP | Mode::ROTH,
+                100,
+            )));
+        }
+    }
+    None
+}
+
 impl NodeOps for DevFsDirOps {
     fn lookup(&self, name: &str) -> Result<Arc<INode>> {
         // 1. Check dynamic dev entries first (created directories, symlinks, files)
@@ -80,167 +150,13 @@ impl NodeOps for DevFsDirOps {
         }
 
         // 3. Check static dev nodes
-        match name {
-            "null" => {
-                return Ok(Arc::new(INode::new(
-                    Box::new(NullNodeOps),
-                    Mode::CHAR
-                        | Mode::RUSR
-                        | Mode::WUSR
-                        | Mode::RGRP
-                        | Mode::WGRP
-                        | Mode::ROTH
-                        | Mode::WOTH,
-                    1,
-                )));
-            }
-            "zero" => {
-                return Ok(Arc::new(INode::new(
-                    Box::new(ZeroNodeOps),
-                    Mode::CHAR
-                        | Mode::RUSR
-                        | Mode::WUSR
-                        | Mode::RGRP
-                        | Mode::WGRP
-                        | Mode::ROTH
-                        | Mode::WOTH,
-                    2,
-                )));
-            }
-            "random" => {
-                return Ok(Arc::new(INode::new(
-                    Box::new(RandomNodeOps),
-                    Mode::CHAR
-                        | Mode::RUSR
-                        | Mode::WUSR
-                        | Mode::RGRP
-                        | Mode::WGRP
-                        | Mode::ROTH
-                        | Mode::WOTH,
-                    3,
-                )));
-            }
-            "urandom" => {
-                return Ok(Arc::new(INode::new(
-                    Box::new(UrandomNodeOps),
-                    Mode::CHAR
-                        | Mode::RUSR
-                        | Mode::WUSR
-                        | Mode::RGRP
-                        | Mode::WGRP
-                        | Mode::ROTH
-                        | Mode::WOTH,
-                    4,
-                )));
-            }
-            "tty" => {
-                return Ok(Arc::new(INode::new(
-                    Box::new(TtyNodeOps),
-                    Mode::CHAR
-                        | Mode::RUSR
-                        | Mode::WUSR
-                        | Mode::RGRP
-                        | Mode::WGRP
-                        | Mode::ROTH
-                        | Mode::WOTH,
-                    5,
-                )));
-            }
-            "ptmx" => {
-                return Ok(Arc::new(INode::new(
-                    Box::new(crate::drivers::char::tty::pty::PtmxNodeOps),
-                    Mode::CHAR
-                        | Mode::RUSR
-                        | Mode::WUSR
-                        | Mode::RGRP
-                        | Mode::WGRP
-                        | Mode::ROTH
-                        | Mode::WOTH,
-                    10,
-                )));
-            }
-            "pts" => {
-                return Ok(Arc::new(INode::new(
-                    Box::new(crate::drivers::char::tty::pty::PtsDirNodeOps),
-                    Mode::DIR
-                        | Mode::RUSR
-                        | Mode::WUSR
-                        | Mode::XUSR
-                        | Mode::RGRP
-                        | Mode::XGRP
-                        | Mode::ROTH
-                        | Mode::XOTH,
-                    11,
-                )));
-            }
-            "dri" => {
-                return Ok(Arc::new(INode::new(
-                    Box::new(drm::DriDirNodeOps),
-                    Mode::DIR
-                        | Mode::RUSR
-                        | Mode::WUSR
-                        | Mode::XUSR
-                        | Mode::RGRP
-                        | Mode::XGRP
-                        | Mode::ROTH
-                        | Mode::XOTH,
-                    12,
-                )));
-            }
-            "input" => {
-                return Ok(Arc::new(INode::new(
-                    Box::new(input::InputDirNodeOps),
-                    Mode::DIR
-                        | Mode::RUSR
-                        | Mode::WUSR
-                        | Mode::XUSR
-                        | Mode::RGRP
-                        | Mode::XGRP
-                        | Mode::ROTH
-                        | Mode::XOTH,
-                    13,
-                )));
-            }
-            _ => {}
+        if let Some(node) = lookup_static_dev(name) {
+            return Ok(node);
         }
 
-        // 3. Check character devices
-        for dev in crate::drivers::get_chrdevs() {
-            if dev.name() == name {
-                return Ok(Arc::new(INode::new(
-                    Box::new(GenericChrNodeOps::new(Arc::clone(&dev))),
-                    Mode::CHAR
-                        | Mode::RUSR
-                        | Mode::WUSR
-                        | Mode::RGRP
-                        | Mode::WGRP
-                        | Mode::ROTH
-                        | Mode::WOTH,
-                    100, // In real implementations, you'd use a unique inode number
-                )));
-            }
-        }
-
-        // 4. Check block devices
-        for dev in crate::drivers::get_blkdevs() {
-            if dev.name() == name {
-                return Ok(Arc::new(INode::new(
-                    Box::new(GenericBlkNodeOps::new(Arc::clone(&dev))),
-                    Mode::BLOCK | Mode::RUSR | Mode::WUSR | Mode::RGRP | Mode::WGRP,
-                    100, // In real implementations, you'd use a unique inode number
-                )));
-            }
-        }
-
-        // 5. Check network devices
-        for dev in crate::drivers::get_netdevs() {
-            if dev.name() == name {
-                return Ok(Arc::new(INode::new(
-                    Box::new(net::GenericNetNodeOps::new(Arc::clone(&dev))),
-                    Mode::CHAR | Mode::RUSR | Mode::WUSR | Mode::RGRP | Mode::ROTH,
-                    100,
-                )));
-            }
+        // 4. Check driver devices (character, block, network)
+        if let Some(node) = lookup_driver_device(name) {
+            return Ok(node);
         }
 
         crate::return_errno!(ENOENT, "device not found")

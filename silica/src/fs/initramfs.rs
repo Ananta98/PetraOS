@@ -13,7 +13,7 @@ use crate::fs::vfs::{
     FileOps, FileSystem, INode, INodeAttr, Mode, NodeOps, OpenFlags, SeekAnchor, StatFs,
 };
 use crate::uapi::errno::{Errno, Result};
-use crate::utils::cpio::{CpioArchive, FileType};
+use crate::utils::cpio::{CpioArchive, CpioEntry, FileType};
 
 /// File operations for reading from an in-memory initramfs file slice.
 pub struct InitramfsFileOps {
@@ -417,214 +417,208 @@ pub struct InitramfsFs {
     root: Arc<INode>,
 }
 
+type DirEntries = Arc<RwLock<BTreeMap<String, Arc<INode>>>>;
+type DirMap = BTreeMap<String, DirEntries>;
+
+fn create_dir_inode(entries: &DirEntries, ino: usize) -> Arc<INode> {
+    Arc::new(INode::new(
+        Box::new(InitramfsDirNodeOps {
+            entries: Arc::clone(entries),
+        }),
+        Mode::DIR
+            | Mode::RUSR
+            | Mode::WUSR
+            | Mode::XUSR
+            | Mode::RGRP
+            | Mode::XGRP
+            | Mode::ROTH
+            | Mode::XOTH,
+        ino,
+    ))
+}
+
+fn ensure_dir_entry(
+    dir_map: &mut DirMap,
+    parent_path: &str,
+    leaf_name: &str,
+    full_path: &str,
+    ino: &mut usize,
+) {
+    if dir_map.contains_key(full_path) {
+        return;
+    }
+    let new_entries = Arc::new(RwLock::new(BTreeMap::new()));
+    let new_node = create_dir_inode(&new_entries, *ino);
+    *ino += 1;
+
+    if let Some(parent_entries) = dir_map.get(parent_path) {
+        parent_entries.write().insert(String::from(leaf_name), new_node);
+    }
+    dir_map.insert(String::from(full_path), new_entries);
+}
+
+fn create_symlink_node(entry: &CpioEntry<'static>, ino: usize) -> Arc<INode> {
+    let target_str = core::str::from_utf8(entry.data).unwrap_or("");
+    Arc::new(INode::new_with_attr(
+        Box::new(InitramfsSymlinkNodeOps { target: target_str }),
+        ino,
+        INodeAttr {
+            size: target_str.len(),
+            mode: Mode::LINK
+                | Mode::RUSR
+                | Mode::RGRP
+                | Mode::ROTH
+                | Mode::XUSR
+                | Mode::XGRP
+                | Mode::XOTH,
+            nlink: 1,
+            uid: entry.uid,
+            gid: entry.gid,
+            rdev: 0,
+        },
+    ))
+}
+
+fn create_file_node(
+    entry: &CpioEntry,
+    ino: usize,
+    hardlinks: &mut BTreeMap<u32, Arc<RwLock<Vec<u8>>>>,
+) -> Arc<INode> {
+    let attr = INodeAttr {
+        size: entry.data.len(),
+        mode: Mode::FILE
+            | Mode::RUSR
+            | Mode::WUSR
+            | Mode::XUSR
+            | Mode::RGRP
+            | Mode::XGRP
+            | Mode::ROTH
+            | Mode::XOTH,
+        nlink: (entry.nlink.max(1)) as usize,
+        uid: entry.uid,
+        gid: entry.gid,
+        rdev: 0,
+    };
+
+    if entry.file_type == FileType::File && entry.nlink > 1 {
+        // Share one buffer between every link with this inode
+        // number so a payload carried by any link becomes
+        // visible through all of them.
+        let shared = hardlinks
+            .entry(entry.ino)
+            .or_insert_with(|| Arc::new(RwLock::new(Vec::new())))
+            .clone();
+        if !entry.data.is_empty() {
+            *shared.write() = Vec::from(entry.data);
+        }
+        Arc::new(INode::new_with_attr(
+            Box::new(InitramfsRamFileNodeOps::new_with_attr(shared, attr)),
+            ino,
+            attr,
+        ))
+    } else {
+        let ram_data = Arc::new(RwLock::new(Vec::from(entry.data)));
+        Arc::new(INode::new_with_attr(
+            Box::new(InitramfsRamFileNodeOps::new_with_attr(ram_data, attr)),
+            ino,
+            attr,
+        ))
+    }
+}
+
+fn populate_initramfs_tree(initramfs_buf: &'static [u8], root_entries: &DirEntries) {
+    ostd::info!(
+        "Building VFS tree from initramfs ({} bytes)...",
+        initramfs_buf.len()
+    );
+    let archive = CpioArchive::new(initramfs_buf);
+    let mut ino = 2;
+    let mut count = 0;
+
+    // Maps directory path -> directory entries map
+    let mut dir_map: DirMap = BTreeMap::new();
+    dir_map.insert(String::new(), Arc::clone(root_entries));
+
+    // Maps a CPIO inode number to the shared data buffer of a hard-linked
+    // regular file. newc archives store the payload on only one of the
+    // links and emit the other links as zero-length references, so all
+    // links must share (and be back-filled through) a single buffer.
+    let mut hardlinks: BTreeMap<u32, Arc<RwLock<Vec<u8>>>> = BTreeMap::new();
+
+    for entry in archive.flatten() {
+        let clean = entry.name.trim_start_matches('.').trim_start_matches('/');
+        if clean.is_empty() {
+            continue;
+        }
+
+        let parts: Vec<&str> = clean.split('/').filter(|s| !s.is_empty()).collect();
+        if parts.is_empty() {
+            continue;
+        }
+
+        // Ensure intermediate directories exist
+        let mut current_path = String::new();
+        for part in &parts[..parts.len() - 1] {
+            let parent_path = current_path.clone();
+            if !current_path.is_empty() {
+                current_path.push('/');
+            }
+            current_path.push_str(part);
+            ensure_dir_entry(&mut dir_map, &parent_path, part, &current_path, &mut ino);
+        }
+
+        let parent_path = if parts.len() > 1 {
+            parts[..parts.len() - 1].join("/")
+        } else {
+            String::new()
+        };
+
+        let leaf_name = parts.last().unwrap();
+        match entry.file_type {
+            FileType::Directory => {
+                let mut full_dir_path = parent_path.clone();
+                if !full_dir_path.is_empty() {
+                    full_dir_path.push('/');
+                }
+                full_dir_path.push_str(leaf_name);
+                ensure_dir_entry(&mut dir_map, &parent_path, leaf_name, &full_dir_path, &mut ino);
+            }
+            FileType::Symlink => {
+                let symlink_node = create_symlink_node(&entry, ino);
+                ino += 1;
+                count += 1;
+
+                if let Some(parent_entries) = dir_map.get(&parent_path) {
+                    parent_entries
+                        .write()
+                        .insert((*leaf_name).into(), symlink_node);
+                }
+            }
+            _ => {
+                let file_node = create_file_node(&entry, ino, &mut hardlinks);
+                ino += 1;
+                count += 1;
+
+                if let Some(parent_entries) = dir_map.get(&parent_path) {
+                    parent_entries
+                        .write()
+                        .insert((*leaf_name).into(), file_node);
+                }
+            }
+        }
+    }
+    ostd::info!("Initramfs VFS tree mounted: {} files loaded", count);
+}
+
 impl InitramfsFs {
     /// Creates and populates an Initramfs filesystem from boot memory.
     pub fn new() -> Self {
         let root_entries = Arc::new(RwLock::new(BTreeMap::new()));
-        let root = Arc::new(INode::new(
-            Box::new(InitramfsDirNodeOps {
-                entries: Arc::clone(&root_entries),
-            }),
-            Mode::DIR
-                | Mode::RUSR
-                | Mode::WUSR
-                | Mode::XUSR
-                | Mode::RGRP
-                | Mode::XGRP
-                | Mode::ROTH
-                | Mode::XOTH,
-            1,
-        ));
+        let root = create_dir_inode(&root_entries, 1);
 
         let boot_info = ostd::boot::boot_info();
         if let Some(initramfs_buf) = boot_info.initramfs {
-            ostd::info!(
-                "Building VFS tree from initramfs ({} bytes)...",
-                initramfs_buf.len()
-            );
-            let archive = CpioArchive::new(initramfs_buf);
-            let mut ino = 2;
-            let mut count = 0;
-
-            // Maps directory path -> directory entries map
-            let mut dir_map: BTreeMap<String, Arc<RwLock<BTreeMap<String, Arc<INode>>>>> =
-                BTreeMap::new();
-            dir_map.insert(String::new(), Arc::clone(&root_entries));
-
-            // Maps a CPIO inode number to the shared data buffer of a hard-linked
-            // regular file. newc archives store the payload on only one of the
-            // links and emit the other links as zero-length references, so all
-            // links must share (and be back-filled through) a single buffer.
-            let mut hardlinks: BTreeMap<u32, Arc<RwLock<Vec<u8>>>> = BTreeMap::new();
-
-            for entry in archive.flatten() {
-                let clean = entry.name.trim_start_matches('.').trim_start_matches('/');
-                if clean.is_empty() {
-                    continue;
-                }
-
-                let parts: Vec<&str> = clean.split('/').filter(|s| !s.is_empty()).collect();
-                if parts.is_empty() {
-                    continue;
-                }
-
-                // Ensure intermediate directories exist
-                let mut current_path = String::new();
-                for i in 0..parts.len() - 1 {
-                    let parent_path = current_path.clone();
-                    if !current_path.is_empty() {
-                        current_path.push('/');
-                    }
-                    current_path.push_str(parts[i]);
-
-                    if !dir_map.contains_key(&current_path) {
-                        let new_dir_entries = Arc::new(RwLock::new(BTreeMap::new()));
-                        let new_dir_node = Arc::new(INode::new(
-                            Box::new(InitramfsDirNodeOps {
-                                entries: Arc::clone(&new_dir_entries),
-                            }),
-                            Mode::DIR
-                                | Mode::RUSR
-                                | Mode::WUSR
-                                | Mode::XUSR
-                                | Mode::RGRP
-                                | Mode::XGRP
-                                | Mode::ROTH
-                                | Mode::XOTH,
-                            ino,
-                        ));
-                        ino += 1;
-
-                        if let Some(parent_entries) = dir_map.get(&parent_path) {
-                            parent_entries.write().insert(parts[i].into(), new_dir_node);
-                        }
-                        dir_map.insert(current_path.clone(), new_dir_entries);
-                    }
-                }
-
-                let parent_path = if parts.len() > 1 {
-                    parts[..parts.len() - 1].join("/")
-                } else {
-                    String::new()
-                };
-
-                let leaf_name = parts.last().unwrap();
-                match entry.file_type {
-                    FileType::Directory => {
-                        let mut full_dir_path = parent_path.clone();
-                        if !full_dir_path.is_empty() {
-                            full_dir_path.push('/');
-                        }
-                        full_dir_path.push_str(leaf_name);
-
-                        if !dir_map.contains_key(&full_dir_path) {
-                            let new_dir_entries = Arc::new(RwLock::new(BTreeMap::new()));
-                            let new_dir_node = Arc::new(INode::new(
-                                Box::new(InitramfsDirNodeOps {
-                                    entries: Arc::clone(&new_dir_entries),
-                                }),
-                                Mode::DIR
-                                    | Mode::RUSR
-                                    | Mode::WUSR
-                                    | Mode::XUSR
-                                    | Mode::RGRP
-                                    | Mode::XGRP
-                                    | Mode::ROTH
-                                    | Mode::XOTH,
-                                ino,
-                            ));
-                            ino += 1;
-
-                            if let Some(parent_entries) = dir_map.get(&parent_path) {
-                                parent_entries
-                                    .write()
-                                    .insert((*leaf_name).into(), new_dir_node);
-                            }
-                            dir_map.insert(full_dir_path, new_dir_entries);
-                        }
-                    }
-                    FileType::Symlink => {
-                        let target_str = core::str::from_utf8(entry.data).unwrap_or("");
-                        let symlink_node = Arc::new(INode::new_with_attr(
-                            Box::new(InitramfsSymlinkNodeOps { target: target_str }),
-                            ino,
-                            INodeAttr {
-                                size: target_str.len(),
-                                mode: Mode::LINK
-                                    | Mode::RUSR
-                                    | Mode::RGRP
-                                    | Mode::ROTH
-                                    | Mode::XUSR
-                                    | Mode::XGRP
-                                    | Mode::XOTH,
-                                nlink: 1,
-                                uid: entry.uid,
-                                gid: entry.gid,
-                                rdev: 0,
-                            },
-                        ));
-                        ino += 1;
-                        count += 1;
-
-                        if let Some(parent_entries) = dir_map.get(&parent_path) {
-                            parent_entries
-                                .write()
-                                .insert((*leaf_name).into(), symlink_node);
-                        }
-                    }
-                    _ => {
-                        let attr = INodeAttr {
-                            size: entry.data.len(),
-                            mode: Mode::FILE
-                                | Mode::RUSR
-                                | Mode::WUSR
-                                | Mode::XUSR
-                                | Mode::RGRP
-                                | Mode::XGRP
-                                | Mode::ROTH
-                                | Mode::XOTH,
-                            nlink: (entry.nlink.max(1)) as usize,
-                            uid: entry.uid,
-                            gid: entry.gid,
-                            rdev: 0,
-                        };
-
-                        let file_node = if entry.file_type == FileType::File && entry.nlink > 1 {
-                            // Share one buffer between every link with this inode
-                            // number so a payload carried by any link becomes
-                            // visible through all of them.
-                            let shared = hardlinks
-                                .entry(entry.ino)
-                                .or_insert_with(|| Arc::new(RwLock::new(Vec::new())))
-                                .clone();
-                            if !entry.data.is_empty() {
-                                *shared.write() = Vec::from(entry.data);
-                            }
-                            Arc::new(INode::new_with_attr(
-                                Box::new(InitramfsRamFileNodeOps::new_with_attr(shared, attr)),
-                                ino,
-                                attr,
-                            ))
-                        } else {
-                            let ram_data = Arc::new(RwLock::new(Vec::from(entry.data)));
-                            Arc::new(INode::new_with_attr(
-                                Box::new(InitramfsRamFileNodeOps::new_with_attr(ram_data, attr)),
-                                ino,
-                                attr,
-                            ))
-                        };
-                        ino += 1;
-                        count += 1;
-
-                        if let Some(parent_entries) = dir_map.get(&parent_path) {
-                            parent_entries
-                                .write()
-                                .insert((*leaf_name).into(), file_node);
-                        }
-                    }
-                }
-            }
-            ostd::info!("Initramfs VFS tree mounted: {} files loaded", count);
+            populate_initramfs_tree(initramfs_buf, &root_entries);
         } else {
             ostd::warn!("No initramfs provided by bootloader");
         }

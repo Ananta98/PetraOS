@@ -308,6 +308,228 @@ pub fn sem_op(
     }
 }
 
+fn semctl_global_info(
+    cmd: i32,
+    semid: i32,
+    arg: usize,
+    cred: &Ucred,
+    vmar: &Arc<crate::vm::vmar::Vmar>,
+) -> Option<Result<usize>> {
+    if cmd == IPC_INFO || cmd == SEM_INFO {
+        if arg == 0 {
+            return Some(Err(Errno::EFAULT));
+        }
+        let info = SemInfo::default();
+        if let Err(e) = UserPtr::new(arg).write_bytes(vmar, &info.to_bytes()) {
+            return Some(Err(e));
+        }
+        return Some(Ok(SEMMNI));
+    }
+
+    if cmd == SEM_STAT || cmd == SEM_STAT_ANY {
+        if arg == 0 {
+            return Some(Err(Errno::EFAULT));
+        }
+        let reg = SEM_REGISTRY.lock();
+        let idx = semid as usize;
+        let Some((&id, set_lock)) = reg.iter().nth(idx) else {
+            return Some(Err(Errno::EINVAL));
+        };
+        let set = set_lock.lock();
+
+        if cmd == SEM_STAT {
+            if let Err(e) = check_read_permission(&set.ds.sem_perm, cred) {
+                return Some(Err(e));
+            }
+        }
+
+        if let Err(e) = UserPtr::new(arg).write_bytes(vmar, &set.ds.to_bytes()) {
+            return Some(Err(e));
+        }
+        return Some(Ok(id as usize));
+    }
+
+    None
+}
+
+fn semctl_stat(
+    set_lock: &SpinLock<SemSet>,
+    arg: usize,
+    cred: &Ucred,
+    vmar: &Arc<crate::vm::vmar::Vmar>,
+) -> Result<usize> {
+    if arg == 0 {
+        return Err(Errno::EFAULT);
+    }
+    let set = set_lock.lock();
+    if set.destroyed {
+        return Err(Errno::EIDRM);
+    }
+    check_read_permission(&set.ds.sem_perm, cred)?;
+    UserPtr::new(arg).write_bytes(vmar, &set.ds.to_bytes())?;
+    Ok(0)
+}
+
+fn semctl_set(
+    set_lock: &SpinLock<SemSet>,
+    arg: usize,
+    cred: &Ucred,
+    vmar: &Arc<crate::vm::vmar::Vmar>,
+) -> Result<usize> {
+    if arg == 0 {
+        return Err(Errno::EFAULT);
+    }
+    let mut raw = [0u8; 104];
+    UserPtr::new(arg).read_bytes(vmar, &mut raw)?;
+    let new_ds = SemIdDs::from_bytes(&raw).ok_or(Errno::EINVAL)?;
+
+    let mut set = set_lock.lock();
+    if set.destroyed {
+        return Err(Errno::EIDRM);
+    }
+    check_admin_permission(&set.ds.sem_perm, cred)?;
+
+    set.ds.sem_perm.uid = new_ds.sem_perm.uid;
+    set.ds.sem_perm.gid = new_ds.sem_perm.gid;
+    set.ds.sem_perm.mode = (set.ds.sem_perm.mode & !0o777) | (new_ds.sem_perm.mode & 0o777);
+    set.ds.sem_ctime = current_time_secs();
+    Ok(0)
+}
+
+fn semctl_rmid(semid: i32, set_lock: &SpinLock<SemSet>, cred: &Ucred) -> Result<usize> {
+    let mut reg = SEM_REGISTRY.lock();
+    let mut set = set_lock.lock();
+    if set.destroyed {
+        return Err(Errno::EIDRM);
+    }
+    check_admin_permission(&set.ds.sem_perm, cred)?;
+
+    set.destroyed = true;
+    reg.remove(&semid);
+    SEM_REGISTRY.unbind_key(set.key);
+    clear_undo_for_sem(semid, None);
+    set.wq.wake_all();
+    Ok(0)
+}
+
+fn semctl_get_val(
+    set_lock: &SpinLock<SemSet>,
+    semnum: i32,
+    cmd: i32,
+    cred: &Ucred,
+) -> Result<usize> {
+    let set = set_lock.lock();
+    if set.destroyed {
+        return Err(Errno::EIDRM);
+    }
+    check_read_permission(&set.ds.sem_perm, cred)?;
+    if semnum < 0 || (semnum as usize) >= set.nsems {
+        return Err(Errno::EINVAL);
+    }
+    let sem = &set.sems[semnum as usize];
+    match cmd {
+        GETVAL => Ok(sem.val as usize),
+        GETPID => Ok(sem.pid as usize),
+        GETNCNT => Ok(sem.ncnt as usize),
+        GETZCNT => Ok(sem.zcnt as usize),
+        _ => Err(Errno::EINVAL),
+    }
+}
+
+fn semctl_set_val(
+    semid: i32,
+    set_lock: &SpinLock<SemSet>,
+    semnum: i32,
+    arg: usize,
+    cred: &Ucred,
+    proc: &Arc<Proc>,
+) -> Result<usize> {
+    let val = arg as i32;
+    if val < 0 || val > (SEMVMX as i32) {
+        return Err(Errno::ERANGE);
+    }
+
+    let mut set = set_lock.lock();
+    if set.destroyed {
+        return Err(Errno::EIDRM);
+    }
+    check_write_permission(&set.ds.sem_perm, cred)?;
+    if semnum < 0 || (semnum as usize) >= set.nsems {
+        return Err(Errno::EINVAL);
+    }
+
+    set.sems[semnum as usize].val = val as u16;
+    set.sems[semnum as usize].pid = proc.pid.as_u32();
+    set.ds.sem_ctime = current_time_secs();
+    clear_undo_for_sem(semid, Some(semnum as u16));
+    set.wq.wake_all();
+    Ok(0)
+}
+
+fn semctl_getall(
+    set_lock: &SpinLock<SemSet>,
+    arg: usize,
+    cred: &Ucred,
+    vmar: &Arc<crate::vm::vmar::Vmar>,
+) -> Result<usize> {
+    if arg == 0 {
+        return Err(Errno::EFAULT);
+    }
+    let set = set_lock.lock();
+    if set.destroyed {
+        return Err(Errno::EIDRM);
+    }
+    check_read_permission(&set.ds.sem_perm, cred)?;
+
+    let mut raw = Vec::with_capacity(set.nsems * 2);
+    for sem in &set.sems {
+        raw.extend_from_slice(&sem.val.to_ne_bytes());
+    }
+    UserPtr::new(arg).write_bytes(vmar, &raw)?;
+    Ok(0)
+}
+
+fn semctl_setall(
+    semid: i32,
+    set_lock: &SpinLock<SemSet>,
+    arg: usize,
+    cred: &Ucred,
+    proc: &Arc<Proc>,
+    vmar: &Arc<crate::vm::vmar::Vmar>,
+) -> Result<usize> {
+    if arg == 0 {
+        return Err(Errno::EFAULT);
+    }
+    let mut set = set_lock.lock();
+    if set.destroyed {
+        return Err(Errno::EIDRM);
+    }
+    check_write_permission(&set.ds.sem_perm, cred)?;
+
+    let nsems = set.nsems;
+    let mut raw = Vec::new();
+    raw.resize(nsems * 2, 0u8);
+    UserPtr::new(arg).read_bytes(vmar, &mut raw)?;
+
+    let mut values = Vec::with_capacity(nsems);
+    for i in 0..nsems {
+        let val = u16::from_ne_bytes(raw[i * 2..i * 2 + 2].try_into().unwrap());
+        if val > SEMVMX {
+            return Err(Errno::ERANGE);
+        }
+        values.push(val);
+    }
+
+    for (i, val) in values.into_iter().enumerate() {
+        set.sems[i].val = val;
+        set.sems[i].pid = proc.pid.as_u32();
+    }
+    set.ds.sem_ctime = current_time_secs();
+    clear_undo_for_sem(semid, None);
+    set.wq.wake_all();
+    Ok(0)
+}
+
 /// `semctl(2)` - Controls semaphore parameters, values, and lifecycle.
 pub fn sem_ctl(
     semid: i32,
@@ -319,211 +541,20 @@ pub fn sem_ctl(
 ) -> Result<usize> {
     let vmar = proc.vmspace();
 
-    // Commands returning global info
-    if cmd == IPC_INFO || cmd == SEM_INFO {
-        if arg == 0 {
-            return Err(Errno::EFAULT);
-        }
-        let info = SemInfo::default();
-        UserPtr::new(arg).write_bytes(&vmar, &info.to_bytes())?;
-        return Ok(SEMMNI);
-    }
-
-    // SEM_STAT / SEM_STAT_ANY take semid as index
-    if cmd == SEM_STAT || cmd == SEM_STAT_ANY {
-        if arg == 0 {
-            return Err(Errno::EFAULT);
-        }
-        let reg = SEM_REGISTRY.lock();
-        let idx = semid as usize;
-        let (&id, set_lock) = reg.iter().nth(idx).ok_or(Errno::EINVAL)?;
-        let set = set_lock.lock();
-
-        if cmd == SEM_STAT {
-            check_read_permission(&set.ds.sem_perm, cred)?;
-        }
-
-        UserPtr::new(arg).write_bytes(&vmar, &set.ds.to_bytes())?;
-        return Ok(id as usize);
+    if let Some(res) = semctl_global_info(cmd, semid, arg, cred, &vmar) {
+        return res;
     }
 
     let set_lock = lookup_set(semid).ok_or(Errno::EINVAL)?;
 
     match cmd {
-        IPC_STAT => {
-            if arg == 0 {
-                return Err(Errno::EFAULT);
-            }
-            let set = set_lock.lock();
-            if set.destroyed {
-                return Err(Errno::EIDRM);
-            }
-            check_read_permission(&set.ds.sem_perm, cred)?;
-            UserPtr::new(arg).write_bytes(&vmar, &set.ds.to_bytes())?;
-            Ok(0)
-        }
-
-        IPC_SET => {
-            if arg == 0 {
-                return Err(Errno::EFAULT);
-            }
-            let mut raw = [0u8; 104];
-            UserPtr::new(arg).read_bytes(&vmar, &mut raw)?;
-            let new_ds = SemIdDs::from_bytes(&raw).ok_or(Errno::EINVAL)?;
-
-            let mut set = set_lock.lock();
-            if set.destroyed {
-                return Err(Errno::EIDRM);
-            }
-            check_admin_permission(&set.ds.sem_perm, cred)?;
-
-            set.ds.sem_perm.uid = new_ds.sem_perm.uid;
-            set.ds.sem_perm.gid = new_ds.sem_perm.gid;
-            set.ds.sem_perm.mode = (set.ds.sem_perm.mode & !0o777) | (new_ds.sem_perm.mode & 0o777);
-            set.ds.sem_ctime = current_time_secs();
-            Ok(0)
-        }
-
-        IPC_RMID => {
-            let mut reg = SEM_REGISTRY.lock();
-
-            let mut set = set_lock.lock();
-            if set.destroyed {
-                return Err(Errno::EIDRM);
-            }
-            check_admin_permission(&set.ds.sem_perm, cred)?;
-
-            set.destroyed = true;
-            reg.remove(&semid);
-            SEM_REGISTRY.unbind_key(set.key);
-            clear_undo_for_sem(semid, None);
-            set.wq.wake_all();
-            Ok(0)
-        }
-
-        GETVAL => {
-            let set = set_lock.lock();
-            if set.destroyed {
-                return Err(Errno::EIDRM);
-            }
-            check_read_permission(&set.ds.sem_perm, cred)?;
-            if semnum < 0 || (semnum as usize) >= set.nsems {
-                return Err(Errno::EINVAL);
-            }
-            Ok(set.sems[semnum as usize].val as usize)
-        }
-
-        SETVAL => {
-            let val = arg as i32;
-            if val < 0 || val > (SEMVMX as i32) {
-                return Err(Errno::ERANGE);
-            }
-
-            let mut set = set_lock.lock();
-            if set.destroyed {
-                return Err(Errno::EIDRM);
-            }
-            check_write_permission(&set.ds.sem_perm, cred)?;
-            if semnum < 0 || (semnum as usize) >= set.nsems {
-                return Err(Errno::EINVAL);
-            }
-
-            set.sems[semnum as usize].val = val as u16;
-            set.sems[semnum as usize].pid = proc.pid.as_u32();
-            set.ds.sem_ctime = current_time_secs();
-            clear_undo_for_sem(semid, Some(semnum as u16));
-            set.wq.wake_all();
-            Ok(0)
-        }
-
-        GETPID => {
-            let set = set_lock.lock();
-            if set.destroyed {
-                return Err(Errno::EIDRM);
-            }
-            check_read_permission(&set.ds.sem_perm, cred)?;
-            if semnum < 0 || (semnum as usize) >= set.nsems {
-                return Err(Errno::EINVAL);
-            }
-            Ok(set.sems[semnum as usize].pid as usize)
-        }
-
-        GETNCNT => {
-            let set = set_lock.lock();
-            if set.destroyed {
-                return Err(Errno::EIDRM);
-            }
-            check_read_permission(&set.ds.sem_perm, cred)?;
-            if semnum < 0 || (semnum as usize) >= set.nsems {
-                return Err(Errno::EINVAL);
-            }
-            Ok(set.sems[semnum as usize].ncnt as usize)
-        }
-
-        GETZCNT => {
-            let set = set_lock.lock();
-            if set.destroyed {
-                return Err(Errno::EIDRM);
-            }
-            check_read_permission(&set.ds.sem_perm, cred)?;
-            if semnum < 0 || (semnum as usize) >= set.nsems {
-                return Err(Errno::EINVAL);
-            }
-            Ok(set.sems[semnum as usize].zcnt as usize)
-        }
-
-        GETALL => {
-            if arg == 0 {
-                return Err(Errno::EFAULT);
-            }
-            let set = set_lock.lock();
-            if set.destroyed {
-                return Err(Errno::EIDRM);
-            }
-            check_read_permission(&set.ds.sem_perm, cred)?;
-
-            let mut raw = Vec::with_capacity(set.nsems * 2);
-            for sem in &set.sems {
-                raw.extend_from_slice(&sem.val.to_ne_bytes());
-            }
-            UserPtr::new(arg).write_bytes(&vmar, &raw)?;
-            Ok(0)
-        }
-
-        SETALL => {
-            if arg == 0 {
-                return Err(Errno::EFAULT);
-            }
-            let mut set = set_lock.lock();
-            if set.destroyed {
-                return Err(Errno::EIDRM);
-            }
-            check_write_permission(&set.ds.sem_perm, cred)?;
-
-            let nsems = set.nsems;
-            let mut raw = Vec::new();
-            raw.resize(nsems * 2, 0u8);
-            UserPtr::new(arg).read_bytes(&vmar, &mut raw)?;
-
-            let mut values = Vec::with_capacity(nsems);
-            for i in 0..nsems {
-                let val = u16::from_ne_bytes(raw[i * 2..i * 2 + 2].try_into().unwrap());
-                if val > SEMVMX {
-                    return Err(Errno::ERANGE);
-                }
-                values.push(val);
-            }
-
-            for (i, val) in values.into_iter().enumerate() {
-                set.sems[i].val = val;
-                set.sems[i].pid = proc.pid.as_u32();
-            }
-            set.ds.sem_ctime = current_time_secs();
-            clear_undo_for_sem(semid, None);
-            set.wq.wake_all();
-            Ok(0)
-        }
-
+        IPC_STAT => semctl_stat(&set_lock, arg, cred, &vmar),
+        IPC_SET => semctl_set(&set_lock, arg, cred, &vmar),
+        IPC_RMID => semctl_rmid(semid, &set_lock, cred),
+        GETVAL | GETPID | GETNCNT | GETZCNT => semctl_get_val(&set_lock, semnum, cmd, cred),
+        SETVAL => semctl_set_val(semid, &set_lock, semnum, arg, cred, proc),
+        GETALL => semctl_getall(&set_lock, arg, cred, &vmar),
+        SETALL => semctl_setall(semid, &set_lock, arg, cred, proc, &vmar),
         _ => Err(Errno::EINVAL),
     }
 }
