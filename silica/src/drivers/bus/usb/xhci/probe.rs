@@ -203,47 +203,7 @@ pub fn probe_root_hub(controller: &mut XhciController) -> Result<()> {
                         );
                     }
 
-                    for iface in &dev.interfaces {
-                        if iface.interface_class == USB_CLASS_HID {
-                            // Set HID Boot Protocol (0) and disable idle repeat
-                            let _ = set_hid_boot_protocol(controller, &dev, iface.interface_number);
-                            let _ = set_hid_idle(controller, &dev, iface.interface_number);
-
-                            match probe_hid_interface(iface) {
-                                Ok(HidDeviceType::Keyboard) => {
-                                    ostd::info!(
-                                        "xHCI: Successfully bound USB Keyboard on slot {}",
-                                        slot_id
-                                    );
-                                }
-                                Ok(HidDeviceType::Mouse) => {
-                                    ostd::info!(
-                                        "xHCI: Successfully bound USB Mouse on slot {}",
-                                        slot_id
-                                    );
-                                }
-                                Ok(HidDeviceType::Generic) => {
-                                    ostd::info!("xHCI: Bound generic USB HID on slot {}", slot_id);
-                                }
-                                Err(err) => {
-                                    ostd::warn!("xHCI: HID probe failed: {:?}", err);
-                                }
-                            }
-                        } else if iface.interface_class == USB_CLASS_MASS_STORAGE {
-                            match probe_storage_interface(slot_id, iface) {
-                                Ok(sdev) => {
-                                    ostd::info!(
-                                        "xHCI: Successfully bound USB Mass Storage \"/dev/{}\" on slot {}",
-                                        sdev.name(),
-                                        slot_id
-                                    );
-                                }
-                                Err(err) => {
-                                    ostd::warn!("xHCI: Storage probe failed: {:?}", err);
-                                }
-                            }
-                        }
-                    }
+                    bind_device_interfaces(controller, &dev, slot_id);
                 }
             }
 
@@ -252,6 +212,51 @@ pub fn probe_root_hub(controller: &mut XhciController) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Binds HID and Storage driver interfaces for a configured USB device.
+fn bind_device_interfaces(controller: &XhciController, dev: &XhciUsbDevice, slot_id: u8) {
+    for iface in &dev.interfaces {
+        if iface.interface_class == USB_CLASS_HID {
+            // Set HID Boot Protocol (0) and disable idle repeat
+            let _ = set_hid_boot_protocol(controller, dev, iface.interface_number);
+            let _ = set_hid_idle(controller, dev, iface.interface_number);
+
+            match probe_hid_interface(iface) {
+                Ok(HidDeviceType::Keyboard) => {
+                    ostd::info!(
+                        "xHCI: Successfully bound USB Keyboard on slot {}",
+                        slot_id
+                    );
+                }
+                Ok(HidDeviceType::Mouse) => {
+                    ostd::info!(
+                        "xHCI: Successfully bound USB Mouse on slot {}",
+                        slot_id
+                    );
+                }
+                Ok(HidDeviceType::Generic) => {
+                    ostd::info!("xHCI: Bound generic USB HID on slot {}", slot_id);
+                }
+                Err(err) => {
+                    ostd::warn!("xHCI: HID probe failed: {:?}", err);
+                }
+            }
+        } else if iface.interface_class == USB_CLASS_MASS_STORAGE {
+            match probe_storage_interface(slot_id, iface) {
+                Ok(sdev) => {
+                    ostd::info!(
+                        "xHCI: Successfully bound USB Mass Storage \"/dev/{}\" on slot {}",
+                        sdev.name(),
+                        slot_id
+                    );
+                }
+                Err(err) => {
+                    ostd::warn!("xHCI: Storage probe failed: {:?}", err);
+                }
+            }
+        }
+    }
 }
 
 /// Issues a USB Control Transfer on Endpoint 0 to query the Device Descriptor.

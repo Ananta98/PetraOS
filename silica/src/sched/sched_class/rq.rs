@@ -221,31 +221,32 @@ impl RunQueue {
     /// Selects the next task to run based on class priority: RT > EEVDF > Idle.
     pub fn pick_next(&mut self, yielding: bool) -> Option<SchedEntry> {
         // Priority 1: Real-time class
-        if self.rt.has_tasks() {
-            if let Some(rt_best) = self.rt.pick_next() {
-                let candidate = rt_best.clone();
-                let should_switch = match &self.current {
-                    None => true,
-                    Some(curr) if curr.is_idle || !curr.entity.is_rt() => true,
-                    Some(curr) => {
-                        yielding
-                            || candidate.entity.rt.priority() > curr.entity.rt.priority()
-                            || (candidate.entity.rt.priority() == curr.entity.rt.priority()
-                                && curr.entity.policy() == SCHED_RR
-                                && curr.entity.rt.time_slice_ns() == 0)
-                    }
-                };
-                if should_switch {
-                    return Some(candidate);
+        if self.rt.has_tasks()
+            && let Some(rt_best) = self.rt.pick_next()
+        {
+            let candidate = rt_best.clone();
+            let should_switch = match &self.current {
+                None => true,
+                Some(curr) if curr.is_idle || !curr.entity.is_rt() => true,
+                Some(curr) => {
+                    yielding
+                        || candidate.entity.rt.priority() > curr.entity.rt.priority()
+                        || (candidate.entity.rt.priority() == curr.entity.rt.priority()
+                            && curr.entity.policy() == SCHED_RR
+                            && curr.entity.rt.time_slice_ns() == 0)
                 }
+            };
+            if should_switch {
+                return Some(candidate);
             }
         }
 
         // If current is RT and no higher RT exists, RT keeps running.
-        if let Some(curr) = &self.current {
-            if curr.entity.is_rt() && !yielding {
-                return None;
-            }
+        if let Some(curr) = &self.current
+            && curr.entity.is_rt()
+            && !yielding
+        {
+            return None;
         }
 
         // Priority 2: EEVDF Fair class

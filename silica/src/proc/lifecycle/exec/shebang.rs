@@ -113,10 +113,10 @@ impl Shebang {
         if self.interpreter.len() > MAX_SHEBANG_LINE_LEN {
             crate::return_errno!(ENAMETOOLONG, "interpreter path exceeds maximum length");
         }
-        if let Some(arg) = &self.arg {
-            if arg.len() > MAX_SHEBANG_LINE_LEN {
-                crate::return_errno!(E2BIG, "shebang argument exceeds maximum length");
-            }
+        if let Some(arg) = &self.arg
+            && arg.len() > MAX_SHEBANG_LINE_LEN
+        {
+            crate::return_errno!(E2BIG, "shebang argument exceeds maximum length");
         }
         Ok(())
     }

@@ -44,6 +44,28 @@ pub fn query_config(
     Ok(size)
 }
 
+fn query_virtio_abs_info(transport: &VirtioTransport, code: u8) -> Option<InputAbsInfo> {
+    let mut abs_buf = [0u8; 128];
+    let abs_sz = query_config(transport, VIRTIO_INPUT_CFG_ABS_INFO, code, &mut abs_buf).ok()?;
+    if abs_sz < 20 {
+        return None;
+    }
+    let minimum = i32::from_le_bytes(abs_buf[0..4].try_into().unwrap_or_default());
+    let maximum = i32::from_le_bytes(abs_buf[4..8].try_into().unwrap_or_default());
+    let fuzz = i32::from_le_bytes(abs_buf[8..12].try_into().unwrap_or_default());
+    let flat = i32::from_le_bytes(abs_buf[12..16].try_into().unwrap_or_default());
+    let resolution = i32::from_le_bytes(abs_buf[16..20].try_into().unwrap_or_default());
+
+    Some(InputAbsInfo {
+        value: 0,
+        minimum,
+        maximum,
+        fuzz,
+        flat,
+        resolution,
+    })
+}
+
 /// One live `virtio-input` device instance bound to a PCI transport.
 pub struct VirtioInput {
     _transport: Arc<VirtioTransport>,
@@ -181,39 +203,7 @@ impl VirtioInput {
                     for code in 0..max {
                         if (type_buf[code / 8] & (1 << (code % 8))) != 0 {
                             caps.set_abs(code as u16);
-                            let mut abs_buf = [0u8; 128];
-                            if let Ok(abs_sz) = query_config(
-                                transport,
-                                VIRTIO_INPUT_CFG_ABS_INFO,
-                                code as u8,
-                                &mut abs_buf,
-                            ) {
-                                if abs_sz >= 20 {
-                                    let min = i32::from_le_bytes(
-                                        abs_buf[0..4].try_into().unwrap_or_default(),
-                                    );
-                                    let max = i32::from_le_bytes(
-                                        abs_buf[4..8].try_into().unwrap_or_default(),
-                                    );
-                                    let fuzz = i32::from_le_bytes(
-                                        abs_buf[8..12].try_into().unwrap_or_default(),
-                                    );
-                                    let flat = i32::from_le_bytes(
-                                        abs_buf[12..16].try_into().unwrap_or_default(),
-                                    );
-                                    let res = i32::from_le_bytes(
-                                        abs_buf[16..20].try_into().unwrap_or_default(),
-                                    );
-                                    abs_info[code] = Some(InputAbsInfo {
-                                        value: 0,
-                                        minimum: min,
-                                        maximum: max,
-                                        fuzz,
-                                        flat,
-                                        resolution: res,
-                                    });
-                                }
-                            }
+                            abs_info[code] = query_virtio_abs_info(transport, code as u8);
                         }
                     }
                 }

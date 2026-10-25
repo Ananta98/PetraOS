@@ -50,10 +50,10 @@ pub fn find_free_region(
 
         let hole_end = ceiling;
         let hole_start = mapping.end().max(low_limit);
-        if hole_start < hole_end {
-            if let Some(region) = take_from_hole(&(hole_start..hole_end), size, PAGE_SIZE) {
-                return Ok(region);
-            }
+        if hole_start < hole_end
+            && let Some(region) = take_from_hole(&(hole_start..hole_end), size, PAGE_SIZE)
+        {
+            return Ok(region);
         }
         if mapping.start() <= low_limit {
             return Err(NoRoom);

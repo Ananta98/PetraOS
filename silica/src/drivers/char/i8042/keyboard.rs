@@ -122,34 +122,39 @@ fn handle_keyboard_irq(_frame: &TrapFrame) {
         };
 
         let mut keyboard = KEYBOARD.lock();
-        if let Ok(Some(key_event)) = keyboard.add_byte(data) {
-            // Report the key transition to the input core first: this is what
-            // evdev clients and the console keyboard handler consume.
-            if let Some(device) = INPUT_DEVICE.get() {
-                report_key(device, &key_event);
-            }
+        let Ok(Some(key_event)) = keyboard.add_byte(data) else {
+            continue;
+        };
 
-            // Legacy `/dev/keyboard` byte stream.
-            if let Some(decoded) = keyboard.process_keyevent(key_event) {
-                match decoded {
-                    DecodedKey::Unicode(ch) => {
-                        // Return/Enter translates to carriage return \r for terminal line discipline
-                        if ch == '\n' {
-                            KEYBOARD_BUFFER.push_overwrite(b'\r');
-                        } else {
-                            let mut buf = [0u8; 4];
-                            for &b in ch.encode_utf8(&mut buf).as_bytes() {
-                                KEYBOARD_BUFFER.push_overwrite(b);
-                            }
-                        }
-                    }
-                    DecodedKey::RawKey(code) => {
-                        if let Some(seq) = raw_key_to_escape_seq(code) {
-                            for b in seq.bytes() {
-                                KEYBOARD_BUFFER.push_overwrite(b);
-                            }
-                        }
-                    }
+        // Report the key transition to the input core first: this is what
+        // evdev clients and the console keyboard handler consume.
+        if let Some(device) = INPUT_DEVICE.get() {
+            report_key(device, &key_event);
+        }
+
+        // Legacy `/dev/keyboard` byte stream.
+        if let Some(decoded) = keyboard.process_keyevent(key_event) {
+            push_legacy_key(decoded);
+        }
+    }
+}
+
+fn push_legacy_key(decoded: DecodedKey) {
+    match decoded {
+        DecodedKey::Unicode('\n') => {
+            // Return/Enter translates to carriage return \r for terminal line discipline
+            KEYBOARD_BUFFER.push_overwrite(b'\r');
+        }
+        DecodedKey::Unicode(ch) => {
+            let mut buf = [0u8; 4];
+            for &b in ch.encode_utf8(&mut buf).as_bytes() {
+                KEYBOARD_BUFFER.push_overwrite(b);
+            }
+        }
+        DecodedKey::RawKey(code) => {
+            if let Some(seq) = raw_key_to_escape_seq(code) {
+                for b in seq.bytes() {
+                    KEYBOARD_BUFFER.push_overwrite(b);
                 }
             }
         }

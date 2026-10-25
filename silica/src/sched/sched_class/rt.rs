@@ -162,10 +162,10 @@ impl RtRunQueue {
         let prio = current.entity.rt.priority().clamp(1, 99) as usize;
 
         // If a higher priority RT task arrived, preempt immediately.
-        if let Some(highest) = self.highest_prio() {
-            if highest > prio as i32 {
-                return true;
-            }
+        if let Some(highest) = self.highest_prio()
+            && highest > prio as i32
+        {
+            return true;
         }
 
         // If running under SCHED_RR, charge quantum.

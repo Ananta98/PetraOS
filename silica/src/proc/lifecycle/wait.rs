@@ -114,35 +114,35 @@ pub fn kernel_wait(
                 };
 
                 // Check stopped status
-                if let Some(ExitStatus::Stopped(sig)) = stop_status {
-                    if options.contains(WaitOptions::WSTOPPED) {
-                        if !options.contains(WaitOptions::WNOWAIT) {
-                            child.inner.lock().stop_status = None;
-                        }
-                        let uid = child.cred().cr_uid.as_u32();
-                        return Ok(Some(WaitResult {
-                            pid: child_pid,
-                            status: ExitStatus::Stopped(sig),
-                            exit_code: (sig.as_u32() as i32 & 0xff) << 8 | 0x7f,
-                            uid,
-                        }));
+                if let Some(ExitStatus::Stopped(sig)) = stop_status
+                    && options.contains(WaitOptions::WSTOPPED)
+                {
+                    if !options.contains(WaitOptions::WNOWAIT) {
+                        child.inner.lock().stop_status = None;
                     }
+                    let uid = child.cred().cr_uid.as_u32();
+                    return Ok(Some(WaitResult {
+                        pid: child_pid,
+                        status: ExitStatus::Stopped(sig),
+                        exit_code: (sig.as_u32() as i32 & 0xff) << 8 | 0x7f,
+                        uid,
+                    }));
                 }
 
                 // Check continued status
-                if let Some(ExitStatus::Continued) = stop_status {
-                    if options.contains(WaitOptions::WCONTINUED) {
-                        if !options.contains(WaitOptions::WNOWAIT) {
-                            child.inner.lock().stop_status = None;
-                        }
-                        let uid = child.cred().cr_uid.as_u32();
-                        return Ok(Some(WaitResult {
-                            pid: child_pid,
-                            status: ExitStatus::Continued,
-                            exit_code: 0xffff,
-                            uid,
-                        }));
+                if let Some(ExitStatus::Continued) = stop_status
+                    && options.contains(WaitOptions::WCONTINUED)
+                {
+                    if !options.contains(WaitOptions::WNOWAIT) {
+                        child.inner.lock().stop_status = None;
                     }
+                    let uid = child.cred().cr_uid.as_u32();
+                    return Ok(Some(WaitResult {
+                        pid: child_pid,
+                        status: ExitStatus::Continued,
+                        exit_code: 0xffff,
+                        uid,
+                    }));
                 }
 
                 // Check exited / zombie status

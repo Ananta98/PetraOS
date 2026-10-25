@@ -390,11 +390,11 @@ pub fn init() -> Result<()> {
     // 1. Initialize CMOS RTC driver and read boot epoch
     if let Err(err) = rtc::init() {
         ostd::warn!("Time: RTC bring-up failed: {:?}", err);
-    } else if let Ok(epoch) = rtc::get_cmos_epoch() {
-        if epoch > 0 {
-            BOOT_EPOCH_SECS.store(epoch, Ordering::Relaxed);
-            ostd::info!("Time: Boot wall-clock epoch set from RTC to {}s", epoch);
-        }
+    } else if let Ok(epoch) = rtc::get_cmos_epoch()
+        && epoch > 0
+    {
+        BOOT_EPOCH_SECS.store(epoch, Ordering::Relaxed);
+        ostd::info!("Time: Boot wall-clock epoch set from RTC to {}s", epoch);
     }
 
     // 2. Initialize TSC and Jiffies clocksources

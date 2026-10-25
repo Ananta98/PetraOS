@@ -186,10 +186,10 @@ impl Proc {
         }
 
         let _ = sender_pid;
-        if let Some(sig) = Signal::from_u32(info.si_signo as u32) {
-            if sig == Signal::SIGCONT {
-                continue_thread(self);
-            }
+        if let Some(sig) = Signal::from_u32(info.si_signo as u32)
+            && sig == Signal::SIGCONT
+        {
+            continue_thread(self);
         }
         self.sigqueue.post(QueuedSignal { info });
         self.wake_one_thread();
@@ -234,11 +234,11 @@ pub fn run_default_action(td: &Thread, sig: Signal) -> bool {
     }
 
     // PID 1 (init) cannot be terminated by unhandled signals.
-    if let Some(proc) = td.proc() {
-        if proc.pid == crate::proc::types::PID_INIT {
-            ostd::info!("proc: pid 1 ignoring default action for signal {sig}");
-            return false;
-        }
+    if let Some(proc) = td.proc()
+        && proc.pid == crate::proc::types::PID_INIT
+    {
+        ostd::info!("proc: pid 1 ignoring default action for signal {sig}");
+        return false;
     }
 
     exit1(

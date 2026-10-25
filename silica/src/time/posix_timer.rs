@@ -114,39 +114,39 @@ pub fn on_timer_expire(timer: Arc<PosixTimer>, proc_id: Pid, generation: u64) {
     drop(inner);
 
     // Deliver notification signal if process is still alive
-    if let Some(proc) = allproc_find(proc_id) {
-        if proc.state() != ProcState::Zombie {
-            match timer.sigev_notify {
-                SIGEV_SIGNAL => {
-                    let siginfo = SigInfo {
-                        si_signo: timer.sigev_signo,
-                        si_code: code::TIMER,
-                        si_addr: timer.id as u64,
-                        si_value: timer.sigev_value,
-                        ..Default::default()
-                    };
-                    let _ = proc.send_signal(siginfo, 0);
-                }
-                SIGEV_THREAD_ID => {
-                    if let Some(tid) = timer.sigev_tid {
-                        let proc_inner = proc.inner.lock();
-                        if let Some(target) =
-                            proc_inner.threads.iter().find(|t| t.tid == tid).cloned()
-                        {
-                            drop(proc_inner);
-                            let siginfo = SigInfo {
-                                si_signo: timer.sigev_signo,
-                                si_code: code::TIMER,
-                                si_addr: timer.id as u64,
-                                si_value: timer.sigev_value,
-                                ..Default::default()
-                            };
-                            target.post_signal(siginfo);
-                        }
+    if let Some(proc) = allproc_find(proc_id)
+        && proc.state() != ProcState::Zombie
+    {
+        match timer.sigev_notify {
+            SIGEV_SIGNAL => {
+                let siginfo = SigInfo {
+                    si_signo: timer.sigev_signo,
+                    si_code: code::TIMER,
+                    si_addr: timer.id as u64,
+                    si_value: timer.sigev_value,
+                    ..Default::default()
+                };
+                let _ = proc.send_signal(siginfo, 0);
+            }
+            SIGEV_THREAD_ID => {
+                if let Some(tid) = timer.sigev_tid {
+                    let proc_inner = proc.inner.lock();
+                    if let Some(target) =
+                        proc_inner.threads.iter().find(|t| t.tid == tid).cloned()
+                    {
+                        drop(proc_inner);
+                        let siginfo = SigInfo {
+                            si_signo: timer.sigev_signo,
+                            si_code: code::TIMER,
+                            si_addr: timer.id as u64,
+                            si_value: timer.sigev_value,
+                            ..Default::default()
+                        };
+                        target.post_signal(siginfo);
                     }
                 }
-                _ => {} // SIGEV_NONE
             }
+            _ => {} // SIGEV_NONE
         }
     }
 

@@ -239,11 +239,11 @@ impl Vmar {
         let vm_space = &self.vm_space;
 
         for mapping in inner.mappings.iter() {
-            if mapping.is_shared() {
-                if let Some(backing) = mapping.backing() {
-                    let _ = backing
-                        .flush(mapping.backing_offset()..mapping.backing_offset() + mapping.len());
-                }
+            if mapping.is_shared()
+                && let Some(backing) = mapping.backing()
+            {
+                let _ = backing
+                    .flush(mapping.backing_offset()..mapping.backing_offset() + mapping.len());
             }
         }
 
