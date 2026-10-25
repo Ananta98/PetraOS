@@ -40,7 +40,19 @@ Run `git status` and `git diff` to inspect all staged and unstaged modifications
 - [ ] **No Leaky Abstractions**: Implementation details (e.g. specific driver registers, hardware flags) do not leak into general kernel subsystems (like `fs` or `proc`).
 - [ ] **No Circular Dependencies**: Subsystem dependencies flow cleanly in one direction (e.g., `syscall` -> `proc`/`fs` -> `drivers`/`arch`).
 
-### 4. Build & Runtime Verification (Gatekeeper)
+### 4. Clean Code Standards & Enforcement
+
+Enforce Clean Code principles across all generated and reviewed code to ensure maximum human readability and maintainability. Every agent must adhere to the following rules:
+
+1. **Reduce Nesting & Cognitive Load:** Flatten deep `if/else` ladders and loops using early returns and guard clauses. Keep indentation and control flow depth strictly under 2 levels.
+2. **Single Responsibility Principle (SRP):** Limit functions to a single level of abstraction and purpose. Decompose monolithic routines (>30–40 lines) into focused, well-scoped helper functions.
+3. **Intention-Revealing Identifiers:** Eliminate ambiguous or generic naming (`tmp`, `res`, `data`, single-letter variables). Use descriptive names that clearly communicate business or domain intent.
+4. **Eliminate Magic Literals:** Replace hardcoded numbers, raw bitmasks, and repeated string literals with semantic constants, bitflags, or enums.
+5. **Zero Noise Comments:** Strip out commented-out code and redundant comments that explain *what* the syntax is doing. Retain only comments explaining non-obvious *why* rationales, domain edge cases, or hardware/safety invariants.
+
+*Note: If the workspace or agent environment defines additional project-specific clean code rules or skills, compose and enforce them alongside these baseline review standards.*
+
+### 5. Build & Runtime Verification (Gatekeeper)
 The review is only successful if the kernel compiles cleanly:
 
 ```bash
