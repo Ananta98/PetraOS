@@ -70,7 +70,10 @@ impl MouseAccumulator {
 
         self.dx = 0;
         self.dy = 0;
-        if crate::arch::can_wait_ipi() {
+        if matches!(
+            ostd::irq::InterruptLevel::current(),
+            ostd::irq::InterruptLevel::L0
+        ) {
             self.waitq.wake_all();
         } else if crate::kpi::task::is_initialized() {
             crate::kpi::task::schedule_work_fn(|| {
@@ -158,11 +161,7 @@ pub fn read_mice(buf: &mut [u8], nonblock: bool) -> Result<usize> {
             acc.waitq.enqueue(waiter.waker());
         }
         let n = read_avail(buf);
-        if n > 0 {
-            Some(n)
-        } else {
-            None
-        }
+        if n > 0 { Some(n) } else { None }
     };
 
     let cancel = || {

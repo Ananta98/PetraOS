@@ -80,7 +80,10 @@ pub fn waitq() -> &'static WaitQueue {
 /// stale waitqueue wakers from being dropped in IRQ context, which would
 /// panic when performing TLB shootdown IPI waits.
 pub fn notify() {
-    if crate::arch::can_wait_ipi() {
+    if matches!(
+        ostd::irq::InterruptLevel::current(),
+        ostd::irq::InterruptLevel::L0
+    ) {
         POLL_WAITQ.wake_all();
     } else {
         if crate::kpi::task::is_initialized() {
