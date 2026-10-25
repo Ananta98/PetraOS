@@ -34,6 +34,7 @@ pub mod cred;
 pub mod drm;
 pub mod errno;
 pub mod fd;
+pub mod inotify;
 pub mod input;
 pub mod ioctl;
 pub mod ipc;

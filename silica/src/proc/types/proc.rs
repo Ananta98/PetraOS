@@ -188,6 +188,8 @@ pub struct ProcInner {
     pub exe_path: Option<String>,
     /// Accumulated resource usage from reaped child processes.
     pub children_rusage: Rusage,
+    /// Environment variables (KEY=VALUE) passed to execve.
+    pub environ: Vec<String>,
 }
 
 /// Process Control Block.
@@ -268,6 +270,7 @@ impl Proc {
                 shm_attachments: BTreeMap::new(),
                 exe_path: Some(String::from(comm_name)),
                 children_rusage: Rusage::default(),
+                environ: Vec::new(),
             }),
             vmspace: SpinLock::new(vmspace),
             fd_table,

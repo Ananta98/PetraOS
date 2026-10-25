@@ -143,6 +143,30 @@ impl Filedesc {
         Ok(())
     }
 
+    /// Closes or sets `FD_CLOEXEC` on a range of file descriptors from `first` to `last` (`close_range(2)`).
+    pub fn close_range(&mut self, first: u32, last: u32, cloexec: bool) -> Result<()> {
+        if first > last {
+            crate::return_errno!(EINVAL, "close_range: first ({first}) > last ({last})");
+        }
+        let start = first as usize;
+        let end = (last as usize).min(self.files.len().saturating_sub(1));
+        if start >= self.files.len() {
+            return Ok(());
+        }
+
+        for idx in start..=end {
+            if cloexec {
+                if let Some(entry) = &mut self.files[idx] {
+                    entry.flags.insert(FdFlags::FD_CLOEXEC);
+                }
+            } else if let Some(entry) = self.files[idx].take() {
+                release_entry(entry);
+            }
+        }
+        Ok(())
+    }
+
+
     /// Duplicates `oldfd` onto `newfd` (`dup2(2)`).
     pub fn dup2(&mut self, oldfd: i32, newfd: i32, flags: FdFlags) -> Result<i32> {
         if oldfd < 0 || newfd < 0 || newfd as usize >= self.max_files {
@@ -210,3 +234,32 @@ impl Default for Filedesc {
         Self::new()
     }
 }
+
+#[cfg(ktest)]
+mod tests {
+    use super::*;
+    use ostd::prelude::ktest;
+
+    #[ktest]
+    fn filedesc_close_range_semantics() {
+        let mut table = Filedesc::with_stdio();
+        let stdin = table.get(0).unwrap();
+        let fd3 = table.alloc_fd(Arc::clone(&stdin), FdFlags::empty()).unwrap();
+        let fd4 = table.alloc_fd(Arc::clone(&stdin), FdFlags::empty()).unwrap();
+        let fd5 = table.alloc_fd(Arc::clone(&stdin), FdFlags::empty()).unwrap();
+        assert_eq!(fd3, 3);
+        assert_eq!(fd4, 4);
+        assert_eq!(fd5, 5);
+
+        // Close range 3..=4
+        table.close_range(3, 4, false).unwrap();
+        assert!(table.get(3).is_err());
+        assert!(table.get(4).is_err());
+        assert!(table.get(5).is_ok());
+
+        // Cloexec range 5..=5
+        table.close_range(5, 5, true).unwrap();
+        assert!(table.get_flags(5).unwrap().contains(FdFlags::FD_CLOEXEC));
+    }
+}
+

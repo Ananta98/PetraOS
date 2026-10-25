@@ -177,6 +177,9 @@ crate::impl_syscall_nums_and_dispatch_fn! {
     SYS_EPOLL_CTL = 233 => fs::sys_epoll_ctl(i32, i32, i32, usize);
     SYS_TGKILL = 234 => signals::sys_tgkill(i32, i32, i32);
     SYS_WAITID = 247 => proc::sys_waitid(i32, i32, usize, i32, usize);
+    SYS_INOTIFY_INIT = 253 => fs::sys_inotify_init();
+    SYS_INOTIFY_ADD_WATCH = 254 => fs::sys_inotify_add_watch(i32, usize, u32);
+    SYS_INOTIFY_RM_WATCH = 255 => fs::sys_inotify_rm_watch(i32, i32);
     SYS_OPENAT = 257 => fs::sys_openat(i32, usize, i32, u32);
     SYS_MKDIRAT = 258 => fs::sys_mkdirat(i32, usize, u32);
     SYS_MKNODAT = 259 => fs::sys_mknodat(i32, usize, u32, u64);
@@ -206,6 +209,7 @@ crate::impl_syscall_nums_and_dispatch_fn! {
     SYS_EPOLL_CREATE1 = 291 => fs::sys_epoll_create1(i32);
     SYS_DUP3 = 292 => fs::sys_dup3(i32, i32, i32);
     SYS_PIPE2 = 293 => fs::sys_pipe2(usize, i32);
+    SYS_INOTIFY_INIT1 = 294 => fs::sys_inotify_init1(i32);
     SYS_PREADV = 295 => fs::sys_preadv(i32, usize, usize, usize, usize);
     SYS_PWRITEV = 296 => fs::sys_pwritev(i32, usize, usize, usize, usize);
     SYS_RECVMMSG = 299 => net::sys_recvmmsg(i32, usize, u32, i32, usize);
@@ -224,6 +228,7 @@ crate::impl_syscall_nums_and_dispatch_fn! {
     SYS_COPY_FILE_RANGE = 326 => fs::sys_copy_file_range(i32, usize, i32, usize, usize, u32);
     SYS_PREADV2 = 327 => fs::sys_preadv2(i32, usize, usize, usize, usize, i32);
     SYS_STATX = 332 => fs::sys_statx(i32, usize, i32, u32, usize);
+    SYS_CLOSE_RANGE = 436 => fs::sys_close_range(u32, u32, u32);
     SYS_FACCESSAT2 = 439 => fs::sys_faccessat2(i32, usize, i32, i32);
     SYS_EPOLL_PWAIT2 = 441 => fs::sys_epoll_pwait2(i32, usize, i32, usize, usize, usize);
     SYS_FCHMODAT2 = 452 => fs::sys_fchmodat2(i32, usize, u32, i32);

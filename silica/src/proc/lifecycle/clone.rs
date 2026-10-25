@@ -111,7 +111,9 @@ pub fn clone_proc(
         let mut inner = child_proc.inner.lock();
         inner.pgid = Some(parent_pgid);
         inner.sid = Some(parent_sid);
-        inner.exe_path = caller_proc.inner.lock().exe_path.clone();
+        let parent_inner = caller_proc.inner.lock();
+        inner.exe_path = parent_inner.exe_path.clone();
+        inner.environ = parent_inner.environ.clone();
     }
 
     // Inherit SysV shared memory attachments

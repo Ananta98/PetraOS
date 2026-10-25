@@ -145,6 +145,11 @@ pub trait FileOps: Send + Sync {
     fn as_dmabuf(&self) -> Option<Arc<crate::drivers::drm::GemObject>> {
         None
     }
+
+    /// Return the underlying inotify instance if this file represents an inotify descriptor.
+    fn as_inotify(&self) -> Option<Arc<crate::fs::fd::InotifyInstance>> {
+        None
+    }
 }
 
 /// The kernel representation of an open file description.
@@ -347,5 +352,10 @@ impl File {
     /// Return the underlying GEM buffer object if this file represents a DMA-BUF.
     pub fn as_dmabuf(&self) -> Option<Arc<crate::drivers::drm::GemObject>> {
         self.ops.as_dmabuf()
+    }
+
+    /// Return the underlying inotify instance if this file represents an inotify descriptor.
+    pub fn as_inotify(&self) -> Option<Arc<crate::fs::fd::InotifyInstance>> {
+        self.ops.as_inotify()
     }
 }

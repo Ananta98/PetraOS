@@ -8,12 +8,15 @@
 
 pub mod event_fd;
 pub mod fd;
+pub mod inotify;
 pub mod mem_fd;
 pub mod signal_fd;
 pub mod timer_fd;
 
 pub use event_fd::*;
 pub use fd::*;
+pub use inotify::*;
 pub use mem_fd::*;
 pub use signal_fd::*;
 pub use timer_fd::*;
+

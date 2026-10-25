@@ -11,9 +11,11 @@
 pub mod cmdline;
 pub mod comm;
 pub mod cwd;
+pub mod environ;
 pub mod exe;
 pub mod fd;
 pub mod io;
+pub mod maps;
 pub mod stat;
 pub mod statm;
 pub mod status;
@@ -49,6 +51,8 @@ pub const TAG_STATM: u16 = 0x0007;
 pub const TAG_COMM: u16 = 0x0008;
 pub const TAG_TASK_DIR: u16 = 0x0009;
 pub const TAG_IO: u16 = 0x0011;
+pub const TAG_MAPS: u16 = 0x0012;
+pub const TAG_ENVIRON: u16 = 0x0013;
 
 /// Composes the per-entry inode number for `pid` from `tag`.
 pub const fn pid_ino(pid: Pid, tag: u16) -> usize {
@@ -60,7 +64,8 @@ pub const fn pid_ino(pid: Pid, tag: u16) -> usize {
 /// The single source of truth for `readdir`; lookup handles exactly these
 /// names plus the per-hierarchy extras (`task` under `/proc/<pid>/`).
 const SHARED_ENTRIES: &[&str] = &[
-    "exe", "cwd", "cmdline", "status", "stat", "statm", "comm", "mounts", "fd", "io",
+    "exe", "cwd", "cmdline", "status", "stat", "statm", "comm", "mounts", "fd", "io", "maps",
+    "environ",
 ];
 
 /// Symlink `/proc/<pid>/mounts` -> `/proc/mounts`, matching Linux.
@@ -109,6 +114,11 @@ pub(super) fn shared_pid_entry(pid: Pid, name: &str) -> Option<Arc<INode>> {
             pid_ino(pid, fd::TAG_FD_DIR),
         )),
         "io" => Some(file_node(io::PidIoFileOps { pid }, pid_ino(pid, TAG_IO))),
+        "maps" => Some(file_node(maps::PidMapsFileOps { pid }, pid_ino(pid, TAG_MAPS))),
+        "environ" => Some(file_node(
+            environ::PidEnvironFileOps { pid },
+            pid_ino(pid, TAG_ENVIRON),
+        )),
         _ => None,
     }
 }

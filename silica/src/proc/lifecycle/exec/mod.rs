@@ -333,10 +333,11 @@ fn execve_depth(
     // Reset thread TLS base
     td.set_fs_base(0);
 
-    // Update command name and exe_path
+    // Update command name, exe_path, and environ
     let mut inner = proc.inner.lock();
     inner.comm = comm_from_name(path);
     inner.exe_path = Some(canonical_path);
+    inner.environ = envp.iter().map(|s| alloc::string::String::from(*s)).collect();
     drop(inner);
 
     // Reset user context and prepare execution from the entry point

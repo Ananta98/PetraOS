@@ -131,3 +131,8 @@ impl SignalFdSiginfo {
         buffer
     }
 }
+
+// --- close_range(2) flags ---
+pub const CLOSE_RANGE_UNSHARE: u32 = 1 << 1;
+pub const CLOSE_RANGE_CLOEXEC: u32 = 1 << 2;
+

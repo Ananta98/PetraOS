@@ -117,7 +117,17 @@ pub fn sys_fcntl(fd: i32, cmd: i32, arg: usize, _ctx: &mut UserContext) -> Resul
             }
             Ok(0)
         }
-        F_GETLK | F_SETLK | F_SETLKW | F_SETOWN | F_GETOWN => {
+        F_GETLK => {
+            let table = proc.fd_table.lock();
+            let _file = table.get(fd)?;
+            if arg != 0 {
+                let vmar = proc.vmspace();
+                let f_unlck: i16 = 2; // F_UNLCK
+                let _ = crate::syscall::fs::utils::UserPtr::new(arg).write_bytes(&vmar, &f_unlck.to_ne_bytes());
+            }
+            Ok(0)
+        }
+        F_SETLK | F_SETLKW | F_SETOWN | F_GETOWN => {
             let table = proc.fd_table.lock();
             let _file = table.get(fd)?;
             Ok(0)
