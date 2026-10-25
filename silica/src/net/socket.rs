@@ -69,6 +69,7 @@ pub fn alloc_ephemeral_port() -> u16 {
 /// Unidirectional byte channel used for Unix socket pairs.
 pub struct UnixChannel {
     pub buf: Mutex<VecDeque<u8>>,
+    pub files: Mutex<VecDeque<Arc<crate::fs::vfs::File>>>,
     pub closed: Mutex<bool>,
     pub wq: WaitQueue,
 }
@@ -77,6 +78,7 @@ impl UnixChannel {
     pub fn new() -> Self {
         Self {
             buf: Mutex::new(VecDeque::new()),
+            files: Mutex::new(VecDeque::new()),
             closed: Mutex::new(false),
             wq: WaitQueue::new(),
         }
@@ -132,6 +134,7 @@ pub struct KernelSocket {
     pub remote_endpoint: Mutex<Option<IpEndpoint>>,
     pub local_addr: Mutex<Option<SocketAddress>>,
     pub remote_addr: Mutex<Option<SocketAddress>>,
+    pub peer_cred: Mutex<Option<crate::uapi::cred::PeerCred>>,
 }
 
 impl KernelSocket {
@@ -148,6 +151,7 @@ impl KernelSocket {
             remote_endpoint: Mutex::new(None),
             local_addr: Mutex::new(None),
             remote_addr: Mutex::new(None),
+            peer_cred: Mutex::new(None),
         }))
     }
 
@@ -164,6 +168,7 @@ impl KernelSocket {
             remote_endpoint: Mutex::new(None),
             local_addr: Mutex::new(None),
             remote_addr: Mutex::new(None),
+            peer_cred: Mutex::new(None),
         }))
     }
 
@@ -184,6 +189,7 @@ impl KernelSocket {
             remote_endpoint: Mutex::new(None),
             local_addr: Mutex::new(None),
             remote_addr: Mutex::new(None),
+            peer_cred: Mutex::new(None),
         }))
     }
 
@@ -201,6 +207,12 @@ impl KernelSocket {
             rx: chan_a,
         });
 
+        let current_cred = crate::proc::thread::Thread::current_proc().map(|p| crate::uapi::cred::PeerCred {
+            pid: p.pid.as_u32(),
+            uid: p.cred().cr_uid.as_u32(),
+            gid: p.cred().cr_gid.as_u32(),
+        });
+
         let sock_a = Arc::new(Self {
             domain: AF_UNIX,
             sock_type,
@@ -211,6 +223,7 @@ impl KernelSocket {
             remote_endpoint: Mutex::new(None),
             local_addr: Mutex::new(None),
             remote_addr: Mutex::new(None),
+            peer_cred: Mutex::new(current_cred),
         });
 
         let sock_b = Arc::new(Self {
@@ -223,6 +236,7 @@ impl KernelSocket {
             remote_endpoint: Mutex::new(None),
             local_addr: Mutex::new(None),
             remote_addr: Mutex::new(None),
+            peer_cred: Mutex::new(current_cred),
         });
 
         Ok((sock_a, sock_b))
@@ -241,6 +255,7 @@ impl KernelSocket {
             remote_endpoint: Mutex::new(None),
             local_addr: Mutex::new(Some(SocketAddress::Netlink { pid: 0, groups: 0 })),
             remote_addr: Mutex::new(None),
+            peer_cred: Mutex::new(None),
         }))
     }
 
@@ -256,6 +271,7 @@ impl KernelSocket {
             remote_endpoint: Mutex::new(*self.remote_endpoint.lock()),
             local_addr: Mutex::new(self.local_addr.lock().clone()),
             remote_addr: Mutex::new(self.remote_addr.lock().clone()),
+            peer_cred: Mutex::new(*self.peer_cred.lock()),
         }
     }
 
@@ -434,6 +450,11 @@ impl KernelSocket {
                             SocketAddress::Unix(p) => Some(p),
                             _ => None,
                         });
+                        let client_cred = crate::proc::thread::Thread::current_proc().map(|p| crate::uapi::cred::PeerCred {
+                            pid: p.pid.as_u32(),
+                            uid: p.cred().cr_uid.as_u32(),
+                            gid: p.cred().cr_gid.as_u32(),
+                        });
                         let server_sock = Arc::new(KernelSocket {
                             domain: AF_UNIX,
                             sock_type: SOCK_STREAM,
@@ -446,9 +467,11 @@ impl KernelSocket {
                             remote_addr: Mutex::new(
                                 my_path.as_ref().map(|p| SocketAddress::Unix(p.clone())),
                             ),
+                            peer_cred: Mutex::new(client_cred),
                         });
                         *self.kind.lock() = SocketKind::Unix(client_end);
                         *self.remote_addr.lock() = Some(SocketAddress::Unix(path.clone()));
+                        *self.peer_cred.lock() = client_cred;
 
                         listener
                             .accept_queue
@@ -500,6 +523,7 @@ impl KernelSocket {
                             remote_endpoint: Mutex::new(Some(remote)),
                             local_addr: Mutex::new(Some(SocketAddress::Inet(local))),
                             remote_addr: Mutex::new(Some(SocketAddress::Inet(remote))),
+                            peer_cred: Mutex::new(None),
                         });
 
                         *self.kind.lock() = SocketKind::Tcp(new_listen_handle);
@@ -902,7 +926,11 @@ impl KernelSocket {
                         _ => None,
                     });
                     if let SocketKind::UnixDgram(ref dgram) = *target_sock.kind.lock() {
-                        dgram.rx_queue.lock().push_back((data.to_vec(), my_path));
+                        dgram.rx_queue.lock().push_back(crate::net::unix::UnixDgramPacket {
+                            data: data.to_vec(),
+                            sender: my_path,
+                            files: alloc::vec::Vec::new(),
+                        });
                         dgram.wq.wake_all();
                         crate::fs::poll::notify();
                         Ok(data.len())
@@ -957,10 +985,10 @@ impl KernelSocket {
             },
             SocketKind::UnixDgram(ref dgram) => loop {
                 let mut rx = dgram.rx_queue.lock();
-                if let Some((packet, sender_path)) = rx.pop_front() {
-                    let n = buf.len().min(packet.len());
-                    buf[..n].copy_from_slice(&packet[..n]);
-                    let addr = sender_path.map(SocketAddress::Unix);
+                if let Some(packet) = rx.pop_front() {
+                    let n = buf.len().min(packet.data.len());
+                    buf[..n].copy_from_slice(&packet.data[..n]);
+                    let addr = packet.sender.map(SocketAddress::Unix);
                     return Ok((n, addr));
                 }
                 if nonblocking {
@@ -990,6 +1018,129 @@ impl KernelSocket {
             }
             _ => Err(Errno::ENOTCONN),
         }
+    }
+
+    /// Sends data along with attached file descriptors across Unix domain sockets.
+    pub fn send_with_ancillary(
+        &self,
+        data: &[u8],
+        files: alloc::vec::Vec<Arc<crate::fs::vfs::File>>,
+        flags: i32,
+    ) -> Result<usize> {
+        let kind = self.kind.lock().clone();
+        if let SocketKind::Unix(ref end) = kind {
+            if !files.is_empty() {
+                end.tx.files.lock().extend(files);
+            }
+        }
+        self.send(data, flags)
+    }
+
+    /// Receives data along with any attached file descriptors from Unix domain sockets.
+    pub fn recv_with_ancillary(
+        &self,
+        buf: &mut [u8],
+        flags: i32,
+    ) -> Result<(usize, alloc::vec::Vec<Arc<crate::fs::vfs::File>>)> {
+        let kind = self.kind.lock().clone();
+        match kind {
+            SocketKind::Unix(ref end) => {
+                let n = self.recv(buf, flags)?;
+                let files: alloc::vec::Vec<Arc<crate::fs::vfs::File>> =
+                    end.rx.files.lock().drain(..).collect();
+                Ok((n, files))
+            }
+            SocketKind::UnixDgram(ref dgram) => {
+                let nonblocking = *self.nonblocking.lock() || (flags & 0x40) != 0;
+                loop {
+                    let mut rx = dgram.rx_queue.lock();
+                    if let Some(packet) = rx.pop_front() {
+                        let n = buf.len().min(packet.data.len());
+                        buf[..n].copy_from_slice(&packet.data[..n]);
+                        return Ok((n, packet.files));
+                    }
+                    if nonblocking {
+                        return Err(Errno::EWOULDBLOCK);
+                    }
+                    drop(rx);
+                    dgram.wq.wait_until(|| {
+                        let rx = dgram.rx_queue.lock();
+                        if !rx.is_empty() { Some(()) } else { None }
+                    });
+                }
+            }
+            _ => {
+                let n = self.recv(buf, flags)?;
+                Ok((n, alloc::vec::Vec::new()))
+            }
+        }
+    }
+
+    /// Sends datagram data and attached files to a specific target address.
+    pub fn sendto_with_ancillary(
+        &self,
+        data: &[u8],
+        dest: Option<SocketAddress>,
+        files: alloc::vec::Vec<Arc<crate::fs::vfs::File>>,
+        flags: i32,
+    ) -> Result<usize> {
+        let kind = self.kind.lock().clone();
+        if let SocketKind::UnixDgram(_) = kind {
+            let target = dest
+                .clone()
+                .or_else(|| self.remote_addr.lock().clone())
+                .ok_or(Errno::EDESTADDRREQ)?;
+            if let SocketAddress::Unix(ref path) = target {
+                let target_sock =
+                    crate::net::unix::lookup_unix_socket(path).ok_or(Errno::ECONNREFUSED)?;
+                let my_path = self.local_addr.lock().clone().and_then(|a| match a {
+                    SocketAddress::Unix(p) => Some(p),
+                    _ => None,
+                });
+                if let SocketKind::UnixDgram(ref dgram) = *target_sock.kind.lock() {
+                    dgram.rx_queue.lock().push_back(crate::net::unix::UnixDgramPacket {
+                        data: data.to_vec(),
+                        sender: my_path,
+                        files,
+                    });
+                    dgram.wq.wake_all();
+                    crate::fs::poll::notify();
+                    return Ok(data.len());
+                }
+            }
+        }
+        self.sendto(data, dest, flags)
+    }
+
+    /// Receives datagram data, sender address, and attached file descriptors.
+    pub fn recvfrom_with_ancillary(
+        &self,
+        buf: &mut [u8],
+        flags: i32,
+    ) -> Result<(usize, Option<SocketAddress>, alloc::vec::Vec<Arc<crate::fs::vfs::File>>)> {
+        let kind = self.kind.lock().clone();
+        if let SocketKind::UnixDgram(ref dgram) = kind {
+            let nonblocking = *self.nonblocking.lock() || (flags & 0x40) != 0;
+            loop {
+                let mut rx = dgram.rx_queue.lock();
+                if let Some(packet) = rx.pop_front() {
+                    let n = buf.len().min(packet.data.len());
+                    buf[..n].copy_from_slice(&packet.data[..n]);
+                    let addr = packet.sender.map(SocketAddress::Unix);
+                    return Ok((n, addr, packet.files));
+                }
+                if nonblocking {
+                    return Err(Errno::EWOULDBLOCK);
+                }
+                drop(rx);
+                dgram.wq.wait_until(|| {
+                    let rx = dgram.rx_queue.lock();
+                    if !rx.is_empty() { Some(()) } else { None }
+                });
+            }
+        }
+        let (n, addr) = self.recvfrom(buf, flags)?;
+        Ok((n, addr, alloc::vec::Vec::new()))
     }
 
     /// Shuts down all or part of a full-duplex connection.

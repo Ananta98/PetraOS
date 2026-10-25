@@ -71,6 +71,8 @@ pub fn sys_sendmsg(fd: i32, msg_ptr: usize, flags: i32, _ctx: &mut UserContext) 
         return Ok(0);
     }
 
+    let attached_files = parse_control_files(&proc, &vmar, msghdr.msg_control, msghdr.msg_controllen)?;
+
     if socket.sock_type == SOCK_DGRAM || dest.is_some() {
         // Datagram sockets transmit a single packet from gathered buffers
         let total_len: usize = iovecs.iter().map(|iov| iov.iov_len).sum();
@@ -85,14 +87,11 @@ pub fn sys_sendmsg(fd: i32, msg_ptr: usize, flags: i32, _ctx: &mut UserContext) 
             offset += to_read;
         }
 
-        if dest.is_some() {
-            socket.sendto(&kbuf[..offset], dest, flags)
-        } else {
-            socket.send(&kbuf[..offset], flags)
-        }
+        socket.sendto_with_ancillary(&kbuf[..offset], dest, attached_files, flags)
     } else {
         // Stream socket: send sequentially through iovecs
         let mut total_sent = 0;
+        let mut files_to_send = attached_files;
         for iov in &iovecs {
             if iov.iov_len == 0 {
                 continue;
@@ -101,7 +100,11 @@ pub fn sys_sendmsg(fd: i32, msg_ptr: usize, flags: i32, _ctx: &mut UserContext) 
             let chunk_len = chunk.len();
             UserPtr::new(iov.iov_base).read_bytes(&vmar, &mut chunk)?;
 
-            let n = socket.send(&chunk[..chunk_len], flags)?;
+            let n = if !files_to_send.is_empty() {
+                socket.send_with_ancillary(&chunk[..chunk_len], core::mem::take(&mut files_to_send), flags)?
+            } else {
+                socket.send(&chunk[..chunk_len], flags)?
+            };
             total_sent += n;
             if n < chunk_len {
                 break;
@@ -126,7 +129,7 @@ pub fn sys_recvmsg(fd: i32, msg_ptr: usize, flags: i32, _ctx: &mut UserContext) 
     if socket.sock_type == SOCK_DGRAM {
         let total_cap: usize = iovecs.iter().map(|iov| iov.iov_len).sum();
         let mut kbuf = alloc::vec![0u8; total_cap.min(65536)];
-        let (nrecv, endpoint_opt) = socket.recvfrom(&mut kbuf, flags)?;
+        let (nrecv, endpoint_opt, received_files) = socket.recvfrom_with_ancillary(&mut kbuf, flags)?;
 
         // Scatter received datagram bytes into user iovecs
         let mut offset = 0;
@@ -148,19 +151,26 @@ pub fn sys_recvmsg(fd: i32, msg_ptr: usize, flags: i32, _ctx: &mut UserContext) 
             let _ = write_sockaddr(&proc, endpoint, msghdr.msg_name, msg_ptr + 8);
         }
 
-        msghdr.msg_controllen = 0;
         msghdr.msg_flags = 0;
+        write_control_files(&proc, &vmar, &mut msghdr, received_files)?;
         msghdr.write_results_to_user(&vmar, msg_ptr)?;
 
         Ok(nrecv)
     } else {
         let mut total_recv = 0;
-        for iov in &iovecs {
+        let mut all_received_files = alloc::vec::Vec::new();
+        for (i, iov) in iovecs.iter().enumerate() {
             if iov.iov_len == 0 {
                 continue;
             }
             let mut chunk = alloc::vec![0u8; iov.iov_len.min(65536)];
-            let n = socket.recv(&mut chunk, flags)?;
+            let n = if i == 0 {
+                let (received_bytes, files) = socket.recv_with_ancillary(&mut chunk, flags)?;
+                all_received_files = files;
+                received_bytes
+            } else {
+                socket.recv(&mut chunk, flags)?
+            };
             if n > 0 {
                 UserPtr::new(iov.iov_base).write_bytes(&vmar, &chunk[..n])?;
                 total_recv += n;
@@ -177,12 +187,111 @@ pub fn sys_recvmsg(fd: i32, msg_ptr: usize, flags: i32, _ctx: &mut UserContext) 
             let _ = write_sockaddr(&proc, peer, msghdr.msg_name, msg_ptr + 8);
         }
 
-        msghdr.msg_controllen = 0;
         msghdr.msg_flags = 0;
+        write_control_files(&proc, &vmar, &mut msghdr, all_received_files)?;
         msghdr.write_results_to_user(&vmar, msg_ptr)?;
 
         Ok(total_recv)
     }
+}
+
+/// Reads attached file descriptors from `msghdr.msg_control` carrying `SCM_RIGHTS`.
+fn parse_control_files(
+    proc: &alloc::sync::Arc<crate::proc::Proc>,
+    vmar: &alloc::sync::Arc<crate::vm::Vmar>,
+    control_ptr: usize,
+    control_len: usize,
+) -> Result<alloc::vec::Vec<alloc::sync::Arc<crate::fs::vfs::File>>> {
+    let mut attached_files = alloc::vec::Vec::new();
+    if control_ptr == 0 || control_len < 16 {
+        return Ok(attached_files);
+    }
+
+    let mut offset = 0;
+    while offset + 16 <= control_len {
+        let mut hdr = [0u8; 16];
+        UserPtr::new(control_ptr + offset).read_bytes(vmar, &mut hdr)?;
+        let cmsg_len = usize::from_ne_bytes(hdr[0..8].try_into().unwrap());
+        let cmsg_level = i32::from_ne_bytes(hdr[8..12].try_into().unwrap());
+        let cmsg_type = i32::from_ne_bytes(hdr[12..16].try_into().unwrap());
+
+        if cmsg_len < 16 || offset + cmsg_len > control_len {
+            break;
+        }
+
+        // SOL_SOCKET = 1, SCM_RIGHTS = 1
+        if cmsg_level == 1 && cmsg_type == 1 {
+            let fd_bytes = cmsg_len - 16;
+            let num_fds = fd_bytes / 4;
+            let mut raw_fds = alloc::vec![0u8; num_fds * 4];
+            UserPtr::new(control_ptr + offset + 16).read_bytes(vmar, &mut raw_fds)?;
+            let fd_table = proc.fd_table.lock();
+            for i in 0..num_fds {
+                let fd = i32::from_ne_bytes(raw_fds[i * 4..(i + 1) * 4].try_into().unwrap());
+                let file = fd_table.get(fd)?;
+                attached_files.push(file);
+            }
+        }
+
+        let aligned_len = (cmsg_len + 7) & !7;
+        if aligned_len == 0 {
+            break;
+        }
+        offset += aligned_len;
+    }
+
+    Ok(attached_files)
+}
+
+/// Formats received file descriptors into `msghdr.msg_control` as an `SCM_RIGHTS` control message.
+fn write_control_files(
+    proc: &alloc::sync::Arc<crate::proc::Proc>,
+    vmar: &alloc::sync::Arc<crate::vm::Vmar>,
+    msghdr: &mut MsgHdr,
+    files: alloc::vec::Vec<alloc::sync::Arc<crate::fs::vfs::File>>,
+) -> Result<()> {
+    if files.is_empty() {
+        msghdr.msg_controllen = 0;
+        return Ok(());
+    }
+
+    let mut new_fds = alloc::vec::Vec::with_capacity(files.len());
+    {
+        let mut fd_table = proc.fd_table.lock();
+        for file in files {
+            let new_fd = fd_table.alloc_fd(file, crate::fs::fd::FdFlags::empty())?;
+            new_fds.push(new_fd);
+        }
+    }
+
+    let required_len = 16 + new_fds.len() * 4;
+    let user_cap = msghdr.msg_controllen;
+    if msghdr.msg_control != 0 && user_cap >= 16 {
+        let to_write_len = required_len.min(user_cap);
+        let mut hdr = [0u8; 16];
+        hdr[0..8].copy_from_slice(&to_write_len.to_ne_bytes());
+        hdr[8..12].copy_from_slice(&1i32.to_ne_bytes()); // SOL_SOCKET
+        hdr[12..16].copy_from_slice(&1i32.to_ne_bytes()); // SCM_RIGHTS
+        UserPtr::new(msghdr.msg_control).write_bytes(vmar, &hdr)?;
+
+        let max_fds = (user_cap - 16) / 4;
+        let copy_fds = new_fds.len().min(max_fds);
+        for (i, fd) in new_fds.iter().take(copy_fds).enumerate() {
+            UserPtr::new(msghdr.msg_control + 16 + i * 4).write_bytes(vmar, &fd.to_ne_bytes())?;
+        }
+
+        if required_len > user_cap {
+            msghdr.msg_flags |= 0x20; // MSG_CTRUNC
+            msghdr.msg_controllen = to_write_len;
+        } else {
+            msghdr.msg_controllen = required_len;
+        }
+    } else {
+        msghdr.msg_controllen = 0;
+        msghdr.msg_flags |= 0x20; // MSG_CTRUNC
+    }
+
+    Ok(())
 }
 
 /// System call `sendmmsg(int sockfd, struct mmsghdr *msgvec, unsigned int vlen, int flags)` (Syscall #307).

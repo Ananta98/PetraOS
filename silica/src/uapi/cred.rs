@@ -40,6 +40,15 @@ impl Gid {
     }
 }
 
+/// Linux ABI layout for `struct ucred` used with `SO_PEERCRED` and `SCM_CREDENTIALS`.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PeerCred {
+    pub pid: u32,
+    pub uid: u32,
+    pub gid: u32,
+}
+
 /// Immutable user credential.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Ucred {

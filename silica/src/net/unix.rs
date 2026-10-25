@@ -47,9 +47,16 @@ impl core::fmt::Debug for UnixListenerState {
     }
 }
 
+/// A queued UNIX datagram packet with optional sender path and attached file descriptors.
+pub struct UnixDgramPacket {
+    pub data: Vec<u8>,
+    pub sender: Option<String>,
+    pub files: Vec<Arc<crate::fs::vfs::File>>,
+}
+
 /// State for a UNIX datagram socket (`SOCK_DGRAM`).
 pub struct UnixDgramState {
-    pub rx_queue: Mutex<VecDeque<(Vec<u8>, Option<String>)>>,
+    pub rx_queue: Mutex<VecDeque<UnixDgramPacket>>,
     pub wq: WaitQueue,
 }
 
@@ -167,4 +174,26 @@ mod tests {
         assert!(lookup_unix_socket(srv_path).is_none());
         assert!(lookup_unix_socket(cli_path).is_none());
     }
+
+    #[ktest]
+    fn unix_socket_ancillary_fd_passing() {
+        let (s1, s2) = KernelSocket::new_unix_pair(SOCK_STREAM).expect("pair");
+        assert!(s1.peer_cred.lock().is_some());
+        assert!(s2.peer_cred.lock().is_some());
+
+        let (pipe_r, _pipe_w) = crate::fs::pipe::create_pipe(false);
+        let sent = s1
+            .send_with_ancillary(b"with_fd", alloc::vec![pipe_r.clone()], 0)
+            .expect("send_with_ancillary");
+        assert_eq!(sent, 7);
+
+        let mut buf = [0u8; 16];
+        let (n, files) = s2.recv_with_ancillary(&mut buf, 0).expect("recv_with_ancillary");
+        assert_eq!(&buf[..n], b"with_fd");
+        assert_eq!(files.len(), 1);
+
+        s1.close();
+        s2.close();
+    }
 }
+
