@@ -5,12 +5,12 @@
 use ostd::arch::cpu::context::UserContext;
 
 use crate::{
-    proc::thread::Thread,
+    proc::Thread,
     uapi::{
         errno::{Errno, Result},
         limit::Rusage,
     },
-    utils::userspace::user_ptr::UserPtr,
+    utils::UserPtr,
 };
 
 const RUSAGE_SELF: i32 = 0;

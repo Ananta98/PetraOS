@@ -60,9 +60,9 @@ impl UinputFile {
 
     /// Handles `UI_*` requests.
     pub fn ioctl(&self, cmd: u32, arg: usize) -> Result<usize> {
-        let proc = crate::proc::thread::Thread::proc_or_esrch()?;
+        let proc = crate::proc::Thread::proc_or_esrch()?;
         let vmar = proc.vmspace();
-        let ptr = crate::utils::userspace::user_ptr::UserPtr::new(arg);
+        let ptr = crate::utils::UserPtr::new(arg);
         let mut state = self.state.lock();
 
         match cmd {

@@ -13,16 +13,26 @@ pub mod signal;
 pub mod thread;
 pub mod types;
 
-pub use self::{job::*, lifecycle::*, types::*};
-
 use alloc::sync::Arc;
 use ostd::sync::SpinLock;
 
 use crate::{
-    uapi::{cred::Ucred, errno::Result, limit::Plimit, signal::SigActs},
     fs::fd::Filedesc,
+    uapi::{cred::Ucred, errno::Result, limit::Plimit, signal::SigActs},
     vm::vmar::Vmar,
 };
+
+pub use self::{job::*, lifecycle::*, thread::Thread, types::*};
+
+/// Returns the currently running thread, if any.
+pub fn current_thread() -> Option<Arc<Thread>> {
+    Thread::current()
+}
+
+/// Returns the process of the currently running thread, if any.
+pub fn current_proc() -> Option<Arc<Proc>> {
+    Thread::current_proc()
+}
 
 /// Creates the initial user process (`init`, PID 1) with a given address space.
 pub fn create_init_process_with_vmar(vmar: Arc<Vmar>) -> Result<Arc<Proc>> {

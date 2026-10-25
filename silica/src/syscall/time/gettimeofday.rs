@@ -5,9 +5,9 @@
 use ostd::arch::cpu::context::UserContext;
 
 use crate::{
+    proc::Thread,
     uapi::errno::Result,
-    proc::thread::Thread,
-    utils::userspace::user_ptr::UserPtr,
+    utils::UserPtr,
 };
 
 /// Gets time of day and timezone.

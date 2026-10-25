@@ -7,7 +7,7 @@ use ostd::arch::cpu::context::UserContext;
 use crate::{
     proc::thread::Thread,
     uapi::errno::{Errno, Result},
-    utils::userspace::user_ptr::UserPtr,
+    utils::UserPtr,
 };
 
 /// System call `mincore(addr, len, vec)` (Syscall #27 on x86_64).

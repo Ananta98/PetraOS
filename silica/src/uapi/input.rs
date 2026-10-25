@@ -175,10 +175,10 @@ impl InputEvent {
         }
     }
 
-    /// Returns the event stamped with the current wall-clock time.
-    pub fn now(type_: u16, code: u16, value: i32) -> Self {
+    /// Creates an event with an explicit timestamp.
+    pub const fn with_time(time: Timeval, type_: u16, code: u16, value: i32) -> Self {
         Self {
-            time: crate::time::get_timeval(),
+            time,
             type_,
             code,
             value,

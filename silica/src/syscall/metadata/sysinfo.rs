@@ -5,9 +5,9 @@
 use ostd::arch::cpu::context::UserContext;
 
 use crate::{
+    proc::Thread,
     uapi::errno::Result,
-    proc::thread::Thread,
-    utils::userspace::user_ptr::UserPtr,
+    utils::UserPtr,
 };
 
 /// Linux x86_64 compatible `struct sysinfo` (112 bytes).

@@ -16,12 +16,12 @@ use crate::{
     uapi::{
         errno::{Errno, Result},
         input::{
-            ABS_MAX, CLOCK_BOOTTIME, CLOCK_MONOTONIC, CLOCK_REALTIME, InputAbsInfo, InputEvent,
-            ev, ioctl,
+            ABS_MAX, CLOCK_BOOTTIME, CLOCK_MONOTONIC, CLOCK_REALTIME, InputAbsInfo, InputEvent, ev,
+            ioctl,
         },
         ioctl as ioc,
     },
-    utils::userspace::user_ptr::UserPtr,
+    utils::UserPtr,
 };
 
 /// Linux `EV_VERSION`, reported by `EVIOCGVERSION`.
@@ -136,7 +136,8 @@ impl EvdevClient {
 
         // If events were dropped, synthesize SYN_DROPPED as the very first event
         if self.dropped.swap(false, Ordering::Relaxed) {
-            let dropped_event = InputEvent::now(ev::SYN, ev::SYN_DROPPED, 0);
+            let dropped_event =
+                InputEvent::with_time(crate::time::get_timeval(), ev::SYN, ev::SYN_DROPPED, 0);
             buf[0..InputEvent::SIZE].copy_from_slice(&dropped_event.to_bytes());
             copied += 1;
         }
@@ -458,5 +459,3 @@ mod tests {
         crate::drivers::input::unregister_device(&dev);
     }
 }
-
-

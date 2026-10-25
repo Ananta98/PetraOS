@@ -31,7 +31,7 @@ use crate::{
         errno::{Errno, Result},
         signal::Signal,
     },
-    utils::userspace::user_ptr::UserPtr,
+    utils::UserPtr,
 };
 
 use super::clock::TIMER_ABSTIME;

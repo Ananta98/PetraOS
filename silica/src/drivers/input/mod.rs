@@ -398,7 +398,7 @@ impl InputDevice {
     /// Safe to call from interrupt context. A driver should report the whole
     /// change and then call [`InputDevice::sync`] once.
     pub fn report(&self, ty: u16, code: u16, value: i32) {
-        let event = InputEvent::now(ty, code, value);
+        let event = InputEvent::with_time(crate::time::get_timeval(), ty, code, value);
         self.report_event(event);
     }
 

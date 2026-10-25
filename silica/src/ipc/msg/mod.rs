@@ -22,7 +22,7 @@ use crate::uapi::cred::Ucred;
 use crate::uapi::errno::{Errno, Result};
 use crate::uapi::ipc::*;
 use crate::uapi::msg::*;
-use crate::utils::userspace::user_ptr::UserPtr;
+use crate::utils::UserPtr;
 
 /// Global registry of message queues by `msqid`.
 static MSG_REGISTRY: IpcRegistry<SpinLock<MsgQueue>> = IpcRegistry::new();

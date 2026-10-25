@@ -11,7 +11,7 @@ use crate::{
         errno::{Errno, Result},
         signal::{SIGSET_WORDS, SigSet},
     },
-    utils::userspace::user_ptr::UserPtr,
+    utils::UserPtr,
 };
 
 const SIG_BLOCK: i32 = 0;

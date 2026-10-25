@@ -23,7 +23,7 @@ use crate::{
             SHM_UNLOCK, SHMLBA, SHMMAX, SHMMIN, SHMMNI, ShmIdDs, ShmInfo,
         },
     },
-    utils::userspace::user_ptr::UserPtr,
+    utils::UserPtr,
     vm::{
         backing::Backing,
         flags::MmapFlags,

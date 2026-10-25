@@ -281,7 +281,7 @@ mod tests {
         vmar.activate();
 
         let tid_val = 12345i32;
-        crate::utils::userspace::user_ptr::UserPtr::new(mapped)
+        crate::utils::UserPtr::new(mapped)
             .write_bytes(&vmar, &tid_val.to_ne_bytes())
             .expect("write tid");
 
@@ -293,7 +293,7 @@ mod tests {
         assert_eq!(thread.inner.lock().clear_child_tid, 0);
 
         let mut read_bytes = [0u8; 4];
-        crate::utils::userspace::user_ptr::UserPtr::new(mapped)
+        crate::utils::UserPtr::new(mapped)
             .read_bytes(&vmar, &mut read_bytes)
             .expect("read bytes");
         assert_eq!(i32::from_ne_bytes(read_bytes), 0);

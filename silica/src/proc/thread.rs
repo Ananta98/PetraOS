@@ -25,7 +25,7 @@ use crate::{
     },
 };
 
-use crate::utils::userspace::user_ptr::UserPtr;
+use crate::utils::UserPtr;
 
 pub use crate::proc::types::pid::{TID_MAX, Tid, alloc_tid};
 
@@ -463,7 +463,7 @@ impl Thread {
         if clear_tid != 0 {
             let zero = 0i32.to_ne_bytes();
             let _ = UserPtr::new(clear_tid).write_bytes(&proc.vmspace(), &zero);
-            crate::syscall::sync::futex::futex_wake(&proc.vmspace(), clear_tid, 1);
+            crate::ipc::futex::futex_wake(&proc.vmspace(), clear_tid, 1);
         }
     }
 

@@ -11,7 +11,7 @@ use crate::{
         errno::{Errno, Result},
         signal::SIGSET_WORDS,
     },
-    utils::userspace::user_ptr::UserPtr,
+    utils::UserPtr,
 };
 
 /// `rt_sigsuspend(2)`.

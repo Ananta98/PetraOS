@@ -10,13 +10,13 @@
 use ostd::arch::cpu::context::UserContext;
 
 use crate::{
-    proc::thread::Thread,
+    proc::Thread,
     time::{
         CLOCK_MONOTONIC, CLOCK_PROCESS_CPUTIME_ID, CLOCK_REALTIME, CLOCK_THREAD_CPUTIME_ID,
         Timespec,
     },
     uapi::errno::{Errno, Result},
-    utils::userspace::user_ptr::UserPtr,
+    utils::UserPtr,
 };
 
 pub const TIMER_ABSTIME: i32 = 1;

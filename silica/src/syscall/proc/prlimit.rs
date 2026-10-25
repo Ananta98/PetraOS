@@ -6,12 +6,12 @@ use alloc::sync::Arc;
 use ostd::arch::cpu::context::UserContext;
 
 use crate::{
-    proc::{Pid, allproc_find, thread::Thread},
+    proc::{Pid, Thread, allproc_find},
     uapi::{
         errno::{Errno, Result},
         limit::{RLimit, Resource},
     },
-    utils::userspace::user_ptr::UserPtr,
+    utils::UserPtr,
 };
 
 fn linux_to_resource(res: u32) -> Option<Resource> {

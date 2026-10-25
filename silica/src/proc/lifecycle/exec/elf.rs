@@ -11,7 +11,7 @@ use xmas_elf::{
 
 use crate::{
     uapi::errno::{Errno, Result},
-    utils::userspace::user_ptr::UserPtr,
+    utils::UserPtr,
     vm::{VMAR_CAP_ADDR, VMAR_LOWEST_ADDR, Vmar, flags::MmapFlags, perms::VmPerms},
 };
 

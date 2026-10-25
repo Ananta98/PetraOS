@@ -5,9 +5,9 @@
 use ostd::arch::cpu::context::UserContext;
 
 use crate::{
-    proc::thread::Thread,
+    proc::Thread,
     uapi::errno::{Errno, Result},
-    utils::userspace::user_ptr::UserPtr,
+    utils::UserPtr,
 };
 
 const PR_SET_PDEATHSIG: i32 = 1;

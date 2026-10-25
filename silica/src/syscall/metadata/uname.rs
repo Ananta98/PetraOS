@@ -5,10 +5,10 @@
 use ostd::arch::cpu::context::UserContext;
 
 use crate::{
-    uapi::errno::Result,
     fs::procfs::sys::get_hostname,
-    proc::thread::Thread,
-    utils::userspace::user_ptr::UserPtr,
+    proc::Thread,
+    uapi::errno::Result,
+    utils::UserPtr,
 };
 
 pub const UTS_LEN: usize = 65;

@@ -7,12 +7,12 @@ use ostd::arch::cpu::context::UserContext;
 
 use super::utils::{decode_sigstack, encode_sigstack};
 use crate::{
-    proc::thread::Thread,
+    proc::Thread,
     uapi::{
         errno::{Errno, Result},
         signal::SigStack,
     },
-    utils::userspace::user_ptr::UserPtr,
+    utils::UserPtr,
 };
 
 /// `sigaltstack(2)`.

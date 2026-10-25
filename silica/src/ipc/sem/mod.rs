@@ -28,7 +28,7 @@ use crate::{
             SEMMNI, SEMMSL, SEMOPM, SEMVMX, SETALL, SETVAL, SemBuf, SemIdDs, SemInfo,
         },
     },
-    utils::userspace::user_ptr::UserPtr,
+    utils::UserPtr,
 };
 
 pub use self::{

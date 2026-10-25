@@ -13,7 +13,7 @@ use crate::uapi::ioctl;
 use crate::uapi::signal::Signal;
 use crate::uapi::termios::{Termios, winsize};
 use crate::proc::{PID_INIT, Pid};
-use crate::utils::userspace::user_ptr::UserPtr;
+use crate::utils::UserPtr;
 use crate::vm::vmar::Vmar;
 
 use super::input::{drain_input, flush_input_queue};

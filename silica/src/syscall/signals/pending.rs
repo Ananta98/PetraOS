@@ -6,12 +6,12 @@ use ostd::arch::cpu::context::UserContext;
 
 use super::utils::encode_sigset;
 use crate::{
-    proc::thread::Thread,
+    proc::Thread,
     uapi::{
         errno::{Errno, Result},
         signal::SIGSET_WORDS,
     },
-    utils::userspace::user_ptr::UserPtr,
+    utils::UserPtr,
 };
 
 /// `rt_sigpending(2)`.

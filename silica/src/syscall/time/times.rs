@@ -5,9 +5,9 @@
 use ostd::arch::cpu::context::UserContext;
 
 use crate::{
+    proc::Thread,
     uapi::errno::{Errno, Result},
-    proc::thread::Thread,
-    utils::userspace::user_ptr::UserPtr,
+    utils::UserPtr,
 };
 
 /// Linux x86_64 compatible `struct tms` (32 bytes).

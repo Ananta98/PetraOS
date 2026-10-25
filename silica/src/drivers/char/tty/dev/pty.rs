@@ -23,7 +23,7 @@ use crate::{
     uapi::ioctl,
     uapi::signal::Signal,
     uapi::termios::winsize,
-    utils::userspace::user_ptr::UserPtr,
+    utils::UserPtr,
 };
 
 // PTY ioctl constants (Linux standard)

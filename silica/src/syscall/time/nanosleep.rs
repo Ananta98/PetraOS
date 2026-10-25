@@ -5,10 +5,10 @@
 use ostd::arch::cpu::context::UserContext;
 
 use crate::{
-    uapi::errno::{Errno, Result},
-    proc::thread::Thread,
+    proc::Thread,
     time::Timespec,
-    utils::userspace::user_ptr::UserPtr,
+    uapi::errno::{Errno, Result},
+    utils::UserPtr,
 };
 
 /// High-resolution sleep for the specified duration.

@@ -13,7 +13,7 @@ use crate::{
         errno::{Errno, Result},
         signal::SIGSET_WORDS,
     },
-    utils::userspace::user_ptr::UserPtr,
+    utils::UserPtr,
 };
 
 /// `rt_sigtimedwait(2)` - synchronously wait for queued signals.

@@ -6,12 +6,12 @@ use ostd::arch::cpu::context::UserContext;
 
 use super::utils::{SIGACTION_LEN, decode_sigaction, encode_sigaction};
 use crate::{
-    proc::thread::Thread,
+    proc::Thread,
     uapi::{
         errno::{Errno, Result},
         signal::{SIGSET_WORDS, Signal},
     },
-    utils::userspace::user_ptr::UserPtr,
+    utils::UserPtr,
 };
 
 /// `rt_sigaction(2)`.

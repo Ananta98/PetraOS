@@ -13,7 +13,7 @@ use crate::{
         thread::Thread,
     },
     uapi::errno::{Errno, Result},
-    utils::userspace::user_ptr::UserPtr,
+    utils::UserPtr,
     vm::vmar::Vmar,
 };
 

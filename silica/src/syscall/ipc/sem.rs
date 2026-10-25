@@ -6,10 +6,10 @@ use core::time::Duration;
 use ostd::arch::cpu::context::UserContext;
 
 use crate::{
-    uapi::errno::{Errno, Result},
-    proc::thread::Thread,
+    proc::Thread,
     syscall::time::Timespec,
-    utils::userspace::user_ptr::UserPtr,
+    uapi::errno::{Errno, Result},
+    utils::UserPtr,
 };
 
 /// `semget(2)` - Allocates or accesses a System V semaphore set.

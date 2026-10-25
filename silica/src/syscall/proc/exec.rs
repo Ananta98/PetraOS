@@ -7,11 +7,11 @@ use ostd::arch::cpu::context::UserContext;
 
 use crate::{
     proc::{
+        Thread,
         lifecycle::{AT_EMPTY_PATH, AT_FDCWD, execve_at},
-        thread::Thread,
     },
     uapi::errno::{Errno, Result},
-    utils::userspace::user_cstr::UserCStr,
+    utils::UserCStr,
 };
 
 /// System call `execveat(int dirfd, const char *pathname, char *const argv[], char *const envp[], int flags)` (Syscall #322).
