@@ -5,7 +5,10 @@
 use alloc::sync::Arc;
 
 use super::device::DrmDevice;
+use alloc::collections::VecDeque;
+use spin::Mutex;
 use crate::drivers::drm::gem;
+use crate::uapi::drm::DrmEventVblank;
 
 /// Client capabilities set via `DRM_IOCTL_SET_CLIENT_CAP`.
 ///
@@ -38,6 +41,8 @@ pub struct DrmFile {
     pub offsets: gem::GemOffsetTable,
     /// Capabilities set through `DRM_IOCTL_SET_CLIENT_CAP`.
     pub caps: ClientCaps,
+    /// Pending vblank / page-flip events queued for user read().
+    pub events: Mutex<VecDeque<DrmEventVblank>>,
 }
 
 impl DrmFile {
@@ -48,7 +53,14 @@ impl DrmFile {
             handles: gem::GemHandleTable::new(),
             offsets: gem::GemOffsetTable::new(),
             caps: ClientCaps::default(),
+            events: Mutex::new(VecDeque::new()),
         }
+    }
+
+    /// Queues a vblank or page-flip completion event and wakes pollers.
+    pub fn queue_vblank_event(&self, event: DrmEventVblank) {
+        self.events.lock().push_back(event);
+        crate::fs::poll::notify();
     }
 }
 
@@ -57,3 +69,32 @@ impl Drop for DrmFile {
         self.device.close_file(self);
     }
 }
+
+#[cfg(ktest)]
+mod tests {
+    use super::*;
+    use crate::uapi::drm::{DRM_EVENT_FLIP_COMPLETE, DrmEvent, DrmEventVblank};
+
+    #[ktest]
+    fn drm_file_vblank_event_queueing() {
+        let events = Mutex::new(VecDeque::new());
+        let event = DrmEventVblank {
+            base: DrmEvent {
+                type_: DRM_EVENT_FLIP_COMPLETE,
+                length: core::mem::size_of::<DrmEventVblank>() as u32,
+            },
+            user_data: 0x1234,
+            tv_sec: 1,
+            tv_usec: 500,
+            sequence: 42,
+            crtc_id: 1,
+        };
+        events.lock().push_back(event);
+        assert_eq!(events.lock().len(), 1);
+        let popped = events.lock().pop_front().unwrap();
+        assert_eq!(popped.user_data, 0x1234);
+        assert_eq!(popped.sequence, 42);
+        assert_eq!(popped.base.type_, DRM_EVENT_FLIP_COMPLETE);
+    }
+}
+

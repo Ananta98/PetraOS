@@ -2,11 +2,12 @@
 
 //! DRM ioctl dispatch and userspace struct marshalling.
 
+use alloc::sync::Arc;
 use super::file::DrmFile;
 use crate::drivers::drm::kms;
 use crate::proc::thread::Thread;
 use crate::uapi;
-use crate::uapi::errno::Result;
+use crate::uapi::errno::{Errno, Result};
 use crate::utils::userspace::UserPtr;
 
 // ----------------------------------------------------------------------------
@@ -76,6 +77,8 @@ pub fn dispatch(file: &mut DrmFile, cmd: u32, arg: usize) -> Result<usize> {
         uapi::drm::DRM_IOCTL_GET_CAP => ioctl_get_cap(arg),
         uapi::drm::DRM_IOCTL_SET_CLIENT_CAP => ioctl_set_client_cap(file, arg),
         uapi::drm::DRM_IOCTL_SET_MASTER | uapi::drm::DRM_IOCTL_DROP_MASTER => Ok(0),
+        uapi::drm::DRM_IOCTL_PRIME_HANDLE_TO_FD => ioctl_prime_handle_to_fd(file, arg),
+        uapi::drm::DRM_IOCTL_PRIME_FD_TO_HANDLE => ioctl_prime_fd_to_handle(file, arg),
         uapi::drm::DRM_IOCTL_GEM_CLOSE | uapi::drm::DRM_IOCTL_MODE_DESTROY_DUMB => {
             ioctl_gem_close(file, arg)
         }
@@ -126,6 +129,11 @@ fn ioctl_get_cap(arg: usize) -> Result<usize> {
         uapi::drm::DRM_CAP_DUMB_PREFERRED_DEPTH => 24, // 24-bit weight preferred
         uapi::drm::DRM_CAP_CURSOR_WIDTH => 64,
         uapi::drm::DRM_CAP_CURSOR_HEIGHT => 64,
+        uapi::drm::DRM_CAP_PRIME => {
+            uapi::drm::DRM_PRIME_CAP_IMPORT | uapi::drm::DRM_PRIME_CAP_EXPORT
+        }
+        uapi::drm::DRM_CAP_TIMESTAMP_MONOTONIC => 1,
+        uapi::drm::DRM_CAP_CRTC_IN_VBLANK_EVENT => 1,
         _ => 0,
     };
     write_uapi(arg, &cap)?;
@@ -184,6 +192,97 @@ fn ioctl_map_dumb(file: &mut DrmFile, arg: usize) -> Result<usize> {
         crate::return_errno!(EINVAL, "handle to map does not exist");
     };
     req.offset = file.offsets.grant(object);
+    write_uapi(arg, &req)?;
+    Ok(0)
+}
+
+/// VFS `FileOps` for exported PRIME DMA-BUF file descriptors.
+pub struct DmaBufFileOps {
+    pub object: Arc<crate::drivers::drm::GemObject>,
+}
+
+impl crate::fs::vfs::FileOps for DmaBufFileOps {
+    fn read(&self, _offset: u64, _buf: &mut [u8]) -> Result<usize> {
+        crate::return_errno!(EINVAL, "DMA-BUF does not support read");
+    }
+
+    fn write(&self, _offset: u64, _buf: &[u8]) -> Result<usize> {
+        crate::return_errno!(EINVAL, "DMA-BUF does not support write");
+    }
+
+    fn mmap(&self, _offset: u64, len: usize) -> Result<()> {
+        if len > self.object.size() {
+            crate::return_errno!(EINVAL, "mapping extends past buffer object");
+        }
+        Ok(())
+    }
+
+    fn mmap_backing(
+        &self,
+        offset: u64,
+        len: usize,
+    ) -> Result<Option<Arc<dyn crate::vm::backing::Backing>>> {
+        if len > self.object.size() {
+            crate::return_errno!(EINVAL, "mapping extends past buffer object");
+        }
+        Ok(Some(crate::drivers::drm::gem::GemBacking::granted(
+            Arc::clone(&self.object),
+            offset,
+        )))
+    }
+
+    fn as_dmabuf(&self) -> Option<Arc<crate::drivers::drm::GemObject>> {
+        Some(Arc::clone(&self.object))
+    }
+}
+
+struct DmaBufNodeOps;
+
+impl crate::fs::vfs::NodeOps for DmaBufNodeOps {
+    fn getattr(&self) -> Result<crate::fs::vfs::INodeAttr> {
+        Ok(crate::fs::vfs::INodeAttr {
+            mode: crate::fs::vfs::Mode::FILE
+                | crate::fs::vfs::Mode::RUSR
+                | crate::fs::vfs::Mode::WUSR,
+            ..Default::default()
+        })
+    }
+}
+
+fn ioctl_prime_handle_to_fd(file: &mut DrmFile, arg: usize) -> Result<usize> {
+    let mut req = read_uapi::<uapi::drm::DrmPrimeHandle>(arg)?;
+    let object = file.handles.get(req.handle).ok_or(Errno::ENOENT)?;
+    let proc = Thread::proc_or_esrch()?;
+    let inode = Arc::new(crate::fs::vfs::INode::new(
+        alloc::boxed::Box::new(DmaBufNodeOps),
+        crate::fs::vfs::Mode::FILE | crate::fs::vfs::Mode::RUSR | crate::fs::vfs::Mode::WUSR,
+        0xd1a0,
+    ));
+    let dmabuf_file = Arc::new(crate::fs::vfs::File::new(
+        alloc::boxed::Box::new(DmaBufFileOps { object }),
+        inode,
+        crate::fs::vfs::OpenFlags::READ | crate::fs::vfs::OpenFlags::WRITE,
+        false,
+    ));
+    let cloexec = (req.flags & 0x80000) != 0; // O_CLOEXEC
+    let fd_flags = if cloexec {
+        crate::fs::fd::FdFlags::FD_CLOEXEC
+    } else {
+        crate::fs::fd::FdFlags::empty()
+    };
+    let fd = proc.fd_table.lock().alloc_fd(dmabuf_file, fd_flags)?;
+    req.fd = fd;
+    write_uapi(arg, &req)?;
+    Ok(0)
+}
+
+fn ioctl_prime_fd_to_handle(file: &mut DrmFile, arg: usize) -> Result<usize> {
+    let mut req = read_uapi::<uapi::drm::DrmPrimeHandle>(arg)?;
+    let proc = Thread::proc_or_esrch()?;
+    let f = proc.fd_table.lock().get(req.fd)?;
+    let object = f.as_dmabuf().ok_or(Errno::EINVAL)?;
+    let handle = file.handles.insert(object);
+    req.handle = handle;
     write_uapi(arg, &req)?;
     Ok(0)
 }

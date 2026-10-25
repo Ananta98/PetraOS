@@ -140,6 +140,11 @@ pub trait FileOps: Send + Sync {
     fn as_signalfd(&self) -> Option<Arc<crate::fs::fd::SignalFd>> {
         None
     }
+
+    /// Return the underlying GEM buffer object if this file represents a DMA-BUF.
+    fn as_dmabuf(&self) -> Option<Arc<crate::drivers::drm::GemObject>> {
+        None
+    }
 }
 
 /// The kernel representation of an open file description.
@@ -337,5 +342,10 @@ impl File {
     /// Return the underlying signalfd if this file represents a signalfd descriptor.
     pub fn as_signalfd(&self) -> Option<Arc<crate::fs::fd::SignalFd>> {
         self.ops.as_signalfd()
+    }
+
+    /// Return the underlying GEM buffer object if this file represents a DMA-BUF.
+    pub fn as_dmabuf(&self) -> Option<Arc<crate::drivers::drm::GemObject>> {
+        self.ops.as_dmabuf()
     }
 }

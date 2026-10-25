@@ -31,7 +31,7 @@ pub fn dispatch(kms: &KmsState, file: &mut DrmFile, cmd: u32, arg: usize) -> Res
         drm::DRM_IOCTL_MODE_GETFB => get_fb(kms, file, arg),
         drm::DRM_IOCTL_MODE_ADDFB => add_fb(kms, file, arg),
         drm::DRM_IOCTL_MODE_RMFB => rm_fb(kms, arg),
-        drm::DRM_IOCTL_MODE_PAGE_FLIP => page_flip(kms, arg),
+        drm::DRM_IOCTL_MODE_PAGE_FLIP => page_flip(kms, file, arg),
         drm::DRM_IOCTL_MODE_DIRTYFB => dirty_fb(kms, arg),
         drm::DRM_IOCTL_MODE_SETPLANE => set_plane(kms, arg),
         drm::DRM_IOCTL_MODE_ADDFB2 => add_fb2(kms, file, arg),
@@ -354,15 +354,11 @@ fn rm_fb(kms: &KmsState, arg: usize) -> Result<usize> {
     Ok(0)
 }
 
-fn page_flip(kms: &KmsState, arg: usize) -> Result<usize> {
+fn page_flip(kms: &KmsState, file: &mut DrmFile, arg: usize) -> Result<usize> {
     let req = read_uapi::<drm::DrmModeCrtcPageFlip>(arg)?;
     let Some(pipeline) = kms.pipeline_of_crtc(req.crtc_id) else {
         crate::return_errno!(EINVAL, "unknown CRTC id");
     };
-    // DRM_MODE_PAGE_FLIP_ASYNC
-    if req.flags & 1 != 0 {
-        crate::return_errno!(EINVAL, "async page flips are not supported");
-    }
 
     let mode = drm_mode(kms.pipeline_modes(pipeline));
     if req.fb_id == 0 {
@@ -372,6 +368,25 @@ fn page_flip(kms: &KmsState, arg: usize) -> Result<usize> {
         validate_scanout(&fb, &mode)?;
         kms.set_scanout(pipeline, fb, &mode)?;
     }
+
+    if req.flags & 0x01 != 0 {
+        let tv = crate::time::get_timeval();
+        static SEQ: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(1);
+        let seq = SEQ.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+        let event = drm::DrmEventVblank {
+            base: drm::DrmEvent {
+                type_: drm::DRM_EVENT_FLIP_COMPLETE,
+                length: core::mem::size_of::<drm::DrmEventVblank>() as u32,
+            },
+            user_data: req.user_data,
+            tv_sec: tv.tv_sec as u32,
+            tv_usec: tv.tv_usec as u32,
+            sequence: seq,
+            crtc_id: req.crtc_id,
+        };
+        file.queue_vblank_event(event);
+    }
+
     Ok(0)
 }
 

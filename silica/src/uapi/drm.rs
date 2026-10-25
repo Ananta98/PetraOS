@@ -50,6 +50,11 @@ pub const DRM_IOCTL_SET_MASTER: u32 = _io(DRM_IOCTL_BASE, 0x1E);
 /// Drop a legacy DRM master (accepted as a no-op).
 pub const DRM_IOCTL_DROP_MASTER: u32 = _io(DRM_IOCTL_BASE, 0x1F);
 
+/// Export a GEM handle to a PRIME file descriptor.
+pub const DRM_IOCTL_PRIME_HANDLE_TO_FD: u32 = _iowr::<DrmPrimeHandle>(DRM_IOCTL_BASE, 0x2D);
+/// Import a PRIME file descriptor to a GEM handle.
+pub const DRM_IOCTL_PRIME_FD_TO_HANDLE: u32 = _iowr::<DrmPrimeHandle>(DRM_IOCTL_BASE, 0x2E);
+
 // ----------------------------------------------------------------------------
 // Dumb buffers (verified: /usr/include/drm/drm.h 0xB2..0xB4)
 // ----------------------------------------------------------------------------
@@ -117,6 +122,38 @@ pub struct DrmGetCap {
 pub struct DrmSetClientCap {
     pub capability: u64,
     pub value: u64,
+}
+
+/// `struct drm_prime_handle` — `DRM_IOCTL_PRIME_HANDLE_TO_FD` and `DRM_IOCTL_PRIME_FD_TO_HANDLE`.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, FromBytes, IntoBytes, KnownLayout, Immutable, Default)]
+pub struct DrmPrimeHandle {
+    pub handle: u32,
+    pub flags: u32,
+    pub fd: i32,
+}
+
+pub const DRM_EVENT_VBLANK: u32 = 0x01;
+pub const DRM_EVENT_FLIP_COMPLETE: u32 = 0x02;
+
+/// `struct drm_event` — header for DRM events read from `/dev/dri/card*`.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, FromBytes, IntoBytes, KnownLayout, Immutable, Default)]
+pub struct DrmEvent {
+    pub type_: u32,
+    pub length: u32,
+}
+
+/// `struct drm_event_vblank` — delivered upon vblank or page flip completion.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, FromBytes, IntoBytes, KnownLayout, Immutable, Default)]
+pub struct DrmEventVblank {
+    pub base: DrmEvent,
+    pub user_data: u64,
+    pub tv_sec: u32,
+    pub tv_usec: u32,
+    pub sequence: u32,
+    pub crtc_id: u32,
 }
 
 /// `struct drm_mode_create_dumb` — `DRM_IOCTL_MODE_CREATE_DUMB`.

@@ -187,6 +187,52 @@ pub fn handle_ioctl(
         | ioctl::TIOCNOTTY
         | ioctl::TIOCGSID => handle_job_control_ioctl(tty, cmd, arg, vmar, proc_opt),
 
+        KDSETMODE | KDGETMODE | KDSKBMODE | KDGKBMODE | VT_SETMODE | VT_GETMODE | VT_GETSTATE
+        | VT_ACTIVATE | VT_WAITACTIVE | VT_RELDISP => handle_vt_ioctl(cmd, arg, vmar),
+
         _ => crate::return_errno!(ENOTTY, "inappropriate ioctl for device"),
+    }
+}
+
+const KDSETMODE: u32 = 0x4B3A;
+const KDGETMODE: u32 = 0x4B3B;
+const KDSKBMODE: u32 = 0x4B45;
+const KDGKBMODE: u32 = 0x4B44;
+const VT_SETMODE: u32 = 0x5602;
+const VT_GETMODE: u32 = 0x5601;
+const VT_GETSTATE: u32 = 0x5603;
+const VT_ACTIVATE: u32 = 0x5606;
+const VT_WAITACTIVE: u32 = 0x5607;
+const VT_RELDISP: u32 = 0x5605;
+
+fn handle_vt_ioctl(cmd: u32, arg: usize, vmar: &Arc<Vmar>) -> Result<usize> {
+    match cmd {
+        KDSETMODE => Ok(0),
+        KDGETMODE => {
+            let mode = 0i32; // KD_TEXT
+            UserPtr::new(arg).write_bytes(vmar, &mode.to_ne_bytes())?;
+            Ok(0)
+        }
+        KDSKBMODE => Ok(0),
+        KDGKBMODE => {
+            let mode = 1i32; // K_XLATE
+            UserPtr::new(arg).write_bytes(vmar, &mode.to_ne_bytes())?;
+            Ok(0)
+        }
+        VT_SETMODE => Ok(0),
+        VT_GETMODE => {
+            let buf = [0u8; 8];
+            UserPtr::new(arg).write_bytes(vmar, &buf)?;
+            Ok(0)
+        }
+        VT_GETSTATE => {
+            let mut buf = [0u8; 6];
+            buf[0..2].copy_from_slice(&1u16.to_ne_bytes());
+            buf[4..6].copy_from_slice(&1u16.to_ne_bytes());
+            UserPtr::new(arg).write_bytes(vmar, &buf)?;
+            Ok(0)
+        }
+        VT_ACTIVATE | VT_WAITACTIVE | VT_RELDISP => Ok(0),
+        _ => crate::return_errno!(ENOTTY, "unsupported VT ioctl"),
     }
 }

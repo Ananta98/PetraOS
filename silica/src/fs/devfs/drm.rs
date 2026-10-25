@@ -28,9 +28,29 @@ pub struct DriDirNodeOps;
 
 impl NodeOps for DriDirNodeOps {
     fn lookup(&self, name: &str) -> Result<Arc<INode>> {
-        let minor = match name.strip_prefix("card") {
-            Some(idx) => idx.parse::<u32>().map_err(|_| Errno::ENOENT)?,
-            None => crate::return_errno!(ENOENT, "unknown node under /dev/dri"),
+        if name == "." || name == ".." {
+            return Ok(Arc::new(INode::new(
+                Box::new(DriDirNodeOps),
+                Mode::DIR
+                    | Mode::RUSR
+                    | Mode::WUSR
+                    | Mode::XUSR
+                    | Mode::RGRP
+                    | Mode::XGRP
+                    | Mode::ROTH
+                    | Mode::XOTH,
+                12,
+            )));
+        }
+
+        let minor = if let Some(idx) = name.strip_prefix("card") {
+            idx.parse::<u32>().map_err(|_| Errno::ENOENT)?
+        } else if let Some(idx) = name.strip_prefix("renderD") {
+            idx.parse::<u32>()
+                .map_err(|_| Errno::ENOENT)?
+                .saturating_sub(128)
+        } else {
+            return Err(Errno::ENOENT);
         };
 
         let device = drm_core::get_device(minor)?;
@@ -84,8 +104,10 @@ impl FileOps for DriDirFileOps {
 
     fn readdir(&self) -> Result<Vec<u8>> {
         let mut out = Vec::new();
+        out.extend_from_slice(b".\n..\n");
         for minor in 0..drm_core::DRM_DEVICES.lock().len() {
             out.extend_from_slice(format!("card{minor}\n").as_bytes());
+            out.extend_from_slice(format!("renderD{}\n", 128 + minor).as_bytes());
         }
         Ok(out)
     }
@@ -148,8 +170,28 @@ impl DrmCardFileOps {
 }
 
 impl FileOps for DrmCardFileOps {
-    fn read(&self, _offset: u64, _buf: &mut [u8]) -> Result<usize> {
-        crate::return_errno!(ENODEV, "DRM cards do not support read");
+    fn read(&self, _offset: u64, buf: &mut [u8]) -> Result<usize> {
+        let event_size = core::mem::size_of::<crate::uapi::drm::DrmEventVblank>();
+        if buf.len() < event_size {
+            crate::return_errno!(EINVAL, "buffer too small for DRM event");
+        }
+        let file = self.file.lock();
+        let mut events = file.events.lock();
+        let mut read_bytes = 0;
+        while buf.len() - read_bytes >= event_size {
+            if let Some(ev) = events.pop_front() {
+                let slice: &[u8] = zerocopy::IntoBytes::as_bytes(&ev);
+                buf[read_bytes..read_bytes + event_size].copy_from_slice(slice);
+                read_bytes += event_size;
+            } else {
+                break;
+            }
+        }
+        if read_bytes > 0 {
+            Ok(read_bytes)
+        } else {
+            Err(Errno::EAGAIN)
+        }
     }
 
     fn write(&self, _offset: u64, _buf: &[u8]) -> Result<usize> {
@@ -162,7 +204,13 @@ impl FileOps for DrmCardFileOps {
     }
 
     fn poll(&self) -> PollEvents {
-        PollEvents::IN | PollEvents::OUT
+        let file = self.file.lock();
+        let has_events = !file.events.lock().is_empty();
+        if has_events {
+            PollEvents::IN | PollEvents::RDNORM | PollEvents::OUT | PollEvents::WRNORM
+        } else {
+            PollEvents::OUT | PollEvents::WRNORM
+        }
     }
 
     fn mmap(&self, offset: u64, len: usize) -> Result<()> {
