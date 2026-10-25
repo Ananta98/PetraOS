@@ -48,7 +48,7 @@ impl NodeOps for RandomNodeOps {
             nlink: 1,
             uid: 0,
             gid: 0,
-            rdev: 0,
+            rdev: ((1 as u64) << 8) | 8,
         })
     }
 }
@@ -112,7 +112,7 @@ impl NodeOps for UrandomNodeOps {
             nlink: 1,
             uid: 0,
             gid: 0,
-            rdev: 0,
+            rdev: ((1 as u64) << 8) | 9,
         })
     }
 }

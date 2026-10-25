@@ -211,6 +211,10 @@ impl KmsState {
         self.states.iter().position(|s| s.primary_plane_id == id)
     }
 
+    pub fn pipeline_count(&self) -> usize {
+        self.pipelines.len()
+    }
+
     pub fn pipeline_modes(&self, pipeline: usize) -> &[drm::DrmModeModeInfo] {
         &self.pipelines[pipeline].modes
     }

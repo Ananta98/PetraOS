@@ -75,7 +75,7 @@ impl NodeOps for InputDirNodeOps {
         let device = input::get_device(index).ok_or(Errno::ENOENT)?;
 
         Ok(Arc::new(INode::new(
-            Box::new(EvdevNodeOps { device }),
+            Box::new(EvdevNodeOps { device, index }),
             Mode::CHAR | Mode::RUSR | Mode::WUSR | Mode::RGRP | Mode::WGRP,
             EVDEV_INO_BASE + index,
         )))
@@ -132,6 +132,7 @@ impl FileOps for InputDirFileOps {
 /// An `eventN` char device inode: every open is a new evdev client.
 pub struct EvdevNodeOps {
     device: Arc<InputDevice>,
+    index: usize,
 }
 
 impl NodeOps for EvdevNodeOps {
@@ -149,7 +150,7 @@ impl NodeOps for EvdevNodeOps {
             nlink: 1,
             uid: 0,
             gid: 0,
-            rdev: 0,
+            rdev: ((13 as u64) << 8) | (64 + self.index as u64),
         })
     }
 }
@@ -203,7 +204,7 @@ impl NodeOps for MiceNodeOps {
             nlink: 1,
             uid: 0,
             gid: 0,
-            rdev: 0,
+            rdev: ((13 as u64) << 8) | 63,
         })
     }
 }
@@ -245,7 +246,7 @@ impl NodeOps for UinputNodeOps {
             nlink: 1,
             uid: 0,
             gid: 0,
-            rdev: 0,
+            rdev: ((10 as u64) << 8) | 223,
         })
     }
 }

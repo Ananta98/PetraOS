@@ -23,7 +23,7 @@ impl NodeOps for NullNodeOps {
             nlink: 1,
             uid: 0,
             gid: 0,
-            rdev: 0,
+            rdev: ((1 as u64) << 8) | 3,
         })
     }
 }

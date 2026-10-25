@@ -423,9 +423,14 @@ impl SysTree {
         let block_dir: Arc<dyn SysNode> = Arc::new(super::block::SysBlockRootDirNode::new());
         let _ = root_dir.add_child(block_dir);
 
+        let dev_dir: Arc<dyn SysNode> = Arc::new(super::dev::SysDevRootDirNode::new());
+        let _ = root_dir.add_child(dev_dir);
+
         let devices_dir = root_dir.add_dir("devices");
         let _ = devices_dir.add_dir("system");
-        let _ = devices_dir.add_dir("virtual");
+        let virtual_dir = devices_dir.add_dir("virtual");
+        let _ = virtual_dir.add_dir("drm");
+        let _ = virtual_dir.add_dir("input");
 
         let bus_dir = root_dir.add_dir("bus");
         let _ = bus_dir.add_dir("pci");
@@ -437,8 +442,15 @@ impl SysTree {
         let class_dir = root_dir.add_dir("class");
         let class_block_dir: Arc<dyn SysNode> = Arc::new(super::block::SysClassBlockDirNode::new());
         let _ = class_dir.add_child(class_block_dir);
+        let class_drm_dir: Arc<dyn SysNode> = Arc::new(super::drm::SysClassDrmDirNode::new());
+        let _ = class_dir.add_child(class_drm_dir);
+        let class_input_dir: Arc<dyn SysNode> = Arc::new(super::input::SysClassInputDirNode::new());
+        let _ = class_dir.add_child(class_input_dir);
+        let class_tty_dir: Arc<dyn SysNode> = Arc::new(super::tty::SysClassTtyDirNode::new());
+        let _ = class_dir.add_child(class_tty_dir);
+        let class_mem_dir: Arc<dyn SysNode> = Arc::new(super::tty::SysClassMemDirNode::new());
+        let _ = class_dir.add_child(class_mem_dir);
         let _ = class_dir.add_dir("net");
-        let _ = class_dir.add_dir("tty");
 
         Self {
             root_dir,

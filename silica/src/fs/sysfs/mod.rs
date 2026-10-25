@@ -16,10 +16,14 @@
 //! mutates the tree.
 
 pub mod block;
+pub mod dev;
+pub mod drm;
 pub mod fs;
 pub mod inode;
+pub mod input;
 pub mod kernel;
 pub mod kobject;
+pub mod tty;
 
 pub use fs::SysFs;
 pub use inode::{SysFsAttrNodeOps, SysFsDirFileOps, SysFsDirNodeOps, SysFsSymlinkNodeOps};
@@ -154,5 +158,63 @@ mod tests {
         assert!(dev_link.is_symlink());
         let target = dev_link.node_ops.readlink().expect("readlink");
         assert_eq!(target, "../../../devices/virtual");
+    }
+
+    #[ktest]
+    fn sysfs_dev_char_and_class_discovery() {
+        let root = root();
+
+        // 1. Verify /sys/dev/char and /sys/dev/block directories exist
+        let dev_dir = root.node_ops.lookup("dev").expect("lookup dev");
+        assert!(dev_dir.is_dir());
+
+        let char_dir = dev_dir.node_ops.lookup("char").expect("lookup dev/char");
+        assert!(char_dir.is_dir());
+
+        let block_dir = dev_dir.node_ops.lookup("block").expect("lookup dev/block");
+        assert!(block_dir.is_dir());
+
+        // 2. Verify static char symlinks in /sys/dev/char
+        let tty_link = char_dir.node_ops.lookup("5:0").expect("lookup 5:0");
+        assert!(tty_link.is_symlink());
+        assert_eq!(tty_link.node_ops.readlink().expect("readlink 5:0"), "../../class/tty/tty");
+
+        let null_link = char_dir.node_ops.lookup("1:3").expect("lookup 1:3");
+        assert!(null_link.is_symlink());
+        assert_eq!(null_link.node_ops.readlink().expect("readlink 1:3"), "../../class/mem/null");
+
+        let drm_link = char_dir.node_ops.lookup("226:0").expect("lookup 226:0");
+        assert!(drm_link.is_symlink());
+        assert_eq!(drm_link.node_ops.readlink().expect("readlink 226:0"), "../../class/drm/card0");
+
+        let render_link = char_dir.node_ops.lookup("226:128").expect("lookup 226:128");
+        assert!(render_link.is_symlink());
+        assert_eq!(render_link.node_ops.readlink().expect("readlink 226:128"), "../../class/drm/renderD128");
+
+        let mice_link = char_dir.node_ops.lookup("13:63").expect("lookup 13:63");
+        assert!(mice_link.is_symlink());
+        assert_eq!(mice_link.node_ops.readlink().expect("readlink 13:63"), "../../class/input/mice");
+
+        // 3. Verify /sys/class/drm and /sys/class/input exist
+        let class = root.node_ops.lookup("class").expect("lookup class");
+        let drm_class = class.node_ops.lookup("drm").expect("lookup class/drm");
+        assert!(drm_class.is_dir());
+
+        let input_class = class.node_ops.lookup("input").expect("lookup class/input");
+        assert!(input_class.is_dir());
+
+        let tty_class = class.node_ops.lookup("tty").expect("lookup class/tty");
+        assert!(tty_class.is_dir());
+
+        let mem_class = class.node_ops.lookup("mem").expect("lookup class/mem");
+        assert!(mem_class.is_dir());
+
+        // Verify /sys/class/mem/null attribute dev
+        let mem_null = mem_class.node_ops.lookup("null").expect("lookup null");
+        let dev_attr = mem_null.node_ops.lookup("dev").expect("lookup null dev");
+        let dev_file = dev_attr.node_ops.open(OpenFlags::READ).expect("open null dev");
+        let mut buf = [0u8; 16];
+        let n = dev_file.read(0, &mut buf).expect("read null dev");
+        assert_eq!(&buf[..n], b"1:3\n");
     }
 }

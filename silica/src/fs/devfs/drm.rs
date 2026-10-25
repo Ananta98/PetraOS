@@ -43,19 +43,19 @@ impl NodeOps for DriDirNodeOps {
             )));
         }
 
-        let minor = if let Some(idx) = name.strip_prefix("card") {
-            idx.parse::<u32>().map_err(|_| Errno::ENOENT)?
+        let (minor, rdev) = if let Some(idx) = name.strip_prefix("card") {
+            let m = idx.parse::<u32>().map_err(|_| Errno::ENOENT)?;
+            (m, ((226 as u64) << 8) | (m as u64))
         } else if let Some(idx) = name.strip_prefix("renderD") {
-            idx.parse::<u32>()
-                .map_err(|_| Errno::ENOENT)?
-                .saturating_sub(128)
+            let r = idx.parse::<u32>().map_err(|_| Errno::ENOENT)?;
+            (r.saturating_sub(128), ((226 as u64) << 8) | (r as u64))
         } else {
             return Err(Errno::ENOENT);
         };
 
         let device = drm_core::get_device(minor)?;
         Ok(Arc::new(INode::new(
-            Box::new(CardNodeOps { device }),
+            Box::new(CardNodeOps { device, rdev }),
             Mode::CHAR
                 | Mode::RUSR
                 | Mode::WUSR
@@ -116,6 +116,7 @@ impl FileOps for DriDirFileOps {
 /// The card inode: creates a fresh per-open file state.
 pub struct CardNodeOps {
     device: Arc<dyn drm_core::DrmDevice>,
+    rdev: u64,
 }
 
 impl NodeOps for CardNodeOps {
@@ -139,7 +140,7 @@ impl NodeOps for CardNodeOps {
             nlink: 1,
             uid: 0,
             gid: 0,
-            rdev: 0,
+            rdev: self.rdev,
         })
     }
 }
