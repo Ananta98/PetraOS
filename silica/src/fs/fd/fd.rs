@@ -8,9 +8,9 @@
 use alloc::{sync::Arc, vec::Vec};
 use bitflags::bitflags;
 
-use crate::uapi::errno::Result;
 use crate::drivers::char::tty::create_console_file;
 use crate::fs::vfs::{File, OpenFlags};
+use crate::uapi::errno::Result;
 
 bitflags! {
     /// File descriptor flags.

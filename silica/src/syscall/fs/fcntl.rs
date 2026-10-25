@@ -21,6 +21,8 @@ pub const F_SETLKW: i32 = 7;
 pub const F_SETOWN: i32 = 8;
 pub const F_GETOWN: i32 = 9;
 pub const F_DUPFD_CLOEXEC: i32 = 1030;
+pub const F_ADD_SEALS: i32 = 1033;
+pub const F_GET_SEALS: i32 = 1034;
 
 /// System call `fcntl(int fd, int cmd, ...)` (Syscall #72).
 pub fn sys_fcntl(fd: i32, cmd: i32, arg: usize, _ctx: &mut UserContext) -> Result<usize> {
@@ -119,6 +121,25 @@ pub fn sys_fcntl(fd: i32, cmd: i32, arg: usize, _ctx: &mut UserContext) -> Resul
             let table = proc.fd_table.lock();
             let _file = table.get(fd)?;
             Ok(0)
+        }
+        F_GET_SEALS => {
+            let table = proc.fd_table.lock();
+            let file = table.get(fd)?;
+            if let Some(memfd) = file.ops.as_memfd() {
+                Ok(memfd.get_seals() as usize)
+            } else {
+                Err(Errno::EINVAL)
+            }
+        }
+        F_ADD_SEALS => {
+            let table = proc.fd_table.lock();
+            let file = table.get(fd)?;
+            if let Some(memfd) = file.ops.as_memfd() {
+                memfd.add_seals(arg as u32)?;
+                Ok(0)
+            } else {
+                Err(Errno::EINVAL)
+            }
         }
         _ => Err(Errno::EINVAL),
     }

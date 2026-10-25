@@ -33,6 +33,7 @@
 pub mod cred;
 pub mod drm;
 pub mod errno;
+pub mod fd;
 pub mod input;
 pub mod ioctl;
 pub mod ipc;

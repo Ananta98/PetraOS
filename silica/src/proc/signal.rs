@@ -134,6 +134,14 @@ impl SigQueue {
     pub fn has_unmasked(&self, mask: &SigSet) -> bool {
         self.inner.lock().iter().any(|q| !mask.contains(q.signal()))
     }
+
+    /// Returns true if there is any queued signal that satisfies `predicate`.
+    pub fn has_matching<F>(&self, predicate: F) -> bool
+    where
+        F: Fn(Signal) -> bool,
+    {
+        self.inner.lock().iter().any(|q| predicate(q.signal()))
+    }
 }
 
 impl Proc {

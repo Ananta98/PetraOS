@@ -69,7 +69,7 @@ pub fn sys_epoll_ctl(
             }
             let target_file = proc.file(fd)?;
             let vmar = proc.vmspace();
-            let mut raw = [0u8; 12];
+            let mut raw = [0u8; EPOLL_EVENT_SIZE];
             UserPtr::new(event_ptr).read_bytes(&vmar, &mut raw)?;
             let events = u32::from_ne_bytes(raw[0..4].try_into().unwrap());
             let data = u64::from_ne_bytes(raw[4..12].try_into().unwrap());
@@ -81,7 +81,7 @@ pub fn sys_epoll_ctl(
                 return Err(Errno::EFAULT);
             }
             let vmar = proc.vmspace();
-            let mut raw = [0u8; 12];
+            let mut raw = [0u8; EPOLL_EVENT_SIZE];
             UserPtr::new(event_ptr).read_bytes(&vmar, &mut raw)?;
             let events = u32::from_ne_bytes(raw[0..4].try_into().unwrap());
             let data = u64::from_ne_bytes(raw[4..12].try_into().unwrap());
@@ -92,15 +92,34 @@ pub fn sys_epoll_ctl(
     }
 }
 
-/// System call `epoll_wait(int epfd, struct epoll_event *events, int maxevents, int timeout)` (Syscall #232).
-pub fn sys_epoll_wait(
+const EPOLL_EVENT_SIZE: usize = 12;
+const EPOLL_MAX_EVENTS_LIMIT: i32 = 1024;
+const TIMESPEC_RAW_SIZE: usize = 16;
+const SIGSET_SIZE_BYTES: usize = 8;
+
+fn write_epoll_events(
+    events_ptr: usize,
+    ready_events: &[EpollEvent],
+    ready_count: usize,
+    vmar: &alloc::sync::Arc<crate::vm::Vmar>,
+) -> Result<()> {
+    for (index, event) in ready_events.iter().take(ready_count).enumerate() {
+        let byte_offset = index * EPOLL_EVENT_SIZE;
+        let mut raw_bytes = [0u8; EPOLL_EVENT_SIZE];
+        raw_bytes[0..4].copy_from_slice(&event.events.to_ne_bytes());
+        raw_bytes[4..12].copy_from_slice(&event.data.to_ne_bytes());
+        UserPtr::new(events_ptr + byte_offset).write_bytes(vmar, &raw_bytes)?;
+    }
+    Ok(())
+}
+
+fn execute_epoll_wait(
     epfd: i32,
     events_ptr: usize,
     maxevents: i32,
-    timeout_ms: i32,
-    _ctx: &mut UserContext,
+    deadline: Option<crate::sched::Deadline>,
 ) -> Result<usize> {
-    if maxevents <= 0 || maxevents > 1024 {
+    if maxevents <= 0 || maxevents > EPOLL_MAX_EVENTS_LIMIT {
         return Err(Errno::EINVAL);
     }
     if events_ptr == 0 {
@@ -112,22 +131,14 @@ pub fn sys_epoll_wait(
     let epoll = ep_file.as_epoll().ok_or(Errno::EINVAL)?;
     let vmar = proc.vmspace();
 
-    let max_n = maxevents as usize;
-    let mut ready_evs = alloc::vec![EpollEvent::default(); max_n];
-
-    let deadline = crate::sched::Deadline::from_timeout_ms(timeout_ms);
+    let max_capacity = maxevents as usize;
+    let mut ready_events = alloc::vec![EpollEvent::default(); max_capacity];
 
     loop {
-        let ready = epoll.scan_ready(&mut ready_evs);
-        if ready > 0 {
-            for (i, ev) in ready_evs.iter().take(ready).enumerate() {
-                let off = i * 12;
-                let mut raw = [0u8; 12];
-                raw[0..4].copy_from_slice(&ev.events.to_ne_bytes());
-                raw[4..12].copy_from_slice(&ev.data.to_ne_bytes());
-                UserPtr::new(events_ptr + off).write_bytes(&vmar, &raw)?;
-            }
-            return Ok(ready);
+        let ready_count = epoll.scan_ready(&mut ready_events);
+        if ready_count > 0 {
+            write_epoll_events(events_ptr, &ready_events, ready_count, &vmar)?;
+            return Ok(ready_count);
         }
 
         if deadline.as_ref().is_some_and(|d| d.expired()) {
@@ -142,6 +153,18 @@ pub fn sys_epoll_wait(
     }
 }
 
+/// System call `epoll_wait(int epfd, struct epoll_event *events, int maxevents, int timeout)` (Syscall #232).
+pub fn sys_epoll_wait(
+    epfd: i32,
+    events_ptr: usize,
+    maxevents: i32,
+    timeout_ms: i32,
+    _ctx: &mut UserContext,
+) -> Result<usize> {
+    let deadline = crate::sched::Deadline::from_timeout_ms(timeout_ms);
+    execute_epoll_wait(epfd, events_ptr, maxevents, deadline)
+}
+
 /// System call `epoll_pwait(int epfd, struct epoll_event *events, int maxevents, int timeout, const sigset_t *sigmask, size_t sigsetsize)` (Syscall #281).
 pub fn sys_epoll_pwait(
     epfd: i32,
@@ -152,8 +175,46 @@ pub fn sys_epoll_pwait(
     sigsetsize: usize,
     ctx: &mut UserContext,
 ) -> Result<usize> {
-    if sigmask_ptr != 0 && sigsetsize != 8 {
+    if sigmask_ptr != 0 && sigsetsize != SIGSET_SIZE_BYTES {
         return Err(Errno::EINVAL);
     }
     sys_epoll_wait(epfd, events_ptr, maxevents, timeout_ms, ctx)
+}
+
+fn parse_timespec_deadline(
+    timeout_ts_ptr: usize,
+    vmar: &alloc::sync::Arc<crate::vm::Vmar>,
+) -> Result<Option<crate::sched::Deadline>> {
+    if timeout_ts_ptr == 0 {
+        return Ok(None);
+    }
+    let mut timespec_raw = [0u8; TIMESPEC_RAW_SIZE];
+    UserPtr::new(timeout_ts_ptr).read_bytes(vmar, &mut timespec_raw)?;
+    let timeout_spec = crate::time::Timespec::from_bytes(&timespec_raw).ok_or(Errno::EINVAL)?;
+    if !timeout_spec.is_valid() {
+        return Err(Errno::EINVAL);
+    }
+    let total_nanos = timeout_spec.total_nanos().ok_or(Errno::EINVAL)?;
+    Ok(Some(crate::sched::Deadline::from_timeout_ns(total_nanos)))
+}
+
+/// System call `epoll_pwait2(int epfd, struct epoll_event *events, int maxevents, const struct timespec *timeout, const sigset_t *sigmask, size_t sigsetsize)` (Syscall #441).
+pub fn sys_epoll_pwait2(
+    epfd: i32,
+    events_ptr: usize,
+    maxevents: i32,
+    timeout_ts_ptr: usize,
+    sigmask_ptr: usize,
+    sigsetsize: usize,
+    _ctx: &mut UserContext,
+) -> Result<usize> {
+    if sigmask_ptr != 0 && sigsetsize != SIGSET_SIZE_BYTES {
+        return Err(Errno::EINVAL);
+    }
+
+    let proc = Thread::proc_or_esrch()?;
+    let vmar = proc.vmspace();
+    let deadline = parse_timespec_deadline(timeout_ts_ptr, &vmar)?;
+
+    execute_epoll_wait(epfd, events_ptr, maxevents, deadline)
 }

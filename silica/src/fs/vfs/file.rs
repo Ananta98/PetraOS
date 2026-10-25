@@ -120,6 +120,26 @@ pub trait FileOps: Send + Sync {
     fn as_epoll(&self) -> Option<Arc<crate::fs::epoll::EpollInstance>> {
         None
     }
+
+    /// Return the underlying memfd if this file represents a memfd descriptor.
+    fn as_memfd(&self) -> Option<Arc<crate::fs::fd::MemFd>> {
+        None
+    }
+
+    /// Return the underlying eventfd if this file represents an eventfd descriptor.
+    fn as_eventfd(&self) -> Option<Arc<crate::fs::fd::EventFd>> {
+        None
+    }
+
+    /// Return the underlying timerfd if this file represents a timerfd descriptor.
+    fn as_timerfd(&self) -> Option<Arc<crate::fs::fd::TimerFd>> {
+        None
+    }
+
+    /// Return the underlying signalfd if this file represents a signalfd descriptor.
+    fn as_signalfd(&self) -> Option<Arc<crate::fs::fd::SignalFd>> {
+        None
+    }
 }
 
 /// The kernel representation of an open file description.
@@ -297,5 +317,25 @@ impl File {
     /// Return the underlying epoll instance if this file represents an epoll descriptor.
     pub fn as_epoll(&self) -> Option<Arc<crate::fs::epoll::EpollInstance>> {
         self.ops.as_epoll()
+    }
+
+    /// Return the underlying memfd if this file represents a memfd descriptor.
+    pub fn as_memfd(&self) -> Option<Arc<crate::fs::fd::MemFd>> {
+        self.ops.as_memfd()
+    }
+
+    /// Return the underlying eventfd if this file represents an eventfd descriptor.
+    pub fn as_eventfd(&self) -> Option<Arc<crate::fs::fd::EventFd>> {
+        self.ops.as_eventfd()
+    }
+
+    /// Return the underlying timerfd if this file represents a timerfd descriptor.
+    pub fn as_timerfd(&self) -> Option<Arc<crate::fs::fd::TimerFd>> {
+        self.ops.as_timerfd()
+    }
+
+    /// Return the underlying signalfd if this file represents a signalfd descriptor.
+    pub fn as_signalfd(&self) -> Option<Arc<crate::fs::fd::SignalFd>> {
+        self.ops.as_signalfd()
     }
 }

@@ -194,8 +194,15 @@ crate::impl_syscall_nums_and_dispatch_fn! {
     SYS_PPOLL = 271 => fs::sys_ppoll(usize, usize, usize, usize, usize);
     SYS_UTIMENSAT = 280 => fs::sys_utimensat(i32, usize, usize, i32);
     SYS_EPOLL_PWAIT = 281 => fs::sys_epoll_pwait(i32, usize, i32, i32, usize, usize);
+    SYS_SIGNALFD = 282 => fs::sys_signalfd(i32, usize, usize);
+    SYS_TIMERFD_CREATE = 283 => fs::sys_timerfd_create(i32, i32);
+    SYS_EVENTFD = 284 => fs::sys_eventfd(u32);
     SYS_FALLOCATE = 285 => fs::sys_fallocate(i32, i32, i64, i64);
+    SYS_TIMERFD_SETTIME = 286 => fs::sys_timerfd_settime(i32, i32, usize, usize);
+    SYS_TIMERFD_GETTIME = 287 => fs::sys_timerfd_gettime(i32, usize);
     SYS_ACCEPT4 = 288 => net::sys_accept4(i32, usize, usize, i32);
+    SYS_SIGNALFD4 = 289 => fs::sys_signalfd4(i32, usize, usize, i32);
+    SYS_EVENTFD2 = 290 => fs::sys_eventfd2(u32, i32);
     SYS_EPOLL_CREATE1 = 291 => fs::sys_epoll_create1(i32);
     SYS_DUP3 = 292 => fs::sys_dup3(i32, i32, i32);
     SYS_PIPE2 = 293 => fs::sys_pipe2(usize, i32);
@@ -211,11 +218,13 @@ crate::impl_syscall_nums_and_dispatch_fn! {
     SYS_SCHED_GETATTR = 315 => sched::sys_sched_getattr(i32, usize, u32, u32);
     SYS_RENAMEAT2 = 316 => fs::sys_renameat2(i32, usize, i32, usize, u32);
     SYS_GETRANDOM = 318 => platform::sys_getrandom(usize, usize, u32);
+    SYS_MEMFD_CREATE = 319 => fs::sys_memfd_create(usize, u32);
     SYS_EXECVEAT = 322 => proc::sys_execveat(i32, usize, usize, usize, i32);
     SYS_MEMBARRIER = 324 => sched::sys_membarrier(i32, u32, i32);
     SYS_COPY_FILE_RANGE = 326 => fs::sys_copy_file_range(i32, usize, i32, usize, usize, u32);
     SYS_PREADV2 = 327 => fs::sys_preadv2(i32, usize, usize, usize, usize, i32);
     SYS_STATX = 332 => fs::sys_statx(i32, usize, i32, u32, usize);
     SYS_FACCESSAT2 = 439 => fs::sys_faccessat2(i32, usize, i32, i32);
+    SYS_EPOLL_PWAIT2 = 441 => fs::sys_epoll_pwait2(i32, usize, i32, usize, usize, usize);
     SYS_FCHMODAT2 = 452 => fs::sys_fchmodat2(i32, usize, u32, i32);
 }

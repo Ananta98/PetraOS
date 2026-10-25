@@ -81,6 +81,19 @@ impl Deadline {
         })
     }
 
+    /// Starts a deadline from nanoseconds duration.
+    pub fn from_timeout_ns(timeout_ns: u64) -> Self {
+        let duration = if timeout_ns == 0 {
+            0
+        } else {
+            (timeout_ns * TIMER_HZ).div_ceil(1_000_000_000)
+        };
+        Self {
+            start: now(),
+            duration,
+        }
+    }
+
     /// Returns `true` once the deadline has elapsed.
     pub fn expired(&self) -> bool {
         now().saturating_sub(self.start) >= self.duration
