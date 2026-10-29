@@ -23,6 +23,8 @@
 //! before any subsystem schedules work or arms timers.
 
 pub mod device;
+pub mod io;
+pub mod irq;
 pub mod mm;
 pub mod refcount;
 pub mod sync;
@@ -34,6 +36,8 @@ pub use device::{
     Device, DeviceBusRegistry, Driver, PlatformBus, PlatformDevice, PlatformDriver, Resource,
     ResourceType,
 };
+pub use io::{ioremap, ioremap_shared, IoRegion};
+pub use irq::{free_irq, request_irq, request_threaded_irq, IrqFlags, IrqHandlerFn, IrqReturn};
 pub use mm::{kzalloc, Gfp};
 pub use refcount::{KRef, KWeak};
 pub use sync::{KCompletion, KMutex, RootSpinLock, SpinLock};
