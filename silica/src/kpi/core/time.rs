@@ -132,6 +132,6 @@ fn process_expired() {
 }
 
 /// Hooks expiry processing into the periodic timer interrupt.
-pub(super) fn init() {
+pub(crate) fn init() {
     ostd::timer::register_callback_on_cpu(process_expired);
 }

@@ -100,7 +100,7 @@ fn worker_entry() {
 }
 
 /// Spawns the workqueue kernel process and its workers.
-pub(super) fn init() -> Result<()> {
+pub(crate) fn init() -> Result<()> {
     let inner = Arc::new(Inner {
         pending: SpinLock::new(VecDeque::new()),
         queued: WaitQueue::new(),
