@@ -22,28 +22,33 @@
 //! [`init`] must be called once from `kernel_init` (after the scheduler is up)
 //! before any subsystem schedules work or arms timers.
 
+pub mod block;
+pub mod char;
 pub mod device;
 pub mod io;
 pub mod irq;
 pub mod mm;
+pub mod module;
 pub mod refcount;
 pub mod sync;
 pub mod task;
 pub mod time;
 
+pub use block::{BlockDeviceOperations, GenDisk, add_disk, del_gendisk};
+pub use char::{CDev, FileOperations, alloc_chrdev_region, cdev_add, cdev_del};
 pub use device::{
-    platform_bus, platform_device_register, platform_driver_register, platform_driver_unregister,
     Device, DeviceBusRegistry, Driver, PlatformBus, PlatformDevice, PlatformDriver, Resource,
-    ResourceType,
+    ResourceType, platform_bus, platform_device_register, platform_driver_register,
+    platform_driver_unregister,
 };
-pub use io::{ioremap, ioremap_shared, IoRegion};
-pub use irq::{free_irq, request_irq, request_threaded_irq, IrqFlags, IrqHandlerFn, IrqReturn};
-pub use mm::{kzalloc, Gfp};
+pub use io::{IoRegion, ioremap, ioremap_shared};
+pub use irq::{IrqFlags, IrqHandlerFn, IrqReturn, free_irq, request_irq, request_threaded_irq};
+pub use mm::{Gfp, kzalloc};
+pub use module::InitcallLevel;
 pub use refcount::{KRef, KWeak};
 pub use sync::{KCompletion, KMutex, RootSpinLock, SpinLock};
 pub use task::{schedule_delayed_work_fn, schedule_work, schedule_work_fn};
-pub use time::{arm, jiffies, KTimer};
-
+pub use time::{KTimer, arm, jiffies};
 
 use crate::uapi::errno::Result;
 
