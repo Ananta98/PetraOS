@@ -7,10 +7,10 @@
 
 pub mod cdev;
 pub mod irq;
-pub mod pilot;
 pub mod platform;
 pub mod types;
 pub mod uaccess;
+
 
 pub use cdev::{CFileOperationsAdapter, linux_register_chrdev};
 pub use irq::{linux_free_irq, linux_request_irq, LinuxIrqHandler};
