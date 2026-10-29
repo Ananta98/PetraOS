@@ -14,6 +14,7 @@ pub mod device;
 pub mod driver;
 pub mod hw;
 pub mod module;
+pub mod printk;
 
 // Re-export submodules under their canonical names for backwards compatibility
 pub use self::core::{mm, refcount, sync, task, time};
@@ -39,6 +40,10 @@ pub use self::hw::{
     request_threaded_irq,
 };
 pub use self::module::InitcallLevel;
+pub use self::printk::{
+    EACCES, EAGAIN, EBUSY, EEXIST, EFAULT, EINVAL, EIO, ENODEV, ENOENT, ENOMEM, ENOSPC, ENOTTY,
+    ENXIO, EPERM,
+};
 
 use crate::uapi::errno::Result;
 
