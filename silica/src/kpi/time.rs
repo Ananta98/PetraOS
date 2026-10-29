@@ -87,6 +87,11 @@ impl KTimer {
     }
 }
 
+/// Returns the current elapsed timer ticks (jiffies).
+pub fn jiffies() -> u64 {
+    Jiffies::elapsed().as_u64()
+}
+
 /// Converts a duration to tick counts, rounding up so a timer never fires
 /// before its deadline.
 fn jiffies_for(after: Duration) -> u64 {

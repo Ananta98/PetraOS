@@ -22,11 +22,24 @@
 //! [`init`] must be called once from `kernel_init` (after the scheduler is up)
 //! before any subsystem schedules work or arms timers.
 
+pub mod device;
 pub mod mm;
 pub mod refcount;
 pub mod sync;
 pub mod task;
 pub mod time;
+
+pub use device::{
+    platform_bus, platform_device_register, platform_driver_register, platform_driver_unregister,
+    Device, DeviceBusRegistry, Driver, PlatformBus, PlatformDevice, PlatformDriver, Resource,
+    ResourceType,
+};
+pub use mm::{kzalloc, Gfp};
+pub use refcount::{KRef, KWeak};
+pub use sync::{KCompletion, KMutex, RootSpinLock, SpinLock};
+pub use task::{schedule_delayed_work_fn, schedule_work, schedule_work_fn};
+pub use time::{arm, jiffies, KTimer};
+
 
 use crate::uapi::errno::Result;
 
