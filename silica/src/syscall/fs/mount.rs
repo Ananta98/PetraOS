@@ -109,6 +109,7 @@ pub fn sys_mount(
         "tmpfs" | "ramfs" => Arc::new(TmpFs::new()),
         "devfs" => Arc::new(DevFs::new()),
         "devpts" => Arc::new(TmpFs::new()),
+        "cgroup" | "cgroup2" => Arc::new(crate::fs::Cgroup2Fs::new()),
         "ext4" | "exfat" => {
             let dev_name = source.trim_start_matches("/dev/").trim_start_matches('/');
             return crate::fs::registry::mount_device(&target, dev_name, &fstype).map(|_| 0);

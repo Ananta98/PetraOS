@@ -11,6 +11,7 @@
 pub mod cmdline;
 pub mod comm;
 pub mod cwd;
+pub mod cgroup;
 pub mod environ;
 pub mod exe;
 pub mod fd;
@@ -53,6 +54,7 @@ pub const TAG_TASK_DIR: u16 = 0x0009;
 pub const TAG_IO: u16 = 0x0011;
 pub const TAG_MAPS: u16 = 0x0012;
 pub const TAG_ENVIRON: u16 = 0x0013;
+pub const TAG_CGROUP: u16 = 0x0014;
 
 /// Composes the per-entry inode number for `pid` from `tag`.
 pub const fn pid_ino(pid: Pid, tag: u16) -> usize {
@@ -65,7 +67,7 @@ pub const fn pid_ino(pid: Pid, tag: u16) -> usize {
 /// names plus the per-hierarchy extras (`task` under `/proc/<pid>/`).
 const SHARED_ENTRIES: &[&str] = &[
     "exe", "cwd", "cmdline", "status", "stat", "statm", "comm", "mounts", "fd", "io", "maps",
-    "environ",
+    "environ", "cgroup",
 ];
 
 /// Symlink `/proc/<pid>/mounts` -> `/proc/mounts`, matching Linux.
@@ -118,6 +120,10 @@ pub(super) fn shared_pid_entry(pid: Pid, name: &str) -> Option<Arc<INode>> {
         "environ" => Some(file_node(
             environ::PidEnvironFileOps { pid },
             pid_ino(pid, TAG_ENVIRON),
+        )),
+        "cgroup" => Some(file_node(
+            cgroup::PidCgroupFileOps { pid },
+            pid_ino(pid, TAG_CGROUP),
         )),
         _ => None,
     }

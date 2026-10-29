@@ -437,6 +437,7 @@ impl SysTree {
         let _ = bus_dir.add_dir("usb");
 
         let fs_dir = root_dir.add_dir("fs");
+        let _ = fs_dir.add_dir("cgroup");
         let kernel_dir = root_dir.add_dir("kernel");
 
         let class_dir = root_dir.add_dir("class");

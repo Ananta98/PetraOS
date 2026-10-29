@@ -23,10 +23,10 @@ mkdir -p /dev/pts /dev/shm 2>/dev/null || true
 mount -t devpts devpts /dev/pts 2>/dev/null || true
 mount -t tmpfs tmpfs /dev/shm 2>/dev/null || true
 
-ln -sf /proc/self/fd /dev/fd 2>/dev/null || true
-ln -sf /proc/self/fd/0 /dev/stdin 2>/dev/null || true
-ln -sf /proc/self/fd/1 /dev/stdout 2>/dev/null || true
-ln -sf /proc/self/fd/2 /dev/stderr 2>/dev/null || true
+[ -e /dev/fd ] || ln -sf /proc/self/fd /dev/fd 2>/dev/null || true
+[ -e /dev/stdin ] || ln -sf /proc/self/fd/0 /dev/stdin 2>/dev/null || true
+[ -e /dev/stdout ] || ln -sf /proc/self/fd/1 /dev/stdout 2>/dev/null || true
+[ -e /dev/stderr ] || ln -sf /proc/self/fd/2 /dev/stderr 2>/dev/null || true
 
 # If an ext4 rootfs disk is attached (e.g. /dev/sda), mount prebuilt packages
 if [ -b /dev/sda ] || [ -e /dev/sda ]; then

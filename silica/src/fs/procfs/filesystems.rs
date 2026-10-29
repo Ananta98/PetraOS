@@ -25,6 +25,8 @@ nodev\tproc
 nodev\tsysfs
 nodev\ttmpfs
 nodev\tdevpts
+nodev\tcgroup
+nodev\tcgroup2
 nodev\tpipefs
 \text4
 \texfat

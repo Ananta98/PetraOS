@@ -430,6 +430,7 @@ pub fn open(device: Arc<InputDevice>) -> Arc<EvdevClient> {
 mod tests {
     use super::*;
     use crate::uapi::input::{InputId, bus, key};
+    use ostd::prelude::ktest;
 
     #[ktest]
     fn evdev_client_event_dispatch_and_read() {
@@ -448,7 +449,7 @@ mod tests {
         let client = EvdevClient::new(Arc::clone(&dev));
         assert_eq!(client.available(), 0);
 
-        dev.report_key(key::KEY_A, 1);
+        dev.report_key(key::A, 1);
         dev.sync();
 
         assert!(client.available() >= InputEvent::SIZE * 2);

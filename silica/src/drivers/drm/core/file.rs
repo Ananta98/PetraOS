@@ -74,6 +74,7 @@ impl Drop for DrmFile {
 mod tests {
     use super::*;
     use crate::uapi::drm::{DRM_EVENT_FLIP_COMPLETE, DrmEvent, DrmEventVblank};
+    use ostd::prelude::ktest;
 
     #[ktest]
     fn drm_file_vblank_event_queueing() {
