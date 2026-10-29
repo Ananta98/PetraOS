@@ -125,6 +125,7 @@ for package in ${PACKAGES}; do
     echo "    ${package}"
     "${layer_script}"
     merge_layer "${REPO_ROOT}/build/prebuild-package/${package}/staging" "${ROOTFS_STAGING}"
+    merge_layer "${REPO_ROOT}/build/prebuild-package/${package}/staging" "${STAGING}"
 done
 
 echo "==> Configuring the userlands (initramfs and rootfs)"
@@ -244,6 +245,7 @@ EOF
 force_tty = True
 graph_symbol = "tty"
 rounded_corners = False
+vim_keys = True
 EOF
 
     install -m0644 "${SUPPORT_DIR}/petraos-logo.txt" "${target_dir}/etc/fastfetch/petraos.txt"

@@ -30,13 +30,9 @@ mount -t tmpfs tmpfs /dev/shm 2>/dev/null || true
 
 # If an ext4 rootfs disk is attached (e.g. /dev/sda), mount prebuilt packages
 if [ -b /dev/sda ] || [ -e /dev/sda ]; then
-    mkdir -p /mnt/rootfs /usr 2>/dev/null || true
-    if mount -t ext4 /dev/sda /mnt/rootfs 2>/dev/null; then
+    mkdir -p /mnt/rootfs 2>/dev/null || true
+    if mount -t ext4 /dev/sda /mnt/rootfs 2>/dev/null || mount -i -t ext4 /dev/sda /mnt/rootfs 2>/dev/null; then
         echo "[init] Mounted persistent rootfs (/dev/sda) on /mnt/rootfs"
-        if [ -d /mnt/rootfs/usr ] && [ ! -e /usr/bin ]; then
-            mount --bind /mnt/rootfs/usr /usr 2>/dev/null || true
-            echo "[init] Mounted /mnt/rootfs/usr onto /usr"
-        fi
     fi
 fi
 
