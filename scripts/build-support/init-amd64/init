@@ -28,6 +28,18 @@ ln -sf /proc/self/fd/0 /dev/stdin 2>/dev/null || true
 ln -sf /proc/self/fd/1 /dev/stdout 2>/dev/null || true
 ln -sf /proc/self/fd/2 /dev/stderr 2>/dev/null || true
 
+# If an ext4 rootfs disk is attached (e.g. /dev/sda), mount prebuilt packages
+if [ -b /dev/sda ] || [ -e /dev/sda ]; then
+    mkdir -p /mnt/rootfs /usr 2>/dev/null || true
+    if mount -t ext4 /dev/sda /mnt/rootfs 2>/dev/null; then
+        echo "[init] Mounted persistent rootfs (/dev/sda) on /mnt/rootfs"
+        if [ -d /mnt/rootfs/usr ] && [ ! -e /usr/bin ]; then
+            mount --bind /mnt/rootfs/usr /usr 2>/dev/null || true
+            echo "[init] Mounted /mnt/rootfs/usr onto /usr"
+        fi
+    fi
+fi
+
 mkdir -p /root/.config/fastfetch /etc/fastfetch 2>/dev/null || true
 
 echo ""

@@ -26,6 +26,7 @@ ALPINE_TAR_NAME="alpine-minirootfs-${ALPINE_VERSION}-${ALPINE_ARCH}.tar.gz"
 CACHE_DIR="${REPO_ROOT}/build/cache"
 BUILD_DIR="${REPO_ROOT}/build/userland-amd64"
 STAGING="${BUILD_DIR}/staging"
+ROOTFS_STAGING="${BUILD_DIR}/rootfs_staging"
 INITRAMFS="${REPO_ROOT}/build/initramfs.cpio"
 
 PACKAGES="${PETRAOS_USERLAND_PACKAGES-developer-tools}"
@@ -75,16 +76,18 @@ sha256_file() {
 # Replace symlinked entries before copying so that a package file never writes
 # through a BusyBox applet link and clobbers /bin/busybox itself.
 merge_layer() {
-    local layer="$1" source relative destination
+    local layer="$1"
+    local target_dir="${2:-${STAGING}}"
+    local source relative destination
     [ -d "$layer" ] || return 0
     while IFS= read -r -d '' source; do
         relative="${source#"$layer/"}"
-        destination="${STAGING}/${relative}"
+        destination="${target_dir}/${relative}"
         if [ -L "$destination" ]; then
             rm -f "$destination"
         fi
     done < <(find "$layer" -mindepth 1 -print0)
-    cp -a "$layer/." "${STAGING}/"
+    cp -a "$layer/." "${target_dir}/"
 }
 
 mkdir -p "${CACHE_DIR}" "${BUILD_DIR}"
@@ -105,11 +108,14 @@ if [ "${actual_sha256}" != "${ALPINE_SHA256}" ]; then
 fi
 
 echo "==> Extracting the Alpine userland into ${STAGING}"
-rm -rf "${STAGING}"
-mkdir -p "${STAGING}"
+rm -rf "${STAGING}" "${ROOTFS_STAGING}"
+mkdir -p "${STAGING}" "${ROOTFS_STAGING}"
 tar -xzf "${CACHE_DIR}/${ALPINE_TAR_NAME}" -C "${STAGING}"
 
-echo "==> Staging prebuilt package layers"
+# Seed the rootfs with base alpine files so it forms a complete rootfs
+cp -a "${STAGING}/." "${ROOTFS_STAGING}/"
+
+echo "==> Staging prebuilt package layers into rootfs (${ROOTFS_STAGING})"
 for package in ${PACKAGES}; do
     layer_script="${PREBUILD_DIR}/build-${package}.sh"
     if [ ! -x "${layer_script}" ]; then
@@ -118,32 +124,34 @@ for package in ${PACKAGES}; do
     fi
     echo "    ${package}"
     "${layer_script}"
-    merge_layer "${REPO_ROOT}/build/prebuild-package/${package}/staging"
+    merge_layer "${REPO_ROOT}/build/prebuild-package/${package}/staging" "${ROOTFS_STAGING}"
 done
 
-echo "==> Configuring the userland"
-mkdir -p "${STAGING}"/{bin,sbin,lib,usr/bin,usr/sbin,usr/lib,usr/share}
-mkdir -p "${STAGING}"/{dev/pts,dev/shm,proc,sys,tmp,run,root,mnt,media,var/log,var/run,var/tmp}
-mkdir -p "${STAGING}/etc/fastfetch" "${STAGING}/root/.config/btop" \
-    "${STAGING}/root/.config/fastfetch"
-chmod 1777 "${STAGING}/tmp" "${STAGING}/var/tmp"
-chmod 0750 "${STAGING}/root"
+echo "==> Configuring the userlands (initramfs and rootfs)"
+for target_dir in "${STAGING}" "${ROOTFS_STAGING}"; do
+    mkdir -p "${target_dir}"/{bin,sbin,lib,usr/bin,usr/sbin,usr/lib,usr/share}
+    mkdir -p "${target_dir}"/{dev/pts,dev/shm,proc,sys,tmp,run,root,mnt,media,var/log,var/run,var/tmp}
+    mkdir -p "${target_dir}/etc/fastfetch" "${target_dir}/root/.config/btop" \
+        "${target_dir}/root/.config/fastfetch"
+    chmod 1777 "${target_dir}/tmp" "${target_dir}/var/tmp"
+    chmod 0750 "${target_dir}/root"
+    install -m0755 "${SUPPORT_DIR}/init-amd64/init" "${target_dir}/init"
+done
 
-install -m0755 "${SUPPORT_DIR}/init-amd64/init" "${STAGING}/init"
-
-cat > "${STAGING}/etc/passwd" << 'EOF'
+for target_dir in "${STAGING}" "${ROOTFS_STAGING}"; do
+    cat > "${target_dir}/etc/passwd" << 'EOF'
 root:x:0:0:root:/root:/bin/bash
 bin:x:1:1:bin:/bin:/sbin/nologin
 daemon:x:2:2:daemon:/sbin:/sbin/nologin
 nobody:x:65534:65534:nobody:/:/sbin/nologin
 EOF
 
-cat > "${STAGING}/etc/shells" << 'EOF'
+    cat > "${target_dir}/etc/shells" << 'EOF'
 /bin/sh
 /bin/bash
 EOF
 
-cat > "${STAGING}/etc/group" << 'EOF'
+    cat > "${target_dir}/etc/group" << 'EOF'
 root:x:0:root
 bin:x:1:root,bin,daemon
 daemon:x:2:root,bin,daemon
@@ -158,31 +166,31 @@ users:x:100:
 nobody:x:65534:
 EOF
 
-cat > "${STAGING}/etc/hosts" << 'EOF'
+    cat > "${target_dir}/etc/hosts" << 'EOF'
 127.0.0.1 localhost petraos
 ::1       localhost ip6-localhost ip6-loopback
 EOF
 
-cat > "${STAGING}/etc/resolv.conf" << 'EOF'
+    cat > "${target_dir}/etc/resolv.conf" << 'EOF'
 nameserver 10.0.2.3
 nameserver 1.1.1.1
 nameserver 8.8.8.8
 EOF
 
-cat > "${STAGING}/etc/hostname" << 'EOF'
+    cat > "${target_dir}/etc/hostname" << 'EOF'
 petraos
 EOF
 
-cat > "${STAGING}/etc/environment" << 'EOF'
+    cat > "${target_dir}/etc/environment" << 'EOF'
 CHARSET=UTF-8
 LANG=C.UTF-8
 LC_ALL=C.UTF-8
 EOF
 
-printf '%s\n' "${PETRAOS_VERSION}" > "${STAGING}/etc/petraos-release"
+    printf '%s\n' "${PETRAOS_VERSION}" > "${target_dir}/etc/petraos-release"
 
-mkdir -p "${STAGING}/usr/lib"
-cat > "${STAGING}/usr/lib/os-release" << EOF
+    mkdir -p "${target_dir}/usr/lib"
+    cat > "${target_dir}/usr/lib/os-release" << EOF
 NAME="PetraOS"
 PRETTY_NAME="PetraOS Silica"
 ID=petraos
@@ -190,9 +198,9 @@ ID_LIKE=alpine
 VERSION_ID="${PETRAOS_VERSION}"
 VERSION="${PETRAOS_VERSION}"
 EOF
-ln -sf ../usr/lib/os-release "${STAGING}/etc/os-release"
+    ln -sf ../usr/lib/os-release "${target_dir}/etc/os-release"
 
-cat > "${STAGING}/etc/profile" << 'EOF'
+    cat > "${target_dir}/etc/profile" << 'EOF'
 export PATH=/bin:/sbin:/usr/bin:/usr/sbin
 export HOME=/root
 export SHELL=/bin/bash
@@ -216,7 +224,7 @@ done
 unset script
 EOF
 
-cat > "${STAGING}/root/.profile" << 'EOF'
+    cat > "${target_dir}/root/.profile" << 'EOF'
 export PS1='petraos:\w# '
 export PATH=/bin:/sbin:/usr/bin:/usr/sbin
 export SHELL=/bin/bash
@@ -232,20 +240,21 @@ alias fastfetch='fastfetch --config /root/.config/fastfetch/config.jsonc'
 alias btop='btop -t'
 EOF
 
-cat > "${STAGING}/root/.config/btop/btop.conf" << 'EOF'
+    cat > "${target_dir}/root/.config/btop/btop.conf" << 'EOF'
 force_tty = True
 graph_symbol = "tty"
 rounded_corners = False
 EOF
 
-install -m0644 "${SUPPORT_DIR}/petraos-logo.txt" "${STAGING}/etc/fastfetch/petraos.txt"
-install -m0644 "${SUPPORT_DIR}/fastfetch.jsonc" "${STAGING}/root/.config/fastfetch/config.jsonc"
+    install -m0644 "${SUPPORT_DIR}/petraos-logo.txt" "${target_dir}/etc/fastfetch/petraos.txt"
+    install -m0644 "${SUPPORT_DIR}/fastfetch.jsonc" "${target_dir}/root/.config/fastfetch/config.jsonc"
 
-# Best-effort device nodes; skipped when the build runs unprivileged.
-mknod -m 666 "${STAGING}/dev/null" c 1 3 2>/dev/null || true
-mknod -m 666 "${STAGING}/dev/zero" c 1 5 2>/dev/null || true
-mknod -m 666 "${STAGING}/dev/tty" c 5 0 2>/dev/null || true
-mknod -m 600 "${STAGING}/dev/console" c 5 1 2>/dev/null || true
+    # Best-effort device nodes; skipped when the build runs unprivileged.
+    mknod -m 666 "${target_dir}/dev/null" c 1 3 2>/dev/null || true
+    mknod -m 666 "${target_dir}/dev/zero" c 1 5 2>/dev/null || true
+    mknod -m 666 "${target_dir}/dev/tty" c 5 0 2>/dev/null || true
+    mknod -m 600 "${target_dir}/dev/console" c 5 1 2>/dev/null || true
+done
 
 for path in "${STAGING}/bin/busybox" "${STAGING}/lib/ld-musl-${ALPINE_ARCH}.so.1"; do
     if [ ! -e "$path" ]; then
@@ -255,6 +264,6 @@ for path in "${STAGING}/bin/busybox" "${STAGING}/lib/ld-musl-${ALPINE_ARCH}.so.1
 done
 
 echo "==> Packaging the initramfs and disk images"
-"${SCRIPT_DIR}/../build-initramfs.sh" --staging "${STAGING}" --output "${INITRAMFS}"
+"${SCRIPT_DIR}/../build-initramfs.sh" --staging "${STAGING}" --rootfs-staging "${ROOTFS_STAGING}" --output "${INITRAMFS}"
 
 file "${STAGING}/bin/busybox"
