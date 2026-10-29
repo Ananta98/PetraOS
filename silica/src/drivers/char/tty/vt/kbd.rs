@@ -85,14 +85,11 @@ impl InputListener for ConsoleKeyboard {
         match output {
             Some(KeyOutput::Char(ch)) => {
                 let mut utf8 = [0u8; 4];
-                for &byte in ch.encode_utf8(&mut utf8).as_bytes() {
-                    tty::queue_input(byte);
-                }
+                let s = ch.encode_utf8(&mut utf8);
+                tty::queue_input_bytes(s.as_bytes());
             }
             Some(KeyOutput::Bytes(seq)) => {
-                for &byte in seq {
-                    tty::queue_input(byte);
-                }
+                tty::queue_input_bytes(seq);
             }
             None => {}
         }

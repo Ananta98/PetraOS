@@ -245,7 +245,6 @@ EOF
 force_tty = True
 graph_symbol = "tty"
 rounded_corners = False
-vim_keys = True
 EOF
 
     install -m0644 "${SUPPORT_DIR}/petraos-logo.txt" "${target_dir}/etc/fastfetch/petraos.txt"

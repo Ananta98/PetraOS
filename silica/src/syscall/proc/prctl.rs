@@ -18,6 +18,8 @@ const PR_SET_NAME: i32 = 15;
 const PR_GET_NAME: i32 = 16;
 const PR_SET_CHILD_SUBREAPER: i32 = 36;
 const PR_GET_CHILD_SUBREAPER: i32 = 37;
+const PR_SET_NO_NEW_PRIVS: i32 = 38;
+const PR_GET_NO_NEW_PRIVS: i32 = 39;
 
 const COMM_LEN: usize = 16;
 
@@ -84,6 +86,17 @@ pub fn sys_prctl(
             let is_reaper = proc.inner.lock().is_reaper as i32;
             UserPtr::new(arg2).write_bytes(&vmar, &is_reaper.to_ne_bytes())?;
             Ok(0)
+        }
+        PR_SET_NO_NEW_PRIVS => {
+            if arg2 != 1 {
+                return Err(Errno::EINVAL);
+            }
+            proc.inner.lock().no_new_privs = true;
+            Ok(0)
+        }
+        PR_GET_NO_NEW_PRIVS => {
+            let no_new_privs = proc.inner.lock().no_new_privs as usize;
+            Ok(no_new_privs)
         }
         _ => Err(Errno::EINVAL),
     }

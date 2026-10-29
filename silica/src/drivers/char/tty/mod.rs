@@ -18,6 +18,7 @@ pub use vt::{font, kbd, terminal};
 // Core types and functions re-exported at subsystem root
 pub use core::{
     Tty, TtyDriver, TtyFileOps, drain_input, flush_input_queue, handle_ioctl, queue_input,
+    queue_input_bytes,
 };
 pub use dev::{
     Console, ConsoleFileOps, FramebufferConsoleDriver, create_console_file, get_console,

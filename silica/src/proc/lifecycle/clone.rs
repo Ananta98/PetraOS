@@ -114,6 +114,7 @@ pub fn clone_proc(
         let parent_inner = caller_proc.inner.lock();
         inner.exe_path = parent_inner.exe_path.clone();
         inner.environ = parent_inner.environ.clone();
+        inner.no_new_privs = parent_inner.no_new_privs;
     }
 
     // Inherit SysV shared memory attachments

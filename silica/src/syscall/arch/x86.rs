@@ -228,6 +228,7 @@ crate::impl_syscall_nums_and_dispatch_fn! {
     SYS_COPY_FILE_RANGE = 326 => fs::sys_copy_file_range(i32, usize, i32, usize, usize, u32);
     SYS_PREADV2 = 327 => fs::sys_preadv2(i32, usize, usize, usize, usize, i32);
     SYS_STATX = 332 => fs::sys_statx(i32, usize, i32, u32, usize);
+    SYS_CLONE3 = 435 => proc::sys_clone3(usize, usize);
     SYS_CLOSE_RANGE = 436 => fs::sys_close_range(u32, u32, u32);
     SYS_FACCESSAT2 = 439 => fs::sys_faccessat2(i32, usize, i32, i32);
     SYS_EPOLL_PWAIT2 = 441 => fs::sys_epoll_pwait2(i32, usize, i32, usize, usize, usize);

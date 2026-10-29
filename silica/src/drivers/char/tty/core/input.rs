@@ -34,6 +34,18 @@ pub fn queue_input(ch: u8) {
     }
 }
 
+/// Queues a sequence of input bytes atomically before waking readers.
+pub fn queue_input_bytes(bytes: &[u8]) {
+    for &ch in bytes {
+        INPUT_QUEUE.push_overwrite(ch);
+    }
+    INPUT_PENDING.store(true, Ordering::Release);
+    INPUT_WAIT_QUEUE.wake_one();
+    if let Some(console) = crate::drivers::char::tty::get_console() {
+        console.wake_readers();
+    }
+}
+
 /// Feeds all queued input bytes to the console line discipline. Thread context only.
 pub fn drain_input() {
     let Some(_guard) = DRAIN_LOCK.try_lock() else {

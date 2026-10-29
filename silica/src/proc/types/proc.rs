@@ -174,6 +174,8 @@ pub struct ProcInner {
     /// Whether this subprocess serves as a reaper for orphans; currently
     /// true only for init (`PID_INIT`).
     pub is_reaper: bool,
+    /// Whether no_new_privs bit is set (PR_SET_NO_NEW_PRIVS).
+    pub no_new_privs: bool,
     /// The process group this process belongs to.
     pub pgid: Option<Pid>,
     /// The session identifier this process belongs to.
@@ -264,6 +266,7 @@ impl Proc {
                 xstat: None,
                 comm,
                 is_reaper,
+                no_new_privs: false,
                 pgid: None,
                 sid: None,
                 stop_status: None,

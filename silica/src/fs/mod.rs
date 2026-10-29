@@ -223,6 +223,8 @@ fn mount_core_filesystems() {
         "sysfs",
         "rw,nosuid,nodev,noexec,relatime",
     );
+
+    cgroup::init();
 }
 
 /// Prepares `/mnt` (future user-space mount points) and the writable

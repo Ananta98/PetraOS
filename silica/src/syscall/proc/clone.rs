@@ -16,6 +16,7 @@ use crate::{
     utils::UserPtr,
     vm::vmar::Vmar,
 };
+use zerocopy::FromBytes;
 
 fn write_user_i32(vmar: &Vmar, ptr: usize, val: i32) -> Result<()> {
     if ptr == 0 {
@@ -69,6 +70,58 @@ pub fn sys_clone(
 
         Ok(pid_val as usize)
     }
+}
+
+/// Layout of `struct clone_args` passed to `clone3(2)`.
+#[repr(C)]
+#[derive(Clone, Copy, Default, Debug, zerocopy::FromBytes, zerocopy::IntoBytes, zerocopy::Immutable)]
+pub struct CloneArgs {
+    pub flags: u64,
+    pub pidfd: u64,
+    pub child_tid: u64,
+    pub parent_tid: u64,
+    pub exit_signal: u64,
+    pub stack: u64,
+    pub stack_size: u64,
+    pub tls: u64,
+    pub set_tid: u64,
+    pub set_tid_size: u64,
+    pub cgroup: u64,
+}
+
+/// System call `clone3(struct clone_args *cl_args, size_t size)` (Syscall #435).
+pub fn sys_clone3(cl_args_ptr: usize, size: usize, ctx: &mut UserContext) -> Result<usize> {
+    if cl_args_ptr == 0 || size < core::mem::size_of::<u64>() {
+        return Err(Errno::EINVAL);
+    }
+
+    let caller_td = Thread::current().ok_or(Errno::ESRCH)?;
+    let caller_proc = caller_td.proc().ok_or(Errno::ESRCH)?;
+    let caller_vmar = caller_proc.vmspace();
+
+    let args: CloneArgs = if size >= core::mem::size_of::<CloneArgs>() {
+        UserPtr::new(cl_args_ptr).read_val(&caller_vmar)?
+    } else {
+        let mut raw_bytes = [0u8; core::mem::size_of::<CloneArgs>()];
+        UserPtr::new(cl_args_ptr).read_bytes(&caller_vmar, &mut raw_bytes[..size])?;
+        <CloneArgs as FromBytes>::read_from_bytes(&raw_bytes).map_err(|_| Errno::EFAULT)?
+    };
+
+    let combined_flags = (args.flags as usize) | ((args.exit_signal as usize) & 0xff);
+    let stack_top = if args.stack != 0 && args.stack_size != 0 {
+        (args.stack + args.stack_size) as usize
+    } else {
+        args.stack as usize
+    };
+
+    sys_clone(
+        combined_flags,
+        stack_top,
+        args.parent_tid as usize,
+        args.child_tid as usize,
+        args.tls as usize,
+        ctx,
+    )
 }
 
 /// System call `set_tid_address(int *tidptr)` (Syscall #218).
