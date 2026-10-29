@@ -11,7 +11,7 @@ A systematic, pragmatic code review runbook to ensure high code quality, simplic
 
 ## When to Use
 
-1. **Mandatory Post-Task Review**: Triggered at the end of every task where code in `silica/` or the repository is added or modified.
+1. **Mandatory Post-Task Review**: Triggered at the end of every task where code in `petra/` or the repository is added or modified.
 2. **Explicit Review Requests**: When asked to audit, clean up, or review code quality, architecture, or file organization.
 
 ---
@@ -21,7 +21,7 @@ A systematic, pragmatic code review runbook to ensure high code quality, simplic
 ### 1. Diff Inspection & File Structure
 Run `git status` and `git diff` to inspect all staged and unstaged modifications.
 
-- [ ] **Proper Location**: Are new modules/files placed in the right subsystem under `silica/src/` (e.g. `fs/`, `drivers/`, `net/`, `vm/`, `proc/`, `sched/`, `ipc/`, `syscall/`)?
+- [ ] **Proper Location**: Are new modules/files placed in the right subsystem under `petra/src/` (e.g. `fs/`, `drivers/`, `net/`, `vm/`, `proc/`, `sched/`, `ipc/`, `syscall/`)?
 - [ ] **Module Hierarchy**: Are new files cleanly registered in their parent `mod.rs` without cluttering the root module?
 - [ ] **Minimal Visibility**: Is visibility restricted to `pub(crate)` or private unless specifically required by external modules or traits?
 

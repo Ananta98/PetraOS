@@ -34,7 +34,7 @@ pub mod backing;
 pub mod reclaim;
 pub mod vmar;
 
-// Re-exports for backward compatibility throughout silica
+// Re-exports for backward compatibility throughout petra
 pub use abi::flags::*;
 pub use abi::perms::VmPerms;
 pub use abi::{flags, perms};

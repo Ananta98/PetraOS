@@ -13,7 +13,7 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 ISO_OUTPUT="${REPO_ROOT}/build/petraos-x86_64.iso"
 ISO_ROOT="${REPO_ROOT}/build/iso_root"
-KERNEL_BIN="${REPO_ROOT}/target/osdk/silica-osdk-bin"
+KERNEL_BIN="${REPO_ROOT}/target/osdk/petra-osdk-bin"
 INITRAMFS_CPIO="${REPO_ROOT}/build/initramfs.cpio"
 
 USE_OSDK=false
@@ -24,7 +24,7 @@ usage() {
     echo ""
     echo "Options:"
     echo "  -o, --output <FILE>     Output ISO path (default: build/petraos-x86_64.iso)"
-    echo "  -k, --kernel <FILE>     Kernel binary path (default: target/osdk/silica-osdk-bin)"
+    echo "  -k, --kernel <FILE>     Kernel binary path (default: target/osdk/petra-osdk-bin)"
     echo "  -i, --initramfs <FILE>  Initramfs CPIO path (default: build/initramfs.cpio)"
     echo "  --osdk                  Use 'cargo osdk build --boot-method grub-rescue-iso' method"
     echo "  -v, --verbose           Enable verbose output"
@@ -82,8 +82,8 @@ fi
 if [ "${USE_OSDK}" = true ]; then
     echo "=== [2/4] Building ISO via cargo osdk (grub-rescue-iso) ==="
     (cd "${REPO_ROOT}" && cargo osdk build --boot-method grub-rescue-iso)
-    if [ -f "${REPO_ROOT}/target/osdk/silica-osdk-bin.iso" ]; then
-        cp "${REPO_ROOT}/target/osdk/silica-osdk-bin.iso" "${ISO_OUTPUT}"
+    if [ -f "${REPO_ROOT}/target/osdk/petra-osdk-bin.iso" ]; then
+        cp "${REPO_ROOT}/target/osdk/petra-osdk-bin.iso" "${ISO_OUTPUT}"
         echo "ISO copied to ${ISO_OUTPUT}"
         exit 0
     fi

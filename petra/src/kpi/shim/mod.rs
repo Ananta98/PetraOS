@@ -3,7 +3,7 @@
 //! Linux Driver Compatibility SHIM layer (FreeBSD-style).
 //!
 //! Provides the C-ABI compatibility bridge, struct representations, and calling
-//! convention adapters for running ported Linux drivers on top of `silica::kpi`.
+//! convention adapters for running ported Linux drivers on top of `petra::kpi`.
 
 pub mod cdev;
 pub mod irq;

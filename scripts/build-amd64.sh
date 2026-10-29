@@ -1,5 +1,5 @@
 #!/bin/bash
-# Build the full PetraOS amd64 target: Alpine userland + initramfs, the silica
+# Build the full PetraOS amd64 target: Alpine userland + initramfs, the petra
 # kernel, and a bootable hybrid BIOS/UEFI ISO.
 #
 # Usage: build-amd64.sh [--no-userland] [--no-iso]
@@ -39,7 +39,7 @@ elif [ ! -f "${INITRAMFS}" ]; then
     exit 1
 fi
 
-echo "==> Building the silica kernel"
+echo "==> Building the petra kernel"
 (cd "${REPO_ROOT}" && cargo osdk build)
 
 if [ "${BUILD_ISO}" -eq 1 ]; then

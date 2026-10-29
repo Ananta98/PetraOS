@@ -6,7 +6,7 @@ This document defines architectural standards, coding principles, and the mandat
 
 ## 1. Project Overview
 
-- **Kernel**: `silica` — modular Rust operating system kernel.
+- **Kernel**: `petra` — modular Rust operating system kernel.
 - **Framework**: Built on OSTD (Operating System Standard Library) using Asterinas OSDK (`cargo osdk`).
 - **Toolchain**: Rust nightly, 2024 edition. Binaries are in `~/.cargo/bin`.
 
@@ -14,7 +14,7 @@ This document defines architectural standards, coding principles, and the mandat
 
 ## 2. Architecture & File Structure
 
-Code in `silica/src/` is strictly partitioned into domain-specific subsystems:
+Code in `petra/src/` is strictly partitioned into domain-specific subsystems:
 
 | Directory | Subsystem / Responsibility |
 | :--- | :--- |

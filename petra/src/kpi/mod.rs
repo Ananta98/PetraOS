@@ -9,7 +9,7 @@
 //! - [`hw`]: Hardware access via MMIO remapping (`ioremap`) and interrupt management (`request_irq`).
 //! - [`module`]: Staged boot initcalls and module declaration macros.
 
-// We need to allow unsafe code since linux kpi are unsafe with C code translations
+// We need to allow unsafe code since linux kpi because requires compiled from C code
 #[allow(unsafe_code)]
 pub mod core;
 #[allow(unsafe_code)]
@@ -24,7 +24,6 @@ pub mod module;
 pub mod printk;
 #[allow(unsafe_code)]
 pub mod shim;
-
 
 // Re-export submodules under their canonical names for backwards compatibility
 pub use self::core::{mm, refcount, sync, task, time};
@@ -63,4 +62,3 @@ pub fn init() -> Result<()> {
     core::time::init();
     Ok(())
 }
-
