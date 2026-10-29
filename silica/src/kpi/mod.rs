@@ -15,6 +15,9 @@ pub mod driver;
 pub mod hw;
 pub mod module;
 pub mod printk;
+#[allow(unsafe_code)]
+pub mod shim;
+
 
 // Re-export submodules under their canonical names for backwards compatibility
 pub use self::core::{mm, refcount, sync, task, time};
@@ -47,9 +50,11 @@ pub use self::printk::{
 
 use crate::uapi::errno::Result;
 
-/// Brings up the core KPI workqueue and timer wheel.
+/// Brings up the core KPI workqueue, timer wheel, and registers the C-SHIM pilot.
 pub fn init() -> Result<()> {
     core::task::init()?;
     core::time::init();
+    shim::pilot::init()?;
     Ok(())
 }
+
