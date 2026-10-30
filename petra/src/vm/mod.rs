@@ -30,9 +30,12 @@
 //! after every switch, which [`init`] arranges.
 
 pub mod abi;
+pub mod aslr;
 pub mod backing;
 pub mod reclaim;
 pub mod vmar;
+
+pub use aslr::{is_aslr_enabled, get_aslr_level, set_aslr_level};
 
 // Re-exports for backward compatibility throughout petra
 pub use abi::flags::*;

@@ -27,6 +27,7 @@ const PROC_SYS_KERNEL_INO_OSTYPE: usize = 2012;
 const PROC_SYS_KERNEL_INO_VERSION: usize = 2013;
 const PROC_SYS_KERNEL_INO_PID_MAX: usize = 2014;
 const PROC_SYS_KERNEL_INO_DOMAINNAME: usize = 2015;
+const PROC_SYS_KERNEL_INO_RANDOMIZE_VA_SPACE: usize = 2016;
 
 /// Current hostname, `None` until user space sets one explicitly.
 static HOSTNAME: RwLock<Option<String>> = RwLock::new(None);
@@ -103,6 +104,24 @@ impl ProcFileOps for DomainnameFileOps {
     }
 }
 
+/// Read-write parameter file for `/proc/sys/kernel/randomize_va_space`.
+struct RandomizeVaSpaceFileOps;
+
+impl ProcFileOps for RandomizeVaSpaceFileOps {
+    fn generate_content(&self) -> Vec<u8> {
+        alloc::format!("{}\n", crate::vm::aslr::get_aslr_level()).into_bytes()
+    }
+
+    fn write_content(&self, data: &[u8]) -> Result<()> {
+        if let Ok(text) = str::from_utf8(data) {
+            if let Ok(level) = text.trim().parse::<u32>() {
+                crate::vm::aslr::set_aslr_level(level);
+            }
+        }
+        Ok(())
+    }
+}
+
 /// Directory node operations for `/proc/sys/kernel`.
 pub struct ProcSysKernelDirOps;
 
@@ -111,8 +130,12 @@ impl ProcDirOps for ProcSysKernelDirOps {
         match name {
             "hostname" => Ok(rw_file_node(HostnameFileOps, PROC_SYS_KERNEL_INO_HOSTNAME)),
             "domainname" => Ok(rw_file_node(DomainnameFileOps, PROC_SYS_KERNEL_INO_DOMAINNAME)),
+            "randomize_va_space" => Ok(rw_file_node(
+                RandomizeVaSpaceFileOps,
+                PROC_SYS_KERNEL_INO_RANDOMIZE_VA_SPACE,
+            )),
             "osrelease" => Ok(static_file_node(
-                b"6.6.0-silica\n",
+                b"6.6.0-petra\n",
                 PROC_SYS_KERNEL_INO_OSRELEASE,
             )),
             "ostype" => Ok(static_file_node(b"Linux\n", PROC_SYS_KERNEL_INO_OSTYPE)),
@@ -126,9 +149,17 @@ impl ProcDirOps for ProcSysKernelDirOps {
     }
 
     fn list_entries(&self) -> Vec<String> {
-        ["hostname", "domainname", "osrelease", "ostype", "version", "pid_max"]
-            .iter()
-            .map(|s| String::from(*s))
-            .collect()
+        [
+            "hostname",
+            "domainname",
+            "randomize_va_space",
+            "osrelease",
+            "ostype",
+            "version",
+            "pid_max",
+        ]
+        .iter()
+        .map(|s| String::from(*s))
+        .collect()
     }
 }

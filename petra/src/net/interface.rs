@@ -96,7 +96,9 @@ impl NetworkManager {
         let mut smol_dev = SmolNetDevice::new(dev);
 
         let mut config = Config::new(hw_addr);
-        config.random_seed = 0x5111CA05;
+        let mut seed_bytes = [0u8; 8];
+        crate::crypto::get_random_bytes(&mut seed_bytes);
+        config.random_seed = u64::from_le_bytes(seed_bytes);
 
         let now = current_instant();
         let mut iface = Interface::new(config, &mut smol_dev, now);

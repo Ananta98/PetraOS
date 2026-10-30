@@ -52,18 +52,18 @@ impl SocketAddress {
     }
 }
 
-static NEXT_EPHEMERAL_PORT: core::sync::atomic::AtomicU16 =
-    core::sync::atomic::AtomicU16::new(49152);
-
 /// Allocates an ephemeral port in the dynamic range [49152, 65535] per RFC 6056.
 ///
-/// Uses an atomic monotonic counter to prevent port collisions between consecutive connections.
+/// Implements RFC 6056 randomized port allocation using kernel CSPRNG entropy
+/// to mitigate blind TCP spoofing, connection hijacking, and DNS cache poisoning.
 pub fn alloc_ephemeral_port() -> u16 {
-    let port = NEXT_EPHEMERAL_PORT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-    if port >= 65530 {
-        NEXT_EPHEMERAL_PORT.store(49152, core::sync::atomic::Ordering::Relaxed);
-    }
-    if port < 49152 { 49152 } else { port }
+    let mut rand_bytes = [0u8; 2];
+    crate::crypto::get_random_bytes(&mut rand_bytes);
+    let rand_val = u16::from_le_bytes(rand_bytes);
+    const MIN_PORT: u16 = 49152;
+    const MAX_PORT: u16 = 65535;
+    const RANGE: u16 = MAX_PORT - MIN_PORT + 1;
+    MIN_PORT + (rand_val % RANGE)
 }
 
 /// Unidirectional byte channel used for Unix socket pairs.

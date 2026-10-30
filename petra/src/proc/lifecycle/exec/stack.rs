@@ -69,9 +69,14 @@ pub fn setup_user_stack_full(
     interp_base: usize,
     cred: &Ucred,
 ) -> Result<usize> {
-    // 1. Map user stack region
+    // 1. Calculate randomized stack top and base using ASLR
+    let stack_aslr = crate::vm::aslr::stack_aslr_offset();
+    let stack_top = USER_STACK_TOP - stack_aslr;
+    let stack_base = stack_top - USER_STACK_SIZE;
+
+    // Map user stack region
     vmar.mmap_anonymous(
-        USER_STACK_BASE,
+        stack_base,
         USER_STACK_SIZE,
         VmPerms::READ | VmPerms::WRITE,
         MmapFlags::PRIVATE | MmapFlags::FIXED,
@@ -79,10 +84,10 @@ pub fn setup_user_stack_full(
 
     // 2. Populate the top pages of the stack
     let init_stack_pages = 16 * ostd::mm::PAGE_SIZE;
-    vmar.populate_range(&(USER_STACK_TOP - init_stack_pages..USER_STACK_TOP))?;
+    vmar.populate_range(&(stack_top - init_stack_pages..stack_top))?;
     vmar.activate();
 
-    let mut sp = USER_STACK_TOP;
+    let mut sp = stack_top;
 
     // 3. Push string tables
     // Push exec_path string for AT_EXECFN

@@ -112,15 +112,19 @@ pub(crate) struct VmarInner {
     pub(crate) mappings: Mappings,
     /// The total number of mapped bytes, used for the address space limit.
     pub(crate) total_vm: usize,
+    /// Randomized base offset for ASLR.
+    pub(crate) aslr_offset: usize,
 }
 
 impl Vmar {
     /// Creates a new, empty address space.
     pub fn new() -> Arc<Self> {
+        let aslr_offset = crate::vm::aslr::mmap_aslr_offset();
         let vmar = Arc::new(Self {
             inner: RwLock::new(VmarInner {
                 mappings: Mappings::new(),
                 total_vm: 0,
+                aslr_offset,
             }),
             vm_space: Arc::new(VmSpace::new()),
             max_addr_space: AtomicUsize::new(0),
@@ -197,10 +201,11 @@ impl Vmar {
         self.current_brk.store(val, Ordering::Relaxed);
     }
 
-    /// Initializes both start break and current break.
+    /// Initializes both start break and current break, applying ASLR if enabled.
     pub fn init_brk(&self, val: usize) {
-        self.start_brk.store(val, Ordering::Relaxed);
-        self.current_brk.store(val, Ordering::Relaxed);
+        let base = val + crate::vm::aslr::brk_aslr_offset();
+        self.start_brk.store(base, Ordering::Relaxed);
+        self.current_brk.store(base, Ordering::Relaxed);
     }
 
     /// Returns whether any existing mapping overlaps the given range.
@@ -381,7 +386,8 @@ impl VmarInner {
 
     /// Returns the high address limit for an ordinary mapping.
     pub(crate) fn default_high_limit(&self) -> Vaddr {
-        VMAR_CAP_ADDR - VMAR_STACK_RESERVE
+        let ceiling = VMAR_CAP_ADDR - VMAR_STACK_RESERVE;
+        ceiling.saturating_sub(self.aslr_offset)
     }
 }
 

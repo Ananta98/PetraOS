@@ -34,6 +34,7 @@ impl Vmar {
         {
             let parent_inner = parent.inner.read();
             let mut child_inner = child.inner.write();
+            child_inner.aslr_offset = parent_inner.aslr_offset;
 
             for mapping in parent_inner.mappings.iter() {
                 // If marked with MADV_DONTFORK, do not inherit in child

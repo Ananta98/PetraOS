@@ -17,7 +17,7 @@ pub struct VersionFileOps;
 
 impl ProcFileOps for VersionFileOps {
     fn generate_content(&self) -> Vec<u8> {
-        b"Linux version 6.6.0-silica (petraos@build) (rustc 1.85.0) #1 PREEMPT Mon Oct 12 2026\n"
+        b"Linux version 6.6.0-petra (petraos@build) (rustc 1.85.0) #1 PREEMPT Mon Oct 12 2026\n"
             .to_vec()
     }
 }

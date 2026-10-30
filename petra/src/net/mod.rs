@@ -7,12 +7,14 @@ pub mod interface;
 pub mod netlink;
 pub mod socket;
 pub mod unix;
+pub mod wireguard;
 
 use crate::drivers::net::NetDevice;
 use crate::uapi::errno::Result;
 use alloc::sync::Arc;
 
 pub use interface::{NET_MANAGER, poll};
+pub use wireguard::{WireGuardDevice, WireGuardPeerConfig, register_wireguard_interface};
 
 /// Attaches a network device to the global network stack interface.
 pub fn attach_device(dev: Arc<dyn NetDevice>) {

@@ -265,7 +265,7 @@ mod tests {
     #[ktest]
     fn version_file() {
         let node = lookup(&root(), &["version"]);
-        assert!(read_to_string(&node).starts_with("Linux version 6.6.0-silica"));
+        assert!(read_to_string(&node).starts_with("Linux version 6.6.0-petra"));
     }
 
     #[ktest]
@@ -294,7 +294,7 @@ mod tests {
         let ops = node.node_ops.open(OpenFlags::READ).expect("open osrelease");
         let mut buf = [0u8; 32];
         let n = ops.read(0, &mut buf).expect("read osrelease");
-        assert_eq!(&buf[..n], b"6.6.0-silica\n");
+        assert_eq!(&buf[..n], b"6.6.0-petra\n");
     }
 
     #[ktest]

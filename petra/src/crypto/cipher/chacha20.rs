@@ -51,3 +51,36 @@ pub fn chacha20_block(state: &[u32; 16]) -> [u8; 64] {
     }
     out
 }
+
+/// Encrypts or decrypts `data` in-place using ChaCha20 stream cipher (RFC 7539 / RFC 8439).
+pub fn chacha20_crypt(key: &[u8; 32], nonce: &[u8; 12], mut counter: u32, data: &mut [u8]) {
+    let mut state = [0u32; 16];
+    state[0..4].copy_from_slice(&CHACHA_CONSTANTS);
+    for i in 0..8 {
+        state[4 + i] = u32::from_le_bytes([
+            key[i * 4],
+            key[i * 4 + 1],
+            key[i * 4 + 2],
+            key[i * 4 + 3],
+        ]);
+    }
+    state[12] = counter;
+    for i in 0..3 {
+        state[13 + i] = u32::from_le_bytes([
+            nonce[i * 4],
+            nonce[i * 4 + 1],
+            nonce[i * 4 + 2],
+            nonce[i * 4 + 3],
+        ]);
+    }
+
+    let chunks = data.chunks_mut(64);
+    for chunk in chunks {
+        state[12] = counter;
+        let keystream = chacha20_block(&state);
+        for (b, &k) in chunk.iter_mut().zip(keystream.iter()) {
+            *b ^= k;
+        }
+        counter = counter.wrapping_add(1);
+    }
+}
