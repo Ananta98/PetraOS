@@ -90,6 +90,7 @@ crate::impl_syscall_nums_and_dispatch_fn! {
     SYS_RENAME = 82 => fs::sys_rename(usize, usize);
     SYS_MKDIR = 83 => fs::sys_mkdir(usize, u32);
     SYS_RMDIR = 84 => fs::sys_rmdir(usize);
+    SYS_CREAT = 85 => fs::sys_creat(usize, u32);
     SYS_LINK = 86 => fs::sys_link(usize, usize);
     SYS_UNLINK = 87 => fs::sys_unlink(usize);
     SYS_SYMLINK = 88 => fs::sys_symlink(usize, usize);
@@ -133,6 +134,8 @@ crate::impl_syscall_nums_and_dispatch_fn! {
     SYS_RT_SIGTIMEDWAIT = 128 => signals::sys_rt_sigtimedwait(usize, usize, usize, usize);
     SYS_RT_SIGSUSPEND = 130 => signals::sys_rt_sigsuspend(usize, usize);
     SYS_SIGALTSTACK = 131 => signals::sys_sigaltstack(usize, usize);
+    SYS_UTIME = 132 => fs::sys_utime(usize, usize);
+    SYS_MKNOD = 133 => fs::sys_mknod(usize, u32, u64);
     SYS_PERSONALITY = 135 => proc::sys_personality(usize);
     SYS_STATFS = 137 => fs::sys_statfs(usize, usize);
     SYS_FSTATFS = 138 => fs::sys_fstatfs(i32, usize);
@@ -155,7 +158,19 @@ crate::impl_syscall_nums_and_dispatch_fn! {
     SYS_INIT_MODULE = 175 => platform::sys_init_module(usize, usize, usize);
     SYS_DELETE_MODULE = 176 => platform::sys_delete_module(usize, i32);
     SYS_GETTID = 186 => proc::sys_gettid();
+    SYS_READAHEAD = 187 => fs::sys_readahead(i32, i64, usize);
+    SYS_SETXATTR = 188 => fs::sys_setxattr(usize, usize, usize, usize, u32);
+    SYS_LSETXATTR = 189 => fs::sys_lsetxattr(usize, usize, usize, usize, u32);
+    SYS_FSETXATTR = 190 => fs::sys_fsetxattr(i32, usize, usize, usize, u32);
+    SYS_GETXATTR = 191 => fs::sys_getxattr(usize, usize, usize, usize);
+    SYS_LGETXATTR = 192 => fs::sys_lgetxattr(usize, usize, usize, usize);
+    SYS_FGETXATTR = 193 => fs::sys_fgetxattr(i32, usize, usize, usize);
     SYS_LISTXATTR = 194 => fs::sys_listxattr(usize, usize, usize);
+    SYS_LLISTXATTR = 195 => fs::sys_llistxattr(usize, usize, usize);
+    SYS_FLISTXATTR = 196 => fs::sys_flistxattr(i32, usize, usize);
+    SYS_REMOVEXATTR = 197 => fs::sys_removexattr(usize, usize);
+    SYS_LREMOVEXATTR = 198 => fs::sys_lremovexattr(usize, usize);
+    SYS_FREMOVEXATTR = 199 => fs::sys_fremovexattr(i32, usize);
     SYS_TKILL = 200 => signals::sys_tkill(i32, i32);
     SYS_TIME = 201 => time::sys_time(usize);
     SYS_FUTEX = 202 => sync::sys_futex(usize, i32, u32, usize, usize, u32);
@@ -179,6 +194,7 @@ crate::impl_syscall_nums_and_dispatch_fn! {
     SYS_EPOLL_WAIT = 232 => fs::sys_epoll_wait(i32, usize, i32, i32);
     SYS_EPOLL_CTL = 233 => fs::sys_epoll_ctl(i32, i32, i32, usize);
     SYS_TGKILL = 234 => signals::sys_tgkill(i32, i32, i32);
+    SYS_UTIMES = 235 => fs::sys_utimes(usize, usize);
     SYS_WAITID = 247 => proc::sys_waitid(i32, i32, usize, i32, usize);
     SYS_INOTIFY_INIT = 253 => fs::sys_inotify_init();
     SYS_INOTIFY_ADD_WATCH = 254 => fs::sys_inotify_add_watch(i32, usize, u32);
@@ -200,6 +216,10 @@ crate::impl_syscall_nums_and_dispatch_fn! {
     SYS_PPOLL = 271 => fs::sys_ppoll(usize, usize, usize, usize, usize);
     SYS_SET_ROBUST_LIST = 273 => sync::sys_set_robust_list(usize, usize);
     SYS_GET_ROBUST_LIST = 274 => sync::sys_get_robust_list(i32, usize, usize);
+    SYS_SPLICE = 275 => fs::sys_splice(i32, usize, i32, usize, usize, u32);
+    SYS_TEE = 276 => fs::sys_tee(i32, i32, usize, u32);
+    SYS_SYNC_FILE_RANGE = 277 => fs::sys_sync_file_range(i32, i64, i64, u32);
+    SYS_VMSPLICE = 278 => fs::sys_vmsplice(i32, usize, usize, u32);
     SYS_UTIMENSAT = 280 => fs::sys_utimensat(i32, usize, usize, i32);
     SYS_EPOLL_PWAIT = 281 => fs::sys_epoll_pwait(i32, usize, i32, i32, usize, usize);
     SYS_SIGNALFD = 282 => fs::sys_signalfd(i32, usize, usize);
@@ -232,6 +252,7 @@ crate::impl_syscall_nums_and_dispatch_fn! {
     SYS_MEMBARRIER = 324 => sched::sys_membarrier(i32, u32, i32);
     SYS_COPY_FILE_RANGE = 326 => fs::sys_copy_file_range(i32, usize, i32, usize, usize, u32);
     SYS_PREADV2 = 327 => fs::sys_preadv2(i32, usize, usize, usize, usize, i32);
+    SYS_PWRITEV2 = 328 => fs::sys_pwritev2(i32, usize, usize, usize, usize, i32);
     SYS_STATX = 332 => fs::sys_statx(i32, usize, i32, u32, usize);
     SYS_RSEQ = 334 => proc::sys_rseq(usize, u32, i32, u32);
     SYS_CLONE3 = 435 => proc::sys_clone3(usize, usize);

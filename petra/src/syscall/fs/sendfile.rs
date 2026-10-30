@@ -135,3 +135,68 @@ pub fn sys_copy_file_range(
 
     copy_with_offsets(&proc, &file_in, &file_out, len, off_in_ptr, off_out_ptr)
 }
+
+/// System call `splice(int fd_in, loff_t *off_in, int fd_out, loff_t *off_out, size_t len, unsigned int flags)` (Syscall #275).
+pub fn sys_splice(
+    fd_in: i32,
+    off_in_ptr: usize,
+    fd_out: i32,
+    off_out_ptr: usize,
+    len: usize,
+    _flags: u32,
+    _ctx: &mut UserContext,
+) -> Result<usize> {
+    if len == 0 {
+        return Ok(0);
+    }
+    let proc = Thread::proc_or_esrch()?;
+
+    let table = proc.fd_table.lock();
+    let file_in = table.get(fd_in)?;
+    let file_out = table.get(fd_out)?;
+    drop(table);
+
+    copy_with_offsets(&proc, &file_in, &file_out, len, off_in_ptr, off_out_ptr)
+}
+
+/// System call `tee(int fd_in, int fd_out, size_t len, unsigned int flags)` (Syscall #276).
+pub fn sys_tee(
+    fd_in: i32,
+    fd_out: i32,
+    len: usize,
+    _flags: u32,
+    _ctx: &mut UserContext,
+) -> Result<usize> {
+    if len == 0 {
+        return Ok(0);
+    }
+    let proc = Thread::proc_or_esrch()?;
+
+    let table = proc.fd_table.lock();
+    let file_in = table.get(fd_in)?;
+    let file_out = table.get(fd_out)?;
+    drop(table);
+
+    copy_with_offsets(&proc, &file_in, &file_out, len, 0, 0)
+}
+
+/// System call `vmsplice(int fd, const struct iovec *iov, unsigned long nr_segs, unsigned int flags)` (Syscall #278).
+pub fn sys_vmsplice(
+    fd: i32,
+    iov_ptr: usize,
+    nr_segs: usize,
+    _flags: u32,
+    ctx: &mut UserContext,
+) -> Result<usize> {
+    if nr_segs == 0 {
+        return Ok(0);
+    }
+    let proc = Thread::proc_or_esrch()?;
+    let file = proc.file(fd)?;
+    let is_write = file.flags.lock().contains(crate::fs::vfs::OpenFlags::WRITE);
+    if is_write {
+        crate::syscall::fs::write::sys_writev(fd, iov_ptr, nr_segs, ctx)
+    } else {
+        crate::syscall::fs::read::sys_readv(fd, iov_ptr, nr_segs, ctx)
+    }
+}

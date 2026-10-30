@@ -107,6 +107,11 @@ pub fn sys_mkdirat(
     Ok(0)
 }
 
+/// System call `mknod(const char *pathname, mode_t mode, dev_t dev)` (Syscall #133).
+pub fn sys_mknod(path_ptr: usize, mode: u32, dev: u64, ctx: &mut UserContext) -> Result<usize> {
+    sys_mknodat(AT_FDCWD, path_ptr, mode, dev, ctx)
+}
+
 /// System call `mknodat(int dirfd, const char *pathname, mode_t mode, dev_t dev)` (Syscall #259).
 pub fn sys_mknodat(
     dirfd: i32,

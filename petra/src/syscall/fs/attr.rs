@@ -388,3 +388,55 @@ pub fn sys_futimesat(
 
     Ok(0)
 }
+
+/// System call `utimes(const char *filename, const struct timeval times[2])` (Syscall #235).
+pub fn sys_utimes(path_ptr: usize, times_ptr: usize, ctx: &mut UserContext) -> Result<usize> {
+    sys_futimesat(AT_FDCWD, path_ptr, times_ptr, ctx)
+}
+
+/// System call `utime(const char *filename, const struct utimbuf *times)` (Syscall #132).
+pub fn sys_utime(path_ptr: usize, times_ptr: usize, _ctx: &mut UserContext) -> Result<usize> {
+    let proc = Thread::proc_or_esrch()?;
+    let vmar = proc.vmspace();
+
+    let path = UserCStr::new(path_ptr).read_string(&vmar, 4096)?;
+    if path.is_empty() {
+        return Err(Errno::ENOENT);
+    }
+    let start = resolve_at_start(&proc, AT_FDCWD, &path)?;
+    let root_node = crate::fs::root()?;
+    let path_node = crate::fs::lookup(root_node, start, &path, LookupFlags::empty())?;
+    let inode = path_node.dentry.get_inode().ok_or(Errno::ENOENT)?;
+
+    let cred = proc.cred();
+    let attr = *inode.attr.read();
+    if !cred.is_superuser() && cred.cr_uid != Uid(attr.uid) {
+        return Err(Errno::EPERM);
+    }
+
+    let now = crate::time::uptime_secs();
+    let mut cur_times = inode.times();
+
+    if times_ptr == 0 {
+        cur_times.atime = now;
+        cur_times.mtime = now;
+    } else {
+        let mut raw = [0u8; 16];
+        UserPtr::new(times_ptr).read_bytes(&vmar, &mut raw)?;
+
+        let actime = i64::from_ne_bytes(raw[0..8].try_into().unwrap());
+        let modtime = i64::from_ne_bytes(raw[8..16].try_into().unwrap());
+
+        if actime < 0 || modtime < 0 {
+            return Err(Errno::EINVAL);
+        }
+
+        cur_times.atime = actime as u64;
+        cur_times.mtime = modtime as u64;
+    }
+
+    inode.set_times(cur_times);
+    inode.touch_ctime();
+
+    Ok(0)
+}

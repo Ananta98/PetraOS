@@ -31,3 +31,49 @@ pub fn sys_fadvise64(
     let _file = proc.file(fd)?;
     Ok(0)
 }
+
+/// System call `readahead(int fd, off64_t offset, size_t count)` (Syscall #187).
+pub fn sys_readahead(
+    fd: i32,
+    offset: i64,
+    _count: usize,
+    _ctx: &mut UserContext,
+) -> Result<usize> {
+    if fd < 0 {
+        return Err(Errno::EBADF);
+    }
+    if offset < 0 {
+        return Err(Errno::EINVAL);
+    }
+    let proc = Thread::proc_or_esrch()?;
+    let file = proc.file(fd)?;
+    if !file.inode.is_file() {
+        return Err(Errno::EINVAL);
+    }
+    Ok(0)
+}
+
+/// System call `sync_file_range(int fd, off64_t offset, off64_t nbytes, unsigned int flags)` (Syscall #277).
+pub fn sys_sync_file_range(
+    fd: i32,
+    offset: i64,
+    nbytes: i64,
+    flags: u32,
+    _ctx: &mut UserContext,
+) -> Result<usize> {
+    if fd < 0 {
+        return Err(Errno::EBADF);
+    }
+    if offset < 0 || nbytes < 0 {
+        return Err(Errno::EINVAL);
+    }
+    if (flags & !7) != 0 {
+        return Err(Errno::EINVAL);
+    }
+    let proc = Thread::proc_or_esrch()?;
+    let file = proc.file(fd)?;
+    if (flags & 2) != 0 {
+        let _ = file.fsync(true);
+    }
+    Ok(0)
+}

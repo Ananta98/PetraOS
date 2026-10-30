@@ -89,6 +89,8 @@ pub enum Errno {
     ENOMSG = 42,
     /// Identifier removed.
     EIDRM = 43,
+    /// No data available (or attribute not found).
+    ENODATA = 61,
     /// Value too large for defined data type.
     EOVERFLOW = 75,
     /// Socket operation on non-socket.
@@ -136,6 +138,8 @@ pub enum Errno {
 impl Errno {
     /// Operation not supported on transport endpoint (alias for ENOTSUP).
     pub const EOPNOTSUPP: Errno = Errno::ENOTSUP;
+    /// Attribute not found (alias for ENODATA).
+    pub const ENOATTR: Errno = Errno::ENODATA;
     /// Resource temporarily unavailable (alias for EAGAIN).
     pub const EWOULDBLOCK: Errno = Errno::EAGAIN;
     /// Returns the value user space observes for a *successful* syscall.
@@ -196,6 +200,7 @@ impl Errno {
             Self::ELOOP => "ELOOP",
             Self::ENOMSG => "ENOMSG",
             Self::EIDRM => "EIDRM",
+            Self::ENODATA => "ENODATA",
             Self::EOVERFLOW => "EOVERFLOW",
             Self::ENOTSUP => "ENOTSUP",
             Self::ENOTSOCK => "ENOTSOCK",
@@ -259,6 +264,7 @@ impl Errno {
             Self::ELOOP => "too many levels of symbolic links",
             Self::ENOMSG => "no message of desired type",
             Self::EIDRM => "identifier removed",
+            Self::ENODATA => "no data available",
             Self::EOVERFLOW => "value too large for defined data type",
             Self::ENOTSUP => "operation not supported",
             Self::ENOTSOCK => "socket operation on non-socket",

@@ -36,3 +36,8 @@ pub fn sys_openat(
 pub fn sys_open(path_ptr: usize, flags: i32, mode: u32, ctx: &mut UserContext) -> Result<usize> {
     sys_openat(AT_FDCWD, path_ptr, flags, mode, ctx)
 }
+
+/// System call `creat(const char *pathname, mode_t mode)` (Syscall #85).
+pub fn sys_creat(path_ptr: usize, mode: u32, ctx: &mut UserContext) -> Result<usize> {
+    sys_open(path_ptr, 0o1101, mode, ctx)
+}
