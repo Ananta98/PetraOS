@@ -127,10 +127,13 @@ crate::impl_syscall_nums_and_dispatch_fn! {
     SYS_SETFSUID = 122 => proc::sys_setfsuid(u32);
     SYS_SETFSGID = 123 => proc::sys_setfsgid(u32);
     SYS_GETSID = 124 => proc::sys_getsid(i32);
+    SYS_CAPGET = 125 => proc::sys_capget(usize, usize);
+    SYS_CAPSET = 126 => proc::sys_capset(usize, usize);
     SYS_RT_SIGPENDING = 127 => signals::sys_rt_sigpending(usize, usize);
     SYS_RT_SIGTIMEDWAIT = 128 => signals::sys_rt_sigtimedwait(usize, usize, usize, usize);
     SYS_RT_SIGSUSPEND = 130 => signals::sys_rt_sigsuspend(usize, usize);
     SYS_SIGALTSTACK = 131 => signals::sys_sigaltstack(usize, usize);
+    SYS_PERSONALITY = 135 => proc::sys_personality(usize);
     SYS_STATFS = 137 => fs::sys_statfs(usize, usize);
     SYS_FSTATFS = 138 => fs::sys_fstatfs(i32, usize);
     SYS_GETPRIORITY = 140 => sched::sys_getpriority(i32, i32);
@@ -230,6 +233,7 @@ crate::impl_syscall_nums_and_dispatch_fn! {
     SYS_COPY_FILE_RANGE = 326 => fs::sys_copy_file_range(i32, usize, i32, usize, usize, u32);
     SYS_PREADV2 = 327 => fs::sys_preadv2(i32, usize, usize, usize, usize, i32);
     SYS_STATX = 332 => fs::sys_statx(i32, usize, i32, u32, usize);
+    SYS_RSEQ = 334 => proc::sys_rseq(usize, u32, i32, u32);
     SYS_CLONE3 = 435 => proc::sys_clone3(usize, usize);
     SYS_CLOSE_RANGE = 436 => fs::sys_close_range(u32, u32, u32);
     SYS_FACCESSAT2 = 439 => fs::sys_faccessat2(i32, usize, i32, i32);

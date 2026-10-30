@@ -115,6 +115,10 @@ pub fn clone_proc(
         inner.exe_path = parent_inner.exe_path.clone();
         inner.environ = parent_inner.environ.clone();
         inner.no_new_privs = parent_inner.no_new_privs;
+        inner.personality = parent_inner.personality;
+        inner.cap_effective = parent_inner.cap_effective;
+        inner.cap_permitted = parent_inner.cap_permitted;
+        inner.cap_inheritable = parent_inner.cap_inheritable;
     }
 
     // Inherit SysV shared memory attachments
@@ -176,6 +180,9 @@ pub fn clone_proc(
                 clear_child_tid,
                 robust_list_head: 0,
                 robust_list_len: 0,
+                rseq_ptr: 0,
+                rseq_len: 0,
+                rseq_sig: 0,
             }),
         }
     });
@@ -269,6 +276,9 @@ pub fn clone_thread(
                 clear_child_tid,
                 robust_list_head: 0,
                 robust_list_len: 0,
+                rseq_ptr: 0,
+                rseq_len: 0,
+                rseq_sig: 0,
             }),
         }
     });
@@ -338,6 +348,9 @@ pub fn create_user_thread(
                 clear_child_tid: 0,
                 robust_list_head: 0,
                 robust_list_len: 0,
+                rseq_ptr: 0,
+                rseq_len: 0,
+                rseq_sig: 0,
             }),
         }
     });

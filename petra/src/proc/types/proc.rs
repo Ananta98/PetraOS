@@ -176,6 +176,14 @@ pub struct ProcInner {
     pub is_reaper: bool,
     /// Whether no_new_privs bit is set (PR_SET_NO_NEW_PRIVS).
     pub no_new_privs: bool,
+    /// Execution personality (Linux `personality(2)`).
+    pub personality: u32,
+    /// Effective capability bitmask (Linux `capget(2)` / `capset(2)`).
+    pub cap_effective: u64,
+    /// Permitted capability bitmask.
+    pub cap_permitted: u64,
+    /// Inheritable capability bitmask.
+    pub cap_inheritable: u64,
     /// The process group this process belongs to.
     pub pgid: Option<Pid>,
     /// The session identifier this process belongs to.
@@ -254,6 +262,8 @@ impl Proc {
     ) -> Arc<Self> {
         let is_reaper = pid == PID_INIT;
         let comm = comm_from_name(comm_name);
+        let is_root = cred.cr_uid.as_u32() == 0;
+        let default_caps = if is_root { u64::MAX } else { 0 };
 
         Arc::new(Self {
             pid,
@@ -267,6 +277,10 @@ impl Proc {
                 comm,
                 is_reaper,
                 no_new_privs: false,
+                personality: 0,
+                cap_effective: default_caps,
+                cap_permitted: default_caps,
+                cap_inheritable: default_caps,
                 pgid: None,
                 sid: None,
                 stop_status: None,

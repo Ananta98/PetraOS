@@ -171,6 +171,12 @@ pub struct ThreadInner {
     pub robust_list_head: usize,
     /// Length of the robust futex list head struct.
     pub robust_list_len: usize,
+    /// Pointer to registered `struct rseq` in user memory (Linux `rseq(2)`).
+    pub rseq_ptr: usize,
+    /// Length of registered `struct rseq`.
+    pub rseq_len: u32,
+    /// Signature required to unregister or abort rseq.
+    pub rseq_sig: u32,
 }
 
 /// Thread Control Block.

@@ -326,6 +326,9 @@ fn execve_depth(
         td_inner.clear_child_tid = 0;
         td_inner.robust_list_head = 0;
         td_inner.robust_list_len = 0;
+        td_inner.rseq_ptr = 0;
+        td_inner.rseq_len = 0;
+        td_inner.rseq_sig = 0;
     }
     // 3. Clear SysV shared memory attachments
     proc.inner.lock().shm_attachments.clear();

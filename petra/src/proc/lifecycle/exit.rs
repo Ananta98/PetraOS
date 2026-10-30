@@ -259,6 +259,9 @@ mod tests {
                 clear_child_tid: clear_tid,
                 robust_list_head: 0,
                 robust_list_len: 0,
+                rseq_ptr: 0,
+                rseq_len: 0,
+                rseq_sig: 0,
             }),
         });
 

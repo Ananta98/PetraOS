@@ -93,6 +93,9 @@ pub fn kthread_add(proc: &Arc<Proc>, name: &str, entry: fn(), nice: i8) -> Resul
                 clear_child_tid: 0,
                 robust_list_head: 0,
                 robust_list_len: 0,
+                rseq_ptr: 0,
+                rseq_len: 0,
+                rseq_sig: 0,
             }),
         }
     });
