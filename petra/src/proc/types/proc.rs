@@ -13,14 +13,14 @@ use ostd::sync::{SpinLock, WaitQueue};
 
 use super::pid::{PID_INIT, Pid};
 use crate::{
-    fs::{PathNode, fd::Filedesc, vfs::File},
+    fs::{PathNode, fd::Filedesc, vfs::{File, VFS_ROOT}},
     proc::{
         signal::SigQueue,
         thread::{Thread, Tid},
     },
     uapi::{
         cred::Ucred,
-        errno::Result,
+        errno::{Errno, Result},
         limit::{Plimit, Rusage},
         signal::{SigActs, SigInfo, Signal, code},
     },
@@ -420,7 +420,7 @@ impl Proc {
         if let Some(cached) = slot.clone() {
             return Ok(cached);
         }
-        let root = crate::fs::root()?;
+        let root = VFS_ROOT.read().clone().ok_or(Errno::ENOENT)?;
         *slot = Some(root.clone());
         Ok(root)
     }
@@ -430,14 +430,14 @@ impl Proc {
         *self.root.lock() = Some(node);
     }
 
-    /// Returns current working directory, defaulting to VFS root if not yet set.
+    /// Returns current working directory, defaulting to process root if not yet set.
     /// The first resolution is cached so later calls just clone it.
     pub fn cwd(&self) -> Result<PathNode> {
         let mut slot = self.cwd.lock();
         if let Some(cached) = slot.clone() {
             return Ok(cached);
         }
-        let root = crate::fs::root()?;
+        let root = self.root()?;
         *slot = Some(root.clone());
         Ok(root)
     }

@@ -193,6 +193,14 @@ for target_dir in "${STAGING}" "${ROOTFS_STAGING}"; do
     if [ -d "${target_dir}/usr/lib/locale/C.utf8" ]; then
         ln -sfn C.utf8 "${target_dir}/usr/lib/locale/C.UTF-8"
     fi
+
+    # Provide common CLI aliases/symlinks expected by users
+    if [ -x "${target_dir}/usr/bin/vi" ] && [ ! -e "${target_dir}/usr/bin/vim" ]; then
+        ln -sfn vi "${target_dir}/usr/bin/vim"
+    fi
+    if [ -x "${target_dir}/usr/bin/python3" ] && [ ! -e "${target_dir}/usr/bin/python" ]; then
+        ln -sfn python3 "${target_dir}/usr/bin/python"
+    fi
 done
 
 for target_dir in "${STAGING}" "${ROOTFS_STAGING}"; do

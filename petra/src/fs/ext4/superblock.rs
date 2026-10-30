@@ -182,14 +182,16 @@ impl SuperBlock {
     /// Feature sanity: reject filesystems this driver cannot serve.
     fn validate(&self) -> Result<()> {
         // Features we cannot honor at all.
-        let fatal = incompat::JOURNAL_DEV
+        let fatal_incompat = incompat::JOURNAL_DEV
             | incompat::INLINE_DATA
             | incompat::ENCRYPT
-            | rocompat::BIGALLOC
-            | rocompat::READONLY
-            | rocompat::PROJECT
             | incompat::META_BG;
-        if (self.feature_incompat | self.feature_ro_compat) & fatal != 0 {
+        let fatal_rocompat = rocompat::BIGALLOC
+            | rocompat::READONLY
+            | rocompat::PROJECT;
+        if (self.feature_incompat & fatal_incompat) != 0
+            || (self.feature_ro_compat & fatal_rocompat) != 0
+        {
             return Err(Errno::EINVAL);
         }
         if self.log_block_size > 3 {

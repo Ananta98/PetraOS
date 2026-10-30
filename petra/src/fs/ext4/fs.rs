@@ -1535,7 +1535,12 @@ impl NodeOps for Ext4Node {
             return Err(Errno::EINVAL);
         }
         let len = raw.size().min(usize::MAX as u64) as usize;
-        if len <= 60 && raw.blocks() == 0 {
+        let ea_blocks = if raw.file_acl_lo != 0 {
+            (fs.block_size / 512) as u64
+        } else {
+            0
+        };
+        if len <= 60 && raw.blocks().saturating_sub(ea_blocks) == 0 {
             let bytes = raw.raw[40..40 + len].to_vec();
             return Ok(String::from_utf8_lossy(&bytes).into_owned());
         }

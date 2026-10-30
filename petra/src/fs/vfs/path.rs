@@ -63,12 +63,21 @@ fn lookup_inner(
                 // Stay on current directory
             }
             ".." => {
+                // Do not traverse above the active root boundary (e.g. chroot)
+                if current.same_node(root) {
+                    continue;
+                }
+
                 // Check if at the root of a mounted filesystem
                 if Arc::ptr_eq(&current.dentry, &current.mount.root) {
                     let mount_point = current.mount.mount_point.read().clone();
                     if let Some(parent_node) = mount_point {
                         current = parent_node;
                     }
+                }
+
+                if current.same_node(root) {
+                    continue;
                 }
 
                 // Move up the dentry tree

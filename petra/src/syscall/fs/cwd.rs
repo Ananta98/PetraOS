@@ -22,7 +22,7 @@ pub fn sys_getcwd(buf_ptr: usize, size: usize, _ctx: &mut UserContext) -> Result
     let vmar = proc.vmspace();
 
     let cwd = proc.cwd()?;
-    let path_str = cwd.dentry.abs_path();
+    let path_str = cwd.abs_path();
     let bytes = path_str.as_bytes();
     let len = bytes.len() + 1; // Includes null terminator
 

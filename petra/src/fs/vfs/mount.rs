@@ -7,6 +7,7 @@ use spin::RwLock;
 
 use super::dcache::DEntry;
 use super::fs::FileSystem;
+use crate::proc::current_proc;
 use crate::uapi::errno::{Errno, Result};
 
 /// Represents a mounted filesystem instance.
@@ -75,12 +76,22 @@ impl PathNode {
         Ok(())
     }
 
+    /// Returns whether this PathNode points to the same mount and dentry as `other`.
+    pub fn same_node(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.dentry, &other.dentry) && Arc::ptr_eq(&self.mount, &other.mount)
+    }
+
     /// Reconstructs the absolute path of this PathNode, walking up across mount boundaries.
     pub fn abs_path(&self) -> alloc::string::String {
         let mut components = alloc::vec::Vec::new();
         let mut curr_node = self.clone();
+        let proc_root = current_proc().and_then(|p| p.root.lock().clone());
 
         loop {
+            if proc_root.as_ref().is_some_and(|r| curr_node.same_node(r)) {
+                break;
+            }
+
             if !curr_node.dentry.name.is_empty() {
                 components.push(curr_node.dentry.name.clone());
             }
@@ -131,8 +142,11 @@ fn has_submounts(dentry: &Arc<DEntry>) -> bool {
 /// Global root mount node of the VFS namespace.
 pub static VFS_ROOT: RwLock<Option<PathNode>> = RwLock::new(None);
 
-/// Retrieves a clone of the global root PathNode.
+/// Retrieves a clone of the current process root PathNode (or global VFS root).
 pub fn root() -> Result<PathNode> {
+    if let Some(proc_root) = current_proc().and_then(|p| p.root.lock().clone()) {
+        return Ok(proc_root);
+    }
     VFS_ROOT.read().clone().ok_or(Errno::ENOENT)
 }
 
@@ -187,7 +201,7 @@ pub fn get_mounts() -> alloc::vec::Vec<MountRecord> {
 /// Collects all unique mounted filesystems across the active VFS namespace.
 pub fn collect_all_mounts() -> alloc::vec::Vec<Arc<Mount>> {
     let mut mounts = alloc::vec::Vec::new();
-    if let Ok(root_node) = root() {
+    if let Some(root_node) = VFS_ROOT.read().clone() {
         mounts.push(root_node.mount.clone());
         collect_mounts_from_dentry(&root_node.mount.root, &mut mounts);
     }
