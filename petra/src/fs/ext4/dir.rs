@@ -142,6 +142,34 @@ pub fn find(entries: &[Dirent], name: &str) -> Option<(u32, u8)> {
         .map(|e| (e.ino, e.file_type))
 }
 
+/// Searches directly within a single directory block without heap allocation.
+pub fn find_in_block(block: &[u8], name: &str) -> Option<(u32, u8)> {
+    let mut off = 0usize;
+    let target = name.as_bytes();
+
+    while off + 8 <= block.len() {
+        if tail_offset(block, off).is_some() {
+            break;
+        }
+        let ino = u32::from_le_bytes(block[off..off + 4].try_into().ok()?);
+        let rec_len = u16::from_le_bytes(block[off + 4..off + 6].try_into().ok()?) as usize;
+        let name_len = block[off + 6] as usize;
+        let file_type = block[off + 7];
+
+        if rec_len < 8 || off + rec_len > block.len() {
+            break;
+        }
+
+        if ino != 0 && name_len == target.len() && off + 8 + name_len <= block.len() {
+            if &block[off + 8..off + 8 + name_len] == target {
+                return Some((ino, file_type));
+            }
+        }
+        off += rec_len;
+    }
+    None
+}
+
 /// Counts subdirectory entries for the `links_count` bookkeeping.
 pub fn count_subdirs(entries: &[Dirent]) -> u32 {
     entries

@@ -25,6 +25,8 @@ pub mod iflags {
     pub const EXTENTS: u32 = 0x0008_0000;
     /// Size is encoded in blocks (66-bit "huge file" sizes).
     pub const HUGE_FILE: u32 = 0x0004_0000;
+    /// Inode has HTree indexed directory structure.
+    pub const INDEX: u32 = 0x0000_1000;
     /// inode is an inline-data container.
     pub const INLINE_DATA: u32 = 0x1000_0000;
 }
@@ -173,6 +175,11 @@ impl RawInode {
 
     pub fn is_dir(&self) -> bool {
         self.blk_type() == 0x4000
+    }
+
+    /// Returns true if this inode is an indexed directory (EXT4_INDEX_FL).
+    pub fn is_indexed_dir(&self) -> bool {
+        self.is_dir() && (self.flags & iflags::INDEX != 0)
     }
 
     pub fn is_regular(&self) -> bool {

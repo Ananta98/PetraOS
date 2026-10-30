@@ -250,6 +250,31 @@ impl SuperBlock {
         self.feature_compat & compat::HAS_JOURNAL != 0
     }
 
+    /// Whether directory indexing (dir_index / HTree) is supported.
+    pub fn has_dir_index(&self) -> bool {
+        self.feature_compat & compat::DIR_INDEX != 0
+    }
+
+    /// Default HTree hash version (`s_def_hash_version`, offset 252 / 0xFC).
+    pub fn def_hash_version(&self) -> u8 {
+        self.raw.get(252).copied().unwrap_or(1)
+    }
+
+    /// 128-bit HTree hash seed (`s_hash_seed`, 4x u32 starting at offset 236 / 0xEC).
+    pub fn hash_seed(&self) -> [u32; 4] {
+        let mut seed = [0u32; 4];
+        if self.raw.len() >= 252 {
+            for i in 0..4 {
+                seed[i] = u32::from_le_bytes(
+                    self.raw[236 + i * 4..236 + i * 4 + 4]
+                        .try_into()
+                        .unwrap_or([0; 4]),
+                );
+            }
+        }
+        seed
+    }
+
     /// Checksum seed: explicit `s_checksum_seed`, or derived from the UUID.
     ///
     /// The seed is the CRC-32C register state of the UUID, chained exactly as

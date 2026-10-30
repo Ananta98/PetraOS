@@ -280,6 +280,33 @@ impl Ext4Fs {
         indirect::map_read(raw, lblock, &io)
     }
 
+    /// Reads one logical filesystem block of an inode into `buf`.
+    pub fn read_inode_block(
+        &self,
+        ino: u32,
+        raw: &RawInode,
+        lblock: u64,
+        buf: &mut [u8],
+    ) -> Result<()> {
+        match self.map_read(ino, raw, lblock)? {
+            Some(phys) => self.read_fs_block(phys, buf),
+            None => {
+                buf.fill(0);
+                Ok(())
+            }
+        }
+    }
+
+    /// Performs an HTree indexed directory lookup.
+    pub fn htree_lookup(
+        &self,
+        ino: u32,
+        raw: &RawInode,
+        name: &str,
+    ) -> Result<super::htree::HtreeResult> {
+        super::htree::htree_lookup(self, ino, raw, name)
+    }
+
     /// Maps one logical block, allocating when requested (write path).
     /// Mutates `raw` and updates persistent pointers / tree state.
     pub fn map_write(&self, ino: u32, raw: &mut RawInode, lblock: u64) -> Result<u64> {
@@ -1175,6 +1202,16 @@ impl NodeOps for Ext4Node {
         if !raw.is_dir() {
             return Err(Errno::ENOTDIR);
         }
+
+        // Fast path: Ext4 HTree directory indexing
+        if raw.is_indexed_dir() {
+            match fs.htree_lookup(self.ino, &raw, name)? {
+                super::htree::HtreeResult::Found(child, _) => return fs.node_for(child),
+                super::htree::HtreeResult::NotFound => return Err(Errno::ENOENT),
+                super::htree::HtreeResult::Fallback => {}
+            }
+        }
+
         let data = fs.read_dir_data(self.ino, &raw)?;
         let entries = dir::parse_all(&data, fs.block_size);
         let (child, _) = dir::find(&entries, name).ok_or(Errno::ENOENT)?;

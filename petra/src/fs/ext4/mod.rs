@@ -12,6 +12,7 @@ pub mod crc32c;
 pub mod dir;
 pub mod extents;
 pub mod fs;
+pub mod htree;
 pub mod indirect;
 pub mod inode;
 pub mod journal;
