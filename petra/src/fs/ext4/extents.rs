@@ -10,7 +10,7 @@
 use ::alloc::vec;
 use ::alloc::vec::Vec;
 
-use crate::fs::ext4::crc32c::crc32c;
+use crate::crypto::hash::crc32c::crc32c;
 use crate::uapi::errno::{Errno, Result};
 
 /// Maximum logical length of a single extent (`0x7FFF` blocks; the value

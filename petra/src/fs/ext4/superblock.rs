@@ -10,7 +10,7 @@
 use ::alloc::vec;
 use ::alloc::vec::Vec;
 
-use crate::fs::ext4::crc32c::crc32c;
+use crate::crypto::hash::crc32c::crc32c;
 use crate::uapi::errno::{Errno, Result};
 
 /// Standard ext2/3/4 superblock magic (`0xEF53`).

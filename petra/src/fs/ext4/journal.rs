@@ -8,7 +8,7 @@
 use ::alloc::vec;
 use ::alloc::vec::Vec;
 
-use crate::fs::ext4::crc32c::crc32c;
+use crate::crypto::hash::crc32c::crc32c;
 use crate::uapi::errno::{Errno, Result};
 
 /// JBD2 magic `0xC03B3998` (big-endian bytes on disk).

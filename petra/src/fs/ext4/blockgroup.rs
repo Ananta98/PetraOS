@@ -5,7 +5,7 @@
 use ::alloc::vec;
 use ::alloc::vec::Vec;
 
-use crate::fs::ext4::crc32c::{crc16, crc32c};
+use crate::crypto::hash::crc32c::{crc16, crc32c};
 use crate::uapi::errno::{Errno, Result};
 
 /// Minimum descriptor size (legacy ext2/ext3).

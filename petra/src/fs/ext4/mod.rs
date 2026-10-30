@@ -8,7 +8,6 @@
 
 pub mod alloc;
 pub mod blockgroup;
-pub mod crc32c;
 pub mod dir;
 pub mod extents;
 pub mod fs;

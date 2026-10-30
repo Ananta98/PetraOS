@@ -20,10 +20,10 @@ use crate::fs::ext4::dir::ftype;
 use crate::fs::vfs::{
     FileOps, FileSystem, INode, INodeAttr, Mode, NodeOps, OpenFlags, SeekAnchor, StatFs,
 };
+use crate::crypto::hash::crc32c::crc32c;
 
 use super::alloc::AllocIo;
 use super::blockgroup::{BgTable, DescSum};
-use super::crc32c::crc32c;
 use super::dir::{self, DIRTAIL_TYPE};
 use super::extents::{self, Extent, ExtentCtx, MAX_EXTENT_LEN, TreePlan};
 use super::indirect::{self, IndirectIo};

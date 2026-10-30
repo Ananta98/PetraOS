@@ -57,7 +57,7 @@ impl AllocIo<'_> {
         if (self.sb.desc_size as usize) >= super::blockgroup::B64_DESC_SIZE
             && self.sb.has_metadata_csum()
         {
-            let sum = crate::fs::ext4::crc32c::crc32c(self.sb.csum_seed(), bm);
+            let sum = crate::crypto::hash::crc32c::crc32c(self.sb.csum_seed(), bm);
             self.bgt
                 .patch_block_bitmap_csum(g, sum, self.sb.has_64bit())?;
         }
@@ -79,7 +79,7 @@ impl AllocIo<'_> {
             let limit = (self.sb.inodes_per_group as usize)
                 .div_ceil(8)
                 .min(self.block_size);
-            let sum = crate::fs::ext4::crc32c::crc32c(self.sb.csum_seed(), &bm[0..limit]);
+            let sum = crate::crypto::hash::crc32c::crc32c(self.sb.csum_seed(), &bm[0..limit]);
             self.bgt
                 .patch_inode_bitmap_csum(g, sum, self.sb.has_64bit())?;
         }

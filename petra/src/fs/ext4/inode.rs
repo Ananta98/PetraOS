@@ -5,7 +5,7 @@
 
 use ::alloc::vec::Vec;
 
-use crate::fs::ext4::crc32c::crc32c;
+use crate::crypto::hash::crc32c::crc32c;
 use crate::uapi::errno::{Errno, Result};
 
 /// Root inode number for the filesystem root directory.
