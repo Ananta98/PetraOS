@@ -36,6 +36,11 @@ pub const FUTEX_PRIVATE_FLAG: i32 = 128;
 pub const FUTEX_CLOCK_REALTIME: i32 = 256;
 pub const FUTEX_CMD_MASK: i32 = !(FUTEX_PRIVATE_FLAG | FUTEX_CLOCK_REALTIME);
 
+/// Robust futex flags.
+pub const FUTEX_WAITERS: u32 = 0x8000_0000;
+pub const FUTEX_OWNER_DIED: u32 = 0x4000_0000;
+pub const FUTEX_TID_MASK: u32 = 0x3fff_ffff;
+
 /// Default bitset matching any waiter.
 pub const FUTEX_BITSET_MATCH_ANY: u32 = 0xffff_ffff;
 
@@ -107,12 +112,17 @@ pub fn wake_waiters(key: &FutexKey, val: u32, bitset: u32) -> usize {
 
 /// Wakes waiters on a futex address (e.g. on thread exit for `clear_child_tid`).
 pub fn futex_wake(vmar: &Arc<Vmar>, uaddr: usize, val: u32) -> usize {
+    futex_wake_bitset(vmar, uaddr, val, FUTEX_BITSET_MATCH_ANY)
+}
+
+/// Wakes waiters on a futex address matching `bitset`.
+pub fn futex_wake_bitset(vmar: &Arc<Vmar>, uaddr: usize, val: u32, bitset: u32) -> usize {
     let key_priv = FutexKey::new(true, vmar, uaddr);
     let key_shared = FutexKey::new(false, vmar, uaddr);
 
-    let mut count = wake_waiters(&key_priv, val, FUTEX_BITSET_MATCH_ANY);
+    let mut count = wake_waiters(&key_priv, val, bitset);
     if (count as u32) < val {
-        count += wake_waiters(&key_shared, val - count as u32, FUTEX_BITSET_MATCH_ANY);
+        count += wake_waiters(&key_shared, val - count as u32, bitset);
     }
     count
 }

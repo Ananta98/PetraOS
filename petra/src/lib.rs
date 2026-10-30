@@ -47,6 +47,7 @@ pub mod modules;
 pub mod net;
 pub mod proc;
 pub mod sched;
+pub mod sync;
 pub mod syscall;
 pub mod time;
 pub mod uapi;

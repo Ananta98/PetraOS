@@ -296,6 +296,7 @@ fn execve_depth(
         siblings
     };
     for sibling in siblings {
+        sibling.handle_robust_list(&proc);
         sibling.handle_clear_child_tid(&proc);
         let mut td_inner = sibling.inner.lock();
         td_inner.state = ThreadState::Dead;
@@ -319,8 +320,13 @@ fn execve_depth(
     // FIX Bug 6: State sanitization
     // 1. Reset thread alternate signal stack
     td.inner.lock().altstack = SigStack::default();
-    // 2. Clear clear_child_tid pointer
-    td.inner.lock().clear_child_tid = 0;
+    // 2. Clear clear_child_tid pointer and robust list
+    {
+        let mut td_inner = td.inner.lock();
+        td_inner.clear_child_tid = 0;
+        td_inner.robust_list_head = 0;
+        td_inner.robust_list_len = 0;
+    }
     // 3. Clear SysV shared memory attachments
     proc.inner.lock().shm_attachments.clear();
     // 4. Disarm and delete all POSIX interval timers

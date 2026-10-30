@@ -174,6 +174,8 @@ pub fn clone_proc(
                 stopped_by: None,
                 handler_frame: None,
                 clear_child_tid,
+                robust_list_head: 0,
+                robust_list_len: 0,
             }),
         }
     });
@@ -265,6 +267,8 @@ pub fn clone_thread(
                 stopped_by: None,
                 handler_frame: None,
                 clear_child_tid,
+                robust_list_head: 0,
+                robust_list_len: 0,
             }),
         }
     });
@@ -332,6 +336,8 @@ pub fn create_user_thread(
                 stopped_by: None,
                 handler_frame: None,
                 clear_child_tid: 0,
+                robust_list_head: 0,
+                robust_list_len: 0,
             }),
         }
     });

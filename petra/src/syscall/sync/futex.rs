@@ -2,21 +2,21 @@
 
 //! Fast userspace mutex (`futex(2)`) syscall adapter.
 
-use crate::proc::Thread;
-use crate::{
-    ipc::futex::{
-        FUTEX_BITSET_MATCH_ANY, FUTEX_CLOCK_REALTIME, FUTEX_CMD_MASK, FUTEX_CMP_REQUEUE,
-        FUTEX_PRIVATE_FLAG, FUTEX_REQUEUE, FUTEX_TABLE, FUTEX_WAIT, FUTEX_WAIT_BITSET, FUTEX_WAKE,
-        FUTEX_WAKE_BITSET, FutexKey, FutexWaiter, read_futex_val, read_timespec, remove_waiter,
-        wake_waiters,
-    },
-    uapi::errno::{Errno, Result},
-};
 use alloc::sync::Arc;
 use core::sync::atomic::{AtomicBool, Ordering};
 use ostd::arch::cpu::context::UserContext;
 use ostd::sync::Waiter;
 use ostd::task::Task;
+
+use crate::proc::Thread;
+use crate::sync::futex::{
+    FUTEX_BITSET_MATCH_ANY, FUTEX_CLOCK_REALTIME, FUTEX_CMD_MASK, FUTEX_CMP_REQUEUE,
+    FUTEX_PRIVATE_FLAG, FUTEX_REQUEUE, FUTEX_TABLE, FUTEX_WAIT, FUTEX_WAIT_BITSET, FUTEX_WAKE,
+    FUTEX_WAKE_BITSET, FUTEX_WAKE_OP, FutexKey, FutexWaiter, read_futex_val, read_timespec,
+    remove_waiter, wake_waiters,
+};
+use crate::uapi::errno::{Errno, Result};
+use crate::utils::UserPtr;
 
 /// `futex(2)` system call (Syscall #202 on x86_64).
 pub fn sys_futex(
@@ -51,15 +51,27 @@ pub fn sys_futex(
                 FUTEX_BITSET_MATCH_ANY
             };
 
-            // Parse timeout if provided
-            let (has_timeout, is_absolute, timeout_ticks) = if utime != 0 {
+            // Parse timeout if provided:
+            // - FUTEX_WAIT: relative timespec against CLOCK_MONOTONIC,
+            //   unless FUTEX_CLOCK_REALTIME is set (absolute timespec against CLOCK_REALTIME).
+            // - FUTEX_WAIT_BITSET: always absolute timespec against CLOCK_MONOTONIC,
+            //   or CLOCK_REALTIME if FUTEX_CLOCK_REALTIME is set.
+            let (has_timeout, clock_is_realtime, deadline_ns) = if utime != 0 {
                 let (sec, nsec) = read_timespec(&vmar, utime)?;
-                let ms = (sec as u64)
-                    .saturating_mul(1000)
-                    .saturating_add((nsec as u64) / 1_000_000);
-                let ticks = (ms * crate::sched::TIMER_HZ).div_ceil(1000);
-                let absolute = cmd == FUTEX_WAIT_BITSET || is_realtime;
-                (true, absolute, ticks)
+                let timeout_ns = (sec as u64)
+                    .saturating_mul(1_000_000_000)
+                    .saturating_add(nsec as u64);
+
+                let is_absolute = cmd == FUTEX_WAIT_BITSET || is_realtime;
+                let clock_realtime = is_realtime;
+
+                let deadline = if is_absolute {
+                    timeout_ns
+                } else {
+                    crate::time::get_monotonic_ns().saturating_add(timeout_ns)
+                };
+
+                (true, clock_realtime, deadline)
             } else {
                 (false, false, 0)
             };
@@ -85,7 +97,6 @@ pub fn sys_futex(
             drop(table);
 
             // Wait until woken, timed out, or interrupted by signal
-            let start_tick = crate::sched::now();
             let result = loop {
                 if woken.load(Ordering::Acquire) {
                     break Ok(0);
@@ -101,14 +112,13 @@ pub fn sys_futex(
                 }
 
                 if has_timeout {
-                    let now = crate::sched::now();
-                    let expired = if is_absolute {
-                        now >= timeout_ticks
+                    let now_ns = if clock_is_realtime {
+                        crate::time::get_realtime_ns()
                     } else {
-                        now.saturating_sub(start_tick) >= timeout_ticks
+                        crate::time::get_monotonic_ns()
                     };
 
-                    if expired {
+                    if now_ns >= deadline_ns {
                         remove_waiter(&key, &woken);
                         if woken.load(Ordering::Acquire) {
                             break Ok(0);
@@ -138,6 +148,58 @@ pub fn sys_futex(
             let key = FutexKey::new(is_private, &vmar, uaddr);
             let woken_count = wake_waiters(&key, val, bitset);
             Ok(woken_count)
+        }
+
+        FUTEX_WAKE_OP => {
+            if !uaddr2.is_multiple_of(4) {
+                return Err(Errno::EINVAL);
+            }
+
+            let op_code = (val3 >> 28) & 0x7;
+            let cmp_code = (val3 >> 24) & 0x7;
+            let mut oparg = ((val3 >> 12) & 0xfff) as u32;
+            let cmparg = (val3 & 0xfff) as u32;
+
+            if (val3 & (1 << 31)) != 0 {
+                oparg = 1u32.checked_shl(oparg).unwrap_or(0);
+            }
+
+            // Read old value from uaddr2
+            let old_val = read_futex_val(&vmar, uaddr2)?;
+            let new_val = match op_code {
+                0 => oparg,                       // FUTEX_OP_SET
+                1 => old_val.wrapping_add(oparg), // FUTEX_OP_ADD
+                2 => old_val | oparg,             // FUTEX_OP_OR
+                3 => old_val & !oparg,            // FUTEX_OP_ANDN
+                4 => old_val ^ oparg,             // FUTEX_OP_XOR
+                _ => return Err(Errno::ENOSYS),
+            };
+
+            // Write updated value to uaddr2
+            UserPtr::new(uaddr2).write_bytes(&vmar, &new_val.to_ne_bytes())?;
+
+            // 1. Wake up to val waiters on uaddr
+            let key1 = FutexKey::new(is_private, &vmar, uaddr);
+            let mut total_woken = wake_waiters(&key1, val, FUTEX_BITSET_MATCH_ANY);
+
+            // 2. Evaluate cmp condition on old_val
+            let cmp_matched = match cmp_code {
+                0 => old_val == cmparg,                   // FUTEX_OP_CMP_EQ
+                1 => old_val != cmparg,                   // FUTEX_OP_CMP_NE
+                2 => (old_val as i32) < (cmparg as i32),  // FUTEX_OP_CMP_LT
+                3 => (old_val as i32) <= (cmparg as i32), // FUTEX_OP_CMP_LE
+                4 => (old_val as i32) > (cmparg as i32),  // FUTEX_OP_CMP_GT
+                5 => (old_val as i32) >= (cmparg as i32), // FUTEX_OP_CMP_GE
+                _ => return Err(Errno::ENOSYS),
+            };
+
+            if cmp_matched {
+                let val2 = utime as u32; // In wake_op, utime argument encodes val2
+                let key2 = FutexKey::new(is_private, &vmar, uaddr2);
+                total_woken += wake_waiters(&key2, val2, FUTEX_BITSET_MATCH_ANY);
+            }
+
+            Ok(total_woken)
         }
 
         FUTEX_REQUEUE => {

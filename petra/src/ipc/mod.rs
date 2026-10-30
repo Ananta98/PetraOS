@@ -4,7 +4,6 @@
 //!
 //! Provides System V Shared Memory, Semaphores, and common permission management.
 
-pub mod futex;
 pub mod id;
 pub mod msg;
 pub mod perm;

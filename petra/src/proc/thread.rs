@@ -167,6 +167,10 @@ pub struct ThreadInner {
     pub handler_frame: Option<usize>,
     /// Address in user space to clear on thread termination (Linux `set_tid_address`).
     pub clear_child_tid: usize,
+    /// Address in user space of the robust futex list head (Linux `set_robust_list`).
+    pub robust_list_head: usize,
+    /// Length of the robust futex list head struct.
+    pub robust_list_len: usize,
 }
 
 /// Thread Control Block.
@@ -463,13 +467,30 @@ impl Thread {
         if clear_tid != 0 {
             let zero = 0i32.to_ne_bytes();
             let _ = UserPtr::new(clear_tid).write_bytes(&proc.vmspace(), &zero);
-            crate::ipc::futex::futex_wake(&proc.vmspace(), clear_tid, 1);
+            crate::sync::futex::futex_wake(&proc.vmspace(), clear_tid, 1);
+        }
+    }
+
+    /// Cleans up robust futexes owned by this thread, setting `FUTEX_OWNER_DIED`
+    /// and waking waiters.
+    pub fn handle_robust_list(&self, proc: &Arc<Proc>) {
+        let (head, len) = {
+            let mut inner = self.inner.lock();
+            let head = inner.robust_list_head;
+            let len = inner.robust_list_len;
+            inner.robust_list_head = 0;
+            inner.robust_list_len = 0;
+            (head, len)
+        };
+        if head != 0 && len == crate::sync::robust::ROBUST_LIST_HEAD_LEN {
+            crate::sync::robust::exit_robust_list(proc, self.tid.as_u32(), head);
         }
     }
 
     /// Cleans up child tid and removes thread if marked dead. Returns true if dead.
     fn cleanup_if_dead(&self, proc: &Arc<Proc>) -> bool {
         if self.is_dead() {
+            self.handle_robust_list(proc);
             self.handle_clear_child_tid(proc);
             proc.remove_thread(self.tid);
             true

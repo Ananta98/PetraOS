@@ -195,6 +195,8 @@ crate::impl_syscall_nums_and_dispatch_fn! {
     SYS_FACCESSAT = 269 => fs::sys_faccessat(i32, usize, i32);
     SYS_PSELECT6 = 270 => fs::sys_pselect6(i32, usize, usize, usize, usize, usize);
     SYS_PPOLL = 271 => fs::sys_ppoll(usize, usize, usize, usize, usize);
+    SYS_SET_ROBUST_LIST = 273 => sync::sys_set_robust_list(usize, usize);
+    SYS_GET_ROBUST_LIST = 274 => sync::sys_get_robust_list(i32, usize, usize);
     SYS_UTIMENSAT = 280 => fs::sys_utimensat(i32, usize, usize, i32);
     SYS_EPOLL_PWAIT = 281 => fs::sys_epoll_pwait(i32, usize, i32, i32, usize, usize);
     SYS_SIGNALFD = 282 => fs::sys_signalfd(i32, usize, usize);

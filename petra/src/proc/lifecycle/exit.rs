@@ -87,6 +87,7 @@ pub fn exit1(td: &Thread, status: ExitStatus) {
     // flagged with AST and KILL_PENDING so they exit on return to kernel mode.
     let threads: Vec<_> = proc.inner.lock().threads.clone();
     for thread in &threads {
+        thread.handle_robust_list(&proc);
         thread.handle_clear_child_tid(&proc);
         let mut td_inner = thread.inner.lock();
         td_inner.state = ThreadState::Dead;
@@ -123,6 +124,7 @@ pub fn exit_thread(td: &Thread, code: i32) {
         let mut inner = proc.inner.lock();
         if inner.state == ProcState::Zombie {
             drop(inner);
+            td.handle_robust_list(&proc);
             td.handle_clear_child_tid(&proc);
             let mut td_inner = td.inner.lock();
             td_inner.state = ThreadState::Dead;
@@ -148,6 +150,7 @@ pub fn exit_thread(td: &Thread, code: i32) {
         exit1(td, ExitStatus::Exited(code));
     } else {
         // Individual thread cleanup
+        td.handle_robust_list(&proc);
         td.handle_clear_child_tid(&proc);
         let mut td_inner = td.inner.lock();
         td_inner.state = ThreadState::Dead;
@@ -254,6 +257,8 @@ mod tests {
                 stopped_by: None,
                 handler_frame: None,
                 clear_child_tid: clear_tid,
+                robust_list_head: 0,
+                robust_list_len: 0,
             }),
         });
 
