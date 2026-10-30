@@ -20,18 +20,23 @@ pub mod printk;
 pub mod shim;
 
 // Re-export submodules under their canonical names for backwards compatibility
-pub use self::core::{mm, refcount, sync, task, time};
+pub use self::core::{atomic, mm, refcount, sync, task, time};
+pub use self::device::pci;
 pub use self::driver::{block, char};
-pub use self::hw::{io, irq};
+pub use self::hw::{dma, io, irq};
 
 // High-level convenient exports at kpi root
 pub use self::core::{
-    Gfp, KCompletion, KMutex, KRef, KTimer, KWeak, RootSpinLock, SpinLock, arm, jiffies, kzalloc,
-    schedule_delayed_work_fn, schedule_work, schedule_work_fn,
+    atomic64_t, atomic_t, change_bit, clear_bit, set_bit, test_and_change_bit, test_and_clear_bit,
+    test_and_set_bit, test_bit, Gfp, KCompletion, KMutex, KRef, KTimer, KWeak, RootSpinLock,
+    SpinLock, arm, jiffies, kcalloc, kmalloc, ktime_get_ns, kzalloc, mdelay, msleep,
+    schedule_delayed_work_fn, schedule_work, schedule_work_fn, udelay, usleep_range, vfree,
+    vmalloc,
 };
 pub use self::device::{
-    Device, DeviceBusRegistry, Driver, PlatformBus, PlatformDevice, PlatformDriver, Resource,
-    ResourceType, platform_bus, platform_device_register, platform_driver_register,
+    Device, DeviceBusRegistry, Driver, PciDevice, PciDeviceId, PciDriver, PlatformBus,
+    PlatformDevice, PlatformDriver, Resource, ResourceType, pci_register_driver,
+    pci_unregister_driver, platform_bus, platform_device_register, platform_driver_register,
     platform_driver_unregister,
 };
 pub use self::driver::{
@@ -39,8 +44,8 @@ pub use self::driver::{
     cdev_del, del_gendisk,
 };
 pub use self::hw::{
-    IoRegion, IrqFlags, IrqHandlerFn, IrqReturn, free_irq, ioremap, ioremap_shared, request_irq,
-    request_threaded_irq,
+    dma_addr_t, dma_alloc_coherent, dma_free_coherent, free_irq, ioremap, ioremap_shared,
+    request_irq, request_threaded_irq, DmaBuffer, IoRegion, IrqFlags, IrqHandlerFn, IrqReturn,
 };
 pub use self::module::InitcallLevel;
 pub use self::printk::{

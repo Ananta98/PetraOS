@@ -92,6 +92,46 @@ pub fn jiffies() -> u64 {
     Jiffies::elapsed().as_u64()
 }
 
+/// Linux `msleep`: puts the calling thread to sleep for `ms` milliseconds.
+pub fn msleep(ms: u64) {
+    if ms == 0 {
+        return;
+    }
+    arm(Duration::from_millis(ms), None).wait();
+}
+
+/// Linux `usleep_range`: sleeps for a duration between `min_us` and `max_us` microseconds.
+pub fn usleep_range(min_us: u64, max_us: u64) {
+    let us = if max_us > min_us {
+        min_us + (max_us - min_us) / 2
+    } else {
+        min_us
+    };
+    if us == 0 {
+        return;
+    }
+    arm(Duration::from_micros(us), None).wait();
+}
+
+/// Linux `udelay`: short busy wait delay in microseconds.
+pub fn udelay(us: u64) {
+    let start = jiffies();
+    let ticks = jiffies_for(Duration::from_micros(us));
+    while jiffies().saturating_sub(start) < ticks {
+        core::hint::spin_loop();
+    }
+}
+
+/// Linux `mdelay`: busy wait delay in milliseconds.
+pub fn mdelay(ms: u64) {
+    udelay(ms.saturating_mul(1000));
+}
+
+/// Linux `ktime_get_ns`: monotonic elapsed time in nanoseconds.
+pub fn ktime_get_ns() -> u64 {
+    (jiffies().saturating_mul(1_000_000_000)) / ostd::timer::TIMER_FREQ
+}
+
 /// Converts a duration to tick counts, rounding up so a timer never fires
 /// before its deadline.
 fn jiffies_for(after: Duration) -> u64 {
