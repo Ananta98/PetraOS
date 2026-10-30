@@ -38,8 +38,28 @@ pub trait CharacterDevice: Send + Sync {
     /// Read data from the device into the provided buffer.
     fn read(&self, buf: &mut [u8]) -> Result<usize>;
 
+    /// Optional: Read data from the device at a specific offset.
+    fn read_at(&self, _offset: u64, buf: &mut [u8]) -> Result<usize> {
+        self.read(buf)
+    }
+
     /// Write data to the device from the provided buffer.
     fn write(&self, buf: &[u8]) -> Result<usize>;
+
+    /// Optional: Write data to the device at a specific offset.
+    fn write_at(&self, _offset: u64, buf: &[u8]) -> Result<usize> {
+        self.write(buf)
+    }
+
+    /// Optional: Called when a device node is opened.
+    fn open(&self) -> Result<()> {
+        Ok(())
+    }
+
+    /// Optional: Called when a device node is released/closed.
+    fn release(&self) -> Result<()> {
+        Ok(())
+    }
 
     /// Optional: Performs an I/O control operation.
     fn ioctl(&self, _cmd: u32, _arg: usize) -> Result<usize> {

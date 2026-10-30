@@ -9,19 +9,13 @@
 //! - [`hw`]: Hardware access via MMIO remapping (`ioremap`) and interrupt management (`request_irq`).
 //! - [`module`]: Staged boot initcalls and module declaration macros.
 
-// We need to allow unsafe code since linux kpi because requires compiled from C code
-#[allow(unsafe_code)]
 pub mod core;
-#[allow(unsafe_code)]
 pub mod device;
-#[allow(unsafe_code)]
 pub mod driver;
-#[allow(unsafe_code)]
 pub mod hw;
-#[allow(unsafe_code)]
 pub mod module;
-#[allow(unsafe_code)]
 pub mod printk;
+// Unsafe code is isolated strictly to the C-ABI compatibility bridge
 #[allow(unsafe_code)]
 pub mod shim;
 

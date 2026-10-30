@@ -20,6 +20,7 @@ impl GenericChrNodeOps {
 
 impl NodeOps for GenericChrNodeOps {
     fn open(&self, _flags: OpenFlags) -> Result<Box<dyn FileOps>> {
+        self.dev.open()?;
         Ok(Box::new(GenericChrFileOps {
             dev: Arc::clone(&self.dev),
         }))
@@ -49,12 +50,16 @@ pub struct GenericChrFileOps {
 }
 
 impl FileOps for GenericChrFileOps {
-    fn read(&self, _offset: u64, buf: &mut [u8]) -> Result<usize> {
-        self.dev.read(buf)
+    fn read(&self, offset: u64, buf: &mut [u8]) -> Result<usize> {
+        self.dev.read_at(offset, buf)
     }
 
-    fn write(&self, _offset: u64, buf: &[u8]) -> Result<usize> {
-        self.dev.write(buf)
+    fn write(&self, offset: u64, buf: &[u8]) -> Result<usize> {
+        self.dev.write_at(offset, buf)
+    }
+
+    fn close(&self) -> Result<()> {
+        self.dev.release()
     }
 
     fn ioctl(&self, cmd: u32, arg: usize) -> Result<usize> {

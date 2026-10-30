@@ -98,8 +98,24 @@ impl CharacterDevice for CDevAdapter {
         self.cdev.fops.read(buf, 0)
     }
 
+    fn read_at(&self, offset: u64, buf: &mut [u8]) -> Result<usize> {
+        self.cdev.fops.read(buf, offset as usize)
+    }
+
     fn write(&self, buf: &[u8]) -> Result<usize> {
         self.cdev.fops.write(buf, 0)
+    }
+
+    fn write_at(&self, offset: u64, buf: &[u8]) -> Result<usize> {
+        self.cdev.fops.write(buf, offset as usize)
+    }
+
+    fn open(&self) -> Result<()> {
+        self.cdev.fops.open()
+    }
+
+    fn release(&self) -> Result<()> {
+        self.cdev.fops.release()
     }
 
     fn ioctl(&self, cmd: u32, arg: usize) -> Result<usize> {

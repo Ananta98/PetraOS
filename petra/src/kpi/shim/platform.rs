@@ -102,6 +102,22 @@ impl PlatformDriver for CPlatformDriverAdapter {
             None => return Ok(()),
         };
 
+        // Convert safe PlatformDevice resources into C LinuxResource array for teardown
+        let mut c_resources: Vec<LinuxResource> = pdev
+            .resources()
+            .iter()
+            .map(|r| LinuxResource {
+                start: r.start,
+                end: r.end,
+                name: core::ptr::null(),
+                flags: match r.resource_type {
+                    ResourceType::Mem => IORESOURCE_MEM,
+                    ResourceType::Irq => IORESOURCE_IRQ,
+                    ResourceType::Io => super::types::IORESOURCE_IO,
+                },
+            })
+            .collect();
+
         let c_name = CString::new(pdev.name()).unwrap_or_default();
         let drvdata_val = pdev
             .device()
@@ -116,14 +132,17 @@ impl PlatformDriver for CPlatformDriverAdapter {
                 parent: core::ptr::null_mut(),
                 driver_data: drvdata_val as *mut core::ffi::c_void,
             },
-            num_resources: 0,
-            resource: core::ptr::null_mut(),
+            num_resources: c_resources.len() as u32,
+            resource: c_resources.as_mut_ptr(),
         };
 
         let ret = unsafe { remove_fn(&mut c_pdev) };
         if ret < 0 {
             return Err(super::types::errno_from_code(-ret));
         }
+
+        // Clean up driver data upon successful removal
+        let _ = pdev.device().take_drvdata::<usize>();
 
         Ok(())
     }

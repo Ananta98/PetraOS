@@ -78,6 +78,7 @@ pub const IORESOURCE_IRQ: c_ulong = 0x00000400;
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct LinuxFile {
+    pub f_pos: loff_t,
     pub private_data: *mut c_void,
     pub flags: c_uint,
     pub mode: mode_t,
@@ -89,6 +90,7 @@ unsafe impl Sync for LinuxFile {}
 impl LinuxFile {
     pub const fn new() -> Self {
         Self {
+            f_pos: 0,
             private_data: core::ptr::null_mut(),
             flags: 0,
             mode: 0,
