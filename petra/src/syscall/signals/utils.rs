@@ -4,10 +4,23 @@
 
 use crate::uapi::signal::{SIGSET_WORDS, SigAction, SigHandler, SigSet, SigStack, Signal};
 
-/// The size of `struct sigaction` as user space lays it out.
+/// The size of the kernel `sigset_t` (`_NSIG / 8`), the only `sigsetsize`
+/// `rt_sigaction(2)` accepts.
 ///
-/// A handler (8), a 128-byte mask (SIGSET_WORDS * 8), flags (4), pad (4), restorer (8).
-pub const SIGACTION_LEN: usize = 8 + SIGSET_WORDS * 8 + 4 + 4 + 8;
+/// libc's own `sigset_t` is 128 bytes, but libc never hands that to the kernel:
+/// glibc and musl both pass the 64-signal kernel mask.
+pub const KERNEL_SIGSET_LEN: usize = 8;
+
+/// The size of the kernel `struct sigaction` on x86_64.
+///
+/// `sa_handler` (8), `sa_flags` (8, an `unsigned long`), `sa_restorer` (8), then
+/// `sa_mask` (8). This is not libc's `struct sigaction`, which puts a 128-byte
+/// mask second: libc converts to this layout before the system call.
+pub const SIGACTION_LEN: usize = 8 + 8 + 8 + KERNEL_SIGSET_LEN;
+
+const SIGACTION_FLAGS_AT: usize = 8;
+const SIGACTION_RESTORER_AT: usize = 16;
+const SIGACTION_MASK_AT: usize = 24;
 
 /// `sigset_t`, as passed to and from user space.
 pub fn decode_sigset(buf: &[u8]) -> SigSet {
@@ -27,21 +40,17 @@ pub fn encode_sigset(set: &SigSet) -> [u8; SIGSET_WORDS * 8] {
     buf
 }
 
-pub fn decode_sigaction(buf: &[u8]) -> SigAction {
+fn read_u64(buf: &[u8], at: usize) -> u64 {
+    u64::from_le_bytes(buf[at..at + 8].try_into().expect("eight bytes"))
+}
+
+pub fn decode_sigaction(buf: &[u8; SIGACTION_LEN]) -> SigAction {
+    let handler = read_u64(buf, 0) as usize;
+    // Every defined `SA_*` flag fits in the low 32 bits of `unsigned long`.
+    let flags = read_u64(buf, SIGACTION_FLAGS_AT) as u32;
+    let restorer = read_u64(buf, SIGACTION_RESTORER_AT) as usize;
     let mut mask = [0u64; SIGSET_WORDS];
-    for (i, slot) in mask.iter_mut().enumerate() {
-        let at = 8 + i * 8;
-        *slot = u64::from_le_bytes(buf[at..at + 8].try_into().expect("eight bytes"));
-    }
-    let handler = u64::from_le_bytes(buf[0..8].try_into().expect("eight bytes")) as usize;
-    let flags = u32::from_le_bytes(
-        buf[8 + SIGSET_WORDS * 8..][..4]
-            .try_into()
-            .expect("four bytes"),
-    );
-    let restorer_at = 8 + SIGSET_WORDS * 8 + 8;
-    let restorer =
-        u64::from_le_bytes(buf[restorer_at..][..8].try_into().expect("eight bytes")) as usize;
+    mask[0] = read_u64(buf, SIGACTION_MASK_AT);
 
     SigAction {
         sa_handler: if handler == 0 {
@@ -65,10 +74,11 @@ pub fn encode_sigaction(action: &SigAction) -> [u8; SIGACTION_LEN] {
         SigHandler::Handler(addr) => addr,
     };
     buf[0..8].copy_from_slice(&(handler as u64).to_le_bytes());
-    buf[8..8 + SIGSET_WORDS * 8].copy_from_slice(&encode_sigset(&action.sa_mask));
-    let flags_at = 8 + SIGSET_WORDS * 8;
-    buf[flags_at..flags_at + 4].copy_from_slice(&action.sa_flags.to_le_bytes());
-    buf[flags_at + 8..flags_at + 16].copy_from_slice(&(action.sa_restorer as u64).to_le_bytes());
+    buf[SIGACTION_FLAGS_AT..SIGACTION_RESTORER_AT]
+        .copy_from_slice(&u64::from(action.sa_flags).to_le_bytes());
+    buf[SIGACTION_RESTORER_AT..SIGACTION_MASK_AT]
+        .copy_from_slice(&(action.sa_restorer as u64).to_le_bytes());
+    buf[SIGACTION_MASK_AT..].copy_from_slice(&action.sa_mask.0[0].to_le_bytes());
     buf
 }
 

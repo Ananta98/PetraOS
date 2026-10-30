@@ -42,7 +42,7 @@ pub const VMAR_CAP_ADDR: Vaddr = MAX_USERSPACE_VADDR;
 
 /// The headroom left above all mappings for a process's main stack to grow
 /// into, including its guard page and random offset.
-pub const VMAR_STACK_RESERVE: usize = 2048 * PAGE_SIZE;
+pub const VMAR_STACK_RESERVE: usize = 4096 * PAGE_SIZE;
 
 /// How far below a downward-growing mapping a fault may be and still grow it.
 pub const STACK_GUARD_GAP: usize = 256 * PAGE_SIZE;

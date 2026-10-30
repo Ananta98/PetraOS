@@ -13,7 +13,7 @@
 
 /// Set to `true` to log every syscall (and user page fault) to the serial
 /// console. Very slow under QEMU, so it is off by default.
-pub const TRACE_SYSCALLS: bool = false;
+pub const TRACE_SYSCALLS: bool = true;
 
 /// Returns whether `sys_no` is a standard capability probe from modern glibc or systemd.
 ///
@@ -168,7 +168,7 @@ macro_rules! impl_syscall_nums_and_dispatch_fn {
 
             let pid_val = $crate::proc::thread::Thread::current_proc().map(|p| p.pid.as_u32()).unwrap_or(0);
             if $crate::syscall::TRACE_SYSCALLS && sys_no != 228 && sys_no != 96 {
-                ostd::warn!("syscall: pid {} sys_{} args={:x?}", pid_val, sys_no, args);
+                ostd::info!("syscall: pid {} sys_{} args={:x?}", pid_val, sys_no, args);
             }
 
             let res = match sys_no {
@@ -186,7 +186,7 @@ macro_rules! impl_syscall_nums_and_dispatch_fn {
             ctx.general_regs_mut().rax = match res {
                 Ok(val) => {
                     if $crate::syscall::TRACE_SYSCALLS && sys_no != 228 && sys_no != 96 {
-                        ostd::warn!("syscall: pid {} sys_{} -> Ok({:#x})", pid_val, sys_no, val);
+                        ostd::info!("syscall: pid {} sys_{} -> Ok({:#x})", pid_val, sys_no, val);
                     }
                     val
                 }
@@ -195,7 +195,7 @@ macro_rules! impl_syscall_nums_and_dispatch_fn {
                         ostd::warn!("Syscall sys_{sys_no} returned ENOSYS");
                     }
                     if $crate::syscall::TRACE_SYSCALLS && sys_no != 228 && sys_no != 96 {
-                        ostd::warn!("syscall: pid {} sys_{} -> Err({:?})", pid_val, sys_no, err);
+                        ostd::info!("syscall: pid {} sys_{} -> Err({:?})", pid_val, sys_no, err);
                     }
                     err.to_posix_raw() as isize as usize
                 }

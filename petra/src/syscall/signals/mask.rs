@@ -83,5 +83,5 @@ pub fn sys_rt_sigprocmask(
     }
     drop(inner);
 
-    Ok(sigsetsize)
+    Ok(0)
 }

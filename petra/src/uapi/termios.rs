@@ -3,9 +3,13 @@
 
 pub type tcflag_t = u32;
 pub type cc_t = u8;
-pub type speed_t = u32;
 
-pub const NCCS: usize = 32;
+/// Control characters in the kernel `struct termios` (`TCGETS`/`TCSETS`).
+///
+/// libc's `struct termios` is larger (glibc: 32 characters plus two speed
+/// fields, 60 bytes); glibc converts to this 36-byte layout before the ioctl, so
+/// writing anything bigger overruns the caller's stack.
+pub const NCCS: usize = 19;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
@@ -16,8 +20,6 @@ pub struct termios {
     pub c_lflag: tcflag_t,
     pub c_line: cc_t,
     pub c_cc: [cc_t; NCCS],
-    pub c_ispeed: speed_t,
-    pub c_ospeed: speed_t,
 }
 
 #[repr(C)]
@@ -30,7 +32,7 @@ pub struct winsize {
 }
 
 impl termios {
-    pub const SIZE: usize = 60;
+    pub const SIZE: usize = 36;
 
     pub fn to_bytes(&self) -> [u8; Self::SIZE] {
         let mut buf = [0u8; Self::SIZE];
@@ -39,16 +41,13 @@ impl termios {
         buf[8..12].copy_from_slice(&self.c_cflag.to_ne_bytes());
         buf[12..16].copy_from_slice(&self.c_lflag.to_ne_bytes());
         buf[16] = self.c_line;
-        buf[17..49].copy_from_slice(&self.c_cc);
-        // 49..52 is padding
-        buf[52..56].copy_from_slice(&self.c_ispeed.to_ne_bytes());
-        buf[56..60].copy_from_slice(&self.c_ospeed.to_ne_bytes());
+        buf[17..].copy_from_slice(&self.c_cc);
         buf
     }
 
     pub fn from_bytes(buf: &[u8; Self::SIZE]) -> Self {
         let mut cc = [0u8; NCCS];
-        cc.copy_from_slice(&buf[17..49]);
+        cc.copy_from_slice(&buf[17..]);
         Self {
             c_iflag: u32::from_ne_bytes(buf[0..4].try_into().unwrap()),
             c_oflag: u32::from_ne_bytes(buf[4..8].try_into().unwrap()),
@@ -56,8 +55,6 @@ impl termios {
             c_lflag: u32::from_ne_bytes(buf[12..16].try_into().unwrap()),
             c_line: buf[16],
             c_cc: cc,
-            c_ispeed: u32::from_ne_bytes(buf[52..56].try_into().unwrap()),
-            c_ospeed: u32::from_ne_bytes(buf[56..60].try_into().unwrap()),
         }
     }
 }
@@ -136,6 +133,8 @@ pub const ONOCR: tcflag_t = 0o000020;
 pub const ONLRET: tcflag_t = 0o000040;
 
 // c_cflag bits
+/// The line speed lives in `c_cflag` in the kernel layout.
+pub const B38400: tcflag_t = 0o000017;
 pub const CSIZE: tcflag_t = 0o000060;
 pub const CS5: tcflag_t = 0o000000;
 pub const CS6: tcflag_t = 0o000020;
@@ -174,12 +173,10 @@ impl Default for termios {
         Self {
             c_iflag: ICRNL | IXON,
             c_oflag: OPOST | ONLCR,
-            c_cflag: 0,
+            c_cflag: B38400 | CS8 | CREAD | HUPCL,
             c_lflag: ISIG | ICANON | ECHO | ECHOE | ECHOK,
             c_line: 0,
             c_cc: cc,
-            c_ispeed: 38400,
-            c_ospeed: 38400,
         }
     }
 }

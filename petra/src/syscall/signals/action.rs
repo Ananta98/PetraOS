@@ -4,12 +4,12 @@
 
 use ostd::arch::cpu::context::UserContext;
 
-use super::utils::{SIGACTION_LEN, decode_sigaction, encode_sigaction};
+use super::utils::{KERNEL_SIGSET_LEN, SIGACTION_LEN, decode_sigaction, encode_sigaction};
 use crate::{
     proc::Thread,
     uapi::{
         errno::{Errno, Result},
-        signal::{SIGSET_WORDS, Signal},
+        signal::Signal,
     },
     utils::UserPtr,
 };
@@ -24,7 +24,13 @@ pub fn sys_rt_sigaction(
 ) -> Result<usize> {
     let sig = Signal::from_u32(sig as u32).ok_or(Errno::EINVAL)?;
 
-    if sigsetsize != SIGSET_WORDS * 8 {
+    if sigsetsize != KERNEL_SIGSET_LEN {
+        return Err(Errno::EINVAL);
+    }
+
+    // The dispositions of SIGKILL and SIGSTOP are fixed; only querying them is allowed.
+    let is_unchangeable = matches!(sig, Signal::SIGKILL | Signal::SIGSTOP);
+    if act_ptr != 0 && is_unchangeable {
         return Err(Errno::EINVAL);
     }
 
@@ -52,5 +58,5 @@ pub fn sys_rt_sigaction(
         UserPtr::new(old_act_ptr).write_bytes(&vmar, &encode_sigaction(&old))?;
     }
 
-    Ok(SIGSET_WORDS * 8)
+    Ok(0)
 }

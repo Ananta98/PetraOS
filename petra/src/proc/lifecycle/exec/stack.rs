@@ -70,10 +70,12 @@ pub fn setup_user_stack_full(
     vdso_base: usize,
     cred: &Ucred,
 ) -> Result<usize> {
-    // 1. Calculate randomized stack top and base using ASLR
+    // 1. Calculate randomized stack top and base using ASLR.
+    // The VMA boundaries must be page-aligned for mmap_anonymous(FIXED) and populate_range,
+    // while the initial stack pointer incorporates the full 16-byte-aligned ASLR offset.
     let stack_aslr = crate::vm::aslr::stack_aslr_offset();
-    let stack_top = USER_STACK_TOP - stack_aslr;
-    let stack_base = stack_top - USER_STACK_SIZE;
+    let vma_top = USER_STACK_TOP - (stack_aslr & !(ostd::mm::PAGE_SIZE - 1));
+    let stack_base = vma_top - USER_STACK_SIZE;
 
     // Map user stack region
     vmar.mmap_anonymous(
@@ -85,10 +87,10 @@ pub fn setup_user_stack_full(
 
     // 2. Populate the top pages of the stack
     let init_stack_pages = 16 * ostd::mm::PAGE_SIZE;
-    vmar.populate_range(&(stack_top - init_stack_pages..stack_top))?;
+    vmar.populate_range(&(vma_top - init_stack_pages..vma_top))?;
     vmar.activate();
 
-    let mut sp = stack_top;
+    let mut sp = USER_STACK_TOP - stack_aslr;
 
     // 3. Push string tables
     // Push exec_path string for AT_EXECFN

@@ -340,6 +340,25 @@ impl Thread {
         false
     }
 
+    /// Delivers a signal raised by the instruction that just faulted.
+    ///
+    /// Mirrors Linux `force_sig_fault`: when the signal is blocked or has no
+    /// handler, the process is terminated, init included. Ignoring it would
+    /// resume at the same instruction and fault again forever.
+    fn deliver_fault_signal(&self, queued: QueuedSignal) {
+        let sig = queued.signal();
+        let Some(proc) = self.proc() else {
+            return;
+        };
+
+        let has_handler = proc.sigacts.lock().get(sig).delivers_to_handler();
+        let is_blocked = self.inner.lock().sigmask.contains(sig);
+        if has_handler && !is_blocked && self.deliver_signal(queued) {
+            return;
+        }
+        super::signal::terminate_by_signal(self, sig);
+    }
+
     /// Builds the frame for a handler and applies the mask it runs under.
     ///
     /// Returns `None` when no frame can be built.
@@ -561,7 +580,7 @@ impl Thread {
                     let queued = QueuedSignal {
                         info: SigInfo::fault(Signal::SIGSEGV, si_code, raw_pf.addr),
                     };
-                    self.deliver_signal(queued);
+                    self.deliver_fault_signal(queued);
                 }
             }
             other => {
@@ -579,7 +598,7 @@ impl Thread {
                     rip,
                     rsp,
                 );
-                self.deliver_signal(QueuedSignal {
+                self.deliver_fault_signal(QueuedSignal {
                     info: SigInfo::kernel(sig, code),
                 });
             }
@@ -646,9 +665,11 @@ impl Thread {
                     self.adopt_ctx(user_mode.context());
                 }
                 ReturnReason::UserException => {
+                    self.adopt_ctx(user_mode.context());
                     if let Some(exception) = user_mode.context_mut().take_exception() {
                         self.handle_user_exception(&proc, &vmar, exception);
                     }
+                    self.publish_ctx(user_mode.context_mut());
                 }
                 ReturnReason::KernelEvent => {
                     // Preempted or kernel event occurred, loop back to check AST
@@ -698,7 +719,9 @@ fn signal_and_code_for_exception(exception: &CpuException) -> (Signal, i32) {
         }
         // A misaligned access.
         CpuException::AlignmentCheck => (Signal::SIGBUS, code::BUS_ADRALN),
-        CpuException::GeneralProtectionFault(_) => (Signal::SIGBUS, code::KERNEL),
+        // Privileged instructions (`hlt`, `cli`) and non-canonical addresses: Linux
+        // reports these as SIGSEGV with SI_KERNEL.
+        CpuException::GeneralProtectionFault(_) => (Signal::SIGSEGV, code::KERNEL),
         // The trap instruction and the debugger breakpoint.
         CpuException::BreakPoint | CpuException::Debug => (Signal::SIGTRAP, code::KERNEL),
         // Everything address-related: the page fault handler in `user_loop` deals

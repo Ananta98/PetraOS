@@ -241,6 +241,22 @@ pub fn run_default_action(td: &Thread, sig: Signal) -> bool {
         return false;
     }
 
+    terminate_by_signal(td, sig);
+    true
+}
+
+/// Terminates the process of `td` with the default action of `sig`.
+///
+/// Used directly for signals raised by a faulting instruction: those cannot be
+/// ignored, blocked, or shrugged off by init, because returning to user space
+/// would re-execute the same instruction and fault forever.
+pub fn terminate_by_signal(td: &Thread, sig: Signal) {
+    if let Some(proc) = td.proc()
+        && proc.pid == crate::proc::types::PID_INIT
+    {
+        ostd::error!("proc: init killed by {sig}");
+    }
+
     exit1(
         td,
         crate::proc::ExitStatus::Signaled {
@@ -248,5 +264,4 @@ pub fn run_default_action(td: &Thread, sig: Signal) -> bool {
             core_dumped: sig.default_dumps_core(),
         },
     );
-    true
 }
