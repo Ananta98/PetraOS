@@ -108,7 +108,7 @@ terminal_output console
 menuentry "PetraOS Silica Kernel (PetraOS Userspace)" {
     echo "Loading PetraOS Silica Kernel..."
     linux /boot/vmlinuz-petraos SHELL=/bin/sh LOGNAME=root HOME=/root USER=root PATH=/bin:/sbin:/usr/bin:/usr/sbin init=/init -- sh -l
-    echo "Loading Alpine Initramfs..."
+    echo "Loading PetraOS Initramfs..."
     initrd /boot/initramfs.cpio
     echo "Booting PetraOS..."
     boot

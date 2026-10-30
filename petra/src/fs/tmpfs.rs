@@ -77,7 +77,7 @@ mod tests {
         // Create a regular file in tmpfs
         let file_node = root
             .node_ops
-            .create("alpine_test.txt", Mode::FILE | Mode::RUSR | Mode::WUSR)
+            .create("rocky_test.txt", Mode::FILE | Mode::RUSR | Mode::WUSR)
             .expect("create file");
 
         let file_ops = file_node
@@ -85,7 +85,7 @@ mod tests {
             .open(OpenFlags::READ | OpenFlags::WRITE)
             .expect("open file");
 
-        let test_data = b"Alpine Linux tmpfs verification payload";
+        let test_data = b"Rocky Linux tmpfs verification payload";
         let written = file_ops.write(0, test_data).expect("write data");
         assert_eq!(written, test_data.len());
 
@@ -97,7 +97,7 @@ mod tests {
         // Verify lookup in root
         let lookup_node = root
             .node_ops
-            .lookup("alpine_test.txt")
+            .lookup("rocky_test.txt")
             .expect("lookup file");
         let attr = lookup_node.node_ops.getattr().expect("getattr");
         assert_eq!(attr.size, test_data.len());

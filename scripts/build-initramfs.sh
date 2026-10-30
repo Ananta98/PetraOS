@@ -3,8 +3,7 @@
 # block-device images that the kernel mounts (see OSDK.toml's qemu args).
 #
 # The filesystem images are formatted with the e2fsprogs/exfatprogs tools that
-# the userland already staged, run through the staged musl loader. Building the
-# images therefore does not depend on the host having e2fsprogs or exfatprogs.
+# the userland already staged, or available on the host system.
 #
 # Usage: build-initramfs.sh [--staging DIR] [--output CPIO]
 #                           [--ext4 FILE] [--exfat FILE]
@@ -19,7 +18,7 @@ ROOTFS_STAGING="${REPO_ROOT}/build/userland-amd64/rootfs_staging"
 OUTPUT="${REPO_ROOT}/build/initramfs.cpio"
 EXT4_IMAGE="${REPO_ROOT}/build/ext4.img"
 EXFAT_IMAGE="${REPO_ROOT}/build/exfat.img"
-IMAGE_SIZE="600M"
+IMAGE_SIZE="1G"
 BUILD_IMAGES=1
 COMPRESS=0
 
@@ -61,15 +60,18 @@ if [ ! -d "${STAGING}" ]; then
     exit 1
 fi
 
-MUSL_LOADER="${STAGING}/lib/ld-musl-x86_64.so.1"
+GLIBC_LOADER="${STAGING}/lib64/ld-linux-x86-64.so.2"
+[ -e "${GLIBC_LOADER}" ] || GLIBC_LOADER="${STAGING}/usr/lib64/ld-linux-x86-64.so.2"
 
 # Run a tool that lives inside the staging root using the staging root's own
-# musl loader, which works regardless of the host C library.
+# dynamic loader, which works regardless of the host C library.
 run_staged() {
     local tool="$1"
     shift
-    "${MUSL_LOADER}" --library-path "${STAGING}/lib:${STAGING}/usr/lib" \
-        "${STAGING}/${tool}" "$@"
+    if [ -x "${GLIBC_LOADER}" ]; then
+        "${GLIBC_LOADER}" --library-path "${STAGING}/lib64:${STAGING}/usr/lib64:${STAGING}/lib:${STAGING}/usr/lib" \
+            "${STAGING}/${tool}" "$@"
+    fi
 }
 
 make_image() {
@@ -95,7 +97,10 @@ build_ext4_image() {
             mke2fs -t ext4 -F -O ^metadata_csum,^64bit "${EXT4_IMAGE}" >/dev/null
             echo "    ext4:  ${EXT4_IMAGE} (${IMAGE_SIZE}, empty)"
         fi
-    elif [ -x "${MUSL_LOADER}" ] && [ -x "${STAGING}/sbin/mkfs.ext4" ]; then
+    elif [ -x "${GLIBC_LOADER}" ] && [ -x "${STAGING}/usr/sbin/mkfs.ext4" ]; then
+        run_staged usr/sbin/mkfs.ext4 -q -F "${EXT4_IMAGE}"
+        echo "    ext4:  ${EXT4_IMAGE} (${IMAGE_SIZE}, staged mkfs.ext4)"
+    elif [ -x "${GLIBC_LOADER}" ] && [ -x "${STAGING}/sbin/mkfs.ext4" ]; then
         run_staged sbin/mkfs.ext4 -q -F "${EXT4_IMAGE}"
         echo "    ext4:  ${EXT4_IMAGE} (${IMAGE_SIZE}, staged mkfs.ext4)"
     elif command -v mkfs.ext4 >/dev/null 2>&1; then
@@ -108,8 +113,11 @@ build_ext4_image() {
 
 build_exfat_image() {
     make_image "${EXFAT_IMAGE}" "64M"
-    if [ -x "${MUSL_LOADER}" ] && [ -x "${STAGING}/usr/sbin/mkfs.exfat" ]; then
+    if [ -x "${GLIBC_LOADER}" ] && [ -x "${STAGING}/usr/sbin/mkfs.exfat" ]; then
         run_staged usr/sbin/mkfs.exfat "${EXFAT_IMAGE}" >/dev/null
+        echo "    exfat: ${EXFAT_IMAGE} (64M)"
+    elif [ -x "${GLIBC_LOADER}" ] && [ -x "${STAGING}/sbin/mkfs.exfat" ]; then
+        run_staged sbin/mkfs.exfat "${EXFAT_IMAGE}" >/dev/null
         echo "    exfat: ${EXFAT_IMAGE} (64M)"
     elif command -v mkfs.exfat >/dev/null 2>&1; then
         mkfs.exfat "${EXFAT_IMAGE}" >/dev/null

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Build the full PetraOS amd64 target: Alpine userland + initramfs, the petra
+# Build the full PetraOS amd64 target: Rocky Linux userland + initramfs, the petra
 # kernel, and a bootable hybrid BIOS/UEFI ISO.
 #
 # Usage: build-amd64.sh [--no-userland] [--no-iso]

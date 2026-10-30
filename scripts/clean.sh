@@ -7,7 +7,7 @@
 #   --userland   Userland staging, package layers, initramfs and block images
 #                (default when no option is given)
 #   --iso        Bootable ISO and its staging tree
-#   --cache      Downloaded caches (Alpine minirootfs, apk.static, apk index)
+#   --cache      Downloaded caches (Rocky Linux rootfs)
 #   --kernel     Rust kernel build output (target/)
 #   --all        Everything above
 #   -h, --help   Show this help message
@@ -27,7 +27,7 @@ usage() {
     echo ""
     echo "  --userland   Userland staging, package layers, initramfs and block images (default)"
     echo "  --iso        Bootable ISO and its staging tree"
-    echo "  --cache      Downloaded caches (Alpine minirootfs, apk.static, apk index)"
+    echo "  --cache      Downloaded caches (Rocky Linux rootfs)"
     echo "  --kernel     Rust kernel build output (target/)"
     echo "  --all        Everything above"
     echo "  -h, --help   Show this help message"
@@ -73,6 +73,7 @@ remove() {
     local path="$1"
     if [ -e "$path" ]; then
         echo "    removing ${path#"${REPO_ROOT}"/}"
+        chmod -R u+rwX "$path" 2>/dev/null || true
         rm -rf -- "$path"
     fi
 }
