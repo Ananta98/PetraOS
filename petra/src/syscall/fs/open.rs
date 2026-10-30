@@ -41,3 +41,14 @@ pub fn sys_open(path_ptr: usize, flags: i32, mode: u32, ctx: &mut UserContext) -
 pub fn sys_creat(path_ptr: usize, mode: u32, ctx: &mut UserContext) -> Result<usize> {
     sys_open(path_ptr, 0o1101, mode, ctx)
 }
+
+/// System call `openat2(int dirfd, const char *pathname, struct open_how *how, size_t size)` (Syscall #437).
+pub fn sys_openat2(
+    _dirfd: i32,
+    _path_ptr: usize,
+    _how_ptr: usize,
+    _size: usize,
+    _ctx: &mut UserContext,
+) -> Result<usize> {
+    Err(crate::uapi::errno::Errno::ENOSYS)
+}

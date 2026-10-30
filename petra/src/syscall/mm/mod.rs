@@ -9,6 +9,8 @@ pub mod mprotect;
 pub mod mremap;
 pub mod msync;
 pub mod munmap;
+pub mod swap;
+pub mod userfaultfd;
 
 pub use brk::*;
 pub use madvise::*;
@@ -19,3 +21,5 @@ pub use mprotect::*;
 pub use mremap::*;
 pub use msync::*;
 pub use munmap::*;
+pub use swap::*;
+pub use userfaultfd::*;

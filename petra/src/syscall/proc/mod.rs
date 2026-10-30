@@ -1,29 +1,37 @@
 // SPDX-License-Identifier: GPL-2.0
 
+pub mod bpf;
 pub mod cap;
 pub mod clone;
 pub mod cred;
 pub mod exec;
 pub mod exit;
 pub mod fork;
+pub mod namespace;
 pub mod personality;
 pub mod pg;
+pub mod pidfd;
 pub mod prctl;
 pub mod prlimit;
 pub mod rseq;
 pub mod rusage;
+pub mod seccomp;
 pub mod wait;
 
+pub use bpf::*;
 pub use cap::*;
 pub use clone::*;
 pub use cred::*;
 pub use exec::*;
 pub use exit::*;
 pub use fork::*;
+pub use namespace::*;
 pub use personality::*;
 pub use pg::*;
+pub use pidfd::*;
 pub use prctl::*;
 pub use prlimit::*;
 pub use rseq::*;
 pub use rusage::*;
+pub use seccomp::*;
 pub use wait::*;

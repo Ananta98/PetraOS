@@ -15,6 +15,31 @@
 /// console. Very slow under QEMU, so it is off by default.
 pub const TRACE_SYSCALLS: bool = false;
 
+/// Returns whether `sys_no` is a standard capability probe from modern glibc or systemd.
+///
+/// Cleanly returning `ENOSYS` without emitting noisy error diagnostics prevents serial
+/// console log flooding while userspace takes its graceful fallback path.
+pub const fn is_benign_probe(sys_no: usize) -> bool {
+    matches!(
+        sys_no,
+        167 // swapon
+        | 168 // swapoff
+        | 272 // unshare
+        | 308 // setns
+        | 317 // seccomp
+        | 321 // bpf
+        | 323 // userfaultfd
+        | 334 // rseq
+        | 424 // pidfd_send_signal
+        | 425 // io_uring_setup
+        | 426 // io_uring_enter
+        | 427 // io_uring_register
+        | 434 // pidfd_open
+        | 437 // openat2
+        | 438 // pidfd_getfd
+    )
+}
+
 pub mod arch;
 pub mod fs;
 pub mod ipc;
@@ -151,7 +176,9 @@ macro_rules! impl_syscall_nums_and_dispatch_fn {
                     $num => $crate::invoke_syscall_handler!($($handler)::+, args, ctx $(, $arg_ty)*),
                 )*
                 _ => {
-                    ostd::error!("Unsupported syscall number: {sys_no}");
+                    if !$crate::syscall::is_benign_probe(sys_no) {
+                        ostd::warn!("Unsupported syscall number: {sys_no}");
+                    }
                     Err($crate::uapi::errno::Errno::ENOSYS)
                 }
             };
@@ -164,8 +191,8 @@ macro_rules! impl_syscall_nums_and_dispatch_fn {
                     val
                 }
                 Err(err) => {
-                    if err == $crate::uapi::errno::Errno::ENOSYS {
-                        ostd::error!("Syscall sys_{sys_no} returned ENOSYS!");
+                    if err == $crate::uapi::errno::Errno::ENOSYS && !$crate::syscall::is_benign_probe(sys_no) {
+                        ostd::warn!("Syscall sys_{sys_no} returned ENOSYS");
                     }
                     if $crate::syscall::TRACE_SYSCALLS && sys_no != 228 && sys_no != 96 {
                         ostd::info!("syscall: pid {} sys_{} -> Err({:?})", pid_val, sys_no, err);
