@@ -156,6 +156,15 @@ for lib in libc.so.6 libtinfo.so.6* libmount.so.1* libblkid.so.1* libselinux.so.
     cp -a "${ROOTFS_STAGING}/usr/lib64/"${lib} "${STAGING}/usr/lib64/"
 done
 
+# Locale support for glibc tools (prevent setlocale warnings)
+if [ -d "${ROOTFS_STAGING}/usr/lib/locale" ]; then
+    cp -a "${ROOTFS_STAGING}/usr/lib/locale" "${STAGING}/usr/lib/"
+fi
+if [ -d "${ROOTFS_STAGING}/usr/share/locale" ]; then
+    mkdir -p "${STAGING}/usr/share"
+    cp -a "${ROOTFS_STAGING}/usr/share/locale" "${STAGING}/usr/share/"
+fi
+
 # Stage optional prebuilt package layers if requested
 if [ -n "${PACKAGES}" ]; then
     echo "==> Staging prebuilt package layers into rootfs (${ROOTFS_STAGING})"
@@ -179,6 +188,11 @@ for target_dir in "${STAGING}" "${ROOTFS_STAGING}"; do
     chmod 1777 "${target_dir}/tmp" "${target_dir}/var/tmp"
     chmod 0750 "${target_dir}/root"
     install -m0755 "${SUPPORT_DIR}/init-amd64/init" "${target_dir}/init"
+
+    # Ensure C.utf8 and C.UTF-8 alias both exist for glibc setlocale
+    if [ -d "${target_dir}/usr/lib/locale/C.utf8" ]; then
+        ln -sfn C.utf8 "${target_dir}/usr/lib/locale/C.UTF-8"
+    fi
 done
 
 for target_dir in "${STAGING}" "${ROOTFS_STAGING}"; do
@@ -221,8 +235,8 @@ EOF
 
     cat > "${target_dir}/etc/environment" << 'EOF'
 CHARSET=UTF-8
-LANG=C.UTF-8
-LC_ALL=C.UTF-8
+LANG=C.utf8
+LC_ALL=C.utf8
 EOF
 
     printf '%s\n' "${PETRAOS_VERSION}" > "${target_dir}/etc/petraos-release"
@@ -246,8 +260,8 @@ export SHELL=/bin/bash
 export TERM=linux
 export XDG_CONFIG_HOME=/root/.config
 export CHARSET=UTF-8
-export LANG=C.UTF-8
-export LC_ALL=C.UTF-8
+export LANG=C.utf8
+export LC_ALL=C.utf8
 export PS1='petraos:\w# '
 alias ll='ls -la --color=auto'
 alias l='ls -lh'
@@ -269,8 +283,8 @@ export TERM=linux
 export HOME=/root
 export XDG_CONFIG_HOME=/root/.config
 export CHARSET=UTF-8
-export LANG=C.UTF-8
-export LC_ALL=C.UTF-8
+export LANG=C.utf8
+export LC_ALL=C.utf8
 alias ll='ls -la --color=auto'
 alias l='ls -lh'
 EOF

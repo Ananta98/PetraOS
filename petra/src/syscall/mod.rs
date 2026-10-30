@@ -13,7 +13,7 @@
 
 /// Set to `true` to log every syscall (and user page fault) to the serial
 /// console. Very slow under QEMU, so it is off by default.
-pub const TRACE_SYSCALLS: bool = true;
+pub const TRACE_SYSCALLS: bool = false;
 
 /// Returns whether `sys_no` is a standard capability probe from modern glibc or systemd.
 ///
