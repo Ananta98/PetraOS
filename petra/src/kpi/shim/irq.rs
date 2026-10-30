@@ -19,7 +19,7 @@ pub unsafe extern "C" fn linux_request_irq(
     name: *const c_char,
     dev_id: *mut c_void,
 ) -> c_int {
-    if name.is_null() {
+    if name.is_null() || (handler as usize) == 0 {
         return -14; // -EFAULT
     }
 

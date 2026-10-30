@@ -18,9 +18,6 @@ pub struct CFileOperationsAdapter {
     file: Mutex<LinuxFile>,
 }
 
-unsafe impl Send for CFileOperationsAdapter {}
-unsafe impl Sync for CFileOperationsAdapter {}
-
 impl CFileOperationsAdapter {
     pub fn new(fops: LinuxFileOperations) -> Self {
         Self {

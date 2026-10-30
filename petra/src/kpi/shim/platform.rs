@@ -21,9 +21,6 @@ pub struct CPlatformDriverAdapter {
     name: String,
 }
 
-unsafe impl Send for CPlatformDriverAdapter {}
-unsafe impl Sync for CPlatformDriverAdapter {}
-
 impl CPlatformDriverAdapter {
     pub fn new(c_driver: LinuxPlatformDriver) -> Self {
         let name = if !c_driver.name.is_null() {

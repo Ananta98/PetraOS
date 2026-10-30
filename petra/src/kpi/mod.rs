@@ -47,6 +47,7 @@ pub use self::printk::{
     EACCES, EAGAIN, EBUSY, EEXIST, EFAULT, EINVAL, EIO, ENODEV, ENOENT, ENOMEM, ENOSPC, ENOTTY,
     ENXIO, EPERM,
 };
+pub use self::shim::{copy_from_user_slice, copy_to_user_slice};
 
 use crate::uapi::errno::Result;
 

@@ -16,4 +16,4 @@ pub use cdev::{CFileOperationsAdapter, linux_register_chrdev};
 pub use irq::{linux_free_irq, linux_request_irq, LinuxIrqHandler};
 pub use platform::{linux_platform_driver_register, CPlatformDriverAdapter};
 pub use types::*;
-pub use uaccess::{copy_from_user, copy_to_user};
+pub use uaccess::{copy_from_user, copy_from_user_slice, copy_to_user, copy_to_user_slice};

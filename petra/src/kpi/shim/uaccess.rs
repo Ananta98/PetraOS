@@ -8,7 +8,34 @@
 use core::ffi::c_ulong;
 
 use crate::proc::Thread;
+use crate::uapi::errno::{Errno, Result};
 use crate::utils::userspace::UserPtr;
+
+/// Safely copies `dst.len()` bytes from userspace virtual address `user_addr` into `dst`.
+///
+/// Guaranteed memory-safe and cannot panic on unmapped addresses or overwrite kernel memory.
+pub fn copy_from_user_slice(dst: &mut [u8], user_addr: usize) -> Result<()> {
+    if dst.is_empty() {
+        return Ok(());
+    }
+    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let vmar = proc.vmspace.lock().clone();
+    let user_ptr = UserPtr::new(user_addr);
+    user_ptr.read_bytes(&vmar, dst)
+}
+
+/// Safely copies `src.len()` bytes from `src` into userspace virtual address `user_addr`.
+///
+/// Guaranteed memory-safe and cannot panic on unmapped addresses or overwrite kernel memory.
+pub fn copy_to_user_slice(user_addr: usize, src: &[u8]) -> Result<()> {
+    if src.is_empty() {
+        return Ok(());
+    }
+    let proc = Thread::current_proc().ok_or(Errno::ESRCH)?;
+    let vmar = proc.vmspace.lock().clone();
+    let user_ptr = UserPtr::new(user_addr);
+    user_ptr.write_bytes(&vmar, src)
+}
 
 /// Linux `copy_from_user`: copies from user-space memory into kernel buffer.
 /// Returns the number of uncopied bytes (0 on full success).
@@ -17,16 +44,11 @@ pub unsafe fn copy_from_user(to: *mut u8, from: *const u8, n: usize) -> c_ulong 
         return n as c_ulong;
     }
 
-    if let Some(proc) = Thread::current_proc() {
-        let vmar = proc.vmspace.lock().clone();
-        let user_ptr = UserPtr::new(from as usize);
-        let dst_slice = unsafe { core::slice::from_raw_parts_mut(to, n) };
-        if user_ptr.read_bytes(&vmar, dst_slice).is_ok() {
-            return 0;
-        }
+    let dst_slice = unsafe { core::slice::from_raw_parts_mut(to, n) };
+    match copy_from_user_slice(dst_slice, from as usize) {
+        Ok(()) => 0,
+        Err(_) => n as c_ulong,
     }
-
-    n as c_ulong
 }
 
 /// Linux `copy_to_user`: copies from kernel buffer into user-space memory.
@@ -36,16 +58,11 @@ pub unsafe fn copy_to_user(to: *mut u8, from: *const u8, n: usize) -> c_ulong {
         return n as c_ulong;
     }
 
-    if let Some(proc) = Thread::current_proc() {
-        let vmar = proc.vmspace.lock().clone();
-        let user_ptr = UserPtr::new(to as usize);
-        let src_slice = unsafe { core::slice::from_raw_parts(from, n) };
-        if user_ptr.write_bytes(&vmar, src_slice).is_ok() {
-            return 0;
-        }
+    let src_slice = unsafe { core::slice::from_raw_parts(from, n) };
+    match copy_to_user_slice(to as usize, src_slice) {
+        Ok(()) => 0,
+        Err(_) => n as c_ulong,
     }
-
-    n as c_ulong
 }
 
 #[cfg(ktest)]
@@ -63,6 +80,12 @@ mod tests {
         assert_eq!(unsafe { copy_to_user(core::ptr::null_mut(), buf.as_ptr(), 8) }, 8);
         assert_eq!(unsafe { copy_to_user(buf.as_mut_ptr(), core::ptr::null(), 8) }, 8);
         assert_eq!(unsafe { copy_to_user(buf.as_mut_ptr(), buf.as_ptr(), 0) }, 0);
+
+        // Test safe slice accessors with null/invalid address (should return error, not panic)
+        assert!(copy_from_user_slice(&mut buf, 0).is_err());
+        assert!(copy_to_user_slice(0, &buf).is_err());
+        assert!(copy_from_user_slice(&mut [], 0).is_ok());
+        assert!(copy_to_user_slice(0, &[]).is_ok());
     }
 }
 
