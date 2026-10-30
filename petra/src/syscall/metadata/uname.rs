@@ -5,7 +5,7 @@
 use ostd::arch::cpu::context::UserContext;
 
 use crate::{
-    fs::procfs::sys::get_hostname,
+    fs::procfs::sys::{get_domainname, get_hostname},
     proc::Thread,
     uapi::errno::Result,
     utils::UserPtr,
@@ -48,7 +48,8 @@ impl UtsName {
         copy_cstr(&mut uts.release, b"6.6.0-petraos");
         copy_cstr(&mut uts.version, b"#1 SMP PetraOS 0.1.0");
         copy_cstr(&mut uts.machine, b"x86_64");
-        copy_cstr(&mut uts.domainname, b"(none)");
+        let domainname = get_domainname();
+        copy_cstr(&mut uts.domainname, domainname.as_bytes());
 
         uts
     }

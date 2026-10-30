@@ -26,7 +26,7 @@ pub const AT_EMPTY_PATH: i32 = 0x1000;
 /// Resolves the starting PathNode for an *at system call.
 pub fn resolve_at_start(proc: &Arc<Proc>, dirfd: i32, path: &str) -> Result<PathNode> {
     if path.starts_with('/') {
-        return crate::fs::root();
+        return proc.root();
     }
     if dirfd == AT_FDCWD {
         return proc.cwd();

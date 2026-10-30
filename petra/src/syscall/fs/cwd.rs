@@ -45,11 +45,11 @@ pub fn sys_chdir(path_ptr: usize, _ctx: &mut UserContext) -> Result<usize> {
     let path = UserCStr::new(path_ptr).read_string(&vmar, 4096)?;
 
     let start = if path.starts_with('/') {
-        crate::fs::root()?
+        proc.root()?
     } else {
         proc.cwd()?
     };
-    let root = crate::fs::root()?;
+    let root = proc.root()?;
     let path_node = crate::fs::lookup(root, start, &path, LookupFlags::DIRECTORY)?;
 
     let inode = path_node.dentry.get_inode().ok_or(Errno::ENOENT)?;

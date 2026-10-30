@@ -94,7 +94,10 @@ pub fn clone_proc(
         &comm,
     );
 
-    // FIX Bug 1: Inherit Current Working Directory
+    // FIX Bug 1: Inherit Current Working Directory & Root
+    if let Ok(caller_root) = caller_proc.root() {
+        child_proc.set_root(caller_root);
+    }
     if let Ok(caller_cwd) = caller_proc.cwd() {
         child_proc.set_cwd(caller_cwd);
     }

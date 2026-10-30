@@ -2,6 +2,7 @@
 
 pub mod access;
 pub mod attr;
+pub mod chroot;
 pub mod close;
 pub mod cwd;
 pub mod dup;
@@ -33,6 +34,7 @@ pub mod xattr;
 
 pub use access::*;
 pub use attr::*;
+pub use chroot::*;
 pub use close::*;
 pub use cwd::*;
 pub use dup::*;

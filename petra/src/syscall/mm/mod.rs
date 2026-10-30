@@ -3,6 +3,7 @@
 pub mod brk;
 pub mod madvise;
 pub mod mincore;
+pub mod mlock;
 pub mod mmap;
 pub mod mprotect;
 pub mod mremap;
@@ -12,6 +13,7 @@ pub mod munmap;
 pub use brk::*;
 pub use madvise::*;
 pub use mincore::*;
+pub use mlock::*;
 pub use mmap::*;
 pub use mprotect::*;
 pub use mremap::*;

@@ -220,6 +220,8 @@ pub struct Proc {
     pub sigacts: Arc<SpinLock<SigActs>>,
     /// Process-wide pending signal queue.
     pub sigqueue: SigQueue,
+    /// Process root directory (defaults to VFS root if not changed by chroot).
+    pub root: SpinLock<Option<PathNode>>,
     /// Current working directory.
     pub cwd: SpinLock<Option<PathNode>>,
     /// WaitQueue for threads of this process stopped by job control signals.
@@ -295,6 +297,7 @@ impl Proc {
             limit: SpinLock::new(limit),
             sigacts,
             sigqueue: SigQueue::new(),
+            root: SpinLock::new(None),
             cwd: SpinLock::new(None),
             stop_queue: WaitQueue::new(),
             child_waitq: WaitQueue::new(),
@@ -408,6 +411,23 @@ impl Proc {
             .exe_path
             .clone()
             .unwrap_or_else(|| self.comm_name())
+    }
+
+    /// Returns process root directory, defaulting to VFS root if not yet set.
+    /// The first resolution is cached so later calls just clone it.
+    pub fn root(&self) -> Result<PathNode> {
+        let mut slot = self.root.lock();
+        if let Some(cached) = slot.clone() {
+            return Ok(cached);
+        }
+        let root = crate::fs::root()?;
+        *slot = Some(root.clone());
+        Ok(root)
+    }
+
+    /// Sets the process root directory (for `chroot(2)`).
+    pub fn set_root(&self, node: PathNode) {
+        *self.root.lock() = Some(node);
     }
 
     /// Returns current working directory, defaulting to VFS root if not yet set.

@@ -17,7 +17,7 @@ use crate::{
     uapi::errno::Result,
 };
 
-pub use kernel::get_hostname;
+pub use kernel::{get_domainname, get_hostname, set_domainname, set_hostname};
 
 /// `/proc/sys` directory node operations: a pure table over subtrees.
 struct ProcSysDirOps;

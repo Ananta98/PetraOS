@@ -26,9 +26,13 @@ const PROC_SYS_KERNEL_INO_OSRELEASE: usize = 2011;
 const PROC_SYS_KERNEL_INO_OSTYPE: usize = 2012;
 const PROC_SYS_KERNEL_INO_VERSION: usize = 2013;
 const PROC_SYS_KERNEL_INO_PID_MAX: usize = 2014;
+const PROC_SYS_KERNEL_INO_DOMAINNAME: usize = 2015;
 
 /// Current hostname, `None` until user space sets one explicitly.
 static HOSTNAME: RwLock<Option<String>> = RwLock::new(None);
+
+/// Current domainname, `None` until user space sets one explicitly.
+static DOMAINNAME: RwLock<Option<String>> = RwLock::new(None);
 
 /// Retrieves the current system hostname (used by `uname(2)`).
 pub fn get_hostname() -> String {
@@ -39,8 +43,21 @@ pub fn get_hostname() -> String {
 }
 
 /// Sets the system hostname.
-fn set_hostname(name: String) {
+pub fn set_hostname(name: String) {
     *HOSTNAME.write() = Some(name);
+}
+
+/// Retrieves the current system domainname (used by `uname(2)`).
+pub fn get_domainname() -> String {
+    DOMAINNAME
+        .read()
+        .clone()
+        .unwrap_or_else(|| String::from("(none)"))
+}
+
+/// Sets the system domainname.
+pub fn set_domainname(name: String) {
+    *DOMAINNAME.write() = Some(name);
 }
 
 /// Read-write parameter file for `/proc/sys/kernel/hostname`.
@@ -65,6 +82,27 @@ impl ProcFileOps for HostnameFileOps {
     }
 }
 
+/// Read-write parameter file for `/proc/sys/kernel/domainname`.
+struct DomainnameFileOps;
+
+impl ProcFileOps for DomainnameFileOps {
+    fn generate_content(&self) -> Vec<u8> {
+        let mut s = get_domainname();
+        s.push('\n');
+        s.into_bytes()
+    }
+
+    fn write_content(&self, data: &[u8]) -> Result<()> {
+        if let Ok(text) = str::from_utf8(data) {
+            let trimmed = text.trim();
+            if !trimmed.is_empty() {
+                set_domainname(String::from(trimmed));
+            }
+        }
+        Ok(())
+    }
+}
+
 /// Directory node operations for `/proc/sys/kernel`.
 pub struct ProcSysKernelDirOps;
 
@@ -72,6 +110,7 @@ impl ProcDirOps for ProcSysKernelDirOps {
     fn lookup_child(&self, name: &str) -> Result<Arc<INode>> {
         match name {
             "hostname" => Ok(rw_file_node(HostnameFileOps, PROC_SYS_KERNEL_INO_HOSTNAME)),
+            "domainname" => Ok(rw_file_node(DomainnameFileOps, PROC_SYS_KERNEL_INO_DOMAINNAME)),
             "osrelease" => Ok(static_file_node(
                 b"6.6.0-silica\n",
                 PROC_SYS_KERNEL_INO_OSRELEASE,
@@ -87,7 +126,7 @@ impl ProcDirOps for ProcSysKernelDirOps {
     }
 
     fn list_entries(&self) -> Vec<String> {
-        ["hostname", "osrelease", "ostype", "version", "pid_max"]
+        ["hostname", "domainname", "osrelease", "ostype", "version", "pid_max"]
             .iter()
             .map(|s| String::from(*s))
             .collect()
