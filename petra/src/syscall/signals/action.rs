@@ -31,19 +31,13 @@ pub fn sys_rt_sigaction(
     let proc = Thread::proc_or_esrch()?;
     let vmar = proc.vmspace();
 
-    let mut new_action = if act_ptr == 0 {
+    let new_action = if act_ptr == 0 {
         None
     } else {
         let mut buf = [0u8; SIGACTION_LEN];
         UserPtr::new(act_ptr).read_bytes(&vmar, &mut buf)?;
         Some(decode_sigaction(&buf))
     };
-
-    if let Some(action) = new_action {
-        let mut action = action;
-        action.sa_restorer = 0;
-        new_action = Some(action);
-    }
 
     let old = {
         let mut sigacts = proc.sigacts.lock();

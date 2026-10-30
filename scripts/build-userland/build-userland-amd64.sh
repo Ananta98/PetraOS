@@ -102,7 +102,7 @@ if [ -n "${ROCKY_SHA256}" ] && [ "${actual_sha256}" != "${ROCKY_SHA256}" ]; then
     exit 1
 fi
 
-echo "==> Extracting Rocky Linux userland into ${STAGING}"
+echo "==> Extracting Rocky Linux rootfs into ${ROOTFS_STAGING}"
 chmod -R u+rwX "${STAGING}" "${ROOTFS_STAGING}" 2>/dev/null || true
 rm -rf "${STAGING}" "${ROOTFS_STAGING}"
 mkdir -p "${STAGING}" "${ROOTFS_STAGING}"
@@ -119,15 +119,42 @@ if [ -z "${LAYER_BLOB}" ] || [ ! -f "${LAYER_BLOB}" ]; then
     exit 1
 fi
 
-tar -xzf "${LAYER_BLOB}" -C "${STAGING}"
+tar -xzf "${LAYER_BLOB}" -C "${ROOTFS_STAGING}"
 chmod -R u+rwX "${TMP_EXTRACT}" 2>/dev/null || true
 rm -rf "${TMP_EXTRACT}"
 
-# Ensure read, write, and execute permissions across staging
-chmod -R u+rwX "${STAGING}" 2>/dev/null || true
+# Ensure read, write, and execute permissions across rootfs staging
+chmod -R u+rwX "${ROOTFS_STAGING}" 2>/dev/null || true
 
-# Seed the rootfs staging with base files
-cp -a "${STAGING}/." "${ROOTFS_STAGING}/"
+# Assemble lightweight initramfs staging (for fast memory boot)
+echo "==> Assembling lightweight initramfs staging in ${STAGING}"
+rm -rf "${STAGING}"
+mkdir -p "${STAGING}"/{usr/bin,usr/sbin,usr/lib64,usr/lib,dev/pts,dev/shm,proc,sys,tmp,run,root,mnt,sysroot,etc}
+ln -sfn usr/bin "${STAGING}/bin"
+ln -sfn usr/sbin "${STAGING}/sbin"
+ln -sfn usr/lib64 "${STAGING}/lib64"
+ln -sfn usr/lib "${STAGING}/lib"
+
+# Essential binaries for initramfs
+cp -a "${ROOTFS_STAGING}/usr/bin/bash" "${STAGING}/usr/bin/"
+ln -sfn bash "${STAGING}/usr/bin/sh"
+cp -a "${ROOTFS_STAGING}/usr/bin/mount" "${STAGING}/usr/bin/"
+cp -a "${ROOTFS_STAGING}/usr/bin/coreutils" "${STAGING}/usr/bin/"
+
+# Essential coreutils wrappers
+for tool in cat cut uname mkdir ln ls chroot echo true false sleep rm cp mv touch chmod; do
+    if [ -e "${ROOTFS_STAGING}/usr/bin/${tool}" ]; then
+        cp -a "${ROOTFS_STAGING}/usr/bin/${tool}" "${STAGING}/usr/bin/"
+    fi
+done
+
+# Dynamic loader
+cp -a "${ROOTFS_STAGING}/usr/lib64/ld-linux-x86-64.so.2" "${STAGING}/usr/lib64/"
+
+# Required shared libraries for initramfs tools
+for lib in libc.so.6 libtinfo.so.6* libmount.so.1* libblkid.so.1* libselinux.so.1* libpcre2-8.so.0* libacl.so.1* libattr.so.1* libcap.so.2*; do
+    cp -a "${ROOTFS_STAGING}/usr/lib64/"${lib} "${STAGING}/usr/lib64/"
+done
 
 # Stage optional prebuilt package layers if requested
 if [ -n "${PACKAGES}" ]; then

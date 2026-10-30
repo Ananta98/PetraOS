@@ -189,7 +189,13 @@ pub fn load_and_setup_full(
     // 3. Initialize process heap break (`brk`)
     vmar.init_brk(exec_info.brk_init);
 
-    // 4. Construct System V AMD64 ABI user stack
+    // 4. Map vDSO
+    let vdso_base = vmar.map_vdso().unwrap_or_else(|err| {
+        ostd::warn!("vDSO: failed to map into address space: {:?}", err);
+        0
+    });
+
+    // 5. Construct System V AMD64 ABI user stack
     let sp = setup_user_stack_full(
         &vmar,
         argv,
@@ -200,10 +206,11 @@ pub fn load_and_setup_full(
         exec_info.phent_size,
         exec_info.phnum,
         interp_base,
+        vdso_base,
         cred,
     )?;
 
-    // 5. Install signal trampoline once
+    // 6. Install signal trampoline once
     crate::arch::signal::install_trampoline(&vmar)?;
 
     Ok((vmar, exec_entry_point, sp))

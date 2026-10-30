@@ -12,7 +12,7 @@ use ostd::{
     arch::cpu::context::{CpuException, FsBase, UserContext},
     sync::SpinLock,
     task::{Task, TaskOptions},
-    user::{ReturnReason, UserMode, UserModeHooks},
+    user::{ReturnReason, UserContextApi, UserMode, UserModeHooks},
 };
 
 use super::signal::{QueuedSignal, SigQueue};
@@ -363,9 +363,14 @@ impl Thread {
             )
         };
         let on_stack = action.sa_flags & flags::SA_ONSTACK != 0;
+        let pretcode = if action.sa_flags & flags::SA_RESTORER != 0 && action.sa_restorer != 0 {
+            action.sa_restorer
+        } else {
+            sigframe::TRAMPOLINE_ADDR
+        };
 
         let frame_addr =
-            sigframe::build_frame(&vmar, &ctx, info, &saved_mask, &altstack, on_stack).ok()?;
+            sigframe::build_frame(&vmar, &ctx, info, &saved_mask, &altstack, on_stack, pretcode).ok()?;
 
         Some((
             frame_addr,
@@ -561,9 +566,18 @@ impl Thread {
             }
             other => {
                 let (sig, code) = signal_and_code_for_exception(&other);
+                let (rip, rsp) = self
+                    .inner
+                    .lock()
+                    .user_ctx
+                    .as_ref()
+                    .map(|c| (c.instruction_pointer(), c.stack_pointer()))
+                    .unwrap_or((0, 0));
                 ostd::error!(
-                    "Unhandled user CPU exception: pid {} {other:?} -> {sig} (code {code})",
-                    proc.pid
+                    "Unhandled user CPU exception: pid {} {other:?} -> {sig} (code {code}) at RIP={:#x} RSP={:#x}",
+                    proc.pid,
+                    rip,
+                    rsp,
                 );
                 self.deliver_signal(QueuedSignal {
                     info: SigInfo::kernel(sig, code),

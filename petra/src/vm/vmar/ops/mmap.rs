@@ -48,6 +48,60 @@ impl Vmar {
         self.mmap_inner(Some(Arc::clone(backing)), addr, len, prot, flags, offset)
     }
 
+    /// Maps the virtual Dynamic Shared Object (vDSO) and its associated `vvar` data page
+    /// into this address space.
+    ///
+    /// The `vvar` page is mapped read-only at `vdso_base - PAGE_SIZE`, while the `vdso` code
+    /// page is mapped read-exec at `vdso_base`. Both pages are immediately populated.
+    ///
+    /// Returns the virtual base address of the vDSO shared library (`vdso_base`).
+    pub fn map_vdso(&self) -> Result<Vaddr> {
+        #[cfg(target_arch = "x86_64")]
+        {
+            let (vvar_backing, vdso_backing) = crate::arch::vdso::get_backings()?;
+            let total_size = 2 * PAGE_SIZE;
+
+            let high_limit = {
+                let inner = self.inner.read();
+                inner.default_high_limit()
+            };
+
+            let free_range = {
+                let inner = self.inner.read();
+                inner
+                    .find_free_region(total_size, high_limit)
+                    .map_err(|_| crate::uapi::errno::Errno::ENOMEM)?
+            };
+
+            let vvar_addr = free_range.start;
+            let vdso_addr = vvar_addr + PAGE_SIZE;
+
+            self.mmap_backed(
+                &vvar_backing,
+                vvar_addr,
+                PAGE_SIZE,
+                VmPerms::READ,
+                MmapFlags::PRIVATE | MmapFlags::FIXED | MmapFlags::POPULATE,
+                0,
+            )?;
+
+            self.mmap_backed(
+                &vdso_backing,
+                vdso_addr,
+                PAGE_SIZE,
+                VmPerms::READ | VmPerms::EXEC,
+                MmapFlags::PRIVATE | MmapFlags::FIXED | MmapFlags::POPULATE,
+                0,
+            )?;
+
+            Ok(vdso_addr)
+        }
+        #[cfg(not(target_arch = "x86_64"))]
+        {
+            crate::return_errno!(ENOSYS, "vDSO is only supported on x86_64");
+        }
+    }
+
     /// The body of `mmap(2)`, shared by both wrappers above.
     fn mmap_inner(
         &self,

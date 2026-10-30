@@ -261,11 +261,36 @@ pub fn get_boot_epoch_secs() -> u64 {
 /// Sets the boot epoch timestamp in seconds.
 pub fn set_boot_epoch_secs(epoch: u64) {
     BOOT_EPOCH_SECS.store(epoch, Ordering::Relaxed);
+    sync_vdso_time();
 }
 
 /// Adjusts the real-time wall clock offset in nanoseconds.
 pub fn adjust_realtime_offset(delta_ns: i64) {
     REALTIME_OFFSET_NS.fetch_add(delta_ns, Ordering::Relaxed);
+    sync_vdso_time();
+}
+
+/// Synchronizes the global vDSO shared data page with current kernel timekeeping parameters.
+pub fn sync_vdso_time() {
+    #[cfg(target_arch = "x86_64")]
+    {
+        let tsc_freq = ostd::arch::tsc_freq();
+        if tsc_freq > 1_000_000 {
+            let (mult, shift) = clocksource::calc_mult_shift(tsc_freq);
+            let real_ns = get_realtime_ns();
+            let mono_ns = get_monotonic_ns();
+            crate::arch::vdso::update_time(
+                crate::arch::vdso::VCLOCK_TSC,
+                ostd::arch::read_tsc(),
+                mult,
+                shift,
+                real_ns / 1_000_000_000,
+                real_ns % 1_000_000_000,
+                mono_ns / 1_000_000_000,
+                mono_ns % 1_000_000_000,
+            );
+        }
+    }
 }
 
 /// Returns the current monotonic time in nanoseconds since boot.
@@ -402,6 +427,9 @@ pub fn init() -> Result<()> {
 
     // 3. Register periodic cycle accumulator on timer tick
     ostd::timer::register_callback_on_cpu(clocksource::accumulate_cycles);
+
+    // 4. Synchronize vDSO timekeeping page
+    sync_vdso_time();
 
     ostd::info!(
         "Time: Active clocksource '{}' (high-res: {})",

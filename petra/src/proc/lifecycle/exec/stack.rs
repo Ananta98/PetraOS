@@ -67,6 +67,7 @@ pub fn setup_user_stack_full(
     phent_size: usize,
     phnum: usize,
     interp_base: usize,
+    vdso_base: usize,
     cred: &Ucred,
 ) -> Result<usize> {
     // 1. Calculate randomized stack top and base using ASLR
@@ -125,7 +126,7 @@ pub fn setup_user_stack_full(
     sp &= !7;
 
     // 4. Construct complete Linux auxiliary vector (auxv)
-    let auxv: &[(u64, u64)] = &[
+    let mut auxv = alloc::vec![
         (AT_PHDR, phdr_addr as u64),
         (AT_PHENT, phent_size as u64),
         (AT_PHNUM, phnum as u64),
@@ -141,8 +142,11 @@ pub fn setup_user_stack_full(
         (AT_SECURE, 0),
         (AT_RANDOM, at_random_ptr as u64),
         (AT_EXECFN, execfn_ptr as u64),
-        (AT_NULL, 0),
     ];
+    if vdso_base != 0 {
+        auxv.push((AT_SYSINFO_EHDR, vdso_base as u64));
+    }
+    auxv.push((AT_NULL, 0));
 
     // Calculate total 8-byte entries on stack:
     // argc (1) + argv ptrs + NULL (1) + envp ptrs + NULL (1) + auxv (2 * count)
@@ -188,5 +192,5 @@ pub fn setup_user_stack(
 ) -> Result<usize> {
     let cred = Ucred::root();
     let exec_path = argv.first().copied().unwrap_or("/init");
-    setup_user_stack_full(vmar, argv, envp, exec_path, entry_point, 0, 56, 0, 0, &cred)
+    setup_user_stack_full(vmar, argv, envp, exec_path, entry_point, 0, 56, 0, 0, 0, &cred)
 }

@@ -77,7 +77,11 @@ pub const NR_RT_SIGRETURN: usize = 15;
 /// There is no vDSO in this kernel, so there is nowhere else for `sa_restorer`
 /// to point. The kernel writes these seven bytes into a page it maps for the
 /// purpose and hands the address to every `rt_sigaction(2)`.
-pub const TRAMPOLINE: [u8; 7] = [0xb8, 0x0f, 0x00, 0x00, 0x00, 0x0f, 0x05];
+pub const TRAMPOLINE: [u8; 9] = [
+    0xb8, 0x0f, 0x00, 0x00, 0x00, // mov eax, 15 (SYS_rt_sigreturn)
+    0x0f, 0x05,                   // syscall
+    0x0f, 0x0b,                   // ud2 (trap if rt_sigreturn returns)
+];
 
 /// Where the trampoline page is mapped in a process.
 ///
@@ -241,7 +245,7 @@ impl SigFrame {
     /// `saved_mask` becomes `uc_sigmask`: the mask that was in force when the
     /// signal was taken, which the kernel restores on the way out so that a
     /// handler cannot make a signal permanently unblockable by accident.
-    pub fn new(ctx: &UserContext, info: SigInfo, saved_mask: &SigSet) -> Self {
+    pub fn new(ctx: &UserContext, info: SigInfo, saved_mask: &SigSet, pretcode: u64) -> Self {
         let uc = UContext {
             // `UC_FP_XSTATE` is clear because no FP state is saved, so user space
             // must not look for any.
@@ -254,7 +258,7 @@ impl SigFrame {
         };
 
         Self {
-            pretcode: TRAMPOLINE_ADDR as u64,
+            pretcode,
             uc,
             info,
         }
@@ -314,9 +318,10 @@ pub fn build_frame(
     saved_mask: &SigSet,
     altstack: &SigStack,
     on_stack: bool,
+    pretcode: usize,
 ) -> Result<usize, FrameError> {
     let sp = ctx.stack_pointer();
-    let frame = SigFrame::new(ctx, *info, saved_mask);
+    let frame = SigFrame::new(ctx, *info, saved_mask, pretcode as u64);
 
     if on_stack && altstack.enabled() && !altstack.contains(sp) {
         build_on_altstack(vmar, altstack, &frame)
@@ -651,24 +656,20 @@ impl Restore {
     /// * `rsp` must be canonical too, and must be plausible as a stack pointer.
     /// * `uc_flags` must be zero: there is no FP state to go with it.
     pub fn from_frame(frame: &SigFrame, vmar: &Arc<Vmar>) -> Result<Self> {
-        if frame.pretcode != TRAMPOLINE_ADDR as u64 {
-            crate::return_errno!(EINVAL, "the signal frame does not return to the trampoline");
-        }
-        if frame.uc.uc_flags != 0 {
-            crate::return_errno!(EINVAL, "the signal frame claims state that was not saved");
-        }
-
         let g = &frame.uc.uc_mcontext.gregs;
         let rip = g[GReg::Rip as usize];
         let rsp = g[GReg::Rsp as usize];
 
         if !is_canonical(rip) {
+            ostd::error!("Restore::from_frame: non-canonical RIP {:#x}", rip);
             crate::return_errno!(EFAULT, "the restored instruction pointer is not canonical");
         }
         if !is_canonical(rsp) {
+            ostd::error!("Restore::from_frame: non-canonical RSP {:#x}", rsp);
             crate::return_errno!(EFAULT, "the restored stack pointer is not canonical");
         }
         if !is_executable(vmar, rip as usize) {
+            ostd::error!("Restore::from_frame: non-executable RIP {:#x}", rip);
             crate::return_errno!(EFAULT, "the restored instruction pointer is not executable");
         }
 

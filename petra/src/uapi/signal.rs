@@ -388,6 +388,8 @@ pub mod flags {
     pub const SA_SIGINFO: u32 = 0x0000_0004;
     /// Run the handler on the alternate signal stack (`sigaltstack`).
     pub const SA_ONSTACK: u32 = 0x0800_0000;
+    /// Restorer function supplied by libc.
+    pub const SA_RESTORER: u32 = 0x0400_0000;
     /// Restart an interrupted syscall instead of reporting `EINTR`.
     pub const SA_RESTART: u32 = 0x1000_0000;
     /// Do not block `sig` itself while its handler runs.

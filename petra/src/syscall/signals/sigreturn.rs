@@ -16,10 +16,14 @@ pub fn sys_rt_sigreturn(ctx: &mut UserContext) -> Result<usize> {
     {
         let inner = td.inner.lock();
         if !inner.flags.contains(ThreadFlags::IN_HANDLER) {
+            ostd::error!("sys_rt_sigreturn: not IN_HANDLER (tid {})", td.tid);
             return Err(Errno::EFAULT);
         }
     }
 
-    td.return_from_handler(ctx)?;
+    if let Err(err) = td.return_from_handler(ctx) {
+        ostd::error!("sys_rt_sigreturn: return_from_handler failed: {:?}", err);
+        return Err(err);
+    }
     Ok(0)
 }

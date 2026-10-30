@@ -39,6 +39,11 @@ elif [ ! -f "${INITRAMFS}" ]; then
     exit 1
 fi
 
+if [ -f "${SCRIPT_DIR}/build-support/vdso/build-vdso.sh" ]; then
+    echo "==> Building the vDSO shared library"
+    "${SCRIPT_DIR}/build-support/vdso/build-vdso.sh"
+fi
+
 echo "==> Building the petra kernel"
 (cd "${REPO_ROOT}" && cargo osdk build)
 
