@@ -362,14 +362,7 @@ configure_target_tree() {
     chmod 1777 "${target_dir}/tmp" "${target_dir}/var/tmp"
     chmod 0750 "${target_dir}/root"
 
-    install -m 0755 "${SUPPORT_DIR}/init-amd64/init" "${target_dir}/init"
-
-    if [ -f "${SUPPORT_DIR}/petraos-logo.txt" ]; then
-        install -m 0644 "${SUPPORT_DIR}/petraos-logo.txt" "${target_dir}/etc/fastfetch/petraos.txt"
-    fi
-    if [ -f "${SUPPORT_DIR}/fastfetch.jsonc" ]; then
-        install -m 0644 "${SUPPORT_DIR}/fastfetch.jsonc" "${target_dir}/root/.config/fastfetch/config.jsonc"
-    fi
+    install -m 0755 "${SUPPORT_DIR}/init" "${target_dir}/init"
 
     if [ -d "${target_dir}/usr/lib/locale/C.utf8" ]; then
         ln -sfn C.utf8 "${target_dir}/usr/lib/locale/C.UTF-8"
