@@ -121,6 +121,11 @@ pub trait FileOps: Send + Sync {
         None
     }
 
+    /// Return the underlying io_uring instance if this file represents an io_uring descriptor.
+    fn as_io_uring(&self) -> Option<Arc<crate::fs::io_uring::IoUringInstance>> {
+        None
+    }
+
     /// Return the underlying memfd if this file represents a memfd descriptor.
     fn as_memfd(&self) -> Option<Arc<crate::fs::fd::MemFd>> {
         None
@@ -327,6 +332,11 @@ impl File {
     /// Return the underlying epoll instance if this file represents an epoll descriptor.
     pub fn as_epoll(&self) -> Option<Arc<crate::fs::epoll::EpollInstance>> {
         self.ops.as_epoll()
+    }
+
+    /// Return the underlying io_uring instance if this file represents an io_uring descriptor.
+    pub fn as_io_uring(&self) -> Option<Arc<crate::fs::io_uring::IoUringInstance>> {
+        self.ops.as_io_uring()
     }
 
     /// Return the underlying memfd if this file represents a memfd descriptor.

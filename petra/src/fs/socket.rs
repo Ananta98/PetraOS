@@ -48,12 +48,12 @@ impl FileOps for SocketFileOps {
 
     fn poll(&self) -> PollEvents {
         let mut events = PollEvents::empty();
-        let mut net = NET_MANAGER.lock();
-        net.poll();
-
         let kind = self.socket.kind.lock().clone();
+
         match kind {
             SocketKind::Tcp(handle) => {
+                let mut net = NET_MANAGER.lock();
+                net.poll();
                 let Some(s) = net.try_get_socket_mut::<TcpSocket>(handle) else {
                     return PollEvents::ERR | PollEvents::HUP;
                 };
@@ -75,6 +75,8 @@ impl FileOps for SocketFileOps {
                 }
             }
             SocketKind::Udp(handle) => {
+                let mut net = NET_MANAGER.lock();
+                net.poll();
                 let Some(s) = net.try_get_socket_mut::<UdpSocket>(handle) else {
                     return PollEvents::ERR | PollEvents::HUP;
                 };

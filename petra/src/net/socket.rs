@@ -2,8 +2,8 @@
 
 //! UNIX Socket Abstraction wrapping smoltcp Sockets, Unix domain sockets, and Netlink sockets.
 
-use alloc::{collections::VecDeque, string::String, sync::Arc};
-use ostd::{sync::WaitQueue, task::Task};
+use alloc::{boxed::Box, collections::VecDeque, string::String, sync::Arc};
+use ostd::{sync::WaitQueue, sync::Waiter, task::Task};
 use smoltcp::{
     iface::SocketHandle,
     socket::{tcp::Socket as TcpSocket, tcp::State as TcpState, udp::Socket as UdpSocket},
@@ -135,6 +135,27 @@ pub struct KernelSocket {
     pub local_addr: Mutex<Option<SocketAddress>>,
     pub remote_addr: Mutex<Option<SocketAddress>>,
     pub peer_cred: Mutex<Option<crate::uapi::cred::PeerCred>>,
+}
+
+fn sleep_socket_waiter() {
+    let (waiter, _) = Waiter::new_pair();
+    let waker = waiter.waker();
+    let ktimer = crate::kpi::time::arm(
+        core::time::Duration::from_millis(5),
+        Some(Box::new(move || {
+            waker.wake_up();
+        })),
+    );
+    crate::fs::poll::waitq().enqueue(waiter.waker());
+    let cancel = || {
+        if crate::proc::thread::Thread::should_interrupt() {
+            Err(Errno::EINTR)
+        } else {
+            Ok(())
+        }
+    };
+    let _ = waiter.wait_until_or_cancelled(|| None::<()>, cancel);
+    ktimer.cancel();
 }
 
 impl KernelSocket {
@@ -673,7 +694,7 @@ impl KernelSocket {
                 }
 
                 drop(net);
-                Task::yield_now();
+                sleep_socket_waiter();
             },
             SocketKind::Udp(handle) => {
                 let remote = self.remote_endpoint.lock().ok_or(Errno::EDESTADDRREQ)?;
@@ -822,7 +843,7 @@ impl KernelSocket {
                 }
 
                 drop(net);
-                Task::yield_now();
+                sleep_socket_waiter();
             },
             SocketKind::Udp(handle) => loop {
                 let mut net = NET_MANAGER.lock();
@@ -854,7 +875,7 @@ impl KernelSocket {
                 }
 
                 drop(net);
-                Task::yield_now();
+                sleep_socket_waiter();
             },
             SocketKind::Unix(ref end) => {
                 if buf.is_empty() {
@@ -1017,7 +1038,7 @@ impl KernelSocket {
                 }
 
                 drop(net);
-                Task::yield_now();
+                sleep_socket_waiter();
             },
             SocketKind::UnixDgram(ref dgram) => loop {
                 let mut rx = dgram.rx_queue.lock();
@@ -1244,6 +1265,7 @@ impl KernelSocket {
                     net.poll();
                     net.remove_socket(handle);
                 }
+                crate::fs::poll::notify();
             }
             SocketKind::Udp(handle) => {
                 let mut net = NET_MANAGER.lock();
@@ -1252,6 +1274,7 @@ impl KernelSocket {
                     net.poll();
                     net.remove_socket(handle);
                 }
+                crate::fs::poll::notify();
             }
             SocketKind::Unix(ref end) => {
                 *end.tx.closed.lock() = true;
@@ -1262,12 +1285,15 @@ impl KernelSocket {
             }
             SocketKind::UnixListener(ref listener) => {
                 listener.wq.wake_all();
+                crate::fs::poll::notify();
             }
             SocketKind::UnixDgram(ref dgram) => {
                 dgram.wq.wake_all();
+                crate::fs::poll::notify();
             }
             SocketKind::Netlink(ref state) => {
                 state.wq.wake_all();
+                crate::fs::poll::notify();
             }
             SocketKind::UnixUnconnected { .. } => {}
         }

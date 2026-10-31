@@ -7,6 +7,7 @@
 //! and integration with the kernel wait queues and `poll(2)` subsystem.
 
 use alloc::{boxed::Box, sync::Arc, vec::Vec};
+use ostd::sync::WaitQueue;
 use spin::Mutex;
 
 use crate::{
@@ -64,6 +65,8 @@ pub struct EpollItem {
 /// The core epoll instance maintaining an interest list of registered descriptors.
 pub struct EpollInstance {
     items: Mutex<Vec<EpollItem>>,
+    /// Dedicated wait queue for threads waiting on this epoll instance.
+    pub wait_queue: WaitQueue,
 }
 
 impl EpollInstance {
@@ -71,6 +74,7 @@ impl EpollInstance {
     pub fn new() -> Self {
         Self {
             items: Mutex::new(Vec::new()),
+            wait_queue: WaitQueue::new(),
         }
     }
 
@@ -88,6 +92,7 @@ impl EpollInstance {
             disabled: false,
             last_poll: 0,
         });
+        self.wait_queue.wake_all();
         crate::fs::poll::notify();
         Ok(())
     }
@@ -100,6 +105,7 @@ impl EpollInstance {
             item.data = data;
             item.disabled = false;
             item.last_poll = 0;
+            self.wait_queue.wake_all();
             crate::fs::poll::notify();
             Ok(())
         } else {
@@ -113,18 +119,38 @@ impl EpollInstance {
         let len_before = items.len();
         items.retain(|item| item.fd != fd);
         if items.len() < len_before {
+            self.wait_queue.wake_all();
             Ok(())
         } else {
             Err(Errno::ENOENT)
         }
     }
 
+    /// Notifies waiters on this epoll instance.
+    ///
+    /// If `exclusive` is true (e.g. `EPOLLEXCLUSIVE`), wakes a single waiter
+    /// to mitigate thundering herd latency spikes in multi-worker architectures.
+    pub fn notify_waiters(&self, exclusive: bool) {
+        if exclusive {
+            self.wait_queue.wake_one();
+        } else {
+            self.wait_queue.wake_all();
+        }
+    }
+
     /// Scans the interest list for ready events, writing them into `out`.
     ///
-    /// Supports level-triggered, edge-triggered (`EPOLLET`), and `EPOLLONESHOT`.
-    pub fn scan_ready(&self, out: &mut [EpollEvent]) -> usize {
+    /// Supports level-triggered, edge-triggered (`EPOLLET`), `EPOLLEXCLUSIVE`,
+    /// and `EPOLLONESHOT`. Returns the number of ready events and whether any
+    /// event was marked exclusive.
+    pub fn scan_ready_exclusive(&self, out: &mut [EpollEvent]) -> (usize, bool) {
         let mut items = self.items.lock();
+        if items.is_empty() {
+            return (0, false);
+        }
+
         let mut count = 0;
+        let mut has_exclusive = false;
 
         for item in items.iter_mut() {
             if item.disabled {
@@ -141,6 +167,9 @@ impl EpollInstance {
                     item.last_poll = matched;
                     if (item.events & EPOLLONESHOT) != 0 {
                         item.disabled = true;
+                    }
+                    if (item.events & EPOLLEXCLUSIVE) != 0 {
+                        has_exclusive = true;
                     }
                     out[count] = EpollEvent {
                         events: matched,
@@ -160,6 +189,9 @@ impl EpollInstance {
                     if (item.events & EPOLLONESHOT) != 0 {
                         item.disabled = true;
                     }
+                    if (item.events & EPOLLEXCLUSIVE) != 0 {
+                        has_exclusive = true;
+                    }
                     out[count] = EpollEvent {
                         events: matched,
                         data: item.data,
@@ -172,6 +204,14 @@ impl EpollInstance {
             }
         }
 
+        (count, has_exclusive)
+    }
+
+    /// Scans the interest list for ready events, writing them into `out`.
+    ///
+    /// Supports level-triggered, edge-triggered (`EPOLLET`), and `EPOLLONESHOT`.
+    pub fn scan_ready(&self, out: &mut [EpollEvent]) -> usize {
+        let (count, _) = self.scan_ready_exclusive(out);
         count
     }
 
@@ -326,5 +366,22 @@ mod tests {
 
         // Subsequent scan returns 0 because oneshot disarmed
         assert_eq!(ep.scan_ready(&mut events), 0);
+    }
+
+    #[ktest]
+    fn epoll_exclusive_and_thundering_herd() {
+        let ep = EpollInstance::new();
+        let (rx, tx) = create_pipe(false);
+
+        ep.add(30, rx.clone(), EPOLLIN | EPOLLEXCLUSIVE, 0xcafe_babe)
+            .expect("epoll add exclusive");
+
+        tx.write(b"exclusive_data").expect("write pipe");
+
+        let mut events = [EpollEvent::default(); 4];
+        let (count, is_exclusive) = ep.scan_ready_exclusive(&mut events);
+        assert_eq!(count, 1);
+        assert!(is_exclusive);
+        assert_eq!(events[0].data, 0xcafe_babe);
     }
 }

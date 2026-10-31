@@ -103,12 +103,27 @@ fn write_epoll_events(
     ready_count: usize,
     vmar: &alloc::sync::Arc<crate::vm::Vmar>,
 ) -> Result<()> {
-    for (index, event) in ready_events.iter().take(ready_count).enumerate() {
-        let byte_offset = index * EPOLL_EVENT_SIZE;
-        let mut raw_bytes = [0u8; EPOLL_EVENT_SIZE];
-        raw_bytes[0..4].copy_from_slice(&event.events.to_ne_bytes());
-        raw_bytes[4..12].copy_from_slice(&event.data.to_ne_bytes());
-        UserPtr::new(events_ptr + byte_offset).write_bytes(vmar, &raw_bytes)?;
+    // Write ready events in batches using a stack buffer to minimize VMAR page-table lookups.
+    const BATCH_SIZE: usize = 32;
+    let mut raw_buf = [0u8; BATCH_SIZE * EPOLL_EVENT_SIZE];
+
+    let mut remaining = ready_count;
+    let mut offset_idx = 0;
+
+    while remaining > 0 {
+        let chunk = remaining.min(BATCH_SIZE);
+        for i in 0..chunk {
+            let event = &ready_events[offset_idx + i];
+            let byte_off = i * EPOLL_EVENT_SIZE;
+            raw_buf[byte_off..byte_off + 4].copy_from_slice(&event.events.to_ne_bytes());
+            raw_buf[byte_off + 4..byte_off + 12].copy_from_slice(&event.data.to_ne_bytes());
+        }
+        let total_bytes = chunk * EPOLL_EVENT_SIZE;
+        let dest_addr = events_ptr + offset_idx * EPOLL_EVENT_SIZE;
+        UserPtr::new(dest_addr).write_bytes(vmar, &raw_buf[..total_bytes])?;
+
+        offset_idx += chunk;
+        remaining -= chunk;
     }
     Ok(())
 }
@@ -132,7 +147,19 @@ fn execute_epoll_wait(
     let vmar = proc.vmspace();
 
     let max_capacity = maxevents as usize;
-    let mut ready_events = alloc::vec![EpollEvent::default(); max_capacity];
+
+    // Fast-path small-buffer optimization on the stack to eliminate dynamic heap
+    // allocation overhead for common poll/wait sizes (<= 64 events).
+    const STACK_CAPACITY: usize = 64;
+    let mut stack_events = [EpollEvent::default(); STACK_CAPACITY];
+    let mut heap_events = alloc::vec::Vec::new();
+
+    let ready_events: &mut [EpollEvent] = if max_capacity <= STACK_CAPACITY {
+        &mut stack_events[..max_capacity]
+    } else {
+        heap_events.resize(max_capacity, EpollEvent::default());
+        heap_events.as_mut_slice()
+    };
 
     let (waiter, _) = ostd::sync::Waiter::new_pair();
     let ktimer = if let Some(ref dl) = deadline {
@@ -148,13 +175,16 @@ fn execute_epoll_wait(
         None
     };
 
+    let mut found_exclusive = false;
     let cond = || {
-        let ready_count = epoll.scan_ready(&mut ready_events);
+        let (ready_count, is_exclusive) = epoll.scan_ready_exclusive(ready_events);
         if ready_count > 0 {
+            found_exclusive = is_exclusive;
             Some(ready_count)
         } else if deadline.as_ref().is_some_and(|d| d.expired()) {
             Some(0)
         } else {
+            epoll.wait_queue.enqueue(waiter.waker());
             crate::fs::poll::waitq().enqueue(waiter.waker());
             None
         }
@@ -176,7 +206,13 @@ fn execute_epoll_wait(
     match res {
         Ok(ready_count) => {
             if ready_count > 0 {
-                write_epoll_events(events_ptr, &ready_events, ready_count, &vmar)?;
+                // If there are other waiting threads on this epoll instance and
+                // this event was not exclusively claimed, notify them. If it was
+                // exclusive, only this thread consumed it.
+                if !found_exclusive && ready_count < max_capacity {
+                    epoll.notify_waiters(false);
+                }
+                write_epoll_events(events_ptr, ready_events, ready_count, &vmar)?;
             }
             Ok(ready_count)
         }

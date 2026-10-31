@@ -115,6 +115,23 @@ impl NvmeQueuePair {
         })
     }
 
+    /// Submits a batch of SQEs to the queue and rings the doorbell once.
+    pub fn submit_batch(&mut self, sqes: &[NvmeSqe], mmio: &IoMem) -> Result<alloc::vec::Vec<u16>> {
+        let mut cids = alloc::vec::Vec::with_capacity(sqes.len());
+        for sqe in sqes {
+            let mut s = *sqe;
+            let cid = self.next_cid();
+            s.cdw0 = (s.cdw0 & 0x0000_FFFF) | ((cid as u32) << 16);
+            self.write_sqe(self.sq_tail as usize, &s)?;
+            self.sq_tail = (self.sq_tail + 1) % self.qsize;
+            cids.push(cid);
+        }
+        let sq_tail_val = self.sq_tail as u32;
+        mmio.write_once(self.sq_doorbell, &sq_tail_val)
+            .map_err(|_| Errno::EIO)?;
+        Ok(cids)
+    }
+
     /// Submits an SQE, rings the submission doorbell, and polls for completion.
     pub fn submit_and_wait(&mut self, mut sqe: NvmeSqe, mmio: &IoMem) -> Result<NvmeCqe> {
         let cid = self.next_cid();

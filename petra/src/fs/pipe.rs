@@ -194,13 +194,15 @@ impl FileOps for PipeEnd {
                     ev |= PollEvents::IN | PollEvents::RDNORM;
                 }
                 if st.writers == 0 {
-                    ev |= PollEvents::HUP;
+                    // POSIX / Linux: when all write ends are closed, read() returns 0 (EOF)
+                    // immediately without blocking, so IN | RDNORM must be set alongside HUP.
+                    ev |= PollEvents::IN | PollEvents::RDNORM | PollEvents::HUP;
                 }
             }
             End::Write => {
                 if st.readers == 0 {
-                    ev |= PollEvents::ERR;
-                } else if PIPE_CAPACITY - st.buf.len() >= PIPE_BUF {
+                    ev |= PollEvents::ERR | PollEvents::HUP;
+                } else if PIPE_CAPACITY.saturating_sub(st.buf.len()) > 0 {
                     ev |= PollEvents::OUT | PollEvents::WRNORM;
                 }
             }
