@@ -279,8 +279,8 @@ pub fn sync_vdso_time() {
             let (mult, shift) = clocksource::calc_mult_shift(tsc_freq);
             let real_ns = get_realtime_ns();
             let mono_ns = get_monotonic_ns();
-            crate::arch::vdso::update_time(
-                crate::arch::vdso::VCLOCK_TSC,
+            crate::vdso::update_time(
+                crate::vdso::VCLOCK_TSC,
                 ostd::arch::read_tsc(),
                 mult,
                 shift,

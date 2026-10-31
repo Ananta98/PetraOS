@@ -5,7 +5,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-TARGET_DIR="${REPO_ROOT}/petra/src/arch/x86_64/vdso"
+TARGET_DIR="${REPO_ROOT}/petra/src/vdso"
 
 VDSO_URL="https://raw.githubusercontent.com/asterinas/linux_vdso/main/vdso_x86_64.so"
 

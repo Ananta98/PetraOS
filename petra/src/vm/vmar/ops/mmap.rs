@@ -59,12 +59,12 @@ impl Vmar {
     pub fn map_vdso(&self) -> Result<Vaddr> {
         #[cfg(target_arch = "x86_64")]
         {
-            use crate::arch::vdso::{
+            use crate::vdso::{
                 SingleFrameBacking, VDSO_DATA_SEGMENT_OFFSET, VDSO_DATA_SEGMENT_SIZE,
                 VDSO_TEXT_SEGMENT_OFFSET, VDSO_TEXT_SEGMENT_SIZE, VDSO_TOTAL_SIZE,
             };
 
-            let (vvar_backing, vdso_backing) = crate::arch::vdso::get_backings()?;
+            let (vvar_backing, vdso_backing) = crate::vdso::get_backings()?;
             let total_size = VDSO_TOTAL_SIZE;
 
             let high_limit = {

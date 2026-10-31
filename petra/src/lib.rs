@@ -18,6 +18,7 @@
 //! - [`proc`]: processes, threads, and their lifecycle.
 //! - [`sched`]: task scheduling.
 //! - [`syscall`]: the system call table and dispatch.
+//! - [`vdso`]: Virtual Dynamic Shared Object and vvar timekeeping page.
 //! - [`vm`]: virtual memory management, i.e. the mappings of an address space.
 //!
 //! [`arch`]: arch
@@ -52,6 +53,7 @@ pub mod syscall;
 pub mod time;
 pub mod uapi;
 pub mod utils;
+pub mod vdso;
 pub mod vm;
 
 #[ostd::main]
@@ -67,6 +69,7 @@ fn kernel_main() {
 
 fn kernel_init() {
     arch::init();
+    vdso::init();
     time::init().unwrap();
     crypto::init();
     vm::init();
