@@ -7,12 +7,13 @@
 //! allocator. Inodes are re-read from disk for every operation (no cache).
 
 use ::alloc::boxed::Box;
+use ::alloc::collections::BTreeMap;
 use ::alloc::string::String;
 use ::alloc::sync::Arc;
 use ::alloc::sync::Weak;
 use ::alloc::vec;
 use ::alloc::vec::Vec;
-use spin::Mutex;
+use spin::{Mutex, RwLock};
 
 use crate::uapi::errno::{Errno, Result};
 use crate::drivers::block::BlockDevice;
@@ -47,6 +48,10 @@ pub struct Ext4Fs {
     pub fsid: u64,
     /// Coarse per-filesystem operation lock.
     pub ops_lock: Mutex<()>,
+    /// Inode cache mapping inode number to cached RawInode.
+    pub inode_cache: RwLock<BTreeMap<u32, Arc<RawInode>>>,
+    /// Block cache mapping (ino, lblock) to cached block data.
+    pub block_cache: RwLock<BTreeMap<(u32, u64), Arc<Vec<u8>>>>,
     /// Weak self-reference so nodes can recover the owning `Arc<Ext4Fs>`.
     self_ref: Mutex<Weak<Ext4Fs>>,
 }
@@ -96,6 +101,8 @@ impl Ext4Fs {
             block_size,
             dev_block_size,
             ops_lock: Mutex::new(()),
+            inode_cache: RwLock::new(BTreeMap::new()),
+            block_cache: RwLock::new(BTreeMap::new()),
             self_ref: Mutex::new(Weak::new()),
         });
         *fs.self_ref.lock() = Arc::downgrade(&fs);
@@ -121,6 +128,10 @@ impl Ext4Fs {
     }
 
     pub fn read_inode(&self, ino: u32) -> Result<RawInode> {
+        if let Some(cached) = self.inode_cache.read().get(&ino) {
+            return Ok((**cached).clone());
+        }
+
         let (total, ipg, inode_size) = {
             let sb = self.sb.lock();
             (
@@ -142,7 +153,19 @@ impl Ext4Fs {
         let mut blk = vec![0u8; self.block_size];
         self.read_fs_block(table + (rel / self.block_size) as u64, &mut blk)?;
         let off = rel % self.block_size;
-        RawInode::parse(&blk[off..off + inode_size], inode_size)
+        let raw = RawInode::parse(&blk[off..off + inode_size], inode_size)?;
+
+        {
+            let mut cache = self.inode_cache.write();
+            if cache.len() >= 2048 {
+                if let Some(first_key) = cache.keys().next().copied() {
+                    cache.remove(&first_key);
+                }
+            }
+            cache.insert(ino, Arc::new(raw.clone()));
+        }
+
+        Ok(raw)
     }
 
     /// Writes back a raw inode, recomputing its checksum when enabled.
@@ -167,7 +190,19 @@ impl Ext4Fs {
         self.read_fs_block(table + (rel / self.block_size) as u64, &mut blk)?;
         let off = rel % self.block_size;
         blk[off..off + inode_size].copy_from_slice(&raw.raw);
-        self.write_fs_block(table + (rel / self.block_size) as u64, &blk)
+        self.write_fs_block(table + (rel / self.block_size) as u64, &blk)?;
+
+        {
+            let mut cache = self.inode_cache.write();
+            if cache.len() >= 2048 {
+                if let Some(first_key) = cache.keys().next().copied() {
+                    cache.remove(&first_key);
+                }
+            }
+            cache.insert(ino, Arc::new(raw.clone()));
+        }
+
+        Ok(())
     }
 
     // -------------------------------------------------------------------
@@ -209,6 +244,8 @@ impl Ext4Fs {
     }
 
     pub fn free_inode(&self, ino: u32) -> Result<()> {
+        self.inode_cache.write().remove(&ino);
+        self.block_cache.write().retain(|&(k_ino, _), _| k_ino != ino);
         self.with_alloc(|io| io.free_inode(ino))
     }
 
@@ -514,34 +551,49 @@ impl Ext4Fs {
         }
         let end = (offset + buf.len() as u64).min(size);
         let bs = self.block_size as u64;
-        let mut out = Vec::with_capacity((end - offset) as usize);
         let mut pos = offset;
+        let mut written = 0usize;
         while pos < end {
             let lblock = pos / bs;
-            let rel = pos % bs;
-            let take = (bs - rel).min(end - pos) as usize;
-            match self.map_read(ino, raw, lblock) {
-                Ok(Some(phys)) => {
-                    let mut blk = vec![0u8; self.block_size];
-                    if let Err(e) = self.read_fs_block(phys, &mut blk) {
-                        ostd::error!("Ext4: read_fs_block failed for phys {}: {:?}", phys, e);
+            let rel = (pos % bs) as usize;
+            let take = ((bs - rel as u64).min(end - pos)) as usize;
+
+            // Check block cache first (zero-alloc read)
+            let cached_blk = self.block_cache.read().get(&(ino, lblock)).cloned();
+            if let Some(blk) = cached_blk {
+                buf[written..written + take].copy_from_slice(&blk[rel..rel + take]);
+            } else {
+                match self.map_read(ino, raw, lblock) {
+                    Ok(Some(phys)) => {
+                        let mut blk = vec![0u8; self.block_size];
+                        if let Err(e) = self.read_fs_block(phys, &mut blk) {
+                            ostd::error!("Ext4: read_fs_block failed for phys {}: {:?}", phys, e);
+                            return Err(e);
+                        }
+                        buf[written..written + take].copy_from_slice(&blk[rel..rel + take]);
+                        let blk_arc = Arc::new(blk);
+                        let mut bcache = self.block_cache.write();
+                        if bcache.len() >= 2048 {
+                            if let Some(first_key) = bcache.keys().next().copied() {
+                                bcache.remove(&first_key);
+                            }
+                        }
+                        bcache.insert((ino, lblock), blk_arc);
+                    }
+                    Ok(None) => {
+                        buf[written..written + take].fill(0);
+                    }
+                    Err(e) => {
+                        ostd::error!("Ext4: map_read failed for ino {}, lblock {}: {:?}", ino, lblock, e);
                         return Err(e);
                     }
-                    out.extend_from_slice(&blk[rel as usize..rel as usize + take]);
-                }
-                Ok(None) => out.resize(out.len() + take, 0),
-                Err(e) => {
-                    ostd::error!("Ext4: map_read failed for ino {}, lblock {}: {:?}", ino, lblock, e);
-                    return Err(e);
                 }
             }
+
+            written += take;
             pos += take as u64;
-            if out.len() == (end - offset) as usize {
-                break;
-            }
         }
-        buf[..out.len()].copy_from_slice(&out);
-        Ok(out.len())
+        Ok(written)
     }
 
     /// Writes file content, allocating blocks and extending the size.
@@ -566,10 +618,25 @@ impl Ext4Fs {
             let phys = self.map_write(ino, raw, lblock)?;
             let mut blk = vec![0u8; self.block_size];
             if rel != 0 || take != self.block_size {
-                self.read_fs_block(phys, &mut blk)?;
+                if let Some(cached) = self.block_cache.read().get(&(ino, lblock)).cloned() {
+                    blk.copy_from_slice(&cached);
+                } else {
+                    self.read_fs_block(phys, &mut blk)?;
+                }
             }
             blk[rel as usize..rel as usize + take].copy_from_slice(&buf[written..written + take]);
             self.write_fs_block(phys, &blk)?;
+
+            {
+                let mut bcache = self.block_cache.write();
+                if bcache.len() >= 2048 {
+                    if let Some(first_key) = bcache.keys().next().copied() {
+                        bcache.remove(&first_key);
+                    }
+                }
+                bcache.insert((ino, lblock), Arc::new(blk));
+            }
+
             written += take;
             pos += take as u64;
         }
@@ -599,6 +666,13 @@ impl Ext4Fs {
 
         let bs = self.block_size as u64;
         let boundary = new_size.div_ceil(bs) as u32; // first logical block kept
+
+        // Invalidate block cache for truncated blocks
+        {
+            let first_evict = new_size / bs;
+            let mut bcache = self.block_cache.write();
+            bcache.retain(|&(k_ino, k_lblock), _| !(k_ino == ino && k_lblock >= first_evict));
+        }
         if raw.flags & iflags::EXTENTS != 0 {
             self.with_extent_ctx(ino, raw.generation, |ctx| {
                 let mut list = extents::scan(&raw.raw, ctx)?;
@@ -818,7 +892,18 @@ impl Ext4Fs {
         for off in (0..data.len()).step_by(self.block_size) {
             let lblock = (off / self.block_size) as u64;
             let phys = self.map_write(ino, raw, lblock)?;
-            self.write_fs_block(phys, &data[off..off + self.block_size])?;
+            let blk_slice = &data[off..off + self.block_size];
+            self.write_fs_block(phys, blk_slice)?;
+
+            {
+                let mut bcache = self.block_cache.write();
+                if bcache.len() >= 2048 {
+                    if let Some(first_key) = bcache.keys().next().copied() {
+                        bcache.remove(&first_key);
+                    }
+                }
+                bcache.insert((ino, lblock), Arc::new(blk_slice.to_vec()));
+            }
         }
         raw.set_size(data.len() as u64);
         let now = nowsecs32();

@@ -91,14 +91,26 @@ fn lookup_inner(
             name => {
                 // Fast path: cached child dentry
                 let resolved_dentry = if let Some(entry) = current.dentry.lookup_child(name) {
-                    if entry.get_inode().is_none() {
+                    if entry.is_not_present() || entry.get_inode().is_none() {
                         return Err(Errno::ENOENT);
                     }
                     entry
                 } else {
                     // Slow path: query inode NodeOps
                     let inode = current.dentry.get_inode().ok_or(Errno::ENOENT)?;
-                    let child_inode = inode.node_ops.lookup(name)?;
+                    let child_inode = match inode.node_ops.lookup(name) {
+                        Ok(node) => node,
+                        Err(Errno::ENOENT) => {
+                            let neg_dentry = Arc::new(DEntry::new(
+                                name.into(),
+                                None,
+                                Some(Arc::downgrade(&current.dentry)),
+                            ));
+                            current.dentry.add_child(neg_dentry);
+                            return Err(Errno::ENOENT);
+                        }
+                        Err(e) => return Err(e),
+                    };
                     let new_dentry = Arc::new(DEntry::new(
                         name.into(),
                         Some(child_inode),

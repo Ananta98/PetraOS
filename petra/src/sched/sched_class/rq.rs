@@ -60,6 +60,8 @@ impl SchedEntry {
 
 /// Composite per-CPU runqueue.
 pub struct RunQueue {
+    /// CPU ID this runqueue belongs to.
+    cpu: Option<ostd::cpu::CpuId>,
     /// Task currently running on this CPU.
     current: Option<SchedEntry>,
     /// Real-time scheduling class queue.
@@ -80,6 +82,7 @@ impl RunQueue {
     /// Creates an empty per-CPU runqueue.
     pub fn new() -> Self {
         Self {
+            cpu: None,
             current: None,
             rt: RtRunQueue::new(),
             eevdf: EevdfRunQueue::new(),
@@ -88,6 +91,11 @@ impl RunQueue {
             last_flags: UpdateFlags::Tick,
             stats: CpuStats::new(),
         }
+    }
+
+    /// Sets the CPU id for this runqueue.
+    pub fn set_cpu(&mut self, cpu: ostd::cpu::CpuId) {
+        self.cpu = Some(cpu);
     }
 
     /// Returns the task currently running on this CPU, if any.
@@ -297,6 +305,12 @@ impl RunQueue {
         }
 
         let running = self.current.as_ref().expect("current task just installed");
+        if let Some(cpu) = self.cpu {
+            running
+                .entity
+                .last_cpu
+                .store(u32::from(cpu) as i32, core::sync::atomic::Ordering::Release);
+        }
         if !running.is_idle && !running.entity.is_rt() {
             self.eevdf.set_current(self.current.clone());
         } else {

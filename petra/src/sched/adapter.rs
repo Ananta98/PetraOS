@@ -42,7 +42,13 @@ impl EevdfScheduler {
     /// Creates a scheduler instance with per-CPU runqueues.
     fn new() -> Self {
         let rqs = (0..num_cpus())
-            .map(|_| SpinLock::new(RunQueue::new()))
+            .map(|i| {
+                let mut rq = RunQueue::new();
+                if let Ok(cpu) = i.try_into() {
+                    rq.set_cpu(cpu);
+                }
+                SpinLock::new(rq)
+            })
             .collect();
         Self {
             rqs,
@@ -63,6 +69,19 @@ impl EevdfScheduler {
         }
 
         let affinity = entity.affinity();
+
+        // 1. Prefer last running CPU for cache locality and to prevent cross-CPU
+        // context-switch races on tasks that just descheduled.
+        let last_cpu = entity.last_cpu.load(Ordering::Acquire);
+        if last_cpu >= 0 && (last_cpu as usize) < ncpus {
+            let last_idx = last_cpu as usize;
+            if affinity.is_set(last_idx) {
+                if let Ok(cpu) = last_idx.try_into() {
+                    return cpu;
+                }
+            }
+        }
+
         let current_id = u32::from(current_cpu) as usize;
         if affinity.is_set(current_id)
             && self.rq(current_cpu).disable_irq().lock().nr_running() == 0

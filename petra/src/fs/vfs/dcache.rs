@@ -70,6 +70,11 @@ impl DEntry {
         }
     }
 
+    /// Checks if this entry is negatively cached (state NotPresent).
+    pub fn is_not_present(&self) -> bool {
+        matches!(&*self.inode.read(), EntryState::NotPresent)
+    }
+
     /// Updates the cached INode for this entry.
     pub fn set_inode(&self, inode: Option<Arc<INode>>) {
         let mut lock = self.inode.write();
@@ -84,9 +89,13 @@ impl DEntry {
         self.children.read().get(name).cloned()
     }
 
-    /// Adds a child to the cache.
+    /// Adds a child to the cache, pruning negative dentries if memory limit is reached.
     pub fn add_child(&self, child: Arc<DEntry>) {
-        self.children.write().insert(child.name.clone(), child);
+        let mut children = self.children.write();
+        if children.len() >= 2048 {
+            children.retain(|_, d| !d.is_not_present());
+        }
+        children.insert(child.name.clone(), child);
     }
 
     /// Removes a child from the cache, returning it if it was cached.

@@ -367,9 +367,12 @@ impl EevdfRunQueue {
     /// Removes an enqueued entry by key when picked for execution.
     pub fn extract(&mut self, entry: &SchedEntry) -> SchedEntry {
         let key = EevdfRunKey::of(entry, false);
-        self.queued
+        let extracted = self
+            .queued
             .remove(&key)
-            .expect("picked task must be in runqueue")
+            .expect("picked task must be in runqueue");
+        self.unaccount(&extracted.entity.fair);
+        extracted
     }
 
     /// Records bounded lag: `clamp(avg_vruntime - vruntime, -2 * request, 2 * request)`.

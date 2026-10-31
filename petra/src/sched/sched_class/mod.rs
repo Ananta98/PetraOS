@@ -29,6 +29,8 @@ pub struct SchedEntity {
     pub fair: EevdfEntity,
     /// CPU affinity mask.
     pub affinity: SpinLock<CpuMask>,
+    /// Last running CPU id (-1 if unassigned).
+    pub last_cpu: AtomicI32,
     /// Total CPU execution time in nanoseconds.
     pub exec_ns: AtomicU64,
     /// Total wait time in runqueues in nanoseconds.
@@ -51,6 +53,7 @@ impl SchedEntity {
             rt: RtEntity::new(0),
             fair: EevdfEntity::new(nice, slice_ns),
             affinity: SpinLock::new(CpuMask::all()),
+            last_cpu: AtomicI32::new(-1),
             exec_ns: AtomicU64::new(0),
             rq_wait_ns: AtomicU64::new(0),
             nr_switches: AtomicU64::new(0),
@@ -67,6 +70,7 @@ impl SchedEntity {
             rt: RtEntity::new(priority),
             fair: EevdfEntity::new(0, eevdf::BASE_SLICE_NS),
             affinity: SpinLock::new(CpuMask::all()),
+            last_cpu: AtomicI32::new(-1),
             exec_ns: AtomicU64::new(0),
             rq_wait_ns: AtomicU64::new(0),
             nr_switches: AtomicU64::new(0),
@@ -83,6 +87,7 @@ impl SchedEntity {
             rt: RtEntity::new(0),
             fair: EevdfEntity::new(0, eevdf::BASE_SLICE_NS),
             affinity: SpinLock::new(CpuMask::all()),
+            last_cpu: AtomicI32::new(-1),
             exec_ns: AtomicU64::new(0),
             rq_wait_ns: AtomicU64::new(0),
             nr_switches: AtomicU64::new(0),

@@ -37,7 +37,7 @@ pub fn nowsecs32() -> u32 {
 }
 
 /// A parsed on-disk inode; retains the full raw bytes for round-tripping.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RawInode {
     /// Raw bytes (exactly `inode_size`), including tail-order fields.
     pub raw: Vec<u8>,

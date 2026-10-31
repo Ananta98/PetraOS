@@ -129,12 +129,16 @@ fn publish(parent: &PathNode, name: &str, node: &Arc<INode>) {
         attr.uid = cred.cr_uid.as_u32();
         attr.gid = cred.cr_gid.as_u32();
     }
-    let dentry = Arc::new(DEntry::new(
-        name.into(),
-        Some(node.clone()),
-        Some(Arc::downgrade(&parent.dentry)),
-    ));
-    parent.dentry.add_child(dentry);
+    if let Some(existing) = parent.dentry.lookup_child(name) {
+        existing.set_inode(Some(node.clone()));
+    } else {
+        let dentry = Arc::new(DEntry::new(
+            name.into(),
+            Some(node.clone()),
+            Some(Arc::downgrade(&parent.dentry)),
+        ));
+        parent.dentry.add_child(dentry);
+    }
 }
 
 fn with_type(ty: Mode, perm: Mode) -> Mode {
@@ -314,7 +318,15 @@ pub fn unlink_at(start: &PathNode, path: &str) -> Result<()> {
     check_sticky(&dir_attr, &*inode.attr.read(), &current_cred())?;
 
     dir.node_ops.unlink(&name)?;
-    parent.dentry.remove_child(&name);
+    if let Some(child) = parent.dentry.lookup_child(&name) {
+        child.set_inode(None);
+    } else {
+        parent.dentry.add_child(Arc::new(DEntry::new(
+            name.clone(),
+            None,
+            Some(Arc::downgrade(&parent.dentry)),
+        )));
+    }
     {
         let mut a = inode.attr.write();
         a.nlink = a.nlink.saturating_sub(1);
@@ -350,7 +362,15 @@ pub fn rmdir_at(start: &PathNode, path: &str) -> Result<()> {
     check_sticky(&dir_attr, &*inode.attr.read(), &current_cred())?;
 
     dir.node_ops.rmdir(&name)?;
-    parent.dentry.remove_child(&name);
+    if let Some(child) = parent.dentry.lookup_child(&name) {
+        child.set_inode(None);
+    } else {
+        parent.dentry.add_child(Arc::new(DEntry::new(
+            name.clone(),
+            None,
+            Some(Arc::downgrade(&parent.dentry)),
+        )));
+    }
     dir.touch_mtime();
     Ok(())
 }
@@ -388,11 +408,15 @@ pub fn link_at(
         return Err(Errno::EEXIST);
     }
     dir.node_ops.link(&name, inode.clone())?;
-    parent.dentry.add_child(Arc::new(DEntry::new(
-        name,
-        Some(inode.clone()),
-        Some(Arc::downgrade(&parent.dentry)),
-    )));
+    if let Some(existing) = parent.dentry.lookup_child(&name) {
+        existing.set_inode(Some(inode.clone()));
+    } else {
+        parent.dentry.add_child(Arc::new(DEntry::new(
+            name,
+            Some(inode.clone()),
+            Some(Arc::downgrade(&parent.dentry)),
+        )));
+    }
     inode.attr.write().nlink += 1;
     inode.touch_ctime();
     dir.touch_mtime();
@@ -454,14 +478,26 @@ pub fn rename_at(old_start: &PathNode, old: &str, new_start: &PathNode, new: &st
 
     old_dir.node_ops.rename(&old_name, &new_dir, &new_name)?;
 
-    // Dentries are immutable in name/parent, so re-home the entry.
-    old_parent.dentry.remove_child(&old_name);
-    new_parent.dentry.remove_child(&new_name);
-    new_parent.dentry.add_child(Arc::new(DEntry::new(
-        new_name,
-        Some(src_inode.clone()),
-        Some(Arc::downgrade(&new_parent.dentry)),
-    )));
+    // Update dcache: old_name becomes negative, new_name becomes positive.
+    if let Some(old_dentry) = old_parent.dentry.lookup_child(&old_name) {
+        old_dentry.set_inode(None);
+    } else {
+        old_parent.dentry.add_child(Arc::new(DEntry::new(
+            old_name.clone(),
+            None,
+            Some(Arc::downgrade(&old_parent.dentry)),
+        )));
+    }
+
+    if let Some(new_dentry) = new_parent.dentry.lookup_child(&new_name) {
+        new_dentry.set_inode(Some(src_inode.clone()));
+    } else {
+        new_parent.dentry.add_child(Arc::new(DEntry::new(
+            new_name,
+            Some(src_inode.clone()),
+            Some(Arc::downgrade(&new_parent.dentry)),
+        )));
+    }
 
     src_inode.touch_ctime();
     old_dir.touch_mtime();
