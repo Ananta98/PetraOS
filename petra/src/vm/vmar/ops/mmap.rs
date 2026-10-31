@@ -51,15 +51,21 @@ impl Vmar {
     /// Maps the virtual Dynamic Shared Object (vDSO) and its associated `vvar` data page
     /// into this address space.
     ///
-    /// The `vvar` page is mapped read-only at `vdso_base - PAGE_SIZE`, while the `vdso` code
-    /// page is mapped read-exec at `vdso_base`. Both pages are immediately populated.
+    /// Following Linux x86_64 layout (as in `asterinas/linux_vdso`), the `vvar` page is mapped
+    /// read-only at `vdso_base - 4 * PAGE_SIZE`, while the `vdso` code page is mapped read-exec
+    /// at `vdso_base`.
     ///
     /// Returns the virtual base address of the vDSO shared library (`vdso_base`).
     pub fn map_vdso(&self) -> Result<Vaddr> {
         #[cfg(target_arch = "x86_64")]
         {
+            use crate::arch::vdso::{
+                SingleFrameBacking, VDSO_DATA_SEGMENT_OFFSET, VDSO_DATA_SEGMENT_SIZE,
+                VDSO_TEXT_SEGMENT_OFFSET, VDSO_TEXT_SEGMENT_SIZE, VDSO_TOTAL_SIZE,
+            };
+
             let (vvar_backing, vdso_backing) = crate::arch::vdso::get_backings()?;
-            let total_size = 2 * PAGE_SIZE;
+            let total_size = VDSO_TOTAL_SIZE;
 
             let high_limit = {
                 let inner = self.inner.read();
@@ -73,22 +79,40 @@ impl Vmar {
                     .map_err(|_| crate::uapi::errno::Errno::ENOMEM)?
             };
 
-            let vvar_addr = free_range.start;
-            let vdso_addr = vvar_addr + PAGE_SIZE;
+            let vvar_addr = free_range.start + VDSO_DATA_SEGMENT_OFFSET;
+            let vdso_addr = free_range.start + VDSO_TEXT_SEGMENT_OFFSET;
 
+            // 1. Map vvar data page (read-only) at offset 0
             self.mmap_backed(
                 &vvar_backing,
                 vvar_addr,
-                PAGE_SIZE,
+                VDSO_DATA_SEGMENT_SIZE,
                 VmPerms::READ,
                 MmapFlags::PRIVATE | MmapFlags::FIXED | MmapFlags::POPULATE,
                 0,
             )?;
 
+            // 2. Map placeholder zero pages for the intermediate reserved/timens region
+            let zero_frame = crate::vm::backing::get_zero_frame()?;
+            let zero_backing: Arc<dyn Backing> = Arc::new(SingleFrameBacking(zero_frame));
+            let middle_start = vvar_addr + VDSO_DATA_SEGMENT_SIZE;
+            let middle_size = VDSO_TEXT_SEGMENT_OFFSET - VDSO_DATA_SEGMENT_SIZE;
+            for offset in (0..middle_size).step_by(PAGE_SIZE) {
+                self.mmap_backed(
+                    &zero_backing,
+                    middle_start + offset,
+                    PAGE_SIZE,
+                    VmPerms::READ,
+                    MmapFlags::PRIVATE | MmapFlags::FIXED | MmapFlags::POPULATE,
+                    0,
+                )?;
+            }
+
+            // 3. Map vDSO ELF code segment (read+exec) at offset 4 * PAGE_SIZE
             self.mmap_backed(
                 &vdso_backing,
                 vdso_addr,
-                PAGE_SIZE,
+                VDSO_TEXT_SEGMENT_SIZE,
                 VmPerms::READ | VmPerms::EXEC,
                 MmapFlags::PRIVATE | MmapFlags::FIXED | MmapFlags::POPULATE,
                 0,
