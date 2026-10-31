@@ -154,6 +154,43 @@ if [ ! -d "${ROOTFS_STAGING}/usr/bin" ] || [ "${FRESH}" -eq 1 ]; then
     chmod -R u+rwX "${ROOTFS_STAGING}" 2>/dev/null || true
 fi
 
+# Provision essential Rocky Linux packages (compilers, debugger, CLI utilities)
+# into rootfs_staging so tools in /usr/share (gcc, g++, gdb, file, etc.) are runnable.
+DEFAULT_ROOTFS_PACKAGES=(
+    gcc gcc-c++ gdb make file which findutils diffutils
+    procps-ng iproute less nano tar gzip xz bzip2 binutils
+)
+NEED_ROOTFS_PKGS=0
+for bin_check in gcc g++ gdb make file which find diff ps ip less nano; do
+    if [ ! -x "${ROOTFS_STAGING}/usr/bin/${bin_check}" ] && [ ! -x "${ROOTFS_STAGING}/usr/sbin/${bin_check}" ]; then
+        NEED_ROOTFS_PKGS=1
+        break
+    fi
+done
+
+if [ "${NEED_ROOTFS_PKGS}" -eq 1 ] && [ -x "${ROOTFS_STAGING}/usr/bin/dnf" ] && command -v unshare >/dev/null 2>&1; then
+    echo "==> Installing Rocky Linux toolchain & utilities into ${ROOTFS_STAGING}..."
+    mkdir -p "${ROOTFS_STAGING}/etc" "${ROOTFS_STAGING}/var/cache/dnf" "${ROOTFS_STAGING}/tmp"
+    if [ -f /etc/resolv.conf ]; then
+        cp -L /etc/resolv.conf "${ROOTFS_STAGING}/etc/resolv.conf" 2>/dev/null || true
+    fi
+    if ! grep -q "nameserver" "${ROOTFS_STAGING}/etc/resolv.conf" 2>/dev/null; then
+        cat > "${ROOTFS_STAGING}/etc/resolv.conf" << 'EOF'
+nameserver 1.1.1.1
+nameserver 8.8.8.8
+EOF
+    fi
+    unshare -r chroot "${ROOTFS_STAGING}" /usr/bin/dnf install -y \
+        --setopt=tsflags=nodocs \
+        --setopt=install_weak_deps=False \
+        "${DEFAULT_ROOTFS_PACKAGES[@]}"
+    unshare -r chroot "${ROOTFS_STAGING}" /usr/bin/dnf clean all >/dev/null 2>&1 || true
+    if [ -x "${ROOTFS_STAGING}/sbin/ldconfig" ] || [ -x "${ROOTFS_STAGING}/usr/sbin/ldconfig" ]; then
+        unshare -r chroot "${ROOTFS_STAGING}" /sbin/ldconfig 2>/dev/null || true
+    fi
+    chmod -R u+rwX "${ROOTFS_STAGING}" 2>/dev/null || true
+fi
+
 # ----------------------------------------------------------------------------
 # 2. Automated Dependency Resolution & Initramfs Assembly
 # ----------------------------------------------------------------------------
@@ -264,7 +301,7 @@ DEFAULT_INITRAMFS_TOOLS=(
     # Core manipulation tools
     cat cp mv rm ln mkdir rmdir chmod chown touch
     # Text processing & searching
-    echo head tail grep sed awk cut find
+    echo head tail grep sed awk cut find file which
     # System info & process control
     uname sleep true false dmesg sync clear
     # Userspace transition
@@ -405,8 +442,10 @@ EOF
     ln -sf ../usr/lib/os-release "${target_dir}/etc/os-release"
 
     cat > "${target_dir}/etc/profile" << 'EOF'
-export PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/libexec
 export HOME=/root
+export USER=root
+export LOGNAME=root
 export SHELL=/bin/bash
 export TERM=linux
 export XDG_CONFIG_HOME=/root/.config
@@ -429,14 +468,43 @@ EOF
 
     cat > "${target_dir}/root/.profile" << 'EOF'
 export PS1='petraos:\w# '
-export PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/libexec
 export SHELL=/bin/bash
 export TERM=linux
 export HOME=/root
+export USER=root
+export LOGNAME=root
 export XDG_CONFIG_HOME=/root/.config
 export CHARSET=UTF-8
 export LANG=C.utf8
 export LC_ALL=C.utf8
+alias ll='ls -la --color=auto'
+alias l='ls -lh'
+alias clear='printf "\033[H\033[2J\033[3J"'
+EOF
+
+    cat > "${target_dir}/root/.bash_profile" << 'EOF'
+if [ -f ~/.bashrc ]; then
+    . ~/.bashrc
+fi
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/libexec
+export PS1='petraos:\w# '
+EOF
+
+    cat > "${target_dir}/root/.bashrc" << 'EOF'
+if [ -f /etc/bashrc ]; then
+    . /etc/bashrc
+fi
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/libexec
+export HOME=/root
+export USER=root
+export LOGNAME=root
+export SHELL=/bin/bash
+export TERM=linux
+export CHARSET=UTF-8
+export LANG=C.utf8
+export LC_ALL=C.utf8
+export PS1='petraos:\w# '
 alias ll='ls -la --color=auto'
 alias l='ls -lh'
 alias clear='printf "\033[H\033[2J\033[3J"'

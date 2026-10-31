@@ -201,7 +201,7 @@ pub fn open_at(
     check_permission(&attr, &current_cred(), access)?;
 
     let ops = inode.node_ops.open(flags)?;
-    let seekable = inode.is_file();
+    let seekable = inode.is_file() || inode.is_dir();
 
     // O_TRUNC: only meaningful for regular files opened for writing.
     if flags.contains(OpenFlags::TRUNC) && flags.contains(OpenFlags::WRITE) && inode.is_file() {

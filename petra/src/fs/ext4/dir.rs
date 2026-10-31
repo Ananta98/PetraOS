@@ -56,14 +56,16 @@ pub fn parse_all(dir_data: &[u8], block_size: usize) -> Vec<Dirent> {
     let mut prev: Option<usize> = None;
 
     while off + 8 <= dir_data.len() {
+        if off % block_size == 0 {
+            prev = None;
+        }
+        let block_end = ((off / block_size) + 1) * block_size;
+
         // A checksum tail dirent: inode 0, file_type 0xDE.
-        if dir_data[off + 7] == DIRTAIL_TYPE
-            && dir_data[off] == 0
-            && dir_data[off + 1] == 0
-            && dir_data[off + 2] == 0
-            && dir_data[off + 3] == 0
-        {
-            break;
+        if tail_offset(dir_data, off).is_some() {
+            off = block_end;
+            prev = None;
+            continue;
         }
         let ino = u32::from_le_bytes([
             dir_data[off],
@@ -75,13 +77,10 @@ pub fn parse_all(dir_data: &[u8], block_size: usize) -> Vec<Dirent> {
         let name_len = dir_data[off + 6] as usize;
         let file_type = dir_data[off + 7];
 
-        if rec_len < 8 {
-            break;
-        }
-        // Do not let an entry appear to cross a block boundary.
-        let block_end = ((off / block_size) + 1) * block_size;
-        if off + rec_len > block_end {
-            break;
+        if rec_len < 8 || off + rec_len > block_end {
+            off = block_end;
+            prev = None;
+            continue;
         }
 
         let name_bytes: Vec<u8> = dir_data[off + 8..(off + 8 + name_len).min(off + rec_len)]
@@ -240,14 +239,16 @@ pub fn insert_entry(
     if name.len() > 255 {
         return Err(Errno::ENAMETOOLONG);
     }
-    let needed: usize = ((8 + name.len()) + 3) & !3;
+    let needed: usize = align4(8 + name.len());
+    let limit = dir_data.len().min(dir_end);
 
     let mut off = 0usize;
-    while off + 8 <= dir_data.len() {
+    while off + 8 <= limit {
         let block_end = ((off / block_size) + 1) * block_size;
-        // Checksum tail terminating the block: stop before it.
+        // Checksum tail terminating this block: advance to the next block.
         if tail_offset(dir_data, off).is_some() {
-            break;
+            off = block_end;
+            continue;
         }
         let ino = u32::from_le_bytes([
             dir_data[off],
@@ -256,56 +257,41 @@ pub fn insert_entry(
             dir_data[off + 3],
         ]);
         let rec_len = u16::from_le_bytes([dir_data[off + 4], dir_data[off + 5]]) as usize;
-        if rec_len == 0 {
-            break;
+        if rec_len < 8 || off + rec_len > block_end {
+            off = block_end;
+            continue;
         }
 
-        // Free slot with enough room?
-        if ino == 0 && rec_len >= needed + 8 {
-            // Shrink this slot to `needed` and add a remainder marker. A
-            // remainder of 8 bytes may turn into a tail; < 8 cannot exist,
-            // so remaining space becomes a free marker at `off + needed`.
-            write_dirent(dir_data, off, child_ino, file_type, name, needed as u16);
-            let remaining = rec_len - needed;
-            if remaining >= 8 && off + needed + remaining <= block_end {
-                write_dirent(dir_data, off + needed, 0, 0, "", remaining as u16);
-            } else if remaining > 0 {
-                // Expand this entry to consume the rest of the slot.
-                let grown = needed + remaining;
-                dir_data[off + 4..off + 6].copy_from_slice(&(grown as u16).to_le_bytes());
+        if ino == 0 {
+            if rec_len >= needed {
+                let remaining = rec_len - needed;
+                if remaining >= 8 && off + needed + remaining <= block_end {
+                    write_dirent(dir_data, off, child_ino, file_type, name, needed as u16);
+                    write_dirent(dir_data, off + needed, 0, 0, "", remaining as u16);
+                } else {
+                    write_dirent(dir_data, off, child_ino, file_type, name, rec_len as u16);
+                }
+                return Ok(());
             }
-            return Ok(());
-        }
-
-        // Last live entry with enlargeable rec_len into block slack?
-        let next_offset = off + rec_len;
-        if next_offset >= dir_end || next_offset >= block_end {
-            let gapped = block_end - off;
-            if gapped >= needed + 8 && ino != 0 {
-                // Shrink and append.
-                dir_data[off + 4..off + 6].copy_from_slice(&(needed as u16).to_le_bytes());
+        } else {
+            let cur_name_len = dir_data[off + 6] as usize;
+            let cur_need = align4(8 + cur_name_len);
+            if rec_len >= cur_need + needed {
+                let remaining = rec_len - cur_need;
+                dir_data[off + 4..off + 6].copy_from_slice(&(cur_need as u16).to_le_bytes());
                 write_dirent(
                     dir_data,
-                    off + needed,
+                    off + cur_need,
                     child_ino,
                     file_type,
                     name,
-                    (gapped - needed) as u16,
+                    remaining as u16,
                 );
                 return Ok(());
             }
-            // If the next scan lands past `dir_end`, no more fit.
-            off += rec_len;
-            if off >= dir_end || off >= block_end {
-                break;
-            }
-            continue;
         }
+
         off += rec_len;
-        // A directory of legacy layout may reach the end without slack.
-        if off + 8 > dir_data.len() {
-            break;
-        }
     }
     Err(Errno::ENOSPC)
 }

@@ -6,11 +6,11 @@ boot_protocol = "linux"
 
 [run.boot]
 kcmd_args = [
-    "SHELL=/bin/sh",
+    "SHELL=/bin/bash",
     "LOGNAME=root",
-    "HOME=/",
+    "HOME=/root",
     "USER=root",
-    "PATH=/bin:/sbin",
+    "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/libexec",
     "init=/init",
 ]
 init_args = ["sh", "-l"]

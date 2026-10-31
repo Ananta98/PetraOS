@@ -809,6 +809,10 @@ impl Ext4Fs {
         while data.len() % self.block_size != 0 {
             data.push(0);
         }
+        if raw.flags & iflags::INDEX != 0 {
+            raw.flags &= !iflags::INDEX;
+            raw.raw[32..36].copy_from_slice(&raw.flags.to_le_bytes());
+        }
         let inode_gen = raw.generation;
         self.fix_dir_tails(data, ino, inode_gen);
         for off in (0..data.len()).step_by(self.block_size) {
@@ -1054,6 +1058,10 @@ fn encode_new_inode(
     raw[24..26].copy_from_slice(&(gid as u16).to_le_bytes());
     raw[26..28].copy_from_slice(&links.to_le_bytes());
     raw[32..36].copy_from_slice(&flags.to_le_bytes());
+    if inode_size >= 128 {
+        raw[120..122].copy_from_slice(&((uid >> 16) as u16).to_le_bytes());
+        raw[122..124].copy_from_slice(&((gid >> 16) as u16).to_le_bytes());
+    }
     if let Some(dev) = rdev {
         raw[40..44].copy_from_slice(&dev.to_le_bytes());
     }
@@ -1177,9 +1185,9 @@ impl Ext4Fs {
                     dir::write_dirent(data, base, child_ino, child_type, name, rest as u16);
                 }
                 if csum_on {
-                    dir::write_dirent(data, bs - 12, 0, 0, "", 12);
-                    let tail_off = data.len() - 12;
-                    data[tail_off - 12 + 7] = DIRTAIL_TYPE;
+                    let tail_off = base + bs - 12;
+                    dir::write_dirent(data, tail_off, 0, 0, "", 12);
+                    data[tail_off + 7] = DIRTAIL_TYPE;
                 }
             }
             Err(e) => return Err(e),
@@ -1608,6 +1616,9 @@ impl NodeOps for Ext4Node {
         };
 
         if let Some((dst_ino, dst_ty)) = target_of_replace {
+            if dst_ino == target_ino {
+                return Ok(());
+            }
             let dst_raw = fs.read_inode(dst_ino);
             if let Ok(mut d_raw) = dst_raw {
                 if dst_ty == ftype::DIR || d_raw.is_dir() {
@@ -1622,18 +1633,19 @@ impl NodeOps for Ext4Node {
                     }
                     fs.file_truncate(dst_ino, &mut d_raw, 0)?;
                     d_raw.dtime = nowsecs32();
+                    d_raw.links_count = 0;
                     d_raw.raw[20..24].copy_from_slice(&d_raw.dtime.to_le_bytes());
+                    d_raw.raw[26..28].copy_from_slice(&0u16.to_le_bytes());
                     fs.write_inode(dst_ino, &mut d_raw)?;
                     fs.free_inode(dst_ino)?;
-                    // New dir loses the replaced subdir's `..` reference.
-                    if !same_dir {
-                        if let Some(nr) = new_raw_opt.as_mut() {
-                            nr.links_count = nr.links_count.saturating_sub(1);
-                            nr.raw[26..28].copy_from_slice(&nr.links_count.to_le_bytes());
-                        }
+                    // Destination parent loses the replaced subdir's `..` reference.
+                    if same_dir {
+                        dir_raw.links_count = dir_raw.links_count.saturating_sub(1);
+                        dir_raw.raw[26..28].copy_from_slice(&dir_raw.links_count.to_le_bytes());
+                    } else if let Some(nr) = new_raw_opt.as_mut() {
+                        nr.links_count = nr.links_count.saturating_sub(1);
+                        nr.raw[26..28].copy_from_slice(&nr.links_count.to_le_bytes());
                     }
-                    dir_raw.links_count = dir_raw.links_count.saturating_sub(1);
-                    dir_raw.raw[26..28].copy_from_slice(&dir_raw.links_count.to_le_bytes());
                 } else {
                     // Non-directory replacement: decrement links, free at 0.
                     d_raw.links_count = d_raw.links_count.saturating_sub(1);
@@ -1641,18 +1653,24 @@ impl NodeOps for Ext4Node {
                         d_raw.dtime = nowsecs32();
                         d_raw.raw[20..24].copy_from_slice(&d_raw.dtime.to_le_bytes());
                         d_raw.raw[26..28].copy_from_slice(&0u16.to_le_bytes());
+                        fs.write_inode(dst_ino, &mut d_raw)?;
                         fs.file_truncate(dst_ino, &mut d_raw, 0)?;
                         fs.free_inode(dst_ino)?;
                     } else {
+                        d_raw.raw[26..28].copy_from_slice(&d_raw.links_count.to_le_bytes());
                         fs.write_inode(dst_ino, &mut d_raw)?;
                     }
                 }
             }
         }
 
-        // Drop the old entry; insert under the new name.
+        // Drop the old entry (and any replaced destination entry); insert under the new name.
         dir::delete_entry(&mut old_data, &old_entries, old_name)?;
         if same_dir {
+            if target_of_replace.is_some() {
+                let refreshed = dir::parse_all(&old_data, fs.block_size);
+                let _ = dir::delete_entry(&mut old_data, &refreshed, new_name);
+            }
             fs.insert_dirent_with_growth(
                 self.ino,
                 &mut dir_raw,
@@ -1662,10 +1680,15 @@ impl NodeOps for Ext4Node {
                 _target_ty,
             )?;
         } else {
+            let ndata = new_data_opt.as_mut().unwrap();
+            if target_of_replace.is_some() {
+                let nentries = dir::parse_all(ndata, fs.block_size);
+                let _ = dir::delete_entry(ndata, &nentries, new_name);
+            }
             fs.insert_dirent_with_growth(
                 new_dir_ino,
                 new_raw_opt.as_mut().unwrap(),
-                new_data_opt.as_mut().unwrap(),
+                ndata,
                 new_name,
                 target_ino,
                 _target_ty,
@@ -1737,8 +1760,8 @@ impl NodeOps for Ext4Node {
             raw.raw[2..4].copy_from_slice(&(attr.uid as u16).to_le_bytes());
             raw.raw[24..26].copy_from_slice(&(attr.gid as u16).to_le_bytes());
             if raw.raw.len() >= 128 {
-                raw.raw[120..124].copy_from_slice(&attr.uid.to_le_bytes());
-                raw.raw[122..126].copy_from_slice(&attr.gid.to_le_bytes());
+                raw.raw[120..122].copy_from_slice(&((attr.uid >> 16) as u16).to_le_bytes());
+                raw.raw[122..124].copy_from_slice(&((attr.gid >> 16) as u16).to_le_bytes());
             }
         }
         let new_mode = attr.mode.bits() as u16;

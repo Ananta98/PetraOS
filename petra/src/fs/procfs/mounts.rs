@@ -17,22 +17,48 @@ pub struct MountsFileOps;
 impl ProcFileOps for MountsFileOps {
     fn generate_content(&self) -> Vec<u8> {
         let mounts = crate::fs::vfs::mount::get_mounts();
-        let mut s = String::new();
+        let mut content = String::new();
         if mounts.is_empty() {
-            let _ = writeln!(s, "rootfs / rootfs rw 0 0");
-            let _ = writeln!(s, "devfs /dev devfs rw,nosuid,relatime 0 0");
-            let _ = writeln!(s, "proc /proc proc rw,nosuid,nodev,noexec,relatime 0 0");
-            let _ = writeln!(s, "sysfs /sys sysfs rw,nosuid,nodev,noexec,relatime 0 0");
-        } else {
-            for m in &mounts {
+            let _ = writeln!(content, "rootfs / rootfs rw 0 0");
+            let _ = writeln!(content, "devfs /dev devfs rw,nosuid,relatime 0 0");
+            let _ = writeln!(content, "proc /proc proc rw,nosuid,nodev,noexec,relatime 0 0");
+            let _ = writeln!(content, "sysfs /sys sysfs rw,nosuid,nodev,noexec,relatime 0 0");
+            return content.into_bytes();
+        }
+
+        let is_chrooted = crate::proc::current_proc()
+            .and_then(|p| p.root.lock().clone())
+            .is_some();
+        let has_sysroot = mounts.iter().any(|m| m.target == "/sysroot");
+
+        for m in &mounts {
+            if is_chrooted && has_sysroot {
+                write_sysroot_mount(&mut content, m);
+            } else {
                 let _ = writeln!(
-                    s,
+                    content,
                     "{} {} {} {} 0 0",
                     m.source, m.target, m.fstype, m.options
                 );
             }
         }
-        s.into_bytes()
+        content.into_bytes()
+    }
+}
+
+fn write_sysroot_mount(content: &mut String, mount: &crate::fs::vfs::mount::MountRecord) {
+    if mount.target == "/sysroot" {
+        let _ = writeln!(
+            content,
+            "{} / {} {} 0 0",
+            mount.source, mount.fstype, mount.options
+        );
+    } else if let Some(subpath) = mount.target.strip_prefix("/sysroot/") {
+        let _ = writeln!(
+            content,
+            "{} /{} {} {} 0 0",
+            mount.source, subpath, mount.fstype, mount.options
+        );
     }
 }
 

@@ -43,6 +43,21 @@ fn mode_to_dtype(mode: Mode) -> u8 {
     }
 }
 
+fn resolve_child_entry(file: &File, name: &str) -> (u64, u8) {
+    let cached = file
+        .path_node
+        .as_ref()
+        .and_then(|pn| pn.dentry.children.read().get(name).cloned())
+        .and_then(|d| d.get_inode());
+    if let Some(child) = cached {
+        return (child.id as u64, mode_to_dtype(child.attr.read().mode));
+    }
+    match file.inode.node_ops.lookup(name) {
+        Ok(child) => (child.id as u64, mode_to_dtype(child.attr.read().mode)),
+        Err(_) => (1, DT_UNKNOWN),
+    }
+}
+
 /// Directory listing shared by `getdents`/`getdents64`: validates the fd is a
 /// directory, reads the file's entry list, synthesizes `.`/`..`, and resolves
 /// each child's inode number and type.
@@ -55,25 +70,15 @@ fn collect_dir_entries(file: &File) -> Result<Vec<(String, u64, u8)>> {
     let raw_str = core::str::from_utf8(&entries_raw).map_err(|_| Errno::EIO)?;
     let lines: Vec<&str> = raw_str.lines().filter(|s| !s.is_empty()).collect();
 
-    let mut all_entries: Vec<(String, u64, u8)> = Vec::new();
-    if !lines.contains(&".") {
-        all_entries.push((".".into(), file.inode.id as u64, DT_DIR));
-    }
-    if !lines.contains(&"..") {
-        all_entries.push(("..".into(), file.inode.id as u64, DT_DIR));
-    }
+    let mut all_entries: Vec<(String, u64, u8)> = Vec::with_capacity(lines.len() + 2);
+    all_entries.push((".".into(), file.inode.id as u64, DT_DIR));
+    all_entries.push(("..".into(), file.inode.id as u64, DT_DIR));
 
     for name in &lines {
         if *name == "." || *name == ".." {
             continue;
         }
-        let (child_ino, child_type) = match file.inode.node_ops.lookup(name) {
-            Ok(child) => {
-                let d_type = mode_to_dtype(child.attr.read().mode);
-                (child.id as u64, d_type)
-            }
-            Err(_) => (1, DT_UNKNOWN),
-        };
+        let (child_ino, child_type) = resolve_child_entry(file, name);
         all_entries.push(((*name).into(), child_ino, child_type));
     }
     Ok(all_entries)

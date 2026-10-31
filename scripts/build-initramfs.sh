@@ -18,7 +18,7 @@ ROOTFS_STAGING="${REPO_ROOT}/build/userland-amd64/rootfs_staging"
 OUTPUT="${REPO_ROOT}/build/initramfs.cpio"
 EXT4_IMAGE="${REPO_ROOT}/build/ext4.img"
 EXFAT_IMAGE="${REPO_ROOT}/build/exfat.img"
-IMAGE_SIZE="1G"
+IMAGE_SIZE="2G"
 BUILD_IMAGES=1
 COMPRESS=0
 
@@ -88,13 +88,19 @@ build_ext4_image() {
         populate_dir="${STAGING}"
     fi
 
-    # Format ext4 with directory pre-population if rootfs directory exists
+    # Format ext4 with directory pre-population if rootfs directory exists.
+    # Run under `unshare -r` when non-root so all populated inodes are owned by root:root (0:0).
+    local mke2fs_prefix=()
+    if [ "$(id -u)" -ne 0 ] && command -v unshare >/dev/null 2>&1; then
+        mke2fs_prefix=(unshare -r)
+    fi
+
     if command -v mke2fs >/dev/null 2>&1; then
         if [ -d "${populate_dir}" ]; then
-            mke2fs -t ext4 -F -O ^metadata_csum,^64bit -d "${populate_dir}" "${EXT4_IMAGE}" >/dev/null
+            "${mke2fs_prefix[@]}" mke2fs -t ext4 -F -O ^metadata_csum,^64bit -d "${populate_dir}" "${EXT4_IMAGE}" >/dev/null
             echo "    ext4:  ${EXT4_IMAGE} (${IMAGE_SIZE}, populated from ${populate_dir})"
         else
-            mke2fs -t ext4 -F -O ^metadata_csum,^64bit "${EXT4_IMAGE}" >/dev/null
+            "${mke2fs_prefix[@]}" mke2fs -t ext4 -F -O ^metadata_csum,^64bit "${EXT4_IMAGE}" >/dev/null
             echo "    ext4:  ${EXT4_IMAGE} (${IMAGE_SIZE}, empty)"
         fi
     elif [ -x "${GLIBC_LOADER}" ] && [ -x "${STAGING}/usr/sbin/mkfs.ext4" ]; then
@@ -131,7 +137,11 @@ echo "==> Packing initramfs: ${OUTPUT}"
 mkdir -p "$(dirname "${OUTPUT}")"
 (
     cd "${STAGING}"
-    find . -mindepth 1 | sort | cpio -o -H newc --quiet > "${OUTPUT}"
+    if cpio --help 2>&1 | grep -q -- '--owner'; then
+        find . -mindepth 1 | sort | cpio -o -H newc -R 0:0 --quiet > "${OUTPUT}"
+    else
+        find . -mindepth 1 | sort | cpio -o -H newc --quiet > "${OUTPUT}"
+    fi
 )
 
 if [ "${COMPRESS}" -eq 1 ]; then

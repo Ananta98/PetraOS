@@ -37,6 +37,11 @@ fn g(x: u32, y: u32, z: u32) -> u32 {
 }
 
 #[inline(always)]
+fn h(x: u32, y: u32, z: u32) -> u32 {
+    x ^ y ^ z
+}
+
+#[inline(always)]
 fn round1(a: &mut u32, b: u32, c: u32, d: u32, k: u32, s: u32) {
     *a = a.wrapping_add(f(b, c, d)).wrapping_add(k);
     *a = a.rotate_left(s);
@@ -48,7 +53,13 @@ fn round2(a: &mut u32, b: u32, c: u32, d: u32, k: u32, s: u32) {
     *a = a.rotate_left(s);
 }
 
-/// 2-round Half-MD4 transform producing 4-word output state from 8-word input.
+#[inline(always)]
+fn round3(a: &mut u32, b: u32, c: u32, d: u32, k: u32, s: u32) {
+    *a = a.wrapping_add(h(b, c, d)).wrapping_add(k).wrapping_add(0x6ed9eba1);
+    *a = a.rotate_left(s);
+}
+
+/// 3-round Half-MD4 transform producing 4-word output state from 8-word input.
 pub fn half_md4_transform(buf: &mut [u32; 4], input: &[u32; 8]) {
     let mut a = buf[0];
     let mut b = buf[1];
@@ -74,6 +85,16 @@ pub fn half_md4_transform(buf: &mut [u32; 4], input: &[u32; 8]) {
     round2(&mut d, a, b, c, input[2], 5);
     round2(&mut c, d, a, b, input[4], 9);
     round2(&mut b, c, d, a, input[6], 13);
+
+    // Round 3
+    round3(&mut a, b, c, d, input[3], 3);
+    round3(&mut d, a, b, c, input[7], 9);
+    round3(&mut c, d, a, b, input[2], 11);
+    round3(&mut b, c, d, a, input[6], 15);
+    round3(&mut a, b, c, d, input[1], 3);
+    round3(&mut d, a, b, c, input[5], 9);
+    round3(&mut c, d, a, b, input[0], 11);
+    round3(&mut b, c, d, a, input[4], 15);
 
     buf[0] = buf[0].wrapping_add(a);
     buf[1] = buf[1].wrapping_add(b);
@@ -228,10 +249,11 @@ pub fn dx_hash(version: u8, name: &[u8], seed: &[u32; 4]) -> (u32, u32) {
         DX_HASH_LEGACY => dx_hack_hash_signed(name),
         DX_HASH_LEGACY_UNSIGNED => dx_hack_hash_unsigned(name),
         DX_HASH_HALF_MD4 => {
-            let mut buf: [u32; 4] = [0x67452301, 0xefcdab89, 0x98badcfe, 0x10325476];
-            for i in 0..4 {
-                buf[i] = buf[i].wrapping_add(seed[i]);
-            }
+            let mut buf: [u32; 4] = if seed.iter().any(|&s| s != 0) {
+                *seed
+            } else {
+                [0x67452301, 0xefcdab89, 0x98badcfe, 0x10325476]
+            };
             let mut pos = 0;
             let mut rem = name.len();
             while rem > 0 {
@@ -248,10 +270,11 @@ pub fn dx_hash(version: u8, name: &[u8], seed: &[u32; 4]) -> (u32, u32) {
             (buf[1], buf[2])
         }
         DX_HASH_HALF_MD4_UNSIGNED => {
-            let mut buf: [u32; 4] = [0x67452301, 0xefcdab89, 0x98badcfe, 0x10325476];
-            for i in 0..4 {
-                buf[i] = buf[i].wrapping_add(seed[i]);
-            }
+            let mut buf: [u32; 4] = if seed.iter().any(|&s| s != 0) {
+                *seed
+            } else {
+                [0x67452301, 0xefcdab89, 0x98badcfe, 0x10325476]
+            };
             let mut pos = 0;
             let mut rem = name.len();
             while rem > 0 {
@@ -268,10 +291,11 @@ pub fn dx_hash(version: u8, name: &[u8], seed: &[u32; 4]) -> (u32, u32) {
             (buf[1], buf[2])
         }
         DX_HASH_TEA => {
-            let mut buf: [u32; 4] = [0x67452301, 0xefcdab89, 0x98badcfe, 0x10325476];
-            for i in 0..4 {
-                buf[i] = buf[i].wrapping_add(seed[i]);
-            }
+            let mut buf: [u32; 4] = if seed.iter().any(|&s| s != 0) {
+                *seed
+            } else {
+                [0x67452301, 0xefcdab89, 0x98badcfe, 0x10325476]
+            };
             let mut pos = 0;
             let mut rem = name.len();
             while rem > 0 {
@@ -288,10 +312,11 @@ pub fn dx_hash(version: u8, name: &[u8], seed: &[u32; 4]) -> (u32, u32) {
             (buf[0], buf[1])
         }
         DX_HASH_TEA_UNSIGNED => {
-            let mut buf: [u32; 4] = [0x67452301, 0xefcdab89, 0x98badcfe, 0x10325476];
-            for i in 0..4 {
-                buf[i] = buf[i].wrapping_add(seed[i]);
-            }
+            let mut buf: [u32; 4] = if seed.iter().any(|&s| s != 0) {
+                *seed
+            } else {
+                [0x67452301, 0xefcdab89, 0x98badcfe, 0x10325476]
+            };
             let mut pos = 0;
             let mut rem = name.len();
             while rem > 0 {
@@ -484,7 +509,10 @@ pub fn htree_lookup(
         return Ok(HtreeResult::Found(res.0, res.1));
     }
 
-    // Collision check: if the next entry in this block has matching hash, check it too
+    // Collision check: if the next entry in the index has a matching hash, check it too
+    if indirect_levels > 0 {
+        return Ok(HtreeResult::Fallback);
+    }
     if entry_idx + 1 < count as usize {
         let next_hash = read_entry_hash(&root_buf[32..], entry_idx + 1);
         if (next_hash & !1) == search_hash {

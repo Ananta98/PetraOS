@@ -107,6 +107,8 @@ impl AllocIo<'_> {
                 self.store_block_bitmap(g, &nd, &bm)?;
                 self.bgt.update_desc(g, &nd)?;
                 self.bgt.mark_dirty();
+                self.sb
+                    .patch_free_blocks(self.sb.free_blocks_count().saturating_sub(1));
                 return Ok(self.block_of_bit(g, bit));
             }
         }
