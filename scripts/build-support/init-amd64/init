@@ -1,5 +1,5 @@
 #!/bin/sh
-# PetraOS Silica kernel userspace init (PID 1).
+# PetraOS kernel userspace init (PID 1).
 #
 # Runs from the initramfs or rootfs as /init. Mounts essential
 # pseudo-filesystems, prepares convenience paths, transitions to full Rocky Linux
@@ -12,7 +12,6 @@ export LOGNAME=root
 export TERM=linux
 export SHELL=/bin/bash
 export XDG_CONFIG_HOME=/root/.config
-export CHARSET=UTF-8
 if [ -d /usr/lib/locale/C.utf8 ] || [ -d /usr/lib/locale/C.UTF-8 ]; then
     export LANG=C.utf8
     export LC_ALL=C.utf8
@@ -90,9 +89,9 @@ spawn_userspace_shell() {
 if [ -f /etc/rocky-release ] || [ -f /etc/redhat-release ] || [ -x /usr/bin/dnf ] || [ -x /usr/bin/python3 ]; then
     echo ""
     echo "============================================================"
-    echo "    Welcome to PetraOS Silica (Rocky Linux Userspace)       "
+    echo "       Welcome to PetraOS (Rocky Linux Userspace)           "
     echo "============================================================"
-    echo "Kernel:       $(cat /proc/version 2>/dev/null || echo 'PetraOS Silica x86_64')"
+    echo "Kernel:       $(cat /proc/version 2>/dev/null || echo 'PetraOS x86_64')"
     echo "Release:      PetraOS $(cat /etc/petraos-release 2>/dev/null || echo '0.1.0') (Rocky Linux 9)"
     echo "Rootfs:       /dev/sda (ext4)"
     echo "Architecture: $(uname -m 2>/dev/null || echo x86_64)"
@@ -131,9 +130,9 @@ if [ -d /sysroot/usr/bin ] || [ -f /sysroot/etc/rocky-release ] || [ -x /sysroot
 
     echo ""
     echo "============================================================"
-    echo "    Welcome to PetraOS Silica (Rocky Linux Userspace)       "
+    echo "       Welcome to PetraOS (Rocky Linux Userspace)           "
     echo "============================================================"
-    echo "Kernel:       $(cat /proc/version 2>/dev/null || echo 'PetraOS Silica x86_64')"
+    echo "Kernel:       $(cat /proc/version 2>/dev/null || echo 'PetraOS x86_64')"
     echo "Release:      PetraOS $(cat /sysroot/etc/petraos-release 2>/dev/null || echo '0.1.0') (Rocky Linux 9)"
     echo "Rootfs:       /dev/sda (ext4) mounted on /sysroot"
     echo "Architecture: $(uname -m 2>/dev/null || echo x86_64)"
@@ -148,9 +147,9 @@ fi
 # ----------------------------------------------------------------------------
 echo ""
 echo "============================================================"
-echo "    Welcome to PetraOS Silica (Initramfs Recovery Shell)   "
+echo "       Welcome to PetraOS (Initramfs Recovery Shell)        "
 echo "============================================================"
-echo "Kernel:       $(cat /proc/version 2>/dev/null || echo 'PetraOS Silica x86_64')"
+echo "Kernel:       $(cat /proc/version 2>/dev/null || echo 'PetraOS x86_64')"
 echo "Release:      PetraOS $(cat /etc/petraos-release 2>/dev/null || echo 'unknown')"
 echo "Rootfs:       initramfs (in-memory)"
 echo "Architecture: $(uname -m 2>/dev/null || echo x86_64)"

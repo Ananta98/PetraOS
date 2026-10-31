@@ -31,7 +31,7 @@ pub struct ProcSymNodeOps<T: ProcSymOps> {
     inner: T,
 }
 
-/// Convenience alias aligned with Asterinas/Silica conventions.
+/// Convenience alias aligned with Asterinas conventions.
 pub type ProcSym<T> = ProcSymNodeOps<T>;
 
 impl<T: ProcSymOps> ProcSymNodeOps<T> {

@@ -40,7 +40,7 @@ pub struct ProcDirNodeOps<D: ProcDirOps> {
     inner: D,
 }
 
-/// Convenience alias aligned with Asterinas/Silica conventions.
+/// Convenience alias aligned with Asterinas conventions.
 pub type ProcDir<D> = ProcDirNodeOps<D>;
 
 impl<D: ProcDirOps> ProcDirNodeOps<D> {

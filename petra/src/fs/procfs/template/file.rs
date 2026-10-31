@@ -49,7 +49,7 @@ pub struct ProcFileNodeOps<T: ProcFileOps> {
     writable: bool,
 }
 
-/// Convenience alias matching the Asterinas/Silica `ProcFile<T>` style.
+/// Convenience alias matching the Asterinas `ProcFile<T>` style.
 pub type ProcFile<T> = ProcFileNodeOps<T>;
 
 impl<T: ProcFileOps> ProcFileNodeOps<T> {

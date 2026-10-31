@@ -1,9 +1,9 @@
 #!/bin/bash
 # ==============================================================================
-# PetraOS Silica Kernel - Bootable x86_64 ISO Generator
+# PetraOS Kernel - Bootable x86_64 ISO Generator
 # ==============================================================================
 # This script builds a bootable x86_64 hybrid ISO image (BIOS + UEFI)
-# containing the PetraOS Silica kernel, PetraOS initramfs, and GRUB.
+# containing the PetraOS kernel, PetraOS initramfs, and GRUB.
 # ==============================================================================
 
 set -euo pipefail
@@ -105,17 +105,17 @@ insmod all_video
 terminal_input console
 terminal_output console
 
-menuentry "PetraOS Silica Kernel (PetraOS Userspace)" {
-    echo "Loading PetraOS Silica Kernel..."
-    linux /boot/vmlinuz-petraos SHELL=/bin/sh LOGNAME=root HOME=/root USER=root PATH=/bin:/sbin:/usr/bin:/usr/sbin init=/init -- sh -l
+menuentry "PetraOS (Rocky Linux Userspace)" {
+    echo "Loading PetraOS Kernel..."
+    linux /boot/vmlinuz-petraos SHELL=/bin/bash LOGNAME=root HOME=/root USER=root PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/libexec init=/init -- sh -l
     echo "Loading PetraOS Initramfs..."
     initrd /boot/initramfs.cpio
     echo "Booting PetraOS..."
     boot
 }
 
-menuentry "PetraOS Silica Kernel (Single-User /bin/sh direct)" {
-    linux /boot/vmlinuz-petraos SHELL=/bin/sh LOGNAME=root HOME=/root USER=root PATH=/bin:/sbin init=/bin/sh -- sh -l
+menuentry "PetraOS (Single-User /bin/sh direct)" {
+    linux /boot/vmlinuz-petraos SHELL=/bin/sh LOGNAME=root HOME=/root USER=root PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/libexec init=/bin/sh -- sh -l
     initrd /boot/initramfs.cpio
     boot
 }
