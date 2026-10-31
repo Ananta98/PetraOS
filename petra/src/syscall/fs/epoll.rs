@@ -2,7 +2,7 @@
 
 //! System calls for epoll: `epoll_create`, `epoll_create1`, `epoll_ctl`, `epoll_wait`, `epoll_pwait`.
 
-use ostd::{arch::cpu::context::UserContext, task::Task};
+use ostd::arch::cpu::context::UserContext;
 
 use crate::{
     fs::{
@@ -134,22 +134,53 @@ fn execute_epoll_wait(
     let max_capacity = maxevents as usize;
     let mut ready_events = alloc::vec![EpollEvent::default(); max_capacity];
 
-    loop {
+    let (waiter, _) = ostd::sync::Waiter::new_pair();
+    let ktimer = if let Some(ref dl) = deadline {
+        let remaining_ns = dl.remaining_ns();
+        let waker = waiter.waker();
+        Some(crate::kpi::time::arm(
+            core::time::Duration::from_nanos(remaining_ns.max(1_000_000)),
+            Some(alloc::boxed::Box::new(move || {
+                waker.wake_up();
+            })),
+        ))
+    } else {
+        None
+    };
+
+    let cond = || {
         let ready_count = epoll.scan_ready(&mut ready_events);
         if ready_count > 0 {
-            write_epoll_events(events_ptr, &ready_events, ready_count, &vmar)?;
-            return Ok(ready_count);
+            Some(ready_count)
+        } else if deadline.as_ref().is_some_and(|d| d.expired()) {
+            Some(0)
+        } else {
+            crate::fs::poll::waitq().enqueue(waiter.waker());
+            None
         }
+    };
 
-        if deadline.as_ref().is_some_and(|d| d.expired()) {
-            return Ok(0);
-        }
-
+    let cancel = || {
         if Thread::should_interrupt() {
-            return Err(Errno::EINTR);
+            Err(Errno::EINTR)
+        } else {
+            Ok(())
         }
+    };
 
-        Task::yield_now();
+    let res = waiter.wait_until_or_cancelled(cond, cancel);
+    if let Some(timer) = ktimer {
+        timer.cancel();
+    }
+
+    match res {
+        Ok(ready_count) => {
+            if ready_count > 0 {
+                write_epoll_events(events_ptr, &ready_events, ready_count, &vmar)?;
+            }
+            Ok(ready_count)
+        }
+        Err(e) => Err(e),
     }
 }
 

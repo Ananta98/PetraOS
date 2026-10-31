@@ -82,7 +82,7 @@ pub fn setup_user_stack_full(
         stack_base,
         USER_STACK_SIZE,
         VmPerms::READ | VmPerms::WRITE,
-        MmapFlags::PRIVATE | MmapFlags::FIXED,
+        MmapFlags::PRIVATE | MmapFlags::FIXED | MmapFlags::GROWSDOWN,
     )?;
 
     // 2. Populate the top pages of the stack

@@ -107,7 +107,7 @@ impl Vmar {
 
         let Some(mapping) = self.grow_for_fault(info.address) else {
             crate::return_errno!(
-                EACCES,
+                EFAULT,
                 "no mapping contains the faulting address {:#x}",
                 info.address
             );

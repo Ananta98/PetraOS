@@ -575,7 +575,12 @@ impl Thread {
                         Ok(()) => None,
                         Err(err) => {
                             ostd::error!("Fatal user page fault at {:#x}: {err:?}", raw_pf.addr);
-                            Some(code::SEGV_ACCERR)
+                            let code = if err == crate::uapi::errno::Errno::EFAULT {
+                                code::SEGV_MAPERR
+                            } else {
+                                code::SEGV_ACCERR
+                            };
+                            Some(code)
                         }
                     },
                 };

@@ -99,6 +99,13 @@ impl Deadline {
         now().saturating_sub(self.start) >= self.duration
     }
 
+    /// Returns remaining duration in nanoseconds.
+    pub fn remaining_ns(&self) -> u64 {
+        let elapsed = now().saturating_sub(self.start);
+        let rem_ticks = self.duration.saturating_sub(elapsed);
+        rem_ticks.saturating_mul(NSEC_PER_TICK)
+    }
+
     /// Busy-transfers until the deadline elapses, yielding each iteration.
     ///
     /// Used by the empty-fd-set fast paths, where there is nothing to poll.

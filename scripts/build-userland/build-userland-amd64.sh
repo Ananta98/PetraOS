@@ -420,6 +420,10 @@ EOF
     rm -f "${target_dir}/etc/os-release"
     ln -sf ../usr/lib/os-release "${target_dir}/etc/os-release"
 
+    # Remove unneeded debuginfod startup scripts and configurations
+    rm -f "${target_dir}"/etc/profile.d/debuginfod.*
+    rm -rf "${target_dir}/etc/debuginfod"
+
     cat > "${target_dir}/etc/profile" << EOF
 export PATH=${DEFAULT_PATH}
 export HOME=/root

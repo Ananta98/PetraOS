@@ -6,7 +6,6 @@ use alloc::sync::Arc;
 use core::sync::atomic::{AtomicBool, Ordering};
 use ostd::arch::cpu::context::UserContext;
 use ostd::sync::Waiter;
-use ostd::task::Task;
 
 use crate::proc::Thread;
 use crate::sync::futex::{
@@ -96,39 +95,75 @@ pub fn sys_futex(
             });
             drop(table);
 
+            // Arm a timer if timeout is specified
+            let ktimer = if has_timeout {
+                let now_ns = if clock_is_realtime {
+                    crate::time::get_realtime_ns()
+                } else {
+                    crate::time::get_monotonic_ns()
+                };
+                let rem_ns = deadline_ns.saturating_sub(now_ns);
+                let waker = waiter.waker();
+                Some(crate::kpi::time::arm(
+                    core::time::Duration::from_nanos(rem_ns),
+                    Some(alloc::boxed::Box::new(move || {
+                        waker.wake_up();
+                    })),
+                ))
+            } else {
+                None
+            };
+
             // Wait until woken, timed out, or interrupted by signal
-            let result = loop {
+            let cond = || {
                 if woken.load(Ordering::Acquire) {
-                    break Ok(0);
-                }
-
-                if Thread::should_interrupt() {
-                    remove_waiter(&key, &woken);
-                    if woken.load(Ordering::Acquire) {
-                        break Ok(0);
-                    } else {
-                        break Err(Errno::EINTR);
-                    }
-                }
-
-                if has_timeout {
+                    Some(Ok(0))
+                } else if has_timeout {
                     let now_ns = if clock_is_realtime {
                         crate::time::get_realtime_ns()
                     } else {
                         crate::time::get_monotonic_ns()
                     };
-
                     if now_ns >= deadline_ns {
-                        remove_waiter(&key, &woken);
-                        if woken.load(Ordering::Acquire) {
-                            break Ok(0);
-                        } else {
-                            break Err(Errno::ETIMEDOUT);
-                        }
+                        Some(Err(Errno::ETIMEDOUT))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            };
+
+            let cancel = || {
+                if Thread::should_interrupt() {
+                    Err(Errno::EINTR)
+                } else {
+                    Ok(())
+                }
+            };
+
+            let wait_res = waiter.wait_until_or_cancelled(cond, cancel);
+            if let Some(timer) = ktimer {
+                timer.cancel();
+            }
+
+            remove_waiter(&key, &woken);
+
+            let result = match wait_res {
+                Ok(inner) => {
+                    if woken.load(Ordering::Acquire) {
+                        Ok(0)
+                    } else {
+                        inner
                     }
                 }
-
-                Task::yield_now();
+                Err(e) => {
+                    if woken.load(Ordering::Acquire) {
+                        Ok(0)
+                    } else {
+                        Err(e)
+                    }
+                }
             };
 
             drop(waiter);
