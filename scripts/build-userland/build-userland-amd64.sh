@@ -1,23 +1,28 @@
 #!/bin/bash
-# Assemble the PetraOS amd64 userland from an official Rocky Linux rootfs and
-# optional prebuilt package layers, then hand the staging root to the initramfs packer.
+# Assemble the PetraOS amd64 userland from an official Rocky Linux rootfs,
+# automatically resolve binary dependencies for a lightweight initramfs,
+# and hand both rootfs and initramfs to the filesystem packer.
 #
-# Usage: build-userland-amd64.sh [--fresh] [--purge-cache]
+# Usage: build-userland-amd64.sh [--fresh] [--purge-cache] [--no-verify] [--tools "tool1 tool2"]
 #
-#   --fresh        remove existing userland artifacts before rebuilding
-#   --purge-cache  with --fresh, also drop the download cache and re-fetch Rocky Linux
+#   --fresh        Remove existing userland staging before rebuilding
+#   --purge-cache  With --fresh, also purge the download cache and re-fetch base rootfs
+#   --no-verify    Skip SHA256 checksum verification of the downloaded archive
+#   --tools        Space-separated list of additional tools to include in the initramfs
 #
 # Environment:
-#   PETRAOS_USERLAND_PACKAGES  space separated prebuild-package layer names (default: empty)
-#   PETRAOS_VERSION            version string reported by /etc/os-release
-#   ROCKY_VERSION/ROCKY_ARCH/ROCKY_SHA256  override the Rocky Linux release
+#   EXTRA_INITRAMFS_TOOLS  Additional tools to include in the initramfs
+#   PETRAOS_VERSION        Version string reported by /etc/os-release (default: 0.1.0)
+#   ROCKY_VERSION          Rocky Linux release version (default: 9)
+#   ROCKY_URL              Direct URL to Rocky Linux base container / rootfs tarball
+#   ROCKY_SHA256           Expected SHA256 checksum of base archive (optional)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
 ROCKY_VERSION="${ROCKY_VERSION:-9}"
-ROCKY_ARCH="x86_64"
+ROCKY_ARCH="${ROCKY_ARCH:-x86_64}"
 ROCKY_SHA256="${ROCKY_SHA256:-1210df99dcf0ef4d73940244e6d703935175629598b09c0e430da20e76768402}"
 ROCKY_TAR_NAME="Rocky-${ROCKY_VERSION}-Container-Base.latest.${ROCKY_ARCH}.tar.xz"
 ROCKY_URL="${ROCKY_URL:-https://dl.rockylinux.org/pub/rocky/${ROCKY_VERSION}/images/${ROCKY_ARCH}/${ROCKY_TAR_NAME}}"
@@ -28,27 +33,46 @@ STAGING="${BUILD_DIR}/staging"
 ROOTFS_STAGING="${BUILD_DIR}/rootfs_staging"
 INITRAMFS="${REPO_ROOT}/build/initramfs.cpio"
 
-PACKAGES="${PETRAOS_USERLAND_PACKAGES:-}"
 PETRAOS_VERSION="${PETRAOS_VERSION:-0.1.0}"
 SUPPORT_DIR="${REPO_ROOT}/scripts/build-support"
-PREBUILD_DIR="${REPO_ROOT}/scripts/prebuild-package"
 
 FRESH=0
 PURGE_CACHE=0
+VERIFY_CHECKSUM=1
+EXTRA_TOOLS="${EXTRA_INITRAMFS_TOOLS:-${PETRAOS_USERLAND_PACKAGES:-}}"
 
-for arg in "$@"; do
-    case "$arg" in
+usage() {
+    cat << EOF
+Usage: $(basename "$0") [OPTIONS]
+
+Assemble the PetraOS amd64 userland and initramfs from official Rocky Linux.
+
+Options:
+  --fresh          Remove existing staging artifacts and rebuild from base
+  --purge-cache    Purge downloaded cache and re-fetch Rocky Linux archive
+  --no-verify      Skip SHA256 checksum verification of base archive
+  --tools "TOOLS"  Additional tools to include into the initramfs
+  -h, --help       Show this help message
+EOF
+    exit 0
+}
+
+while [ $# -gt 0 ]; do
+    case "$1" in
         --fresh) FRESH=1 ;;
         --purge-cache) PURGE_CACHE=1 ;;
-        -h|--help)
-            sed -n '2,/^set -/s/^# \{0,1\}//p' "$0"
-            exit 0
+        --no-verify) VERIFY_CHECKSUM=0 ;;
+        --tools)
+            EXTRA_TOOLS="${EXTRA_TOOLS} $2"
+            shift
             ;;
+        -h|--help) usage ;;
         *)
-            echo "ERROR: unknown option: $arg" >&2
-            exit 1
+            echo "ERROR: unknown option: $1" >&2
+            usage
             ;;
     esac
+    shift
 done
 
 if [ "${FRESH}" -eq 1 ]; then
@@ -57,9 +81,10 @@ if [ "${FRESH}" -eq 1 ]; then
     "${SCRIPT_DIR}/../clean.sh" "${clean_args[@]}"
 fi
 
-for tool in curl tar file; do
+# Check required host utilities
+for tool in curl tar file find readelf cpio; do
     command -v "$tool" >/dev/null 2>&1 || {
-        echo "ERROR: required command not found: $tool" >&2
+        echo "ERROR: required command not found on host: $tool" >&2
         exit 1
     }
 done
@@ -72,62 +97,67 @@ sha256_file() {
     fi
 }
 
-merge_layer() {
-    local layer="$1"
-    local target_dir="${2:-${STAGING}}"
-    local source relative destination
-    [ -d "$layer" ] || return 0
-    while IFS= read -r -d '' source; do
-        relative="${source#"$layer/"}"
-        destination="${target_dir}/${relative}"
-        if [ -L "$destination" ]; then
-            rm -f "$destination"
-        fi
-    done < <(find "$layer" -mindepth 1 -print0)
-    cp -a "$layer/." "${target_dir}/"
-}
-
 mkdir -p "${CACHE_DIR}" "${BUILD_DIR}"
 
-if [ ! -f "${CACHE_DIR}/${ROCKY_TAR_NAME}" ]; then
-    echo "==> Fetching Rocky Linux ${ROCKY_VERSION} ${ROCKY_ARCH} rootfs..."
-    curl -fL --retry 3 "${ROCKY_URL}" -o "${CACHE_DIR}/${ROCKY_TAR_NAME}"
+# ----------------------------------------------------------------------------
+# 1. Fetch & Extract Rocky Linux Base Rootfs
+# ----------------------------------------------------------------------------
+ARCHIVE_PATH="${CACHE_DIR}/${ROCKY_TAR_NAME}"
+if [ ! -f "${ARCHIVE_PATH}" ]; then
+    echo "==> Fetching Rocky Linux ${ROCKY_VERSION} (${ROCKY_ARCH}) base image..."
+    curl -fL --retry 3 "${ROCKY_URL}" -o "${ARCHIVE_PATH}"
 fi
 
-actual_sha256="$(sha256_file "${CACHE_DIR}/${ROCKY_TAR_NAME}")"
-if [ -n "${ROCKY_SHA256}" ] && [ "${actual_sha256}" != "${ROCKY_SHA256}" ]; then
-    echo "ERROR: Rocky Linux rootfs checksum mismatch." >&2
-    echo "Expected: ${ROCKY_SHA256}" >&2
-    echo "Actual:   ${actual_sha256}" >&2
-    exit 1
+if [ "${VERIFY_CHECKSUM}" -eq 1 ] && [ -n "${ROCKY_SHA256}" ]; then
+    actual_sha256="$(sha256_file "${ARCHIVE_PATH}")"
+    if [ "${actual_sha256}" != "${ROCKY_SHA256}" ]; then
+        echo "ERROR: Checksum mismatch for ${ARCHIVE_PATH}" >&2
+        echo "  Expected: ${ROCKY_SHA256}" >&2
+        echo "  Actual:   ${actual_sha256}" >&2
+        echo "Use --no-verify to bypass if using an updated upstream release." >&2
+        exit 1
+    fi
 fi
 
-echo "==> Extracting Rocky Linux rootfs into ${ROOTFS_STAGING}"
-chmod -R u+rwX "${STAGING}" "${ROOTFS_STAGING}" 2>/dev/null || true
-rm -rf "${STAGING}" "${ROOTFS_STAGING}"
-mkdir -p "${STAGING}" "${ROOTFS_STAGING}"
+if [ ! -d "${ROOTFS_STAGING}/usr/bin" ] || [ "${FRESH}" -eq 1 ]; then
+    echo "==> Extracting Rocky Linux rootfs into ${ROOTFS_STAGING}..."
+    chmod -R u+rwX "${STAGING}" "${ROOTFS_STAGING}" 2>/dev/null || true
+    rm -rf "${STAGING}" "${ROOTFS_STAGING}"
+    mkdir -p "${STAGING}" "${ROOTFS_STAGING}"
 
-TMP_EXTRACT="$(mktemp -d "${BUILD_DIR}/.rocky_extract.XXXXXX")"
-tar -xJf "${CACHE_DIR}/${ROCKY_TAR_NAME}" -C "${TMP_EXTRACT}"
+    TMP_EXTRACT="$(mktemp -d "${BUILD_DIR}/.rocky_extract.XXXXXX")"
+    tar -xJf "${ARCHIVE_PATH}" -C "${TMP_EXTRACT}"
 
-# Find the rootfs layer (the large tar+gzip blob in the OCI archive)
-LAYER_BLOB="$(find "${TMP_EXTRACT}/blobs/sha256" -type f -size +10M | head -n 1)"
-if [ -z "${LAYER_BLOB}" ] || [ ! -f "${LAYER_BLOB}" ]; then
-    echo "ERROR: failed to locate rootfs layer blob in Rocky Linux image." >&2
+    # Locate rootfs layer blob inside OCI container archive or direct rootfs tarball
+    LAYER_BLOB=""
+    if [ -d "${TMP_EXTRACT}/blobs/sha256" ]; then
+        LAYER_BLOB="$(find "${TMP_EXTRACT}/blobs/sha256" -type f -size +10M | head -n 1)"
+    fi
+
+    if [ -n "${LAYER_BLOB}" ] && [ -f "${LAYER_BLOB}" ]; then
+        tar -xzf "${LAYER_BLOB}" -C "${ROOTFS_STAGING}"
+    else
+        # Fallback: check if direct layer tar exists in archive
+        DIRECT_LAYER="$(find "${TMP_EXTRACT}" -maxdepth 2 -name "*.tar" -o -name "layer.tar" | head -n 1)"
+        if [ -n "${DIRECT_LAYER}" ] && [ -f "${DIRECT_LAYER}" ]; then
+            tar -xf "${DIRECT_LAYER}" -C "${ROOTFS_STAGING}"
+        else
+            echo "ERROR: failed to locate rootfs layer inside ${ARCHIVE_PATH}" >&2
+            chmod -R u+rwX "${TMP_EXTRACT}" 2>/dev/null || true
+            rm -rf "${TMP_EXTRACT}"
+            exit 1
+        fi
+    fi
+
     chmod -R u+rwX "${TMP_EXTRACT}" 2>/dev/null || true
     rm -rf "${TMP_EXTRACT}"
-    exit 1
+    chmod -R u+rwX "${ROOTFS_STAGING}" 2>/dev/null || true
 fi
 
-tar -xzf "${LAYER_BLOB}" -C "${ROOTFS_STAGING}"
-chmod -R u+rwX "${TMP_EXTRACT}" 2>/dev/null || true
-rm -rf "${TMP_EXTRACT}"
-
-# Ensure read, write, and execute permissions across rootfs staging
-chmod -R u+rwX "${ROOTFS_STAGING}" 2>/dev/null || true
-
-# Assemble lightweight initramfs staging (for fast memory boot)
-echo "==> Assembling lightweight initramfs staging in ${STAGING}"
+# ----------------------------------------------------------------------------
+# 2. Automated Dependency Resolution & Initramfs Assembly
+# ----------------------------------------------------------------------------
+echo "==> Assembling lightweight initramfs staging in ${STAGING}..."
 rm -rf "${STAGING}"
 mkdir -p "${STAGING}"/{usr/bin,usr/sbin,usr/lib64,usr/lib,dev/pts,dev/shm,proc,sys,tmp,run,root,mnt,sysroot,etc}
 ln -sfn usr/bin "${STAGING}/bin"
@@ -135,37 +165,154 @@ ln -sfn usr/sbin "${STAGING}/sbin"
 ln -sfn usr/lib64 "${STAGING}/lib64"
 ln -sfn usr/lib "${STAGING}/lib"
 
-# Essential binaries for initramfs
-cp -a "${ROOTFS_STAGING}/usr/bin/bash" "${STAGING}/usr/bin/"
-ln -sfn bash "${STAGING}/usr/bin/sh"
-cp -a "${ROOTFS_STAGING}/usr/bin/mount" "${STAGING}/usr/bin/"
-cp -a "${ROOTFS_STAGING}/usr/bin/coreutils" "${STAGING}/usr/bin/"
+# Recursively copy all shared library dependencies (DT_NEEDED) of an ELF file
+copy_elf_deps() {
+    local file="$1"
+    [ -f "$file" ] || return 0
 
-# Essential coreutils wrappers and system binaries
-for tool in cat cut uname mkdir ln ls chroot echo true false sleep rm cp mv touch chmod head tail grep sed find which; do
-    if [ -e "${ROOTFS_STAGING}/usr/bin/${tool}" ]; then
-        cp -a "${ROOTFS_STAGING}/usr/bin/${tool}" "${STAGING}/usr/bin/"
+    local needed
+    needed="$(readelf -d "$file" 2>/dev/null | awk -F'[][]' '/\(NEEDED\)/ {print $2}')"
+    for lib in $needed; do
+        if [ ! -e "${STAGING}/usr/lib64/${lib}" ] && [ ! -e "${STAGING}/usr/lib/${lib}" ]; then
+            local found=""
+            for search_dir in "${ROOTFS_STAGING}/usr/lib64" "${ROOTFS_STAGING}/usr/lib" "${ROOTFS_STAGING}/lib64" "${ROOTFS_STAGING}/lib"; do
+                if [ -e "${search_dir}/${lib}" ]; then
+                    found="${search_dir}/${lib}"
+                    break
+                fi
+            done
+
+            if [ -n "$found" ]; then
+                local target_rel="${found#"${ROOTFS_STAGING}/"}"
+                mkdir -p "${STAGING}/$(dirname "${target_rel}")"
+                cp -a "$found" "${STAGING}/${target_rel}"
+
+                if [ -L "$found" ]; then
+                    local real_target
+                    real_target="$(readlink -f "$found")"
+                    if [ -e "$real_target" ]; then
+                        local real_rel="${real_target#"${ROOTFS_STAGING}/"}"
+                        mkdir -p "${STAGING}/$(dirname "${real_rel}")"
+                        cp -a "$real_target" "${STAGING}/${real_rel}"
+                        copy_elf_deps "$real_target"
+                    fi
+                else
+                    copy_elf_deps "$found"
+                fi
+            fi
+        fi
+    done
+}
+
+# Stage a binary, resolving symlinks, shebang interpreters, and ELF dependencies
+stage_tool() {
+    local name="$1"
+    local src=""
+    for dir in "${ROOTFS_STAGING}/usr/bin" "${ROOTFS_STAGING}/usr/sbin" "${ROOTFS_STAGING}/bin" "${ROOTFS_STAGING}/sbin"; do
+        if [ -e "${dir}/${name}" ]; then
+            src="${dir}/${name}"
+            break
+        fi
+    done
+
+    [ -n "$src" ] || return 1
+
+    local rel_path="${src#"${ROOTFS_STAGING}/"}"
+    mkdir -p "${STAGING}/$(dirname "${rel_path}")"
+    cp -a "$src" "${STAGING}/${rel_path}"
+
+    if [ "$(dirname "${rel_path}")" = "usr/sbin" ] && [ ! -e "${STAGING}/usr/bin/${name}" ]; then
+        ln -sfn "../sbin/${name}" "${STAGING}/usr/bin/${name}"
     fi
-    if [ -e "${ROOTFS_STAGING}/usr/sbin/${tool}" ]; then
-        cp -a "${ROOTFS_STAGING}/usr/sbin/${tool}" "${STAGING}/usr/sbin/"
-        [ -e "${STAGING}/usr/bin/${tool}" ] || ln -sfn "../sbin/${tool}" "${STAGING}/usr/bin/${tool}"
+
+    # Handle symlinks
+    if [ -L "$src" ]; then
+        local real_target
+        real_target="$(readlink -f "$src")"
+        if [ -e "$real_target" ]; then
+            local real_rel="${real_target#"${ROOTFS_STAGING}/"}"
+            mkdir -p "${STAGING}/$(dirname "${real_rel}")"
+            cp -a "$real_target" "${STAGING}/${real_rel}"
+            src="$real_target"
+        fi
+    fi
+
+    # Check file type
+    local magic
+    magic="$(head -c 4 "$src" 2>/dev/null || true)"
+    if [ "${magic:0:2}" = "#!" ]; then
+        local shebang interp interp_bin
+        read -r shebang < "$src"
+        interp="$(echo "${shebang#\#!}" | awk '{print $1}')"
+        interp_bin="$(basename "$interp")"
+        if [ -n "$interp_bin" ] && [ "$interp_bin" != "$name" ]; then
+            stage_tool "$interp_bin" || true
+        fi
+    elif [ "$magic" = $'\x7fELF' ]; then
+        copy_elf_deps "$src"
+    fi
+
+    return 0
+}
+
+# Standard essential tools for initramfs boot and recovery
+DEFAULT_INITRAMFS_TOOLS=(
+    # Core shell & multi-call coreutils
+    bash sh coreutils
+    # Filesystem & rootfs pivot
+    mount umount switch_root pivot_root blkid
+    # Core manipulation tools
+    cat cp mv rm ln mkdir rmdir chmod chown touch
+    # Text processing & searching
+    echo head tail grep sed awk cut find
+    # System info & process control
+    uname sleep true false dmesg sync clear
+    # Userspace transition
+    chroot
+)
+
+ALL_TOOLS=("${DEFAULT_INITRAMFS_TOOLS[@]}")
+if [ -n "${EXTRA_TOOLS}" ]; then
+    read -r -a EXTRA_TOOLS_ARR <<< "${EXTRA_TOOLS}"
+    ALL_TOOLS+=("${EXTRA_TOOLS_ARR[@]}")
+fi
+
+echo "==> Staging tools and resolving dynamic dependencies:"
+for tool in "${ALL_TOOLS[@]}"; do
+    if stage_tool "$tool"; then
+        printf "    staged: %s\n" "$tool"
+    else
+        printf "    (skipped, not found): %s\n" "$tool"
     fi
 done
 
-# Additional initramfs rootfs switching tools
-for tool in switch_root pivot_root; do
-    if [ -e "${ROOTFS_STAGING}/usr/sbin/${tool}" ]; then
-        cp -a "${ROOTFS_STAGING}/usr/sbin/${tool}" "${STAGING}/usr/sbin/"
-        [ -e "${STAGING}/usr/bin/${tool}" ] || ln -sfn "../sbin/${tool}" "${STAGING}/usr/bin/${tool}"
+# Dynamic Linker
+if [ -e "${ROOTFS_STAGING}/usr/lib64/ld-linux-x86-64.so.2" ]; then
+    cp -a "${ROOTFS_STAGING}/usr/lib64/ld-linux-x86-64.so.2" "${STAGING}/usr/lib64/"
+    if [ -L "${ROOTFS_STAGING}/usr/lib64/ld-linux-x86-64.so.2" ]; then
+        real_loader="$(readlink -f "${ROOTFS_STAGING}/usr/lib64/ld-linux-x86-64.so.2")"
+        cp -a "$real_loader" "${STAGING}/usr/lib64/"
     fi
-done
+fi
 
-# Dynamic loader
-cp -a "${ROOTFS_STAGING}/usr/lib64/ld-linux-x86-64.so.2" "${STAGING}/usr/lib64/"
+# Fallback POSIX which implementation if which is not a binary
+if [ ! -e "${STAGING}/usr/bin/which" ]; then
+    cat > "${STAGING}/usr/bin/which" << 'EOF'
+#!/bin/sh
+command -v "$@"
+EOF
+    chmod 0755 "${STAGING}/usr/bin/which"
+fi
 
-# Required shared libraries for initramfs tools
-for lib in libc.so.6 libtinfo.so.6* libmount.so.1* libblkid.so.1* libselinux.so.1* libpcre2-8.so.0* libacl.so.1* libattr.so.1* libcap.so.2*; do
-    cp -a "${ROOTFS_STAGING}/usr/lib64/"${lib} "${STAGING}/usr/lib64/"
+# Ensure sh points to bash
+[ -e "${STAGING}/usr/bin/sh" ] || ln -sfn bash "${STAGING}/usr/bin/sh"
+
+# Terminfo data for interactive terminals (linux, vt100, xterm)
+for term in l/linux v/vt100 v/vt220 x/xterm x/xterm-256color; do
+    if [ -f "${ROOTFS_STAGING}/usr/share/terminfo/${term}" ]; then
+        mkdir -p "${STAGING}/usr/share/terminfo/$(dirname "${term}")"
+        cp -a "${ROOTFS_STAGING}/usr/share/terminfo/${term}" "${STAGING}/usr/share/terminfo/${term}"
+    fi
 done
 
 # Locale support for glibc tools (prevent setlocale warnings)
@@ -177,23 +324,23 @@ if [ -d "${ROOTFS_STAGING}/usr/share/locale" ]; then
     cp -a "${ROOTFS_STAGING}/usr/share/locale" "${STAGING}/usr/share/"
 fi
 
-# Stage optional prebuilt package layers if requested
-if [ -n "${PACKAGES}" ]; then
-    echo "==> Staging prebuilt package layers into rootfs (${ROOTFS_STAGING})"
-    for package in ${PACKAGES}; do
-        layer_script="${PREBUILD_DIR}/build-${package}.sh"
-        if [ ! -x "${layer_script}" ]; then
-            echo "ERROR: no prebuild-package script for '${package}': ${layer_script}" >&2
-            exit 1
-        fi
-        echo "    ${package}"
-        "${layer_script}"
-        merge_layer "${REPO_ROOT}/build/prebuild-package/${package}/staging" "${ROOTFS_STAGING}"
-        merge_layer "${REPO_ROOT}/build/prebuild-package/${package}/staging" "${STAGING}"
-    done
+# ----------------------------------------------------------------------------
+# 3. Environment & OS Configuration
+# ----------------------------------------------------------------------------
+echo "==> Configuring system files in initramfs and rootfs..."
+
+# Ensure root shell is /bin/bash in rootfs
+if [ -f "${ROOTFS_STAGING}/etc/passwd" ]; then
+    sed -i 's|^root:.*|root:x:0:0:root:/root:/bin/bash|' "${ROOTFS_STAGING}/etc/passwd"
 fi
 
-echo "==> Configuring the userlands (initramfs and rootfs)"
+# Copy user/group definitions from rootfs to initramfs
+for f in passwd group shells; do
+    if [ -f "${ROOTFS_STAGING}/etc/${f}" ]; then
+        cp -a "${ROOTFS_STAGING}/etc/${f}" "${STAGING}/etc/${f}"
+    fi
+done
+
 for target_dir in "${STAGING}" "${ROOTFS_STAGING}"; do
     chmod -R u+w "${target_dir}" 2>/dev/null || true
     mkdir -p "${target_dir}"/{dev/pts,dev/shm,proc,sys,tmp,run,root,mnt,media,var/log,var/run,var/tmp}
@@ -201,19 +348,12 @@ for target_dir in "${STAGING}" "${ROOTFS_STAGING}"; do
     chmod 0750 "${target_dir}/root"
     install -m0755 "${SUPPORT_DIR}/init-amd64/init" "${target_dir}/init"
 
-    # Ensure C.utf8 and C.UTF-8 alias both exist for glibc setlocale
+    # Locale aliases
     if [ -d "${target_dir}/usr/lib/locale/C.utf8" ]; then
         ln -sfn C.utf8 "${target_dir}/usr/lib/locale/C.UTF-8"
     fi
 
-    # Ensure clear command exists (simple standalone clear escape sequence script)
-    cat > "${target_dir}/usr/bin/clear" << 'EOF'
-#!/bin/sh
-printf '\033[H\033[2J\033[3J'
-EOF
-    chmod 0755 "${target_dir}/usr/bin/clear"
-
-    # Provide common CLI aliases/symlinks expected by users
+    # Convenience aliases
     if [ -x "${target_dir}/usr/bin/vi" ] && [ ! -e "${target_dir}/usr/bin/vim" ]; then
         ln -sfn vi "${target_dir}/usr/bin/vim"
     fi
@@ -225,31 +365,6 @@ EOF
     fi
     if [ -x "${target_dir}/usr/bin/dnf-3" ] && [ ! -e "${target_dir}/usr/bin/yum" ]; then
         ln -sfn dnf-3 "${target_dir}/usr/bin/yum"
-    fi
-    if [ -e "${target_dir}/usr/sbin/chroot" ] && [ ! -e "${target_dir}/usr/bin/chroot" ]; then
-        ln -sfn "../sbin/chroot" "${target_dir}/usr/bin/chroot"
-    fi
-done
-
-for target_dir in "${STAGING}" "${ROOTFS_STAGING}"; do
-    if [ ! -f "${target_dir}/etc/passwd" ]; then
-        cat > "${target_dir}/etc/passwd" << 'EOF'
-root:x:0:0:root:/root:/bin/bash
-bin:x:1:1:bin:/bin:/sbin/nologin
-daemon:x:2:2:daemon:/sbin:/sbin/nologin
-nobody:x:65534:65534:nobody:/:/sbin/nologin
-EOF
-    else
-        sed -i 's|^root:.*|root:x:0:0:root:/root:/bin/bash|' "${target_dir}/etc/passwd"
-    fi
-
-    if [ ! -f "${target_dir}/etc/shells" ]; then
-        cat > "${target_dir}/etc/shells" << 'EOF'
-/bin/sh
-/bin/bash
-/usr/bin/sh
-/usr/bin/bash
-EOF
     fi
 
     if [ ! -f "${target_dir}/etc/hosts" ]; then
@@ -327,7 +442,7 @@ alias l='ls -lh'
 alias clear='printf "\033[H\033[2J\033[3J"'
 EOF
 
-    # Best-effort device nodes; skipped when the build runs unprivileged.
+    # Best-effort device nodes
     mknod -m 666 "${target_dir}/dev/null" c 1 3 2>/dev/null || true
     mknod -m 666 "${target_dir}/dev/zero" c 1 5 2>/dev/null || true
     mknod -m 666 "${target_dir}/dev/tty" c 5 0 2>/dev/null || true
@@ -335,15 +450,15 @@ EOF
     mknod -m 666 "${target_dir}/dev/ptmx" c 5 2 2>/dev/null || true
 done
 
-for path in "${STAGING}/usr/bin/bash" "${STAGING}/usr/lib64/ld-linux-x86-64.so.2" "${STAGING}/bin/sh"; do
+# Verification
+for path in "${STAGING}/usr/bin/bash" "${STAGING}/usr/lib64/ld-linux-x86-64.so.2" "${STAGING}/bin/sh" "${STAGING}/init"; do
     if [ ! -e "$path" ]; then
-        echo "ERROR: Rocky Linux userland is incomplete, missing ${path}" >&2
+        echo "ERROR: Initramfs staging is incomplete, missing ${path}" >&2
         exit 1
     fi
 done
 
-echo "==> Packaging the initramfs and disk images"
+echo "==> Packaging the initramfs and disk images..."
 "${SCRIPT_DIR}/../build-initramfs.sh" --staging "${STAGING}" --rootfs-staging "${ROOTFS_STAGING}" --output "${INITRAMFS}"
 
-file "${STAGING}/usr/bin/bash"
-file "${STAGING}/usr/lib64/ld-linux-x86-64.so.2"
+echo "==> Userland build completed successfully."
