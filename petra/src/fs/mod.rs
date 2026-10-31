@@ -126,7 +126,7 @@ fn mount_fs(
     };
 
     let mount_dentry = Arc::new(DEntry::new(
-        String::from(mount_dir),
+        String::new(),
         Some(fs_root),
         Some(Arc::downgrade(&point.dentry)),
     ));
@@ -206,6 +206,9 @@ fn mount_dir_mode(dir: &str) -> Mode {
 /// plain rootfs directory: devices expose through devfs on demand.
 fn mount_core_filesystems() {
     create_root_directory("dev");
+    if let Err(e) = devfs::init() {
+        ostd::warn!("VFS: devfs init failed: {:?}", e);
+    }
 
     mount_fs(
         Arc::new(ProcFs::new()),

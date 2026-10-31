@@ -547,7 +547,7 @@ pub fn init() -> Result<()> {
     };
 
     let mount_dentry = Arc::new(DEntry::new(
-        String::from("dev"),
+        String::new(),
         Some(dev_inode),
         Some(Arc::downgrade(&target_node.dentry)),
     ));

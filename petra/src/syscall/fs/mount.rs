@@ -92,7 +92,7 @@ pub fn sys_mount(
             LookupFlags::DIRECTORY,
         )?;
         let mount_dentry = Arc::new(DEntry::new(
-            alloc::string::String::from(target.trim_end_matches('/')),
+            alloc::string::String::new(),
             source_node.dentry.get_inode(),
             Some(Arc::downgrade(&target_node.dentry)),
         ));
@@ -121,7 +121,7 @@ pub fn sys_mount(
 
     let root_inode = fs_instance.root()?;
     let mount_dentry = Arc::new(DEntry::new(
-        alloc::string::String::from(target.trim_end_matches('/')),
+        alloc::string::String::new(),
         Some(root_inode),
         Some(Arc::downgrade(&target_node.dentry)),
     ));

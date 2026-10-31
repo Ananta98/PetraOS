@@ -517,12 +517,15 @@ impl Thread {
         }
     }
 
-    /// Cleans up child tid and removes thread if marked dead. Returns true if dead.
+    /// Cleans up child tid and removes thread if marked dead or process is zombie. Returns true if dead.
     fn cleanup_if_dead(&self, proc: &Arc<Proc>) -> bool {
-        if self.is_dead() {
+        if self.is_dead() || proc.state() == crate::proc::ProcState::Zombie {
             self.handle_robust_list(proc);
             self.handle_clear_child_tid(proc);
             proc.remove_thread(self.tid);
+            let mut inner = self.inner.lock();
+            inner.state = ThreadState::Dead;
+            inner.flags.insert(ThreadFlags::KILL_PENDING);
             true
         } else {
             false
@@ -601,6 +604,11 @@ impl Thread {
                 self.deliver_fault_signal(QueuedSignal {
                     info: SigInfo::kernel(sig, code),
                 });
+                if self.is_dead() || proc.state() == crate::proc::ProcState::Zombie {
+                    let mut inner = self.inner.lock();
+                    inner.state = ThreadState::Dead;
+                    inner.flags.insert(ThreadFlags::KILL_PENDING);
+                }
             }
         }
     }

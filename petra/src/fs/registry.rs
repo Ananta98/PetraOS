@@ -76,7 +76,7 @@ pub fn mount_device(target_path: &str, dev_name: &str, fstype: &str) -> Result<P
     )?;
 
     let mount_dentry = Arc::new(DEntry::new(
-        String::from(target_path.trim_end_matches('/')),
+        String::new(),
         Some(root_inode),
         Some(Arc::downgrade(&target_node.dentry)),
     ));
@@ -84,10 +84,15 @@ pub fn mount_device(target_path: &str, dev_name: &str, fstype: &str) -> Result<P
     let new_mount = Arc::new(Mount::new(Arc::clone(&mount_dentry), fs_instance));
     target_node.mount(new_mount.clone())?;
 
-    register_mount(dev_name, target_path, fstype, "ro,relatime");
+    register_mount(
+        &alloc::format!("/dev/{}", dev_name),
+        target_path,
+        fstype,
+        "rw,relatime",
+    );
 
     ostd::info!(
-        "VFS: Successfully mounted {} ({}) at \"{}\"",
+        "VFS: Successfully mounted /dev/{} ({}) at \"{}\"",
         dev_name,
         fstype,
         target_path

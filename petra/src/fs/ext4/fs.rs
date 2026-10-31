@@ -398,34 +398,36 @@ impl Ext4Fs {
     /// Walks the tree and returns every referenced non-root block
     /// (leaves plus intermediate index blocks). Root-length invariants are
     /// trusted here; `collect_child` validates each level's header.
-    fn collect_meta_blocks(&self, raw: &RawInode, _ctx: &ExtentCtx<'_>) -> Result<Vec<u64>> {
+    fn collect_meta_blocks(&self, raw: &RawInode, ctx: &ExtentCtx<'_>) -> Result<Vec<u64>> {
         let mut out = Vec::new();
         if raw.flags & iflags::EXTENTS == 0 || raw.raw.len() < 100 {
             return Ok(out);
         }
         let magic = u16::from_le_bytes([raw.raw[40], raw.raw[41]]);
-        let depth = u16::from_le_bytes([raw.raw[44], raw.raw[45]]);
+        // In ext4 extent header: eh_magic (0..2), eh_entries (2..4), eh_max (4..6), eh_depth (6..8).
+        let depth = u16::from_le_bytes([raw.raw[46], raw.raw[47]]);
         if magic != 0xF3_0A || depth == 0 {
             return Ok(out);
         }
         let n = u16::from_le_bytes([raw.raw[42], raw.raw[43]]) as usize;
+        let has_64bit = ctx.has_64bit;
         for i in 0..n {
             let e = &raw.raw[52 + i * 12..64 + i * 12];
-            let ptr = extent_entry_ptr(e);
+            let ptr = extent_index_ptr(e, has_64bit);
             if ptr == 0 {
                 continue;
             }
             // Child blocks at (depth - 1) levels; leaves count as metadata.
             out.push(ptr);
             if depth > 1 {
-                self.collect_child(ptr, depth as u32 - 1, &mut out)?;
+                self.collect_child(ptr, depth as u32 - 1, has_64bit, &mut out)?;
             }
         }
         Ok(out)
     }
 
     /// Recurses into an index block, collecting pointed-to blocks.
-    fn collect_child(&self, ptr: u64, depth: u32, out: &mut Vec<u64>) -> Result<()> {
+    fn collect_child(&self, ptr: u64, depth: u32, has_64bit: bool, out: &mut Vec<u64>) -> Result<()> {
         if depth == 0 || out.len() > 1 << 20 {
             return Ok(());
         }
@@ -436,19 +438,19 @@ impl Ext4Fs {
             return Err(Errno::EIO);
         }
         let n = u16::from_le_bytes([blk[2], blk[3]]) as usize;
-        let d = u16::from_le_bytes([blk[4], blk[5]]) as u32;
+        let d = u16::from_le_bytes([blk[6], blk[7]]) as u32;
         if d != depth {
             return Err(Errno::EIO);
         }
         for i in 0..n {
             let e = &blk[12 + i * 12..24 + i * 12];
-            let cptr = extent_entry_ptr(e);
+            let cptr = extent_index_ptr(e, has_64bit);
             if cptr == 0 {
                 continue;
             }
             out.push(cptr);
             if d > 1 {
-                self.collect_child(cptr, d - 1, out)?;
+                self.collect_child(cptr, d - 1, has_64bit, out)?;
             }
         }
         Ok(())
@@ -520,13 +522,20 @@ impl Ext4Fs {
             let lblock = pos / bs;
             let rel = pos % bs;
             let take = (bs - rel).min(end - pos) as usize;
-            match self.map_read(ino, raw, lblock)? {
-                Some(phys) => {
+            match self.map_read(ino, raw, lblock) {
+                Ok(Some(phys)) => {
                     let mut blk = vec![0u8; self.block_size];
-                    self.read_fs_block(phys, &mut blk)?;
+                    if let Err(e) = self.read_fs_block(phys, &mut blk) {
+                        ostd::error!("Ext4: read_fs_block failed for phys {}: {:?}", phys, e);
+                        return Err(e);
+                    }
                     out.extend_from_slice(&blk[rel as usize..rel as usize + take]);
                 }
-                None => out.resize(out.len() + take, 0),
+                Ok(None) => out.resize(out.len() + take, 0),
+                Err(e) => {
+                    ostd::error!("Ext4: map_read failed for ino {}, lblock {}: {:?}", ino, lblock, e);
+                    return Err(e);
+                }
             }
             pos += take as u64;
             if out.len() == (end - offset) as usize {
@@ -763,7 +772,13 @@ impl Ext4Fs {
     pub fn read_dir_data(&self, ino: u32, raw: &RawInode) -> Result<Vec<u8>> {
         let size = raw.size().min(64 * 1024 * 1024) as usize;
         let mut buf = vec![0u8; size];
-        let n = self.file_read(ino, raw, 0, &mut buf)?;
+        let n = match self.file_read(ino, raw, 0, &mut buf) {
+            Ok(n) => n,
+            Err(e) => {
+                ostd::error!("Ext4: file_read failed on dir ino {}: {:?}", ino, e);
+                return Err(e);
+            }
+        };
         buf.truncate(n);
         Ok(buf)
     }
@@ -914,11 +929,15 @@ impl Ext4Fs {
     }
 }
 
-/// Extracts the 48-bit tree pointer from a 12-byte extent/index entry
-/// (both encodings place `hi` at bytes 8..10 and `lo` at bytes 4..8).
-fn extent_entry_ptr(e: &[u8]) -> u64 {
-    let hi = u16::from_le_bytes([e[8], e[9]]) as u64;
+/// Extracts the 48-bit leaf pointer from a 12-byte extent index entry (`ext4_extent_idx`).
+/// In `ext4_extent_idx`, `ei_leaf_lo` is at bytes 4..8 and `ei_leaf_hi` is at bytes 8..10.
+fn extent_index_ptr(e: &[u8], has_64bit: bool) -> u64 {
     let lo = u32::from_le_bytes([e[4], e[5], e[6], e[7]]) as u64;
+    let hi = if has_64bit {
+        u16::from_le_bytes([e[8], e[9]]) as u64
+    } else {
+        0
+    };
     (hi << 32) | lo
 }
 

@@ -44,27 +44,25 @@ spawn_userspace_shell() {
 
     if [ -n "$target_root" ] && [ "$target_root" != "/" ]; then
         local chroot_bin="chroot"
-        if ! command -v chroot >/dev/null 2>&1; then
-            if [ -x /usr/sbin/chroot ]; then
-                chroot_bin="/usr/sbin/chroot"
-            elif [ -x /usr/bin/chroot ]; then
-                chroot_bin="/usr/bin/chroot"
-            elif [ -x /usr/bin/coreutils ]; then
-                chroot_bin="/usr/bin/coreutils --coreutils-prog=chroot"
-            fi
+        if [ -x /usr/bin/coreutils ]; then
+            chroot_bin="/usr/bin/coreutils --coreutils-prog=chroot"
+        elif [ -x /usr/sbin/chroot ]; then
+            chroot_bin="/usr/sbin/chroot"
+        elif [ -x /usr/bin/chroot ]; then
+            chroot_bin="/usr/bin/chroot"
         fi
 
         if [ $# -gt 0 ] && [ "$1" != "sh" ]; then
             echo "[init] Executing requested command in rootfs: $*"
-            exec $chroot_bin "$target_root" "$@"
+            exec $chroot_bin "$target_root" "$@" || echo "[init] chroot command failed: $?"
         fi
 
         if [ -x "$target_root/bin/bash" ] || [ -x "$target_root/usr/bin/bash" ]; then
             echo "[init] Spawning interactive login shell (/bin/bash -l)..."
-            exec $chroot_bin "$target_root" /bin/bash -l
+            exec $chroot_bin "$target_root" /bin/bash -l || echo "[init] chroot to bash failed: $?"
         elif [ -x "$target_root/bin/sh" ] || [ -x "$target_root/usr/bin/sh" ]; then
             echo "[init] Spawning interactive login shell (/bin/sh -l)..."
-            exec $chroot_bin "$target_root" /bin/sh -l
+            exec $chroot_bin "$target_root" /bin/sh -l || echo "[init] chroot to sh failed: $?"
         fi
     else
         if [ $# -gt 0 ] && [ "$1" != "sh" ]; then
@@ -114,7 +112,7 @@ elif [ -b /dev/vda ] || [ -e /dev/vda ]; then
 fi
 
 # If full rootfs is mounted at /sysroot, prepare nested mounts and chroot
-if [ -d /sysroot/usr/bin ] || [ -f /sysroot/etc/rocky-release ] || [ -x /sysroot/usr/bin/dnf ]; then
+if [ -d /sysroot/usr/bin ] || [ -f /sysroot/etc/rocky-release ] || [ -x /sysroot/usr/bin/dnf ] || [ -d /sysroot/usr ]; then
     mount -t devfs devfs /sysroot/dev 2>/dev/null || true
     mount -t proc proc /sysroot/proc 2>/dev/null || true
     mount -t sysfs sysfs /sysroot/sys 2>/dev/null || true
@@ -140,6 +138,12 @@ if [ -d /sysroot/usr/bin ] || [ -f /sysroot/etc/rocky-release ] || [ -x /sysroot
     echo "Architecture: $(uname -m 2>/dev/null || echo x86_64)"
     echo "============================================================"
     echo ""
+
+    if [ -f /sysroot/root/test_userspace.py ]; then
+        echo "[init] Running internal userspace verification test suite..."
+        /usr/bin/coreutils --coreutils-prog=chroot /sysroot /usr/bin/python3 /root/test_userspace.py || true
+        echo ""
+    fi
 
     spawn_userspace_shell "/sysroot" "$@"
 fi

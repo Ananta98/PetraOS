@@ -17,8 +17,8 @@ use crate::uapi::errno::{Errno, Result};
 /// `0x8000` is reserved on-disk for uninitialized extents, never created here).
 pub const MAX_EXTENT_LEN: u32 = 0x7FFF;
 
-/// The extent-tree on-disk magic (`ejj4_extent_header.eh_magic`).
-const EH_MAGIC: u16 = 0x0AF3;
+/// The extent-tree on-disk magic (`ext4_extent_header.eh_magic`).
+const EH_MAGIC: u16 = 0xF30A;
 
 /// One sorted logical/physical mapping segment.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -63,10 +63,17 @@ pub fn block_capacity(block_size: usize, csum_on: bool) -> usize {
 // ---------------------------------------------------------------------------
 
 /// Decodes an extent (depth-0) entry: block, len, start_hi, start_lo.
-fn parse_extent_entry(b: &[u8]) -> Extent {
+fn parse_extent_entry(b: &[u8], has_64bit: bool) -> Extent {
     let log = u32::from_le_bytes(b[0..4].try_into().expect("4 bytes"));
-    let len = u16::from_le_bytes(b[4..6].try_into().expect("2 bytes")) as u32;
-    let start_hi = u16::from_le_bytes(b[6..8].try_into().expect("2 bytes")) as u64;
+    let mut len = u16::from_le_bytes(b[4..6].try_into().expect("2 bytes")) as u32;
+    if len > 32768 {
+        len -= 32768;
+    }
+    let start_hi = if has_64bit {
+        u16::from_le_bytes(b[6..8].try_into().expect("2 bytes")) as u64
+    } else {
+        0
+    };
     let start_lo = u32::from_le_bytes(b[8..12].try_into().expect("4 bytes")) as u64;
     Extent {
         log,
@@ -76,11 +83,15 @@ fn parse_extent_entry(b: &[u8]) -> Extent {
 }
 
 /// Decodes an index entry: block, leaf_lo, leaf_hi, pad.
-fn parse_index_entry(b: &[u8]) -> (u32, u64) {
+fn parse_index_entry(b: &[u8], has_64bit: bool) -> (u32, u64) {
     let log = u32::from_le_bytes(b[0..4].try_into().unwrap_or_default());
-    let ptr = u32::from_le_bytes(b[4..8].try_into().unwrap_or_default()) as u64
-        | (u16::from_le_bytes(b[8..10].try_into().unwrap_or_default()) as u64) << 32;
-    (log, ptr)
+    let leaf_lo = u32::from_le_bytes(b[4..8].try_into().unwrap_or_default()) as u64;
+    let leaf_hi = if has_64bit {
+        u16::from_le_bytes(b[8..10].try_into().unwrap_or_default()) as u64
+    } else {
+        0
+    };
+    (log, leaf_lo | (leaf_hi << 32))
 }
 
 /// Verifies an extent header and returns `(entry_count, depth)`.
@@ -92,8 +103,9 @@ fn parse_header(block: &[u8], max_entries: usize) -> Result<(usize, u16)> {
         return Err(Errno::EIO);
     }
     let n = u16::from_le_bytes([block[2], block[3]]) as usize;
-    let depth = u16::from_le_bytes([block[4], block[5]]);
-    if n > max_entries {
+    let max = u16::from_le_bytes([block[4], block[5]]) as usize;
+    let depth = u16::from_le_bytes([block[6], block[7]]);
+    if n > max_entries || n > max {
         return Err(Errno::EIO);
     }
     Ok((n, depth))
@@ -106,6 +118,9 @@ pub fn scan(raw_inode: &[u8], ctx: &ExtentCtx<'_>) -> Result<Vec<Extent>> {
     }
     let root_area = &raw_inode[40..100];
     let (n, depth) = parse_header(root_area, ctx.root_capacity)?;
+    if depth > 0 {
+        ostd::warn!("extents::scan: ino={} has depth={} n={}, root_area={:02x?}", ctx.ino, depth, n, root_area);
+    }
     let mut entries: Vec<[u8; 12]> = Vec::with_capacity(n);
     for i in 0..n {
         let off = 12 + i * 12;
@@ -113,13 +128,13 @@ pub fn scan(raw_inode: &[u8], ctx: &ExtentCtx<'_>) -> Result<Vec<Extent>> {
     }
 
     if depth == 0 {
-        return Ok(entries.iter().map(|e| parse_extent_entry(e)).collect());
+        return Ok(entries.iter().map(|e| parse_extent_entry(e, ctx.has_64bit)).collect());
     }
 
     // Depth >= 1: walk the index levels top-down, collecting leaves.
     let capacity = block_capacity(ctx.block_size, ctx.csum_on);
     let mut level: u16 = depth;
-    let mut current: Vec<(u32, u64)> = entries.iter().map(|e| parse_index_entry(e)).collect();
+    let mut current: Vec<(u32, u64)> = entries.iter().map(|e| parse_index_entry(e, ctx.has_64bit)).collect();
     let mut extents = Vec::new();
 
     loop {
@@ -135,9 +150,9 @@ pub fn scan(raw_inode: &[u8], ctx: &ExtentCtx<'_>) -> Result<Vec<Extent>> {
             for i in 0..count {
                 let e = &blk[12 + i * 12..12 + (i + 1) * 12];
                 if level == 0 {
-                    extents.push(parse_extent_entry(e));
+                    extents.push(parse_extent_entry(e, ctx.has_64bit));
                 } else {
-                    child_list.push(parse_index_entry(e));
+                    child_list.push(parse_index_entry(e, ctx.has_64bit));
                 }
             }
         }
@@ -283,7 +298,36 @@ impl TreePlan {
 }
 
 /// Serializes one non-root tree block, including its trailing checksum.
-fn build_block_image(
+fn build_leaf_block(
+    extents: &[Extent],
+    block_size: usize,
+    csum_on: bool,
+    seed: u32,
+    ino: u32,
+    inode_gen: u32,
+) -> Vec<u8> {
+    let cap = block_capacity(block_size, csum_on);
+    let mut block = vec![0u8; block_size];
+    block[0..2].copy_from_slice(&EH_MAGIC.to_le_bytes());
+    let n = extents.len().min(cap) as u16;
+    block[2..4].copy_from_slice(&n.to_le_bytes());
+    block[4..6].copy_from_slice(&(cap as u16).to_le_bytes());
+    block[6..8].copy_from_slice(&0u16.to_le_bytes());
+    block[8..12].copy_from_slice(&0u32.to_le_bytes());
+    for (i, e) in extents.iter().enumerate() {
+        block[12 + i * 12..12 + (i + 1) * 12].copy_from_slice(&pack_extent_entry(e));
+    }
+    if csum_on {
+        let mut state = seed;
+        state = crc32c(state, &ino.to_le_bytes());
+        state = crc32c(state, &inode_gen.to_le_bytes());
+        state = crc32c(state, &block[0..block_size - 4]);
+        block[block_size - 4..block_size].copy_from_slice(&state.to_le_bytes());
+    }
+    block
+}
+
+fn build_index_block(
     entries: &[(u32, u64)],
     depth: u16,
     block_size: usize,
@@ -297,11 +341,11 @@ fn build_block_image(
     block[0..2].copy_from_slice(&EH_MAGIC.to_le_bytes());
     let n = entries.len().min(cap) as u16;
     block[2..4].copy_from_slice(&n.to_le_bytes());
-    block[4..6].copy_from_slice(&depth.to_le_bytes());
-    block[6..8].copy_from_slice(&(cap as u16).to_le_bytes());
+    block[4..6].copy_from_slice(&(cap as u16).to_le_bytes());
+    block[6..8].copy_from_slice(&depth.to_le_bytes());
     block[8..12].copy_from_slice(&0u32.to_le_bytes());
     for (i, (log, ptr)) in entries.iter().enumerate() {
-        block[12 + i * 12..12 + (i + 1) * 12].copy_from_slice(&pack_entry(*log, *ptr, depth));
+        block[12 + i * 12..12 + (i + 1) * 12].copy_from_slice(&pack_index_entry(*log, *ptr));
     }
     if csum_on {
         let mut state = seed;
@@ -313,20 +357,22 @@ fn build_block_image(
     block
 }
 
-/// Packs an extent (depth 0) or an index pointer (depth > 0) into 12 bytes.
-///
-/// For extents the second half encodes `ee_start_hi` + `ee_start_lo`;
-/// for index entries `ei_leaf_lo` + `ei_leaf_hi` + 2 bytes of padding.
-fn pack_entry(log: u32, ptr: u64, depth: u16) -> [u8; 12] {
+/// Packs an extent entry (depth 0, `ext4_extent`).
+fn pack_extent_entry(e: &Extent) -> [u8; 12] {
+    let mut out = [0u8; 12];
+    out[0..4].copy_from_slice(&e.log.to_le_bytes());
+    out[4..6].copy_from_slice(&(e.len as u16).to_le_bytes());
+    out[6..8].copy_from_slice(&((e.phys >> 32) as u16).to_le_bytes());
+    out[8..12].copy_from_slice(&(e.phys as u32).to_le_bytes());
+    out
+}
+
+/// Packs an index pointer entry (depth > 0, `ext4_extent_idx`).
+fn pack_index_entry(log: u32, ptr: u64) -> [u8; 12] {
     let mut out = [0u8; 12];
     out[0..4].copy_from_slice(&log.to_le_bytes());
-    if depth > 0 {
-        out[4..8].copy_from_slice(&(ptr as u32).to_le_bytes());
-        out[8..10].copy_from_slice(&((ptr >> 32) as u16).to_le_bytes());
-    } else {
-        out[6..8].copy_from_slice(&((ptr >> 32) as u16).to_le_bytes());
-        out[8..12].copy_from_slice(&(ptr as u32).to_le_bytes());
-    }
+    out[4..8].copy_from_slice(&(ptr as u32).to_le_bytes());
+    out[8..10].copy_from_slice(&((ptr >> 32) as u16).to_le_bytes());
     out
 }
 
@@ -355,12 +401,12 @@ pub fn build_tree(
         let n = extents.len();
         root[0..2].copy_from_slice(&EH_MAGIC.to_le_bytes());
         root[2..4].copy_from_slice(&(n as u16).to_le_bytes());
-        root[4..6].copy_from_slice(&0u16.to_le_bytes());
-        root[6..8].copy_from_slice(&(ctx.root_capacity as u16).to_le_bytes());
+        root[4..6].copy_from_slice(&(ctx.root_capacity as u16).to_le_bytes());
+        root[6..8].copy_from_slice(&0u16.to_le_bytes());
         root[8..12].copy_from_slice(&0u32.to_le_bytes());
         for (i, e) in extents.iter().enumerate() {
             // Inline root entries are always extents (depth 0).
-            root[12 + i * 12..12 + (i + 1) * 12].copy_from_slice(&pack_entry(e.log, e.phys, 0));
+            root[12 + i * 12..12 + (i + 1) * 12].copy_from_slice(&pack_extent_entry(e));
         }
         return Ok(BuiltTree {
             writes: Vec::new(),
@@ -381,14 +427,9 @@ pub fn build_tree(
         cursor += 1;
         let start = i * cap;
         let end = ((i + 1) * cap).min(extents.len());
-        let chunk = &extents[start..end].to_vec();
-        let mut entries: Vec<(u32, u64)> = Vec::with_capacity(chunk.len());
-        for e in chunk {
-            entries.push((e.log, e.phys));
-        }
-        let image = build_block_image(
-            &entries,
-            0,
+        let chunk = &extents[start..end];
+        let image = build_leaf_block(
+            chunk,
             ctx.block_size,
             ctx.csum_on,
             ctx.csum_seed,
@@ -396,7 +437,7 @@ pub fn build_tree(
             ctx.inode_gen,
         );
         writes.push((phys, image));
-        current.push((entries.first().map_or(0, |(l, _)| *l), phys));
+        current.push((chunk.first().map_or(0, |e| e.log), phys));
     }
 
     // Index levels: level `li` blocks hold child pointers from level `li-1`.
@@ -410,9 +451,9 @@ pub fn build_tree(
             cursor += 1;
             let start = i * cap;
             let end = ((i + 1) * cap).min(current.len());
-            let entries = current[start..end].to_vec();
-            let image = build_block_image(
-                &entries,
+            let entries = &current[start..end];
+            let image = build_index_block(
+                entries,
                 li as u16,
                 ctx.block_size,
                 ctx.csum_on,
@@ -432,15 +473,11 @@ pub fn build_tree(
     let mut root = [0u8; 60];
     root[0..2].copy_from_slice(&EH_MAGIC.to_le_bytes());
     root[2..4].copy_from_slice(&(current.len() as u16).to_le_bytes());
-    root[4..6].copy_from_slice(&root_depth.to_le_bytes());
-    root[6..8].copy_from_slice(&(ctx.root_capacity as u16).to_le_bytes());
+    root[4..6].copy_from_slice(&(ctx.root_capacity as u16).to_le_bytes());
+    root[6..8].copy_from_slice(&root_depth.to_le_bytes());
     root[8..12].copy_from_slice(&0u32.to_le_bytes());
     for (i, (log, ptr)) in current.iter().enumerate() {
-        root[12 + i * 12..12 + (i + 1) * 12].copy_from_slice(&pack_entry(
-            *log,
-            *ptr,
-            root_depth - 1,
-        ));
+        root[12 + i * 12..12 + (i + 1) * 12].copy_from_slice(&pack_index_entry(*log, *ptr));
     }
 
     Ok(BuiltTree {

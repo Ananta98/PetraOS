@@ -506,6 +506,12 @@ impl AhciPort {
         let mut cl_writer = self.cmd_list_dma.writer();
         self.write_bytes_to_dma(&mut cl_writer, &cmd_header.to_bytes());
 
+        // Clear pending status before issuing
+        let is: u32 = self.mmio.read_once(self.port_base + PORT_IS).unwrap_or(0);
+        let _ = self.mmio.write_once(self.port_base + PORT_IS, &is);
+        let serr: u32 = self.mmio.read_once(self.port_base + PORT_SERR).unwrap_or(0);
+        let _ = self.mmio.write_once(self.port_base + PORT_SERR, &serr);
+
         // 4. Issue command
         self.mmio
             .write_once(self.port_base + PORT_CI, &1u32)
@@ -513,18 +519,39 @@ impl AhciPort {
 
         // 5. Poll for completion
         let mut completed = false;
-        for _ in 0..1_000_000 {
+        let mut last_ci = 0u32;
+        for _ in 0..5_000_000 {
             let ci: u32 = self
                 .mmio
                 .read_once(self.port_base + PORT_CI)
                 .map_err(|_| Errno::EIO)?;
+            last_ci = ci;
             if (ci & 1) == 0 {
                 completed = true;
                 break;
             }
+            let is: u32 = self.mmio.read_once(self.port_base + PORT_IS).unwrap_or(0);
+            if is & (1 << 30) != 0 {
+                let tfd: u32 = self.mmio.read_once(self.port_base + PORT_TFD).unwrap_or(0);
+                if tfd & 1 != 0 {
+                    ostd::error!("AHCI: TFES error during DMA! TFD={:#x}, IS={:#x}", tfd, is);
+                    break;
+                }
+            }
+            core::hint::spin_loop();
         }
 
+        // Clear interrupt status after completion
+        let is: u32 = self.mmio.read_once(self.port_base + PORT_IS).unwrap_or(0);
+        let _ = self.mmio.write_once(self.port_base + PORT_IS, &is);
+
         if !completed {
+            let tfd: u32 = self.mmio.read_once(self.port_base + PORT_TFD).unwrap_or(0);
+            let serr: u32 = self.mmio.read_once(self.port_base + PORT_SERR).unwrap_or(0);
+            ostd::error!(
+                "AHCI: DMA timed out! start_lba={}, sectors={}, write={}, CI={:#x}, IS={:#x}, TFD={:#x}, SERR={:#x}",
+                start_lba, sector_count, is_write, last_ci, is, tfd, serr
+            );
             crate::return_errno!(ETIMEDOUT, "AHCI DMA command timed out");
         }
 
@@ -572,6 +599,13 @@ impl BlockDevice for AhciPort {
         }
 
         let sector_count = (buf.len() / self.sector_size) as u16;
+        if block_id.saturating_add(sector_count as u64) > self.sector_count {
+            ostd::error!(
+                "AHCI: read_blocks out of bounds: block_id={}, count={}, disk_sectors={}",
+                block_id, sector_count, self.sector_count
+            );
+            crate::return_errno!(EINVAL, "read beyond disk capacity");
+        }
         let res = self.read_dma_ext(block_id, sector_count, buf);
         if res.is_ok() {
             self.counters.record_read(sector_count as u64);
@@ -588,6 +622,13 @@ impl BlockDevice for AhciPort {
         }
 
         let sector_count = (buf.len() / self.sector_size) as u16;
+        if block_id.saturating_add(sector_count as u64) > self.sector_count {
+            ostd::error!(
+                "AHCI: write_blocks out of bounds: block_id={}, count={}, disk_sectors={}",
+                block_id, sector_count, self.sector_count
+            );
+            crate::return_errno!(EINVAL, "write beyond disk capacity");
+        }
         let res = self.write_dma_ext(block_id, sector_count, buf);
         if res.is_ok() {
             self.counters.record_write(sector_count as u64);

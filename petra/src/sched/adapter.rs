@@ -101,7 +101,7 @@ impl EevdfScheduler {
     ) -> Option<CpuId> {
         let current_cpu = disable_preempt().current_cpu();
         let (still_queued, target_cpu) = match runnable.schedule_info().cpu.get() {
-            Some(cpu) => {
+            Some(cpu) if flags != EnqueueFlags::Spawn => {
                 if !entity.affinity().is_set(u32::from(cpu) as usize) {
                     let migrated = self.select_target_cpu(&entity, current_cpu);
                     runnable.schedule_info().cpu.set_anyway(migrated);
@@ -111,6 +111,7 @@ impl EevdfScheduler {
                     (true, cpu)
                 }
             }
+            Some(cpu) => (false, cpu),
             None => {
                 let target = self.select_target_cpu(&entity, current_cpu);
                 let _ = runnable.schedule_info().cpu.set_if_is_none(target);

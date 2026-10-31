@@ -37,6 +37,15 @@ pub fn exit1(td: &Thread, status: ExitStatus) {
     let (children_to_reparent, ppid, reaper) = {
         let mut inner = proc.inner.lock();
         if inner.state == ProcState::Zombie {
+            drop(inner);
+            td.handle_robust_list(&proc);
+            td.handle_clear_child_tid(&proc);
+            let mut td_inner = td.inner.lock();
+            td_inner.state = ThreadState::Dead;
+            td_inner.flags.insert(
+                crate::proc::thread::ThreadFlags::TDF_ASTPENDING
+                    | crate::proc::thread::ThreadFlags::KILL_PENDING,
+            );
             return;
         }
         inner.state = ProcState::Zombie;
@@ -47,7 +56,36 @@ pub fn exit1(td: &Thread, status: ExitStatus) {
     };
     let reaper_pid = reaper.unwrap_or_else(|| tree_find_reaper(ppid));
 
-    // 2. Tear down open files and detach SysV IPC resources (shm, sem, msg)
+    // 2. Mark every thread of the process dead immediately and clean up.
+    //
+    // This MUST happen before waking the parent wait queue: on SMP systems,
+    // waking the parent can immediately trigger a concurrent `proc_reap`, which
+    // clears `proc.inner.threads`. Marking all threads (including `td`) dead here
+    // guarantees that exiting threads never falsely return to userspace.
+    let threads: Vec<_> = proc.inner.lock().threads.clone();
+    for thread in &threads {
+        thread.handle_robust_list(&proc);
+        thread.handle_clear_child_tid(&proc);
+        let mut td_inner = thread.inner.lock();
+        td_inner.state = ThreadState::Dead;
+        td_inner.flags.insert(
+            crate::proc::thread::ThreadFlags::TDF_ASTPENDING
+                | crate::proc::thread::ThreadFlags::KILL_PENDING,
+        );
+    }
+    // Also explicitly ensure calling thread is marked dead, even if already reaped from `threads`.
+    {
+        td.handle_robust_list(&proc);
+        td.handle_clear_child_tid(&proc);
+        let mut td_inner = td.inner.lock();
+        td_inner.state = ThreadState::Dead;
+        td_inner.flags.insert(
+            crate::proc::thread::ThreadFlags::TDF_ASTPENDING
+                | crate::proc::thread::ThreadFlags::KILL_PENDING,
+        );
+    }
+
+    // 3. Tear down open files and detach SysV IPC resources (shm, sem, msg)
     proc.fd_table.lock().close_all();
     crate::ipc::shm::on_proc_exit(&proc);
     crate::ipc::sem::on_proc_exit(&proc);
@@ -55,7 +93,7 @@ pub fn exit1(td: &Thread, status: ExitStatus) {
     crate::sched::on_proc_exit(proc.pid);
     crate::time::posix_timer::on_proc_exit(&proc);
 
-    // 3. Reparent orphan children to reaper
+    // 4. Reparent orphan children to reaper
     if !children_to_reparent.is_empty() {
         tree_reparent_children(&children_to_reparent, reaper_pid);
         for &child_pid in &children_to_reparent {
@@ -73,29 +111,6 @@ pub fn exit1(td: &Thread, status: ExitStatus) {
         }
     }
 
-    // 4. Notify parent process via SIGCHLD and wake wait queues
-    if let Some(parent) = ppid.and_then(allproc_find) {
-        parent.post_signal(Signal::SIGCHLD);
-        parent.child_waitq.wake_all();
-        super::wait::notify_child_events();
-    }
-
-    // 5. Mark every thread of the process dead, not just the caller, and clean up.
-    //
-    // `proc_reap` drops the last strong `Arc<Proc>` once the zombie is collected,
-    // and a surviving sibling's `Thread::td_proc` is a `Weak`. Sibling threads are
-    // flagged with AST and KILL_PENDING so they exit on return to kernel mode.
-    let threads: Vec<_> = proc.inner.lock().threads.clone();
-    for thread in &threads {
-        thread.handle_robust_list(&proc);
-        thread.handle_clear_child_tid(&proc);
-        let mut td_inner = thread.inner.lock();
-        td_inner.state = ThreadState::Dead;
-        td_inner.flags.insert(
-            crate::proc::thread::ThreadFlags::TDF_ASTPENDING
-                | crate::proc::thread::ThreadFlags::KILL_PENDING,
-        );
-    }
     // Wake any threads parked on stop_queue and any parent sleeping in vfork
     proc.stop_queue.wake_all();
     proc.wake_vfork();
@@ -105,10 +120,16 @@ pub fn exit1(td: &Thread, status: ExitStatus) {
         parent.wake_vfork();
     }
 
-    // Report the status so a process's end is visible in the log. Nothing else
-    // does: the zombie keeps `xstat` until a parent reaps it, and a process with
-    // no parent is never reaped at all.
+    // Report the status so a process's end is visible in the log.
     ostd::info!("proc: pid {} exited ({})", proc.pid, status);
+
+    // 5. Notify parent process via SIGCHLD and wake wait queues.
+    // Done at the very end of exit1 so the parent reaps only a fully cleaned up zombie.
+    if let Some(parent) = ppid.and_then(allproc_find) {
+        parent.post_signal(Signal::SIGCHLD);
+        parent.child_waitq.wake_all();
+        super::wait::notify_child_events();
+    }
 }
 
 /// Terminates a single thread within a process.
