@@ -141,10 +141,22 @@ ln -sfn bash "${STAGING}/usr/bin/sh"
 cp -a "${ROOTFS_STAGING}/usr/bin/mount" "${STAGING}/usr/bin/"
 cp -a "${ROOTFS_STAGING}/usr/bin/coreutils" "${STAGING}/usr/bin/"
 
-# Essential coreutils wrappers
-for tool in cat cut uname mkdir ln ls chroot echo true false sleep rm cp mv touch chmod; do
+# Essential coreutils wrappers and system binaries
+for tool in cat cut uname mkdir ln ls chroot echo true false sleep rm cp mv touch chmod head tail grep sed find which; do
     if [ -e "${ROOTFS_STAGING}/usr/bin/${tool}" ]; then
         cp -a "${ROOTFS_STAGING}/usr/bin/${tool}" "${STAGING}/usr/bin/"
+    fi
+    if [ -e "${ROOTFS_STAGING}/usr/sbin/${tool}" ]; then
+        cp -a "${ROOTFS_STAGING}/usr/sbin/${tool}" "${STAGING}/usr/sbin/"
+        [ -e "${STAGING}/usr/bin/${tool}" ] || ln -sfn "../sbin/${tool}" "${STAGING}/usr/bin/${tool}"
+    fi
+done
+
+# Additional initramfs rootfs switching tools
+for tool in switch_root pivot_root; do
+    if [ -e "${ROOTFS_STAGING}/usr/sbin/${tool}" ]; then
+        cp -a "${ROOTFS_STAGING}/usr/sbin/${tool}" "${STAGING}/usr/sbin/"
+        [ -e "${STAGING}/usr/bin/${tool}" ] || ln -sfn "../sbin/${tool}" "${STAGING}/usr/bin/${tool}"
     fi
 done
 
@@ -194,12 +206,28 @@ for target_dir in "${STAGING}" "${ROOTFS_STAGING}"; do
         ln -sfn C.utf8 "${target_dir}/usr/lib/locale/C.UTF-8"
     fi
 
+    # Ensure clear command exists (simple standalone clear escape sequence script)
+    cat > "${target_dir}/usr/bin/clear" << 'EOF'
+#!/bin/sh
+printf '\033[H\033[2J\033[3J'
+EOF
+    chmod 0755 "${target_dir}/usr/bin/clear"
+
     # Provide common CLI aliases/symlinks expected by users
     if [ -x "${target_dir}/usr/bin/vi" ] && [ ! -e "${target_dir}/usr/bin/vim" ]; then
         ln -sfn vi "${target_dir}/usr/bin/vim"
     fi
     if [ -x "${target_dir}/usr/bin/python3" ] && [ ! -e "${target_dir}/usr/bin/python" ]; then
         ln -sfn python3 "${target_dir}/usr/bin/python"
+    fi
+    if [ -x "${target_dir}/usr/bin/dnf-3" ] && [ ! -e "${target_dir}/usr/bin/dnf" ]; then
+        ln -sfn dnf-3 "${target_dir}/usr/bin/dnf"
+    fi
+    if [ -x "${target_dir}/usr/bin/dnf-3" ] && [ ! -e "${target_dir}/usr/bin/yum" ]; then
+        ln -sfn dnf-3 "${target_dir}/usr/bin/yum"
+    fi
+    if [ -e "${target_dir}/usr/sbin/chroot" ] && [ ! -e "${target_dir}/usr/bin/chroot" ]; then
+        ln -sfn "../sbin/chroot" "${target_dir}/usr/bin/chroot"
     fi
 done
 
@@ -273,6 +301,7 @@ export LC_ALL=C.utf8
 export PS1='petraos:\w# '
 alias ll='ls -la --color=auto'
 alias l='ls -lh'
+alias clear='printf "\033[H\033[2J\033[3J"'
 umask 022
 
 for script in /etc/profile.d/*.sh ; do
@@ -295,6 +324,7 @@ export LANG=C.utf8
 export LC_ALL=C.utf8
 alias ll='ls -la --color=auto'
 alias l='ls -lh'
+alias clear='printf "\033[H\033[2J\033[3J"'
 EOF
 
     # Best-effort device nodes; skipped when the build runs unprivileged.
