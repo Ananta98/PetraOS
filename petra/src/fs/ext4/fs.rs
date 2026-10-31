@@ -579,6 +579,28 @@ impl Ext4Fs {
                             }
                         }
                         bcache.insert((ino, lblock), blk_arc);
+                        drop(bcache);
+
+                        // Sequential read-ahead: prefetch up to 3 subsequent blocks into cache
+                        let max_lblock = size.div_ceil(bs);
+                        let prefetch_limit = core::cmp::min(lblock + 4, max_lblock);
+                        for next_lb in (lblock + 1)..prefetch_limit {
+                            if self.block_cache.read().contains_key(&(ino, next_lb)) {
+                                continue;
+                            }
+                            if let Ok(Some(next_phys)) = self.map_read(ino, raw, next_lb) {
+                                let mut next_blk = vec![0u8; self.block_size];
+                                if self.read_fs_block(next_phys, &mut next_blk).is_ok() {
+                                    let mut bcache = self.block_cache.write();
+                                    if bcache.len() >= 2048 {
+                                        if let Some(first_key) = bcache.keys().next().copied() {
+                                            bcache.remove(&first_key);
+                                        }
+                                    }
+                                    bcache.insert((ino, next_lb), Arc::new(next_blk));
+                                }
+                            }
+                        }
                     }
                     Ok(None) => {
                         buf[written..written + take].fill(0);
