@@ -118,9 +118,6 @@ pub fn scan(raw_inode: &[u8], ctx: &ExtentCtx<'_>) -> Result<Vec<Extent>> {
     }
     let root_area = &raw_inode[40..100];
     let (n, depth) = parse_header(root_area, ctx.root_capacity)?;
-    if depth > 0 {
-        ostd::warn!("extents::scan: ino={} has depth={} n={}, root_area={:02x?}", ctx.ino, depth, n, root_area);
-    }
     let mut entries: Vec<[u8; 12]> = Vec::with_capacity(n);
     for i in 0..n {
         let off = 12 + i * 12;

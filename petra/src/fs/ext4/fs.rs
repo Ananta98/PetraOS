@@ -231,11 +231,9 @@ impl Ext4Fs {
                 sb.has_64bit(),
                 sb.has_metadata_csum(),
                 sb.csum_seed(),
-                if sb.inode_size >= 256 {
-                    (sb.inode_size as usize - 64) / 12
-                } else {
-                    4
-                },
+                // Inline extent area in an inode is strictly i_block (60 bytes).
+                // (60 bytes - 12 bytes header) / 12 bytes per entry = 4 entries.
+                4,
             )
         };
         let ctx = ExtentCtx {
@@ -1069,13 +1067,9 @@ fn encode_new_inode(
     RawInode::parse(&raw, inode_size).unwrap()
 }
 
-/// Root capacity of the inline extent area for a given inode size.
-fn extent_root_capacity(inode_size: usize) -> usize {
-    if inode_size >= 256 {
-        (inode_size - 64) / 12
-    } else {
-        4
-    }
+/// Root capacity of the inline extent area in an inode's i_block (60 bytes).
+fn extent_root_capacity(_inode_size: usize) -> usize {
+    4
 }
 
 /// Builds the VFS inode + attribute pair for an on-disk inode.
