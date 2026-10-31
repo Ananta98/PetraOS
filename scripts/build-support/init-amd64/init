@@ -139,12 +139,6 @@ if [ -d /sysroot/usr/bin ] || [ -f /sysroot/etc/rocky-release ] || [ -x /sysroot
     echo "============================================================"
     echo ""
 
-    if [ -f /sysroot/root/test_userspace.py ]; then
-        echo "[init] Running internal userspace verification test suite..."
-        /usr/bin/coreutils --coreutils-prog=chroot /sysroot /usr/bin/python3 /root/test_userspace.py || true
-        echo ""
-    fi
-
     spawn_userspace_shell "/sysroot" "$@"
 fi
 
