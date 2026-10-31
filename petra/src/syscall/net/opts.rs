@@ -102,8 +102,8 @@ fn resolve_sockopt_val(socket: &crate::net::socket::KernelSocket, level: i32, op
         (SOL_SOCKET, SO_REUSEADDR) => 1,
         (SOL_SOCKET, SO_TYPE) => socket.sock_type,
         (SOL_SOCKET, SO_ERROR) => get_socket_error(socket),
-        (SOL_SOCKET, SO_RCVBUF) => 212992,
-        (SOL_SOCKET, SO_SNDBUF) => 212992,
+        (SOL_SOCKET, SO_RCVBUF) => 1048576,
+        (SOL_SOCKET, SO_SNDBUF) => 262144,
         (IPPROTO_TCP, TCP_NODELAY) => 1,
         _ => 0,
     }

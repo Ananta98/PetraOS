@@ -196,8 +196,8 @@ impl NetworkManager {
 
     /// Creates and adds a TCP socket, returning its handle.
     pub fn add_tcp_socket(&mut self) -> SocketHandle {
-        let rx_buffer = TcpSocketBuffer::new(alloc::vec![0u8; 65536]);
-        let tx_buffer = TcpSocketBuffer::new(alloc::vec![0u8; 65536]);
+        let rx_buffer = TcpSocketBuffer::new(alloc::vec![0u8; 1048576]);
+        let tx_buffer = TcpSocketBuffer::new(alloc::vec![0u8; 262144]);
         let tcp_socket = TcpSocket::new(rx_buffer, tx_buffer);
         self.get_sockets().add(tcp_socket)
     }

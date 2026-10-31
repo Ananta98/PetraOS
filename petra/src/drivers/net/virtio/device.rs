@@ -29,7 +29,7 @@ use crate::uapi::errno::{Errno, Result};
 const RX_BUFFER_SIZE: usize = 2048;
 
 /// Maximum number of RX buffers pre-populated into `receiveq1`.
-const MAX_RX_BUFFERS: usize = 32;
+const MAX_RX_BUFFERS: usize = 128;
 
 /// Size of the TX staging buffer in bytes (1 page = 4096 bytes).
 const TX_BUFFER_SIZE: usize = PAGE_SIZE;

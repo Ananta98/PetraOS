@@ -154,7 +154,16 @@ fn sleep_socket_waiter() {
             Ok(())
         }
     };
-    let _ = waiter.wait_until_or_cancelled(|| None::<()>, cancel);
+    let mut waited = false;
+    let cond = || {
+        if waited {
+            Some(())
+        } else {
+            waited = true;
+            None
+        }
+    };
+    let _ = waiter.wait_until_or_cancelled(cond, cancel);
     ktimer.cancel();
 }
 

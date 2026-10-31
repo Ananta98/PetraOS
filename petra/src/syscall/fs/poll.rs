@@ -81,7 +81,16 @@ pub fn sys_poll(
                 })),
             );
             let cancel = || if Thread::should_interrupt() { Err(Errno::EINTR) } else { Ok(()) };
-            let res = waiter.wait_until_or_cancelled(|| None::<()>, cancel);
+            let mut waited = false;
+            let cond = || {
+                if waited {
+                    Some(())
+                } else {
+                    waited = true;
+                    None
+                }
+            };
+            let res = waiter.wait_until_or_cancelled(cond, cancel);
             ktimer.cancel();
             if let Err(err) = res {
                 return Err(err);
@@ -265,7 +274,16 @@ fn do_select(
                 })),
             );
             let cancel = || if Thread::should_interrupt() { Err(Errno::EINTR) } else { Ok(()) };
-            let res = waiter.wait_until_or_cancelled(|| None::<()>, cancel);
+            let mut waited = false;
+            let cond = || {
+                if waited {
+                    Some(())
+                } else {
+                    waited = true;
+                    None
+                }
+            };
+            let res = waiter.wait_until_or_cancelled(cond, cancel);
             ktimer.cancel();
             if let Err(err) = res {
                 return Err(err);

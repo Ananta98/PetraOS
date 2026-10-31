@@ -356,13 +356,34 @@ impl Ext4Fs {
                     return Ok(phys);
                 }
                 let groups = self.bgt.lock().count.max(1);
-                let phys = self.alloc_block((ino as usize * 7) % groups)?;
+                let hint_group = if let Some(last) = list.last() {
+                    let sb = self.sb.lock();
+                    let b = last.phys + last.len as u64;
+                    if b >= sb.first_data_block as u64 && sb.blocks_per_group > 0 {
+                        (((b - sb.first_data_block as u64) / sb.blocks_per_group as u64) as usize) % groups
+                    } else {
+                        (ino as usize * 7) % groups
+                    }
+                } else {
+                    (ino as usize * 7) % groups
+                };
+                let phys = self.alloc_block(hint_group)?;
                 // Fast path: extend the trailing extent in place.
                 let extends_last = list.last().is_some_and(|e| {
                     e.log + e.len == lb && e.phys + e.len as u64 == phys && e.len < MAX_EXTENT_LEN
                 });
                 if extends_last {
-                    list.last_mut().unwrap().len += 1;
+                    let last_idx = list.len() - 1;
+                    list[last_idx].len += 1;
+                    let magic = u16::from_le_bytes([raw.raw[40], raw.raw[41]]);
+                    let depth = u16::from_le_bytes([raw.raw[46], raw.raw[47]]);
+                    if magic == 0xF30A && depth == 0 && last_idx < ctx.root_capacity {
+                        let entry_off = 40 + 12 + last_idx * 12;
+                        let new_len = list[last_idx].len as u16;
+                        raw.raw[entry_off + 4..entry_off + 6].copy_from_slice(&new_len.to_le_bytes());
+                        raw.add_blocks((self.block_size / 512) as u64);
+                        return Ok(phys);
+                    }
                 } else {
                     extents::insert(
                         &mut list,
