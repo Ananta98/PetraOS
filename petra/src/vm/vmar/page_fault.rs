@@ -150,7 +150,7 @@ pub(crate) fn handle_mapping_fault(
     match item {
         Some(VmQueriedItem::MappedRam { frame, mut prop }) => {
             if VmPerms::from(prop.flags).contains(info.required) {
-                TlbFlushOp::for_range(range.clone()).perform_on_current();
+                TlbFlushOp::for_single(page).perform_on_current();
                 return Ok(());
             }
 
@@ -162,19 +162,30 @@ pub(crate) fn handle_mapping_fault(
                 } else {
                     copy_frame(&frame)?
                 };
-                prop.flags |= PageFlags::W | PageFlags::ACCESSED | PageFlags::DIRTY;
+                if is_write {
+                    prop.flags |= PageFlags::W | PageFlags::DIRTY;
+                }
+                prop.flags |= PageFlags::ACCESSED;
                 cursor.unmap(PAGE_SIZE);
                 cursor.jump(page).expect("page-aligned");
                 cursor.map(copy, prop);
                 cursor.flusher().sync_tlb_flush();
+                TlbFlushOp::for_single(page).perform_on_current();
             } else {
-                prop.flags |= PageFlags::W | PageFlags::ACCESSED | PageFlags::DIRTY;
+                // Fast-path: exclusive ownership (refcount == 1) or shared mapping.
+                // Do not allocate a new frame and do not copy 4KB data!
+                // Directly upgrade PTE permission to writable in place.
+                if is_write {
+                    prop.flags |= PageFlags::W | PageFlags::DIRTY;
+                }
+                prop.flags |= PageFlags::ACCESSED;
                 cursor.protect_next(PAGE_SIZE, |flags, _| *flags = prop.flags);
                 cursor
                     .flusher()
-                    .issue_tlb_flush(TlbFlushOp::for_range(range.clone()));
+                    .issue_tlb_flush(TlbFlushOp::for_single(page));
                 cursor.flusher().dispatch_tlb_flush();
                 cursor.flusher().sync_tlb_flush();
+                TlbFlushOp::for_single(page).perform_on_current();
             }
         }
         Some(VmQueriedItem::MappedIoMem { .. }) => {
@@ -185,10 +196,24 @@ pub(crate) fn handle_mapping_fault(
             let frame = obtain_frame(mapping, offset, is_write)?;
             let is_shared_zero = is_zero_frame(&frame);
             let must_copy = mapping.is_cow() && (frame.reference_count() > 1 || is_shared_zero);
-            let property = mapping.fault_property(!must_copy, is_write);
-            cursor.map(frame, property);
+
+            // Fast-path: on a write fault to CoW memory where must_copy is true,
+            // allocate and initialize the private frame immediately instead of
+            // installing the shared frame read-only and forcing an immediate second fault.
+            if is_write && must_copy {
+                let copy = if is_shared_zero {
+                    alloc_zeroed_frame()?
+                } else {
+                    copy_frame(&frame)?
+                };
+                let property = mapping.fault_property(true, true);
+                cursor.map(copy, property);
+            } else {
+                let property = mapping.fault_property(!must_copy, is_write);
+                cursor.map(frame, property);
+            }
             // Non-present pages are never cached in TLB. Only invalidate local prefetch.
-            TlbFlushOp::for_range(range).perform_on_current();
+            TlbFlushOp::for_single(page).perform_on_current();
         }
     }
     Ok(())
@@ -341,5 +366,96 @@ mod tests {
             flags2.contains(ostd::mm::PageFlags::W),
             "private frame must be writable"
         );
+    }
+
+    #[ktest]
+    fn cow_fast_path_exclusive_ownership_upgrades_in_place() {
+        let parent = alloc::sync::Arc::new(Vmar::new());
+        let addr = 0x6000_0000;
+        parent
+            .mmap_anonymous(
+                addr,
+                PAGE_SIZE,
+                VmPerms::READ | VmPerms::WRITE,
+                MmapFlags::PRIVATE | MmapFlags::FIXED | MmapFlags::ANONYMOUS,
+            )
+            .unwrap();
+
+        // 1. Initial write fault allocates a private writable frame P1
+        parent
+            .handle_page_fault(&PageFaultInfo::new(addr, VmPerms::WRITE))
+            .unwrap();
+        let (paddr1, flags1) = crate::vm::tests::page_at(&parent, addr).unwrap();
+        assert!(flags1.contains(ostd::mm::PageFlags::W));
+
+        // 2. Fork child: P1 is shared CoW, marked read-only in parent and child
+        let child = Vmar::fork_from(&parent);
+        let (paddr_parent_cow, flags_parent_cow) =
+            crate::vm::tests::page_at(&parent, addr).unwrap();
+        let (paddr_child_cow, flags_child_cow) =
+            crate::vm::tests::page_at(&child, addr).unwrap();
+        assert_eq!(paddr_parent_cow, paddr1);
+        assert_eq!(paddr_child_cow, paddr1);
+        assert!(!flags_parent_cow.contains(ostd::mm::PageFlags::W));
+        assert!(!flags_child_cow.contains(ostd::mm::PageFlags::W));
+
+        // 3. Drop child: P1 refcount drops back to 1 (exclusive ownership in parent)
+        drop(child);
+
+        // 4. Parent write fault triggers the fast-path:
+        // PTE is directly upgraded to writable in place without allocating a new frame
+        parent
+            .handle_page_fault(&PageFaultInfo::new(addr, VmPerms::WRITE))
+            .unwrap();
+        let (paddr_after_fastpath, flags_after) =
+            crate::vm::tests::page_at(&parent, addr).unwrap();
+        assert_eq!(
+            paddr_after_fastpath, paddr1,
+            "fast-path must keep the same physical frame"
+        );
+        assert!(
+            flags_after.contains(ostd::mm::PageFlags::W),
+            "fast-path must restore write permission"
+        );
+    }
+
+    #[ktest]
+    fn cow_child_breaks_first_parent_takes_fast_path() {
+        let parent = alloc::sync::Arc::new(Vmar::new());
+        let addr = 0x7000_0000;
+        parent
+            .mmap_anonymous(
+                addr,
+                PAGE_SIZE,
+                VmPerms::READ | VmPerms::WRITE,
+                MmapFlags::PRIVATE | MmapFlags::FIXED | MmapFlags::ANONYMOUS,
+            )
+            .unwrap();
+
+        // Write to parent
+        parent
+            .handle_page_fault(&PageFaultInfo::new(addr, VmPerms::WRITE))
+            .unwrap();
+        let (paddr1, _) = crate::vm::tests::page_at(&parent, addr).unwrap();
+
+        // Fork child
+        let child = Vmar::fork_from(&parent);
+
+        // Child writes: refcount is 2, so child breaks CoW and gets a new frame P2
+        child
+            .handle_page_fault(&PageFaultInfo::new(addr, VmPerms::WRITE))
+            .unwrap();
+        let (paddr_child, flags_child) = crate::vm::tests::page_at(&child, addr).unwrap();
+        assert_ne!(paddr_child, paddr1, "child must allocate a new frame");
+        assert!(flags_child.contains(ostd::mm::PageFlags::W));
+
+        // Now parent's frame P1 has refcount == 1:
+        // Parent write fault must take fast-path, keeping P1 and upgrading to writable
+        parent
+            .handle_page_fault(&PageFaultInfo::new(addr, VmPerms::WRITE))
+            .unwrap();
+        let (paddr_parent, flags_parent) = crate::vm::tests::page_at(&parent, addr).unwrap();
+        assert_eq!(paddr_parent, paddr1, "parent must reuse existing frame");
+        assert!(flags_parent.contains(ostd::mm::PageFlags::W));
     }
 }

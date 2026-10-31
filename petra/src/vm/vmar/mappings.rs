@@ -103,6 +103,11 @@ impl VmMapping {
         self.shared
     }
 
+    /// Sets whether this mapping is shared with other mappings of its backing object.
+    pub fn set_shared(&mut self, shared: bool) {
+        self.shared = shared;
+    }
+
     /// Returns whether this mapping asked to grow downwards.
     pub fn grows_down(&self) -> bool {
         self.grows_down
@@ -146,6 +151,12 @@ impl VmMapping {
     /// Returns the object supplying the pages, if any.
     pub fn backing(&self) -> Option<&Arc<dyn Backing>> {
         self.backing.as_ref()
+    }
+
+    /// Clears the backing object, turning this into an anonymous mapping.
+    pub fn clear_backing(&mut self) {
+        self.backing = None;
+        self.backing_offset = 0;
     }
 
     /// Returns the offset within the backing object that `start` maps to.
