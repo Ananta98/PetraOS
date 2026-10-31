@@ -400,6 +400,12 @@ nameserver 1.1.1.1
 nameserver 8.8.8.8
 EOF
 
+    cat > "${target_dir}/etc/gai.conf" << 'EOF'
+# Prefer IPv4 over IPv6 in PetraOS
+precedence ::ffff:0:0/96 100
+scopev4 ::ffff:0.0.0.0/96 14
+EOF
+
     printf 'petraos\n' > "${target_dir}/etc/hostname"
     printf '%s\n' "${PETRAOS_VERSION}" > "${target_dir}/etc/petraos-release"
 

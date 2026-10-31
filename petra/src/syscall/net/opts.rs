@@ -113,11 +113,10 @@ fn get_socket_error(socket: &crate::net::socket::KernelSocket) -> i32 {
     let kind = socket.kind.lock().clone();
     if let crate::net::socket::SocketKind::Tcp(handle) = kind {
         let mut net = crate::net::interface::NET_MANAGER.lock();
-        let s = net
-            .get_sockets()
-            .get_mut::<smoltcp::socket::tcp::Socket>(handle);
-        if s.state() == smoltcp::socket::tcp::State::Closed {
-            return Errno::ECONNREFUSED as i32;
+        if let Some(s) = net.try_get_socket_mut::<smoltcp::socket::tcp::Socket>(handle) {
+            if s.state() == smoltcp::socket::tcp::State::Closed {
+                return Errno::ECONNREFUSED as i32;
+            }
         }
     }
     0

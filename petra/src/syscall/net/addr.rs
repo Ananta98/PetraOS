@@ -87,11 +87,31 @@ pub fn read_sockaddr(proc: &Arc<Proc>, addr_ptr: usize, addrlen: u32) -> Result<
             let sin6: SockAddrIn6 = addr.read_val(&vmar)?;
 
             let port = u16::from_be(sin6.sin6_port);
-            let ip = Ipv6Address::from_octets(sin6.sin6_addr);
-            Ok(SocketAddress::Inet(IpEndpoint::new(
-                IpAddress::Ipv6(ip),
-                port,
-            )))
+            // Check if sin6_addr is an IPv4-mapped address (::ffff:a.b.c.d)
+            // Bytes 0..10 are 0, bytes 10..12 are 0xff.
+            let is_v4_mapped = sin6.sin6_addr[..10].iter().all(|&b| b == 0)
+                && sin6.sin6_addr[10] == 0xff
+                && sin6.sin6_addr[11] == 0xff;
+
+            if is_v4_mapped {
+                let v4_octets = [
+                    sin6.sin6_addr[12],
+                    sin6.sin6_addr[13],
+                    sin6.sin6_addr[14],
+                    sin6.sin6_addr[15],
+                ];
+                let ip = Ipv4Address::from_octets(v4_octets);
+                Ok(SocketAddress::Inet(IpEndpoint::new(
+                    IpAddress::Ipv4(ip),
+                    port,
+                )))
+            } else {
+                let ip = Ipv6Address::from_octets(sin6.sin6_addr);
+                Ok(SocketAddress::Inet(IpEndpoint::new(
+                    IpAddress::Ipv6(ip),
+                    port,
+                )))
+            }
         }
         AF_UNIX => {
             if addrlen == 2 {
@@ -130,9 +150,10 @@ fn write_addr_len(vmar: &Vmar, ptr: usize, len: u32) -> Result<()> {
     UserPtr::new(ptr).write_val(vmar, len)
 }
 
-pub fn write_sockaddr(
+pub fn write_sockaddr_with_domain(
     proc: &Arc<Proc>,
     endpoint: SocketAddress,
+    domain: Option<i32>,
     addr_ptr: usize,
     addrlen_ptr: usize,
 ) -> Result<()> {
@@ -148,14 +169,32 @@ pub fn write_sockaddr(
     match endpoint {
         SocketAddress::Inet(ep) => match ep.addr {
             IpAddress::Ipv4(v4) => {
-                let sin: SockAddrIn = SockAddrIn {
-                    sin_family: AF_INET as u16,
-                    sin_port: ep.port.to_be(),
-                    sin_addr: v4.octets(),
-                    sin_zero: [0; 8],
-                };
-                write_addr_bytes(&vmar, addr_ptr, user_len, sin.as_bytes())?;
-                write_addr_len(&vmar, addrlen_ptr, 16)?;
+                if domain == Some(AF_INET6) {
+                    // For AF_INET6 sockets, return an IPv4-mapped IPv6 address (::ffff:a.b.c.d)
+                    let mut sin6_addr = [0u8; 16];
+                    sin6_addr[10] = 0xff;
+                    sin6_addr[11] = 0xff;
+                    sin6_addr[12..16].copy_from_slice(&v4.octets());
+
+                    let sin6 = SockAddrIn6 {
+                        sin6_family: AF_INET6 as u16,
+                        sin6_port: ep.port.to_be(),
+                        sin6_flowinfo: 0,
+                        sin6_addr,
+                        sin6_scope_id: 0,
+                    };
+                    write_addr_bytes(&vmar, addr_ptr, user_len, sin6.as_bytes())?;
+                    write_addr_len(&vmar, addrlen_ptr, 28)?;
+                } else {
+                    let sin: SockAddrIn = SockAddrIn {
+                        sin_family: AF_INET as u16,
+                        sin_port: ep.port.to_be(),
+                        sin_addr: v4.octets(),
+                        sin_zero: [0; 8],
+                    };
+                    write_addr_bytes(&vmar, addr_ptr, user_len, sin.as_bytes())?;
+                    write_addr_len(&vmar, addrlen_ptr, 16)?;
+                }
             }
             IpAddress::Ipv6(v6) => {
                 let sin6 = SockAddrIn6 {
@@ -199,4 +238,13 @@ pub fn write_sockaddr(
     }
 
     Ok(())
+}
+
+pub fn write_sockaddr(
+    proc: &Arc<Proc>,
+    endpoint: SocketAddress,
+    addr_ptr: usize,
+    addrlen_ptr: usize,
+) -> Result<()> {
+    write_sockaddr_with_domain(proc, endpoint, None, addr_ptr, addrlen_ptr)
 }

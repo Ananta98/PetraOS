@@ -54,7 +54,9 @@ impl FileOps for SocketFileOps {
         let kind = self.socket.kind.lock().clone();
         match kind {
             SocketKind::Tcp(handle) => {
-                let s = net.get_sockets().get_mut::<TcpSocket>(handle);
+                let Some(s) = net.try_get_socket_mut::<TcpSocket>(handle) else {
+                    return PollEvents::ERR | PollEvents::HUP;
+                };
                 if s.can_recv() {
                     events |= PollEvents::IN | PollEvents::RDNORM;
                 }
@@ -73,7 +75,9 @@ impl FileOps for SocketFileOps {
                 }
             }
             SocketKind::Udp(handle) => {
-                let s = net.get_sockets().get_mut::<UdpSocket>(handle);
+                let Some(s) = net.try_get_socket_mut::<UdpSocket>(handle) else {
+                    return PollEvents::ERR | PollEvents::HUP;
+                };
                 if s.can_recv() {
                     events |= PollEvents::IN | PollEvents::RDNORM;
                 }

@@ -4,7 +4,7 @@
 
 use ostd::arch::cpu::context::UserContext;
 
-use super::addr::{get_socket, write_sockaddr};
+use super::addr::{get_socket, write_sockaddr_with_domain};
 use crate::{
     uapi::errno::Result,
     proc::thread::Thread,
@@ -20,7 +20,7 @@ pub fn sys_getsockname(
     let socket = get_socket(fd)?;
     let proc = Thread::proc_or_esrch()?;
     let endpoint = socket.getsockname()?;
-    write_sockaddr(&proc, endpoint, addr_ptr, addrlen_ptr)?;
+    write_sockaddr_with_domain(&proc, endpoint, Some(socket.domain), addr_ptr, addrlen_ptr)?;
     Ok(0)
 }
 
@@ -34,7 +34,7 @@ pub fn sys_getpeername(
     let socket = get_socket(fd)?;
     let proc = Thread::proc_or_esrch()?;
     let endpoint = socket.getpeername()?;
-    write_sockaddr(&proc, endpoint, addr_ptr, addrlen_ptr)?;
+    write_sockaddr_with_domain(&proc, endpoint, Some(socket.domain), addr_ptr, addrlen_ptr)?;
     Ok(0)
 }
 

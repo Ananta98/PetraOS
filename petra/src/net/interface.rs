@@ -9,6 +9,7 @@ use ostd::timer::{Jiffies, TIMER_FREQ};
 use smoltcp::{
     iface::{Config, Interface, SocketHandle, SocketSet},
     socket::{
+        AnySocket,
         tcp::{Socket as TcpSocket, SocketBuffer as TcpSocketBuffer},
         udp::{
             PacketBuffer as UdpPacketBuffer, PacketMetadata as UdpPacketMetadata,
@@ -59,6 +60,22 @@ impl NetworkManager {
             .get_or_insert_with(|| SocketSet::new(Vec::new()))
     }
 
+    /// Safely retrieve a mutable reference to a socket by handle if it exists and matches type T.
+    pub fn try_get_socket_mut<T: AnySocket<'static>>(
+        &mut self,
+        handle: SocketHandle,
+    ) -> Option<&mut T> {
+        let sockets = self
+            .sockets
+            .get_or_insert_with(|| SocketSet::new(Vec::new()));
+        for (h, socket) in sockets.iter_mut() {
+            if h == handle {
+                return T::downcast_mut(socket);
+            }
+        }
+        None
+    }
+
     /// Connect a TCP socket to an endpoint using the bound interface context.
     pub fn connect_tcp(
         &mut self,
@@ -66,26 +83,40 @@ impl NetworkManager {
         endpoint: IpEndpoint,
         local_port: u16,
     ) -> Result<()> {
-        let bound = self.bound.as_mut().ok_or(Errno::ENETDOWN)?;
-        // Check route reachability before initiating connection
-        let mut has_route = false;
-        bound.iface.routes_mut().update(|storage| {
-            has_route = storage.iter().any(|r| r.cidr.contains_addr(&endpoint.addr));
-        });
-        let in_local_subnet = bound
-            .iface
-            .ip_addrs()
-            .iter()
-            .any(|cidr| cidr.contains_addr(&endpoint.addr));
+        let (has_route, in_local_subnet) = if let Some(ref mut bound) = self.bound {
+            let mut route = false;
+            bound.iface.routes_mut().update(|storage| {
+                route = storage.iter().any(|r| r.cidr.contains_addr(&endpoint.addr));
+            });
+            let subnet = bound
+                .iface
+                .ip_addrs()
+                .iter()
+                .any(|cidr| cidr.contains_addr(&endpoint.addr));
+            (route, subnet)
+        } else {
+            return Err(Errno::ENETDOWN);
+        };
+
         if !has_route && !in_local_subnet {
             return Err(Errno::ENETUNREACH);
         }
+
+        let bound = self.bound.as_mut().ok_or(Errno::ENETDOWN)?;
         let sockets = self
             .sockets
             .get_or_insert_with(|| SocketSet::new(Vec::new()));
-        let socket = sockets.get_mut::<TcpSocket>(handle);
+        let mut found_socket = None;
+        for (h, socket) in sockets.iter_mut() {
+            if h == handle {
+                found_socket = TcpSocket::downcast_mut(socket);
+                break;
+            }
+        }
+        let socket = found_socket.ok_or(Errno::EBADF)?;
+        let cx = bound.iface.context();
         socket
-            .connect(bound.iface.context(), endpoint, local_port)
+            .connect(cx, endpoint, local_port)
             .map_err(|_| Errno::ECONNREFUSED)
     }
 

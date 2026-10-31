@@ -305,7 +305,9 @@ impl KernelSocket {
                     }
                 };
                 let mut net = NET_MANAGER.lock();
-                let socket = net.get_sockets().get_mut::<UdpSocket>(handle);
+                let socket = net
+                    .try_get_socket_mut::<UdpSocket>(handle)
+                    .ok_or(Errno::EBADF)?;
                 socket.bind(bind_ep).map_err(|_| Errno::EADDRINUSE)?;
                 let effective_ep = IpEndpoint::new(ep.addr, port);
                 *self.local_endpoint.lock() = Some(effective_ep);
@@ -340,7 +342,9 @@ impl KernelSocket {
             SocketKind::Tcp(handle) => {
                 let local = self.local_endpoint.lock().ok_or(Errno::EDESTADDRREQ)?;
                 let mut net = NET_MANAGER.lock();
-                let socket = net.get_sockets().get_mut::<TcpSocket>(handle);
+                let socket = net
+                    .try_get_socket_mut::<TcpSocket>(handle)
+                    .ok_or(Errno::EBADF)?;
                 socket.listen(local).map_err(|_| Errno::EADDRINUSE)?;
                 Ok(())
             }
@@ -386,7 +390,9 @@ impl KernelSocket {
                     loop {
                         let mut net = NET_MANAGER.lock();
                         net.poll();
-                        let socket = net.get_sockets().get_mut::<TcpSocket>(handle);
+                        let socket = net
+                            .try_get_socket_mut::<TcpSocket>(handle)
+                            .ok_or(Errno::EBADF)?;
                         match socket.state() {
                             TcpState::Established => {
                                 ostd::info!("connect: TCP established");
@@ -404,7 +410,9 @@ impl KernelSocket {
                 } else {
                     let mut net = NET_MANAGER.lock();
                     net.poll();
-                    let socket = net.get_sockets().get_mut::<TcpSocket>(handle);
+                    let socket = net
+                        .try_get_socket_mut::<TcpSocket>(handle)
+                        .ok_or(Errno::EBADF)?;
                     ostd::info!("connect: nonblocking state={:?}", socket.state());
                     if socket.state() == TcpState::Closed || socket.state() == TcpState::TimeWait {
                         return Err(Errno::ECONNREFUSED);
@@ -416,7 +424,9 @@ impl KernelSocket {
             }
             (SocketKind::Udp(handle), SocketAddress::Inet(endpoint)) => {
                 let mut net = NET_MANAGER.lock();
-                let socket = net.get_sockets().get_mut::<UdpSocket>(handle);
+                let socket = net
+                    .try_get_socket_mut::<UdpSocket>(handle)
+                    .ok_or(Errno::EBADF)?;
                 if !socket.is_open() {
                     let port = alloc_ephemeral_port();
                     socket.bind(port).map_err(|_| Errno::EADDRINUSE)?;
@@ -505,12 +515,16 @@ impl KernelSocket {
                 loop {
                     let mut net = NET_MANAGER.lock();
                     net.poll();
-                    let socket = net.get_sockets().get_mut::<TcpSocket>(listen_handle);
+                    let socket = net
+                        .try_get_socket_mut::<TcpSocket>(listen_handle)
+                        .ok_or(Errno::EBADF)?;
 
                     if socket.state() == TcpState::Established {
                         let remote = socket.remote_endpoint().ok_or(Errno::ENOTCONN)?;
                         let new_listen_handle = net.add_tcp_socket();
-                        let new_socket = net.get_sockets().get_mut::<TcpSocket>(new_listen_handle);
+                        let new_socket = net
+                            .try_get_socket_mut::<TcpSocket>(new_listen_handle)
+                            .ok_or(Errno::EBADF)?;
                         let _ = new_socket.listen(local);
 
                         let accepted_sock = Arc::new(KernelSocket {
@@ -570,7 +584,9 @@ impl KernelSocket {
         match kind {
             SocketKind::Tcp(handle) => {
                 let mut net = NET_MANAGER.lock();
-                let socket = net.get_sockets().get_mut::<TcpSocket>(handle);
+                let socket = net
+                    .try_get_socket_mut::<TcpSocket>(handle)
+                    .ok_or(Errno::EBADF)?;
                 if let Some(ep) = socket.local_endpoint() {
                     Ok(SocketAddress::Inet(ep))
                 } else if let Some(ep) = *self.local_endpoint.lock() {
@@ -581,7 +597,9 @@ impl KernelSocket {
             }
             SocketKind::Udp(handle) => {
                 let mut net = NET_MANAGER.lock();
-                let socket = net.get_sockets().get_mut::<UdpSocket>(handle);
+                let socket = net
+                    .try_get_socket_mut::<UdpSocket>(handle)
+                    .ok_or(Errno::EBADF)?;
                 let ep = socket.endpoint();
                 if ep.port != 0 {
                     let addr = ep.addr.unwrap_or(IpAddress::Ipv4(Ipv4Address::UNSPECIFIED));
@@ -608,7 +626,9 @@ impl KernelSocket {
         match kind {
             SocketKind::Tcp(handle) => {
                 let mut net = NET_MANAGER.lock();
-                let socket = net.get_sockets().get_mut::<TcpSocket>(handle);
+                let socket = net
+                    .try_get_socket_mut::<TcpSocket>(handle)
+                    .ok_or(Errno::EBADF)?;
                 if let Some(ep) = socket.remote_endpoint() {
                     Ok(SocketAddress::Inet(ep))
                 } else if let Some(ep) = *self.remote_endpoint.lock() {
@@ -634,7 +654,9 @@ impl KernelSocket {
             SocketKind::Tcp(handle) => loop {
                 let mut net = NET_MANAGER.lock();
                 net.poll();
-                let socket = net.get_sockets().get_mut::<TcpSocket>(handle);
+                let socket = net
+                    .try_get_socket_mut::<TcpSocket>(handle)
+                    .ok_or(Errno::EBADF)?;
 
                 if !socket.is_active() && socket.state() == TcpState::Closed {
                     return Err(Errno::EPIPE);
@@ -656,7 +678,9 @@ impl KernelSocket {
             SocketKind::Udp(handle) => {
                 let remote = self.remote_endpoint.lock().ok_or(Errno::EDESTADDRREQ)?;
                 let mut net = NET_MANAGER.lock();
-                let socket = net.get_sockets().get_mut::<UdpSocket>(handle);
+                let socket = net
+                    .try_get_socket_mut::<UdpSocket>(handle)
+                    .ok_or(Errno::EBADF)?;
                 if !socket.is_open() {
                     let port = alloc_ephemeral_port();
                     socket.bind(port).map_err(|_| Errno::EADDRINUSE)?;
@@ -771,7 +795,9 @@ impl KernelSocket {
             SocketKind::Tcp(handle) => loop {
                 let mut net = NET_MANAGER.lock();
                 net.poll();
-                let socket = net.get_sockets().get_mut::<TcpSocket>(handle);
+                let socket = net
+                    .try_get_socket_mut::<TcpSocket>(handle)
+                    .ok_or(Errno::EBADF)?;
 
                 if socket.can_recv() {
                     let n = socket.recv_slice(buf).map_err(|_| Errno::EIO)?;
@@ -800,7 +826,9 @@ impl KernelSocket {
             },
             SocketKind::Udp(handle) => loop {
                 let mut net = NET_MANAGER.lock();
-                let socket = net.get_sockets().get_mut::<UdpSocket>(handle);
+                let socket = net
+                    .try_get_socket_mut::<UdpSocket>(handle)
+                    .ok_or(Errno::EBADF)?;
                 if !socket.is_open() {
                     let port = alloc_ephemeral_port();
                     socket.bind(port).map_err(|_| Errno::EADDRINUSE)?;
@@ -810,7 +838,9 @@ impl KernelSocket {
                     *self.local_addr.lock() = Some(SocketAddress::Inet(effective_ep));
                 }
                 net.poll();
-                let socket = net.get_sockets().get_mut::<UdpSocket>(handle);
+                let socket = net
+                    .try_get_socket_mut::<UdpSocket>(handle)
+                    .ok_or(Errno::EBADF)?;
 
                 if socket.can_recv() {
                     let (n, meta) = socket.recv_slice(buf).map_err(|_| Errno::EIO)?;
@@ -893,7 +923,9 @@ impl KernelSocket {
                     .or(*self.remote_endpoint.lock())
                     .ok_or(Errno::EDESTADDRREQ)?;
                 let mut net = NET_MANAGER.lock();
-                let socket = net.get_sockets().get_mut::<UdpSocket>(handle);
+                let socket = net
+                    .try_get_socket_mut::<UdpSocket>(handle)
+                    .ok_or(Errno::EBADF)?;
                 if !socket.is_open() {
                     let port = alloc_ephemeral_port();
                     socket.bind(port).map_err(|_| Errno::EADDRINUSE)?;
@@ -957,7 +989,9 @@ impl KernelSocket {
         match kind {
             SocketKind::Udp(handle) => loop {
                 let mut net = NET_MANAGER.lock();
-                let socket = net.get_sockets().get_mut::<UdpSocket>(handle);
+                let socket = net
+                    .try_get_socket_mut::<UdpSocket>(handle)
+                    .ok_or(Errno::EBADF)?;
                 if !socket.is_open() {
                     let port = alloc_ephemeral_port();
                     socket.bind(port).map_err(|_| Errno::EADDRINUSE)?;
@@ -967,7 +1001,9 @@ impl KernelSocket {
                     *self.local_addr.lock() = Some(SocketAddress::Inet(effective_ep));
                 }
                 net.poll();
-                let socket = net.get_sockets().get_mut::<UdpSocket>(handle);
+                let socket = net
+                    .try_get_socket_mut::<UdpSocket>(handle)
+                    .ok_or(Errno::EBADF)?;
 
                 if socket.can_recv() {
                     let (n, meta) = socket.recv_slice(buf).map_err(|_| Errno::EIO)?;
@@ -1149,14 +1185,17 @@ impl KernelSocket {
         match kind {
             SocketKind::Tcp(handle) => {
                 let mut net = NET_MANAGER.lock();
-                let socket = net.get_sockets().get_mut::<TcpSocket>(handle);
-                match how {
-                    0 | 1 | 2 => {
-                        socket.close();
-                        net.poll();
-                        Ok(())
+                if let Some(socket) = net.try_get_socket_mut::<TcpSocket>(handle) {
+                    match how {
+                        0 | 1 | 2 => {
+                            socket.close();
+                            net.poll();
+                            Ok(())
+                        }
+                        _ => crate::return_errno!(EINVAL, "invalid shutdown mode"),
                     }
-                    _ => crate::return_errno!(EINVAL, "invalid shutdown mode"),
+                } else {
+                    Err(Errno::EBADF)
                 }
             }
             SocketKind::Unix(ref end) => {
@@ -1200,17 +1239,19 @@ impl KernelSocket {
         match kind {
             SocketKind::Tcp(handle) => {
                 let mut net = NET_MANAGER.lock();
-                let socket = net.get_sockets().get_mut::<TcpSocket>(handle);
-                socket.abort();
-                net.poll();
-                net.remove_socket(handle);
+                if let Some(socket) = net.try_get_socket_mut::<TcpSocket>(handle) {
+                    socket.abort();
+                    net.poll();
+                    net.remove_socket(handle);
+                }
             }
             SocketKind::Udp(handle) => {
                 let mut net = NET_MANAGER.lock();
-                let socket = net.get_sockets().get_mut::<UdpSocket>(handle);
-                socket.close();
-                net.poll();
-                net.remove_socket(handle);
+                if let Some(socket) = net.try_get_socket_mut::<UdpSocket>(handle) {
+                    socket.close();
+                    net.poll();
+                    net.remove_socket(handle);
+                }
             }
             SocketKind::Unix(ref end) => {
                 *end.tx.closed.lock() = true;

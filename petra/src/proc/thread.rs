@@ -123,6 +123,12 @@ impl UserModeHooks for ThreadHooks {
             .upgrade()
             .is_some_and(|td| td.inner.lock().flags.contains(ThreadFlags::TDF_ASTPENDING))
     }
+
+    fn pre_user_run(&self, _guard: &ostd::irq::DisabledLocalIrqGuard) {
+        if let Some(td) = self.td.upgrade() {
+            FsBase::new(td.fs_base()).load();
+        }
+    }
 }
 
 /// Mutable thread state protected by `Thread::inner`.
