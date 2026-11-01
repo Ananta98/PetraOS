@@ -121,12 +121,24 @@ build_ext4_image() {
 
 build_exfat_image() {
     make_image "${EXFAT_IMAGE}" "64M"
+    local rootfs_loader="${ROOTFS_STAGING}/lib/ld-musl-x86_64.so.1"
+    [ -e "${rootfs_loader}" ] || rootfs_loader="${ROOTFS_STAGING}/lib64/ld-linux-x86-64.so.2"
+    [ -e "${rootfs_loader}" ] || rootfs_loader="${ROOTFS_STAGING}/usr/lib64/ld-linux-x86-64.so.2"
+
     if [ -x "${GLIBC_LOADER}" ] && [ -x "${STAGING}/usr/sbin/mkfs.exfat" ]; then
         run_staged usr/sbin/mkfs.exfat "${EXFAT_IMAGE}" >/dev/null
         echo "    exfat: ${EXFAT_IMAGE} (64M)"
     elif [ -x "${GLIBC_LOADER}" ] && [ -x "${STAGING}/sbin/mkfs.exfat" ]; then
         run_staged sbin/mkfs.exfat "${EXFAT_IMAGE}" >/dev/null
         echo "    exfat: ${EXFAT_IMAGE} (64M)"
+    elif [ -x "${rootfs_loader}" ] && [ -x "${ROOTFS_STAGING}/usr/sbin/mkfs.exfat" ]; then
+        "${rootfs_loader}" --library-path "${ROOTFS_STAGING}/lib:${ROOTFS_STAGING}/usr/lib:${ROOTFS_STAGING}/lib64:${ROOTFS_STAGING}/usr/lib64" \
+            "${ROOTFS_STAGING}/usr/sbin/mkfs.exfat" "${EXFAT_IMAGE}" >/dev/null
+        echo "    exfat: ${EXFAT_IMAGE} (64M, staged mkfs.exfat)"
+    elif [ -x "${rootfs_loader}" ] && [ -x "${ROOTFS_STAGING}/sbin/mkfs.exfat" ]; then
+        "${rootfs_loader}" --library-path "${ROOTFS_STAGING}/lib:${ROOTFS_STAGING}/usr/lib:${ROOTFS_STAGING}/lib64:${ROOTFS_STAGING}/usr/lib64" \
+            "${ROOTFS_STAGING}/sbin/mkfs.exfat" "${EXFAT_IMAGE}" >/dev/null
+        echo "    exfat: ${EXFAT_IMAGE} (64M, staged mkfs.exfat)"
     elif command -v mkfs.exfat >/dev/null 2>&1; then
         mkfs.exfat "${EXFAT_IMAGE}" >/dev/null
         echo "    exfat: ${EXFAT_IMAGE} (64M, host mkfs.exfat)"

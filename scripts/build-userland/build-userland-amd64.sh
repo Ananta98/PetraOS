@@ -126,17 +126,26 @@ for package in ${PACKAGES}; do
     echo "    ${package}"
     "${layer_script}"
     merge_layer "${REPO_ROOT}/build/prebuild-package/${package}/staging" "${ROOTFS_STAGING}"
-    merge_layer "${REPO_ROOT}/build/prebuild-package/${package}/staging" "${STAGING}"
 done
 
 echo "==> Configuring the userlands (initramfs and rootfs)"
 for target_dir in "${STAGING}" "${ROOTFS_STAGING}"; do
     mkdir -p "${target_dir}"/{bin,sbin,lib,usr/bin,usr/sbin,usr/lib,usr/share}
-    mkdir -p "${target_dir}"/{dev/pts,dev/shm,proc,sys,tmp,run,root,mnt,media,var/log,var/run,var/tmp}
+    mkdir -p "${target_dir}"/{dev/pts,dev/shm,proc,sys,tmp,run,root,mnt,media,var/log,var/run,var/tmp,sysroot}
     mkdir -p "${target_dir}/root/.config/btop"
     chmod 1777 "${target_dir}/tmp" "${target_dir}/var/tmp"
     chmod 0750 "${target_dir}/root"
     install -m0755 "${SUPPORT_DIR}/init" "${target_dir}/init"
+
+    # Ensure /bin/bash exists (fallback to sh if bash not in target)
+    if [ ! -e "${target_dir}/bin/bash" ]; then
+        ln -sf sh "${target_dir}/bin/bash"
+    fi
+
+    # Ensure /usr/bin/python symlink points to python3 if python3 is present
+    if [ -x "${target_dir}/usr/bin/python3" ] && [ ! -e "${target_dir}/usr/bin/python" ]; then
+        ln -sfn python3 "${target_dir}/usr/bin/python"
+    fi
 done
 
 for target_dir in "${STAGING}" "${ROOTFS_STAGING}"; do

@@ -1,14 +1,16 @@
 #!/bin/sh
 # PetraOS kernel userspace init (PID 1).
 #
-# Runs from the initramfs as /init. Mounts the pseudo-filesystems the
-# userspace expects, prepares a few convenience paths, starts OpenRC services
-# if available, then either executes the command requested on the kernel command line
-# or drops into a login shell.
+# Runs from the initramfs as /init. Mounts essential pseudo-filesystems,
+# mounts the persistent ext4 rootfs from /dev/sda (or /dev/vda) onto /sysroot,
+# prepares nested pseudo-filesystems inside /sysroot, and transitions cleanly
+# into the full rootfs environment.
+# If no block device rootfs is available, falls back to the in-memory initramfs recovery shell.
 
-export PATH=/bin:/sbin:/usr/bin:/usr/sbin
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 export HOME=/root
 export USER=root
+export LOGNAME=root
 export TERM=linux
 export SHELL=/bin/bash
 export XDG_CONFIG_HOME=/root/.config
@@ -16,6 +18,7 @@ export CHARSET=UTF-8
 export LANG=C.UTF-8
 export LC_ALL=C.UTF-8
 
+# Mount essential pseudo-filesystems in initramfs
 mount -t proc proc /proc 2>/dev/null || true
 mount -t sysfs sysfs /sys 2>/dev/null || true
 mount -t tmpfs tmpfs /tmp 2>/dev/null || true
@@ -31,26 +34,98 @@ mount -t tmpfs tmpfs /dev/shm 2>/dev/null || true
 [ -e /dev/ptmx ] || ln -sf pts/ptmx /dev/ptmx 2>/dev/null || true
 [ -e /etc/mtab ] || ln -sf /proc/self/mounts /etc/mtab 2>/dev/null || true
 
-# If an ext4 rootfs disk is attached (e.g. /dev/sda), mount it
+# ----------------------------------------------------------------------------
+# Mount persistent rootfs block device (/dev/sda or /dev/vda) if attached
+# ----------------------------------------------------------------------------
+ROOT_DEV=""
 if [ -b /dev/sda ] || [ -e /dev/sda ]; then
-    mkdir -p /mnt/rootfs 2>/dev/null || true
-    if mount -t ext4 /dev/sda /mnt/rootfs 2>/dev/null || mount -i -t ext4 /dev/sda /mnt/rootfs 2>/dev/null; then
-        echo "[init] Mounted persistent rootfs (/dev/sda) on /mnt/rootfs"
+    ROOT_DEV="/dev/sda"
+elif [ -b /dev/vda ] || [ -e /dev/vda ]; then
+    ROOT_DEV="/dev/vda"
+fi
+
+if [ -n "$ROOT_DEV" ]; then
+    mkdir -p /sysroot /mnt/rootfs 2>/dev/null || true
+    if mount -t ext4 "$ROOT_DEV" /sysroot 2>/dev/null || mount -i -t ext4 "$ROOT_DEV" /sysroot 2>/dev/null; then
+        echo "[init] Mounted persistent rootfs ($ROOT_DEV) on /sysroot"
+        ln -sfn /sysroot /mnt/rootfs 2>/dev/null || true
+
+        # Mount virtual filesystems inside sysroot
+        mount -t proc proc /sysroot/proc 2>/dev/null || true
+        mount -t sysfs sysfs /sysroot/sys 2>/dev/null || true
+        mount -t tmpfs tmpfs /sysroot/tmp 2>/dev/null || true
+        mount -t tmpfs tmpfs /sysroot/run 2>/dev/null || true
+        mkdir -p /sysroot/dev/pts /sysroot/dev/shm 2>/dev/null || true
+        mount -t devpts devpts /sysroot/dev/pts 2>/dev/null || true
+        mount -t tmpfs tmpfs /sysroot/dev/shm 2>/dev/null || true
+
+        # Convenience device nodes & symlinks inside sysroot
+        [ -e /sysroot/dev/null ] || mknod -m 666 /sysroot/dev/null c 1 3 2>/dev/null || true
+        [ -e /sysroot/dev/zero ] || mknod -m 666 /sysroot/dev/zero c 1 5 2>/dev/null || true
+        [ -e /sysroot/dev/tty ] || mknod -m 666 /sysroot/dev/tty c 5 0 2>/dev/null || true
+        [ -e /sysroot/dev/console ] || mknod -m 600 /sysroot/dev/console c 5 1 2>/dev/null || true
+        [ -e /sysroot/dev/ptmx ] || ln -sf pts/ptmx /sysroot/dev/ptmx 2>/dev/null || true
+        [ -e /sysroot/dev/fd ] || ln -sf /proc/self/fd /sysroot/dev/fd 2>/dev/null || true
+        [ -e /sysroot/dev/stdin ] || ln -sf /proc/self/fd/0 /sysroot/dev/stdin 2>/dev/null || true
+        [ -e /sysroot/dev/stdout ] || ln -sf /proc/self/fd/1 /sysroot/dev/stdout 2>/dev/null || true
+        [ -e /sysroot/dev/stderr ] || ln -sf /proc/self/fd/2 /sysroot/dev/stderr 2>/dev/null || true
+        [ -e /sysroot/etc/mtab ] || ln -sf /proc/self/mounts /sysroot/etc/mtab 2>/dev/null || true
+
+        # Start OpenRC system services if present in rootfs
+        if [ -x /sysroot/sbin/openrc ]; then
+            echo "[init] Starting OpenRC system services..."
+            chroot /sysroot /sbin/openrc default || true
+        fi
+
+        echo ""
+        echo "============================================================"
+        echo "    Welcome to PetraOS                                      "
+        echo "============================================================"
+        echo "Kernel:       $(cat /proc/version 2>/dev/null || echo 'PetraOS x86_64')"
+        echo "Release:      PetraOS $(cat /sysroot/etc/petraos-release 2>/dev/null || echo 'unknown')"
+        echo "Rootfs:       $ROOT_DEV (ext4) mounted on /"
+        echo "Uptime:       $(cut -d' ' -f1 /proc/uptime 2>/dev/null || echo 0)s"
+        echo "Architecture: $(uname -m 2>/dev/null || echo x86_64)"
+        echo "============================================================"
+        echo ""
+
+        # Unpack OSDK init_args ("sh", "-l")
+        if [ "$1" = "sh" ]; then
+            if [ "$2" = "-l" ]; then
+                shift 2
+            else
+                shift 1
+            fi
+        fi
+
+        if [ $# -gt 0 ] && [ "$1" != "sh" ]; then
+            echo "[init] Executing requested command in rootfs: $*"
+            exec chroot /sysroot "$@"
+        fi
+
+        if [ -x /sysroot/bin/bash ]; then
+            echo "[init] Spawning interactive login shell (/bin/bash -l)..."
+            exec chroot /sysroot /bin/bash -l
+        elif [ -x /sysroot/usr/bin/bash ]; then
+            echo "[init] Spawning interactive login shell (/usr/bin/bash -l)..."
+            exec chroot /sysroot /usr/bin/bash -l
+        else
+            echo "[init] Spawning interactive login shell (/bin/sh -l)..."
+            exec chroot /sysroot /bin/sh -l
+        fi
     fi
 fi
 
-# Start OpenRC system services if openrc is installed
-if [ -x /sbin/openrc ]; then
-    echo "[init] Starting OpenRC system services..."
-    /sbin/openrc default || true
-fi
-
+# ----------------------------------------------------------------------------
+# Fallback: Initramfs Recovery Shell (only if rootfs is completely absent)
+# ----------------------------------------------------------------------------
 echo ""
 echo "============================================================"
-echo "    Welcome to PetraOS                                      "
+echo "    Welcome to PetraOS (Initramfs Recovery Shell)           "
 echo "============================================================"
 echo "Kernel:       $(cat /proc/version 2>/dev/null || echo 'PetraOS x86_64')"
 echo "Release:      PetraOS $(cat /etc/petraos-release 2>/dev/null || echo 'unknown')"
+echo "Rootfs:       initramfs (in-memory)"
 echo "Uptime:       $(cut -d' ' -f1 /proc/uptime 2>/dev/null || echo 0)s"
 echo "Architecture: $(uname -m 2>/dev/null || echo x86_64)"
 echo "============================================================"
