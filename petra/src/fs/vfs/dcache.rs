@@ -2,7 +2,6 @@
 
 //! Directory Cache (dcache) abstractions for the VFS.
 
-use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::sync::{Arc, Weak};
 use alloc::vec::Vec;
@@ -11,6 +10,205 @@ use spin::RwLock;
 
 use super::inode::INode;
 use super::mount::Mount;
+
+/// FNV-1a 64-bit string hasher for high-speed directory component hashing.
+#[inline]
+pub fn dentry_hash(name: &str) -> u64 {
+    let mut hash: u64 = 0xcbf29ce484222325;
+    for &b in name.as_bytes() {
+        hash ^= b as u64;
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    hash
+}
+
+/// An entry in the Fast Path Dentry Hash Table.
+struct HashEntry {
+    hash: u64,
+    name: String,
+    dentry: Arc<DEntry>,
+}
+
+/// Native O(1) Open-Addressing Hash Table for VFS directory cache.
+///
+/// Provides O(1) amortized lookup with linear probing and zero external dependencies,
+/// completely avoiding `#![no_std]` rmeta alloc conflicts.
+pub struct FastDentryMap {
+    entries: Vec<Option<HashEntry>>,
+    count: usize,
+}
+
+impl FastDentryMap {
+    /// Creates a new empty hash table.
+    pub const fn new() -> Self {
+        Self {
+            entries: Vec::new(),
+            count: 0,
+        }
+    }
+
+    /// Number of elements in the table.
+    pub fn len(&self) -> usize {
+        self.count
+    }
+
+    /// Checks if table is empty.
+    pub fn is_empty(&self) -> bool {
+        self.count == 0
+    }
+
+    /// Looks up a child dentry by name in O(1) expected time.
+    pub fn get(&self, name: &str) -> Option<&Arc<DEntry>> {
+        if self.entries.is_empty() {
+            return None;
+        }
+        let hash = dentry_hash(name);
+        let mask = self.entries.len() - 1;
+        let mut idx = (hash as usize) & mask;
+        let mut probed = 0;
+
+        while probed < self.entries.len() {
+            match &self.entries[idx] {
+                Some(entry) => {
+                    if entry.hash == hash && entry.name == name {
+                        return Some(&entry.dentry);
+                    }
+                }
+                None => return None,
+            }
+            idx = (idx + 1) & mask;
+            probed += 1;
+        }
+        None
+    }
+
+    /// Looks up a child dentry by name and clones the Arc.
+    pub fn lookup(&self, name: &str) -> Option<Arc<DEntry>> {
+        self.get(name).cloned()
+    }
+
+    /// Inserts or updates a child dentry in O(1) expected time.
+    pub fn insert(&mut self, child: Arc<DEntry>) {
+        if self.entries.is_empty() || (self.count + 1) * 4 >= self.entries.len() * 3 {
+            self.grow();
+        }
+        let hash = dentry_hash(&child.name);
+        let mask = self.entries.len() - 1;
+        let mut idx = (hash as usize) & mask;
+
+        loop {
+            match &mut self.entries[idx] {
+                Some(entry) => {
+                    if entry.hash == hash && entry.name == child.name {
+                        entry.dentry = child;
+                        return;
+                    }
+                }
+                None => {
+                    self.entries[idx] = Some(HashEntry {
+                        hash,
+                        name: child.name.clone(),
+                        dentry: child,
+                    });
+                    self.count += 1;
+                    return;
+                }
+            }
+            idx = (idx + 1) & mask;
+        }
+    }
+
+    /// Removes a child dentry by name.
+    pub fn remove(&mut self, name: &str) -> Option<Arc<DEntry>> {
+        if self.entries.is_empty() {
+            return None;
+        }
+        let hash = dentry_hash(name);
+        let mask = self.entries.len() - 1;
+        let mut idx = (hash as usize) & mask;
+        let mut probed = 0;
+
+        while probed < self.entries.len() {
+            if let Some(entry) = &self.entries[idx] {
+                if entry.hash == hash && entry.name == name {
+                    let removed = entry.dentry.clone();
+                    self.entries[idx] = None;
+                    self.count -= 1;
+                    self.rehash_cluster((idx + 1) & mask);
+                    return Some(removed);
+                }
+            } else {
+                return None;
+            }
+            idx = (idx + 1) & mask;
+            probed += 1;
+        }
+        None
+    }
+
+    /// Rehashes the cluster following a deletion to maintain linear probing invariant.
+    fn rehash_cluster(&mut self, mut idx: usize) {
+        let mask = self.entries.len() - 1;
+        while let Some(entry) = self.entries[idx].take() {
+            self.count -= 1;
+            let target_hash = entry.hash;
+            let mut insert_idx = (target_hash as usize) & mask;
+            while self.entries[insert_idx].is_some() {
+                insert_idx = (insert_idx + 1) & mask;
+            }
+            self.entries[insert_idx] = Some(entry);
+            self.count += 1;
+            idx = (idx + 1) & mask;
+        }
+    }
+
+    /// Clears all entries from the table.
+    pub fn clear(&mut self) {
+        self.entries.clear();
+        self.count = 0;
+    }
+
+    /// Retains only entries satisfying predicate `f`.
+    pub fn retain<F: FnMut(&str, &Arc<DEntry>) -> bool>(&mut self, mut f: F) {
+        let old = core::mem::take(&mut self.entries);
+        self.count = 0;
+        for item in old.into_iter().flatten() {
+            if f(&item.name, &item.dentry) {
+                self.insert(item.dentry);
+            }
+        }
+    }
+
+    /// Returns an iterator over all child dentries.
+    pub fn values(&self) -> impl Iterator<Item = &Arc<DEntry>> {
+        self.entries.iter().filter_map(|e| e.as_ref().map(|x| &x.dentry))
+    }
+
+    /// Grows the hash table to the next power of 2.
+    fn grow(&mut self) {
+        let new_cap = if self.entries.is_empty() {
+            16
+        } else {
+            self.entries.len() * 2
+        };
+        let mut new_entries = Vec::with_capacity(new_cap);
+        for _ in 0..new_cap {
+            new_entries.push(None);
+        }
+        let old_entries = core::mem::replace(&mut self.entries, new_entries);
+        self.count = 0;
+        let mask = new_cap - 1;
+
+        for item in old_entries.into_iter().flatten() {
+            let mut idx = (item.hash as usize) & mask;
+            while self.entries[idx].is_some() {
+                idx = (idx + 1) & mask;
+            }
+            self.entries[idx] = Some(item);
+            self.count += 1;
+        }
+    }
+}
 
 /// Represents the caching state of an inode for a particular directory entry.
 #[derive(Default)]
@@ -37,8 +235,8 @@ pub struct DEntry {
     /// The parent of this `DEntry`. Weak reference prevents cycles.
     pub parent: Option<Weak<DEntry>>,
 
-    /// A map of all cached children of this entry.
-    pub children: RwLock<BTreeMap<String, Arc<DEntry>>>,
+    /// Fast-path hash table of all cached children of this entry.
+    pub children: RwLock<FastDentryMap>,
 
     /// A list of filesystems mounted on top of this dentry.
     pub mounts: RwLock<Vec<Arc<Mount>>>,
@@ -56,7 +254,7 @@ impl DEntry {
             name,
             inode: RwLock::new(state),
             parent,
-            children: RwLock::new(BTreeMap::new()),
+            children: RwLock::new(FastDentryMap::new()),
             mounts: RwLock::new(Vec::new()),
         }
     }
@@ -84,9 +282,9 @@ impl DEntry {
         };
     }
 
-    /// Looks up a child in the cache.
+    /// Looks up a child in the cache via Fast Path O(1) hash lookup.
     pub fn lookup_child(&self, name: &str) -> Option<Arc<DEntry>> {
-        self.children.read().get(name).cloned()
+        self.children.read().lookup(name)
     }
 
     /// Adds a child to the cache, pruning negative dentries if memory limit is reached.
@@ -95,7 +293,7 @@ impl DEntry {
         if children.len() >= 8192 {
             children.retain(|_, d| !d.is_not_present());
         }
-        children.insert(child.name.clone(), child);
+        children.insert(child);
     }
 
     /// Removes a child from the cache, returning it if it was cached.
