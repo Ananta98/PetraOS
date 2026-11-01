@@ -167,6 +167,110 @@ pub fn scan(raw_inode: &[u8], ctx: &ExtentCtx<'_>) -> Result<Vec<Extent>> {
 // Lookup / mutation of the in-memory (flat) mapping
 // ---------------------------------------------------------------------------
 
+/// Finds the extent covering logical block `lblock` directly in the extent tree
+/// in $O(\text{depth})$ time without flattening the entire tree into memory.
+///
+/// Returns `Ok(Some((phys_block, remaining_contiguous_len)))`, or `Ok(None)` for a hole.
+pub fn lookup_single(
+    raw_inode: &[u8],
+    lblock: u32,
+    ctx: &ExtentCtx<'_>,
+) -> Result<Option<(u64, u32)>> {
+    if raw_inode.len() < 100 {
+        return Err(Errno::EIO);
+    }
+    let root_area = &raw_inode[40..100];
+    let (n, depth) = parse_header(root_area, ctx.root_capacity)?;
+    if n == 0 {
+        return Ok(None);
+    }
+
+    if depth == 0 {
+        let mut best: Option<Extent> = None;
+        for i in 0..n {
+            let off = 12 + i * 12;
+            let ext = parse_extent_entry(&root_area[off..off + 12], ctx.has_64bit);
+            if ext.log <= lblock {
+                best = Some(ext);
+            } else {
+                break;
+            }
+        }
+        if let Some(e) = best {
+            if lblock < e.log + e.len {
+                let delta = lblock - e.log;
+                return Ok(Some((e.phys + delta as u64, e.len - delta)));
+            }
+        }
+        return Ok(None);
+    }
+
+    // Find child pointer in root index
+    let mut target_ptr: Option<u64> = None;
+    for i in 0..n {
+        let off = 12 + i * 12;
+        let (idx_log, ptr) = parse_index_entry(&root_area[off..off + 12], ctx.has_64bit);
+        if idx_log <= lblock {
+            target_ptr = Some(ptr);
+        } else {
+            break;
+        }
+    }
+    let Some(mut cur_ptr) = target_ptr else {
+        return Ok(None);
+    };
+
+    let capacity = block_capacity(ctx.block_size, ctx.csum_on);
+    let mut level = depth;
+    let mut blk = vec![0u8; ctx.block_size];
+
+    while level > 0 {
+        level -= 1;
+        (ctx.read_block)(cur_ptr, &mut blk)?;
+        let (count, d) = parse_header(&blk, capacity)?;
+        if d != level || count == 0 {
+            return Err(Errno::EIO);
+        }
+
+        if level == 0 {
+            let mut best: Option<Extent> = None;
+            for i in 0..count {
+                let off = 12 + i * 12;
+                let ext = parse_extent_entry(&blk[off..off + 12], ctx.has_64bit);
+                if ext.log <= lblock {
+                    best = Some(ext);
+                } else {
+                    break;
+                }
+            }
+            if let Some(e) = best {
+                if lblock < e.log + e.len {
+                    let delta = lblock - e.log;
+                    return Ok(Some((e.phys + delta as u64, e.len - delta)));
+                }
+            }
+            return Ok(None);
+        } else {
+            let mut next_ptr: Option<u64> = None;
+            for i in 0..count {
+                let off = 12 + i * 12;
+                let (idx_log, ptr) = parse_index_entry(&blk[off..off + 12], ctx.has_64bit);
+                if idx_log <= lblock {
+                    next_ptr = Some(ptr);
+                } else {
+                    break;
+                }
+            }
+            match next_ptr {
+                Some(p) => cur_ptr = p,
+                None => return Ok(None),
+            }
+        }
+    }
+
+    Ok(None)
+}
+
 /// Finds the extent covering logical block `lblock`, as `(phys, len)`.
 pub fn lookup(extents: &[Extent], lblock: u32) -> Option<(u64, u32)> {
     let idx = extents.partition_point(|e| e.log <= lblock);

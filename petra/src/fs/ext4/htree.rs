@@ -476,6 +476,8 @@ pub fn htree_lookup(
     // Search root index entries starting at offset 32
     let (mut target_block, mut entry_idx) =
         binary_search_entries(&root_buf[32..], count, search_hash);
+    let mut last_node_buf = alloc::vec::Vec::new();
+    let mut last_count = count;
 
     // Descend through indirect index levels (if any)
     for _ in 0..indirect_levels {
@@ -499,6 +501,8 @@ pub fn htree_lookup(
             binary_search_entries(&node_buf[8..], node_count, search_hash);
         target_block = next_block;
         entry_idx = next_idx;
+        last_count = node_count;
+        last_node_buf = node_buf;
     }
 
     // Read target leaf block
@@ -509,18 +513,23 @@ pub fn htree_lookup(
         return Ok(HtreeResult::Found(res.0, res.1));
     }
 
-    // Collision check: if the next entry in the index has a matching hash, check it too
-    if indirect_levels > 0 {
-        return Ok(HtreeResult::Fallback);
-    }
-    if entry_idx + 1 < count as usize {
-        let next_hash = read_entry_hash(&root_buf[32..], entry_idx + 1);
+    // Collision check: if subsequent entries in the leaf index have a matching hash, check them too
+    let entries_slice = if indirect_levels > 0 {
+        &last_node_buf[8..]
+    } else {
+        &root_buf[32..]
+    };
+    while entry_idx + 1 < last_count as usize {
+        entry_idx += 1;
+        let next_hash = read_entry_hash(entries_slice, entry_idx);
         if (next_hash & !1) == search_hash {
-            let next_block = read_entry_block(&root_buf[32..], entry_idx + 1);
+            let next_block = read_entry_block(entries_slice, entry_idx);
             fs.read_inode_block(dir_ino, raw, next_block as u64, &mut leaf_buf)?;
             if let Some(res) = dir::find_in_block(&leaf_buf, name) {
                 return Ok(HtreeResult::Found(res.0, res.1));
             }
+        } else {
+            break;
         }
     }
 

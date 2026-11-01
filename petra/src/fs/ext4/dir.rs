@@ -169,6 +169,31 @@ pub fn find_in_block(block: &[u8], name: &str) -> Option<(u32, u8)> {
     None
 }
 
+/// Searches directly across raw directory blocks without heap allocation.
+pub fn find_in_data(dir_data: &[u8], block_size: usize, name: &str) -> Option<(u32, u8)> {
+    for block in dir_data.chunks(block_size) {
+        if let Some(found) = find_in_block(block, name) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+/// Converts an on-disk ext4 dirent `file_type` into a Linux `DT_*` type constant.
+#[inline]
+pub fn ftype_to_dtype(ft: u8) -> u8 {
+    match ft {
+        ftype::REGULAR => 8,  // DT_REG
+        ftype::DIR => 4,      // DT_DIR
+        ftype::CHR => 2,      // DT_CHR
+        ftype::BLK => 6,      // DT_BLK
+        ftype::FIFO => 1,     // DT_FIFO
+        ftype::SOCK => 12,    // DT_SOCK
+        ftype::SYMLINK => 10, // DT_LNK
+        _ => 0,               // DT_UNKNOWN
+    }
+}
+
 /// Counts subdirectory entries for the `links_count` bookkeeping.
 pub fn count_subdirs(entries: &[Dirent]) -> u32 {
     entries

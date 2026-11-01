@@ -46,12 +46,16 @@ pub struct Ext4Fs {
     pub dev_block_size: usize,
     /// Identity tag for same-filesystem checks in link/rename.
     pub fsid: u64,
-    /// Coarse per-filesystem operation lock.
-    pub ops_lock: Mutex<()>,
+    /// Coarse filesystem-wide lock (read-locked for all normal operations, write-locked for sync_all/remount).
+    pub ops_lock: RwLock<()>,
+    /// Partitioned per-inode read-write locks (128 shards) eliminating global ops_lock contention.
+    pub inode_locks: [RwLock<()>; 128],
     /// Inode cache mapping inode number to cached RawInode.
     pub inode_cache: RwLock<BTreeMap<u32, Arc<RawInode>>>,
     /// Block cache mapping (ino, lblock) to cached block data.
     pub block_cache: RwLock<BTreeMap<(u32, u64), Arc<Vec<u8>>>>,
+    /// Physical metadata block cache (inode tables, extent index blocks, bitmaps).
+    pub meta_cache: RwLock<BTreeMap<u64, Arc<Vec<u8>>>>,
     /// Dirty block cache mapping physical block number to dirty block data.
     pub dirty_blocks: RwLock<BTreeMap<u64, Arc<Vec<u8>>>>,
     /// Weak self-reference so nodes can recover the owning `Arc<Ext4Fs>`.
@@ -102,9 +106,11 @@ impl Ext4Fs {
             bgt: Mutex::new(bgt),
             block_size,
             dev_block_size,
-            ops_lock: Mutex::new(()),
+            ops_lock: RwLock::new(()),
+            inode_locks: [const { RwLock::new(()) }; 128],
             inode_cache: RwLock::new(BTreeMap::new()),
             block_cache: RwLock::new(BTreeMap::new()),
+            meta_cache: RwLock::new(BTreeMap::new()),
             dirty_blocks: RwLock::new(BTreeMap::new()),
             self_ref: Mutex::new(Weak::new()),
         });
@@ -118,16 +124,99 @@ impl Ext4Fs {
         self.self_ref.lock().upgrade().ok_or(Errno::EIO)
     }
 
+    #[inline]
+    pub fn ilock_read(&self, ino: u32) -> spin::RwLockReadGuard<'_, ()> {
+        self.inode_locks[(ino as usize) & 127].read()
+    }
+
+    #[inline]
+    pub fn ilock_write(&self, ino: u32) -> spin::RwLockWriteGuard<'_, ()> {
+        self.inode_locks[(ino as usize) & 127].write()
+    }
+
+    pub fn ilock_pair(
+        &self,
+        ino1: u32,
+        ino2: u32,
+    ) -> (
+        spin::RwLockWriteGuard<'_, ()>,
+        Option<spin::RwLockWriteGuard<'_, ()>>,
+    ) {
+        let idx1 = (ino1 as usize) & 127;
+        let idx2 = (ino2 as usize) & 127;
+        if idx1 == idx2 {
+            (self.inode_locks[idx1].write(), None)
+        } else if idx1 < idx2 {
+            let g1 = self.inode_locks[idx1].write();
+            let g2 = self.inode_locks[idx2].write();
+            (g1, Some(g2))
+        } else {
+            let g2 = self.inode_locks[idx2].write();
+            let g1 = self.inode_locks[idx1].write();
+            (g1, Some(g2))
+        }
+    }
+
     // -------------------------------------------------------------------
     // FS block / inode-table I/O
     // -------------------------------------------------------------------
 
     pub fn read_fs_block(&self, blk: u64, buf: &mut [u8]) -> Result<()> {
-        read_fs_blocks(&*self.dev, self.block_size, self.dev_block_size, blk, buf)
+        if let Some(dirty) = self.dirty_blocks.read().get(&blk) {
+            buf.copy_from_slice(dirty);
+            return Ok(());
+        }
+        if let Some(cached) = self.meta_cache.read().get(&blk) {
+            buf.copy_from_slice(cached);
+            return Ok(());
+        }
+        read_fs_blocks(&*self.dev, self.block_size, self.dev_block_size, blk, buf)?;
+        {
+            let mut mcache = self.meta_cache.write();
+            if mcache.len() >= 8192 {
+                if let Some(first_key) = mcache.keys().next().copied() {
+                    mcache.remove(&first_key);
+                }
+            }
+            mcache.insert(blk, Arc::new(buf.to_vec()));
+        }
+        Ok(())
     }
 
     pub fn write_fs_block(&self, blk: u64, buf: &[u8]) -> Result<()> {
+        self.dirty_blocks.write().remove(&blk);
+        {
+            let mut mcache = self.meta_cache.write();
+            if mcache.len() >= 8192 && !mcache.contains_key(&blk) {
+                if let Some(first_key) = mcache.keys().next().copied() {
+                    mcache.remove(&first_key);
+                }
+            }
+            mcache.insert(blk, Arc::new(buf.to_vec()));
+        }
         write_fs_blocks(&*self.dev, self.block_size, self.dev_block_size, blk, buf)
+    }
+
+    pub fn write_meta_block_deferred(&self, blk: u64, buf: &[u8]) -> Result<()> {
+        let blk_arc = Arc::new(buf.to_vec());
+        {
+            let mut mcache = self.meta_cache.write();
+            if mcache.len() >= 8192 && !mcache.contains_key(&blk) {
+                if let Some(first_key) = mcache.keys().next().copied() {
+                    mcache.remove(&first_key);
+                }
+            }
+            mcache.insert(blk, Arc::clone(&blk_arc));
+        }
+        let should_flush = {
+            let mut dblocks = self.dirty_blocks.write();
+            dblocks.insert(blk, blk_arc);
+            dblocks.len() >= 512
+        };
+        if should_flush {
+            let _ = self.flush_dirty_blocks(false);
+        }
+        Ok(())
     }
 
     pub fn read_inode(&self, ino: u32) -> Result<RawInode> {
@@ -153,10 +242,18 @@ impl Ext4Fs {
         let index = ((ino - 1) % ipg) as usize;
         let table = self.bgt.lock().desc(g)?.inode_table;
         let rel = index * inode_size;
-        let mut blk = vec![0u8; self.block_size];
-        self.read_fs_block(table + (rel / self.block_size) as u64, &mut blk)?;
+        let phys_blk = table + (rel / self.block_size) as u64;
         let off = rel % self.block_size;
-        let raw = RawInode::parse(&blk[off..off + inode_size], inode_size)?;
+
+        let raw = if let Some(dirty) = self.dirty_blocks.read().get(&phys_blk).cloned() {
+            RawInode::parse(&dirty[off..off + inode_size], inode_size)?
+        } else if let Some(cached_blk) = self.meta_cache.read().get(&phys_blk).cloned() {
+            RawInode::parse(&cached_blk[off..off + inode_size], inode_size)?
+        } else {
+            let mut blk = vec![0u8; self.block_size];
+            self.read_fs_block(phys_blk, &mut blk)?;
+            RawInode::parse(&blk[off..off + inode_size], inode_size)?
+        };
 
         {
             let mut cache = self.inode_cache.write();
@@ -189,11 +286,12 @@ impl Ext4Fs {
         let index = ((ino - 1) % ipg) as usize;
         let table = self.bgt.lock().desc(g)?.inode_table;
         let rel = index * inode_size;
-        let mut blk = vec![0u8; self.block_size];
-        self.read_fs_block(table + (rel / self.block_size) as u64, &mut blk)?;
+        let phys_blk = table + (rel / self.block_size) as u64;
         let off = rel % self.block_size;
+        let mut blk = vec![0u8; self.block_size];
+        self.read_fs_block(phys_blk, &mut blk)?;
         blk[off..off + inode_size].copy_from_slice(&raw.raw);
-        self.write_fs_block(table + (rel / self.block_size) as u64, &blk)?;
+        self.write_meta_block_deferred(phys_blk, &blk)?;
 
         {
             let mut cache = self.inode_cache.write();
@@ -217,7 +315,7 @@ impl Ext4Fs {
         let mut bgt = self.bgt.lock();
         let total_blocks = sb.blocks_count();
         let read = |blk: u64, buf: &mut [u8]| self.read_fs_block(blk, buf);
-        let write = |blk: u64, buf: &[u8]| self.write_fs_block(blk, buf);
+        let write = |blk: u64, buf: &[u8]| self.write_meta_block_deferred(blk, buf);
         let mut io = AllocIo {
             read_block: &read,
             write_block: &write,
@@ -236,6 +334,14 @@ impl Ext4Fs {
     pub fn free_blocks(&self, phys: u64, len: u32) -> Result<()> {
         if len == 0 {
             return Ok(());
+        }
+        {
+            let mut dblocks = self.dirty_blocks.write();
+            let mut mcache = self.meta_cache.write();
+            for b in phys..phys + (len as u64) {
+                dblocks.remove(&b);
+                mcache.remove(&b);
+            }
         }
         self.with_alloc(|io| io.free_blocks(phys, len))
     }
@@ -289,36 +395,46 @@ impl Ext4Fs {
         f(&ctx)
     }
 
+    /// Read-only mapping of one logical block returning `(phys_block, remaining_contiguous_len)`.
+    ///
+    /// Returns `Ok(None)` for a hole.
+    pub fn map_read_extent(
+        &self,
+        ino: u32,
+        raw: &RawInode,
+        lblock: u64,
+    ) -> Result<Option<(u64, u32)>> {
+        if raw.flags & iflags::EXTENTS != 0 {
+            self.with_extent_ctx(ino, raw.generation, |ctx| {
+                extents::lookup_single(&raw.raw, lblock as u32, ctx)
+            })
+        } else {
+            self.indirect_read(raw, lblock as u32)
+                .map(|p| (p != 0).then_some((p, 1)))
+        }
+    }
+
     /// Read-only mapping of one logical block (no allocation, no writes).
     ///
     /// Returns `Ok(None)` for a hole.
     pub fn map_read(&self, ino: u32, raw: &RawInode, lblock: u64) -> Result<Option<u64>> {
-        if raw.flags & iflags::EXTENTS != 0 {
-            self.with_extent_ctx(ino, raw.generation, |ctx| {
-                let list = extents::scan(&raw.raw, ctx)?;
-                Ok(extents::lookup(&list, lblock as u32).map(|(p, _)| p))
-            })
-        } else {
-            self.indirect_read(raw, lblock as u32)
-                .map(|p| (p != 0).then_some(p))
-        }
+        Ok(self.map_read_extent(ino, raw, lblock)?.map(|(p, _)| p))
     }
 
     fn indirect_read(&self, raw: &RawInode, lblock: u32) -> Result<u64> {
         let read = |blk: u64, buf: &mut [u8]| self.read_fs_block(blk, buf);
-        let write: Box<dyn Fn(u64, &[u8]) -> Result<()> + '_> =
-            Box::new(|_blk: u64, _buf: &[u8]| Ok(()));
+        let write = |_blk: u64, _buf: &[u8]| -> Result<()> { Ok(()) };
         let mut dummy_alloc = || -> Result<u64> { Err(Errno::EINVAL) };
         let io = IndirectIo {
             read_block: &read,
-            write_block: write.as_ref(),
+            write_block: &write,
             alloc_block: &mut dummy_alloc,
             block_size: self.block_size,
         };
         indirect::map_read(raw, lblock, &io)
     }
 
-    /// Reads one logical filesystem block of an inode into `buf`.
+    /// Reads one logical filesystem block of an inode into `buf`, utilizing `block_cache`.
     pub fn read_inode_block(
         &self,
         ino: u32,
@@ -326,8 +442,22 @@ impl Ext4Fs {
         lblock: u64,
         buf: &mut [u8],
     ) -> Result<()> {
+        if let Some(cached) = self.block_cache.read().get(&(ino, lblock)).cloned() {
+            buf.copy_from_slice(&cached);
+            return Ok(());
+        }
         match self.map_read(ino, raw, lblock)? {
-            Some(phys) => self.read_fs_block(phys, buf),
+            Some(phys) => {
+                self.read_fs_block(phys, buf)?;
+                let mut bcache = self.block_cache.write();
+                if bcache.len() >= 16384 {
+                    if let Some(first_key) = bcache.keys().next().copied() {
+                        bcache.remove(&first_key);
+                    }
+                }
+                bcache.insert((ino, lblock), Arc::new(buf.to_vec()));
+                Ok(())
+            }
             None => {
                 buf.fill(0);
                 Ok(())
@@ -588,8 +718,8 @@ impl Ext4Fs {
             if let Some(blk) = cached_blk {
                 buf[written..written + take].copy_from_slice(&blk[rel..rel + take]);
             } else {
-                match self.map_read(ino, raw, lblock) {
-                    Ok(Some(phys)) => {
+                match self.map_read_extent(ino, raw, lblock) {
+                    Ok(Some((phys, _))) => {
                         let mut blk = vec![0u8; self.block_size];
                         if let Err(e) = self.read_fs_block(phys, &mut blk) {
                             ostd::error!("Ext4: read_fs_block failed for phys {}: {:?}", phys, e);
@@ -606,35 +736,48 @@ impl Ext4Fs {
                         bcache.insert((ino, lblock), blk_arc);
                         drop(bcache);
 
-                        // Sequential adaptive read-ahead: prefetch `ra_count` subsequent blocks
+                        // Sequential adaptive read-ahead: prefetch subsequent blocks in batched runs
                         let max_lblock = size.div_ceil(bs);
-                        let prefetch_limit = core::cmp::min(lblock + 1 + (ra_count as u64), max_lblock);
+                        let needed_blocks = ((end - pos).div_ceil(bs) as usize).saturating_sub(1);
+                        let effective_ra = ra_count.max(needed_blocks).min(64);
+                        let prefetch_limit =
+                            core::cmp::min(lblock + 1 + (effective_ra as u64), max_lblock);
                         let mut cur_lb = lblock + 1;
                         while cur_lb < prefetch_limit {
                             if self.block_cache.read().contains_key(&(ino, cur_lb)) {
                                 cur_lb += 1;
                                 continue;
                             }
-                            if let Ok(Some(first_phys)) = self.map_read(ino, raw, cur_lb) {
+                            if let Ok(Some((first_phys, ext_rem))) =
+                                self.map_read_extent(ino, raw, cur_lb)
+                            {
+                                let max_run =
+                                    (prefetch_limit - cur_lb).min(ext_rem as u64).max(1);
                                 let mut run_len = 1u64;
-                                let mut next_phys = first_phys + 1;
-                                while (cur_lb + run_len) < prefetch_limit {
-                                    if self.block_cache.read().contains_key(&(ino, cur_lb + run_len)) {
-                                        break;
+                                {
+                                    let bcache_r = self.block_cache.read();
+                                    while run_len < max_run
+                                        && !bcache_r.contains_key(&(ino, cur_lb + run_len))
+                                    {
+                                        run_len += 1;
                                     }
-                                    if let Ok(Some(p)) = self.map_read(ino, raw, cur_lb + run_len) {
-                                        if p == next_phys {
-                                            run_len += 1;
-                                            next_phys += 1;
-                                            continue;
-                                        }
-                                    }
-                                    break;
                                 }
 
                                 let spb = (self.block_size / self.dev_block_size) as u64;
                                 let mut batch_buf = vec![0u8; self.block_size * run_len as usize];
                                 if self.dev.read_blocks(first_phys * spb, &mut batch_buf).is_ok() {
+                                    {
+                                        let dblocks = self.dirty_blocks.read();
+                                        for i in 0..run_len {
+                                            let phys = first_phys + i;
+                                            if let Some(dirty) = dblocks.get(&phys) {
+                                                let offset_start = (i as usize) * self.block_size;
+                                                let offset_end = offset_start + self.block_size;
+                                                batch_buf[offset_start..offset_end]
+                                                    .copy_from_slice(dirty);
+                                            }
+                                        }
+                                    }
                                     let mut bcache = self.block_cache.write();
                                     for i in 0..run_len {
                                         if bcache.len() >= 16384 {
@@ -644,7 +787,8 @@ impl Ext4Fs {
                                         }
                                         let offset_start = (i as usize) * self.block_size;
                                         let offset_end = offset_start + self.block_size;
-                                        let blk_chunk = batch_buf[offset_start..offset_end].to_vec();
+                                        let blk_chunk =
+                                            batch_buf[offset_start..offset_end].to_vec();
                                         bcache.insert((ino, cur_lb + i), Arc::new(blk_chunk));
                                     }
                                 }
@@ -1030,16 +1174,24 @@ impl Ext4Fs {
             let lblock = (off / self.block_size) as u64;
             let phys = self.map_write(ino, raw, lblock)?;
             let blk_slice = &data[off..off + self.block_size];
-            self.write_fs_block(phys, blk_slice)?;
+            let blk_arc = Arc::new(blk_slice.to_vec());
 
             {
                 let mut bcache = self.block_cache.write();
-                if bcache.len() >= 16384 {
+                if bcache.len() >= 16384 && !bcache.contains_key(&(ino, lblock)) {
                     if let Some(first_key) = bcache.keys().next().copied() {
                         bcache.remove(&first_key);
                     }
                 }
-                bcache.insert((ino, lblock), Arc::new(blk_slice.to_vec()));
+                bcache.insert((ino, lblock), Arc::clone(&blk_arc));
+            }
+            {
+                let mut dblocks = self.dirty_blocks.write();
+                dblocks.insert(phys, blk_arc);
+                if dblocks.len() >= 512 {
+                    drop(dblocks);
+                    let _ = self.flush_dirty_blocks(false);
+                }
             }
         }
         raw.set_size(data.len() as u64);
@@ -1210,14 +1362,12 @@ pub fn read_fs_blocks(
     blk: u64,
     buf: &mut [u8],
 ) -> Result<()> {
-    if fs_bs % dev_bs == 0 {
+    if fs_bs % dev_bs == 0 && buf.len() >= fs_bs {
         let spb = (fs_bs / dev_bs) as u64;
-        let mut pad = vec![0u8; fs_bs];
-        let got = dev.read_blocks(blk * spb, &mut pad)?;
+        let got = dev.read_blocks(blk * spb, &mut buf[..fs_bs])?;
         if got == 0 {
             return Err(Errno::EIO);
         }
-        buf.copy_from_slice(&pad);
         return Ok(());
     }
     dev_read_bytes(dev, blk * fs_bs as u64, buf)
@@ -1439,7 +1589,8 @@ impl NodeOps for Ext4Node {
     /// Lookup handles ".", ".." and regular entries.
     fn lookup(&self, name: &str) -> Result<Arc<INode>> {
         let fs = &self.fs;
-        let _g = fs.ops_lock.lock();
+        let _g = fs.ops_lock.read();
+        let _ino = fs.ilock_read(self.ino);
         if name.contains('/') {
             return Err(Errno::EINVAL);
         }
@@ -1452,19 +1603,20 @@ impl NodeOps for Ext4Node {
         if raw.is_indexed_dir() {
             match fs.htree_lookup(self.ino, &raw, name)? {
                 super::htree::HtreeResult::Found(child, _) => return fs.node_for(child),
-                super::htree::HtreeResult::NotFound | super::htree::HtreeResult::Fallback => {}
+                super::htree::HtreeResult::NotFound => return Err(Errno::ENOENT),
+                super::htree::HtreeResult::Fallback => {}
             }
         }
 
         let data = fs.read_dir_data(self.ino, &raw)?;
-        let entries = dir::parse_all(&data, fs.block_size);
-        let (child, _) = dir::find(&entries, name).ok_or(Errno::ENOENT)?;
+        let (child, _) = dir::find_in_data(&data, fs.block_size, name).ok_or(Errno::ENOENT)?;
         fs.node_for(child)
     }
 
     fn create(&self, name: &str, mode: Mode) -> Result<Arc<INode>> {
         let fs = &self.fs;
-        let _g = fs.ops_lock.lock();
+        let _g = fs.ops_lock.read();
+        let _ino = fs.ilock_write(self.ino);
         let mut dir_raw = fs.read_inode(self.ino)?;
         if !dir_raw.is_dir() {
             return Err(Errno::ENOTDIR);
@@ -1512,7 +1664,8 @@ impl NodeOps for Ext4Node {
 
     fn mkdir(&self, name: &str, mode: Mode) -> Result<Arc<INode>> {
         let fs = &self.fs;
-        let _g = fs.ops_lock.lock();
+        let _g = fs.ops_lock.read();
+        let _ino = fs.ilock_write(self.ino);
         let mut dir_raw = fs.read_inode(self.ino)?;
         if !dir_raw.is_dir() {
             return Err(Errno::ENOTDIR);
@@ -1571,10 +1724,11 @@ impl NodeOps for Ext4Node {
 
     fn rmdir(&self, name: &str) -> Result<()> {
         let fs = &self.fs;
-        let _g = fs.ops_lock.lock();
+        let _g = fs.ops_lock.read();
         if name == "." || name == ".." {
             return Err(Errno::EINVAL);
         }
+        let _parent_ino = fs.ilock_write(self.ino);
         let mut dir_raw = fs.read_inode(self.ino)?;
         if !dir_raw.is_dir() {
             return Err(Errno::ENOTDIR);
@@ -1582,6 +1736,9 @@ impl NodeOps for Ext4Node {
         let data = fs.read_dir_data(self.ino, &dir_raw)?;
         let entries = dir::parse_all(&data, fs.block_size);
         let (child, _) = dir::find(&entries, name).ok_or(Errno::ENOENT)?;
+        drop(_parent_ino);
+
+        let (_p_guard, _c_guard) = fs.ilock_pair(self.ino, child);
         let mut child_raw = fs.read_inode(child)?;
         if !child_raw.is_dir() {
             return Err(Errno::ENOTDIR);
@@ -1610,10 +1767,11 @@ impl NodeOps for Ext4Node {
 
     fn unlink(&self, name: &str) -> Result<()> {
         let fs = &self.fs;
-        let _g = fs.ops_lock.lock();
+        let _g = fs.ops_lock.read();
         if name == "." || name == ".." {
             return Err(Errno::EINVAL);
         }
+        let _parent_ino = fs.ilock_write(self.ino);
         let mut dir_raw = fs.read_inode(self.ino)?;
         if !dir_raw.is_dir() {
             return Err(Errno::ENOTDIR);
@@ -1621,6 +1779,9 @@ impl NodeOps for Ext4Node {
         let data = fs.read_dir_data(self.ino, &dir_raw)?;
         let entries = dir::parse_all(&data, fs.block_size);
         let (child, _) = dir::find(&entries, name).ok_or(Errno::ENOENT)?;
+        drop(_parent_ino);
+
+        let (_p_guard, _c_guard) = fs.ilock_pair(self.ino, child);
         let mut child_raw = fs.read_inode(child)?;
         if child_raw.is_dir() {
             return Err(Errno::EISDIR);
@@ -1643,11 +1804,12 @@ impl NodeOps for Ext4Node {
 
     fn link(&self, name: &str, other: Arc<INode>) -> Result<()> {
         let fs = &self.fs;
-        let _g = fs.ops_lock.lock();
+        let _g = fs.ops_lock.read();
         if other.node_ops.fsid() != Some(fs.fsid) {
             return Err(Errno::EXDEV);
         }
         let target = other.id as u32;
+        let _ino_guards = fs.ilock_pair(self.ino, target);
         let mut target_raw = fs.read_inode(target)?;
         if target_raw.is_dir() {
             return Err(Errno::EISDIR);
@@ -1670,7 +1832,8 @@ impl NodeOps for Ext4Node {
 
     fn mknod(&self, name: &str, mode: Mode, rdev: u64) -> Result<Arc<INode>> {
         let fs = &self.fs;
-        let _g = fs.ops_lock.lock();
+        let _g = fs.ops_lock.read();
+        let _ino = fs.ilock_write(self.ino);
         let mut dir_raw = fs.read_inode(self.ino)?;
         if !dir_raw.is_dir() {
             return Err(Errno::ENOTDIR);
@@ -1717,7 +1880,8 @@ impl NodeOps for Ext4Node {
 
     fn symlink(&self, name: &str, target: &str) -> Result<Arc<INode>> {
         let fs = &self.fs;
-        let _g = fs.ops_lock.lock();
+        let _g = fs.ops_lock.read();
+        let _ino = fs.ilock_write(self.ino);
         if name.len() > 255 {
             return Err(Errno::ENAMETOOLONG);
         }
@@ -1774,6 +1938,8 @@ impl NodeOps for Ext4Node {
 
     fn readlink(&self) -> Result<String> {
         let fs = &self.fs;
+        let _g = fs.ops_lock.read();
+        let _ino = fs.ilock_read(self.ino);
         let raw = fs.read_inode(self.ino)?;
         if !raw.is_symlink() {
             return Err(Errno::EINVAL);
@@ -1800,7 +1966,7 @@ impl NodeOps for Ext4Node {
     /// counts. Same-directory and same-inode no-ops are handled.
     fn rename(&self, old_name: &str, new_dir: &Arc<INode>, new_name: &str) -> Result<()> {
         let fs = &self.fs;
-        let _g = fs.ops_lock.lock();
+        let _g = fs.ops_lock.read();
         if old_name == "." || old_name == ".." || new_name == "." || new_name == ".." {
             return Err(Errno::EINVAL);
         }
@@ -1811,6 +1977,7 @@ impl NodeOps for Ext4Node {
             return Err(Errno::EXDEV);
         }
         let new_dir_ino = new_dir.id as u32;
+        let _ino_guards = fs.ilock_pair(self.ino, new_dir_ino);
         let same_dir = new_dir_ino == self.ino;
 
         // Read both directory contents.
@@ -1938,11 +2105,14 @@ impl NodeOps for Ext4Node {
             let ndata = new_data_opt.as_mut().unwrap();
             fs.write_dir_data(new_dir_ino, ndraw, ndata)?;
         }
+        let _ = fs.flush_dirty_blocks(false);
         Ok(())
     }
 
     fn open(&self, _flags: OpenFlags) -> Result<Box<dyn FileOps>> {
         let fs = &self.fs;
+        let _g = fs.ops_lock.read();
+        let _ino = fs.ilock_read(self.ino);
         let raw = fs.read_inode(self.ino)?;
         if raw.is_dir() {
             Ok(Box::new(Ext4DirFileOps {
@@ -1963,6 +2133,8 @@ impl NodeOps for Ext4Node {
 
     fn getattr(&self) -> Result<INodeAttr> {
         let fs = &self.fs;
+        let _g = fs.ops_lock.read();
+        let _ino = fs.ilock_read(self.ino);
         let raw = fs.read_inode(self.ino)?;
         Ok(INodeAttr {
             size: usize::try_from(raw.size()).unwrap_or(usize::MAX),
@@ -1976,7 +2148,8 @@ impl NodeOps for Ext4Node {
 
     fn setattr(&self, attr: &INodeAttr) -> Result<()> {
         let fs = &self.fs;
-        let _g = fs.ops_lock.lock();
+        let _g = fs.ops_lock.read();
+        let _ino = fs.ilock_write(self.ino);
         let mut raw = fs.read_inode(self.ino)?;
         // chown / chmod.
         if attr.uid != raw.uid || attr.gid != raw.gid {
@@ -2036,7 +2209,8 @@ pub struct Ext4FileOps {
 impl FileOps for Ext4FileOps {
     fn read(&self, offset: u64, buf: &mut [u8]) -> Result<usize> {
         let fs = &self.fs;
-        let _g = fs.ops_lock.lock();
+        let _g = fs.ops_lock.read();
+        let _ino = fs.ilock_read(self.ino);
         let raw = fs.read_inode(self.ino)?;
         let mut prev = self.ra_prev_pos.lock();
         let mut win = self.ra_window.lock();
@@ -2053,7 +2227,8 @@ impl FileOps for Ext4FileOps {
 
     fn write(&self, offset: u64, buf: &[u8]) -> Result<usize> {
         let fs = &self.fs;
-        let _g = fs.ops_lock.lock();
+        let _g = fs.ops_lock.read();
+        let _ino = fs.ilock_write(self.ino);
         let mut raw = fs.read_inode(self.ino)?;
         fs.file_write(self.ino, &mut raw, offset, buf)
     }
@@ -2074,8 +2249,13 @@ impl FileOps for Ext4FileOps {
         Ok(())
     }
 
-    fn fsync(&self, _datasync: bool) -> Result<()> {
-        self.fs.sync_all()
+    fn fsync(&self, datasync: bool) -> Result<()> {
+        self.fs.flush_dirty_blocks(true)?;
+        if !datasync {
+            let write = |blk: u64, buf: &[u8]| self.fs.write_fs_block(blk, buf);
+            self.fs.bgt.lock().flush(&write)?;
+        }
+        self.fs.dev.flush()
     }
 }
 
@@ -2096,6 +2276,8 @@ impl FileOps for Ext4DirFileOps {
 
     fn readdir(&self) -> Result<Vec<u8>> {
         let fs = &self.fs;
+        let _g = fs.ops_lock.read();
+        let _ino = fs.ilock_read(self.ino);
         let raw = fs.read_inode(self.ino)?;
         let data = fs.read_dir_data(self.ino, &raw)?;
         let entries = dir::parse_all(&data, fs.block_size);
@@ -2105,6 +2287,20 @@ impl FileOps for Ext4DirFileOps {
             out.push(b'\n');
         }
         Ok(out)
+    }
+
+    fn readdir_entries(&self) -> Result<Option<Vec<(String, u64, u8)>>> {
+        let fs = &self.fs;
+        let _g = fs.ops_lock.read();
+        let _ino = fs.ilock_read(self.ino);
+        let raw = fs.read_inode(self.ino)?;
+        let data = fs.read_dir_data(self.ino, &raw)?;
+        let entries = dir::parse_all(&data, fs.block_size);
+        let mut out = Vec::with_capacity(entries.len());
+        for (name, ino, ft) in dir::listing(&entries) {
+            out.push((name, ino as u64, dir::ftype_to_dtype(ft)));
+        }
+        Ok(Some(out))
     }
 
     fn seek(&self, curr_offset: u64, anchor: SeekAnchor) -> Result<u64> {

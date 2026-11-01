@@ -9,7 +9,7 @@ use ostd::arch::cpu::context::UserContext;
 
 use crate::{
     uapi::errno::{Errno, Result},
-    fs::vfs::{File, Mode},
+    fs::vfs::{DEntry, File, Mode},
     proc::thread::Thread,
     syscall::fs::utils::UserPtr,
 };
@@ -47,13 +47,25 @@ fn resolve_child_entry(file: &File, name: &str) -> (u64, u8) {
     let cached = file
         .path_node
         .as_ref()
-        .and_then(|pn| pn.dentry.children.read().get(name).cloned())
+        .and_then(|pn| pn.dentry.lookup_child(name))
         .and_then(|d| d.get_inode());
     if let Some(child) = cached {
         return (child.id as u64, mode_to_dtype(child.attr.read().mode));
     }
     match file.inode.node_ops.lookup(name) {
-        Ok(child) => (child.id as u64, mode_to_dtype(child.attr.read().mode)),
+        Ok(child) => {
+            let ino = child.id as u64;
+            let dtype = mode_to_dtype(child.attr.read().mode);
+            if let Some(ref pn) = file.path_node {
+                let dentry = Arc::new(DEntry::new(
+                    name.into(),
+                    Some(child),
+                    Some(Arc::downgrade(&pn.dentry)),
+                ));
+                pn.dentry.add_child(dentry);
+            }
+            (ino, dtype)
+        }
         Err(_) => (1, DT_UNKNOWN),
     }
 }
@@ -64,6 +76,19 @@ fn resolve_child_entry(file: &File, name: &str) -> (u64, u8) {
 fn collect_dir_entries(file: &File) -> Result<Vec<(String, u64, u8)>> {
     if !file.inode.is_dir() {
         return Err(Errno::ENOTDIR);
+    }
+
+    if let Some(direct) = file.readdir_entries()? {
+        let mut all_entries: Vec<(String, u64, u8)> = Vec::with_capacity(direct.len() + 2);
+        all_entries.push((".".into(), file.inode.id as u64, DT_DIR));
+        all_entries.push(("..".into(), file.inode.id as u64, DT_DIR));
+        for (name, ino, dtype) in direct {
+            if name == "." || name == ".." {
+                continue;
+            }
+            all_entries.push((name, ino, dtype));
+        }
+        return Ok(all_entries);
     }
 
     let entries_raw = file.readdir()?;
@@ -94,7 +119,7 @@ fn prepare(
     Option<(
         Arc<crate::proc::Proc>,
         Arc<File>,
-        Vec<(String, u64, u8)>,
+        Arc<Vec<(String, u64, u8)>>,
     )>,
 > {
     if fd < 0 {
@@ -105,7 +130,18 @@ fn prepare(
     }
     let proc = Thread::proc_or_esrch()?;
     let file = proc.file(fd)?;
-    let entries = collect_dir_entries(&file)?;
+    if !file.inode.is_dir() {
+        return Err(Errno::ENOTDIR);
+    }
+    let cached = file.dir_entries_cache.lock().clone();
+    let entries = match cached {
+        Some(list) => list,
+        None => {
+            let built = Arc::new(collect_dir_entries(&file)?);
+            *file.dir_entries_cache.lock() = Some(Arc::clone(&built));
+            built
+        }
+    };
     Ok(Some((proc, file, entries)))
 }
 
@@ -126,36 +162,38 @@ pub fn sys_getdents64(
         return Ok(0);
     }
 
-    let mut written = 0;
+    let mut kbuf = Vec::with_capacity(count.min(65536));
     let vmar = proc.vmspace();
 
     while pos < all_entries.len() {
-        let (name, ino, d_type) = all_entries[pos].clone();
+        let (ref name, ino, d_type) = all_entries[pos];
         let name_bytes = name.as_bytes();
         let unaligned_len = 19 + name_bytes.len() + 1;
         let reclen = (unaligned_len + 7) & !7;
 
-        if written + reclen > count {
-            if written == 0 {
+        if kbuf.len() + reclen > count {
+            if kbuf.is_empty() {
                 return Err(Errno::EINVAL);
             }
             break;
         }
 
         let next_off = (pos + 1) as i64;
-        let mut record = alloc::vec![0u8; reclen];
-        record[0..8].copy_from_slice(&ino.to_ne_bytes());
-        record[8..16].copy_from_slice(&next_off.to_ne_bytes());
-        record[16..18].copy_from_slice(&(reclen as u16).to_ne_bytes());
-        record[18] = d_type;
-        record[19..19 + name_bytes.len()].copy_from_slice(name_bytes);
-        record[19 + name_bytes.len()] = 0;
+        let base = kbuf.len();
+        kbuf.resize(base + reclen, 0);
+        kbuf[base..base + 8].copy_from_slice(&ino.to_ne_bytes());
+        kbuf[base + 8..base + 16].copy_from_slice(&next_off.to_ne_bytes());
+        kbuf[base + 16..base + 18].copy_from_slice(&(reclen as u16).to_ne_bytes());
+        kbuf[base + 18] = d_type;
+        kbuf[base + 19..base + 19 + name_bytes.len()].copy_from_slice(name_bytes);
 
-        UserPtr::new(dirp_ptr + written).write_bytes(&vmar, &record)?;
-        written += reclen;
         pos += 1;
     }
 
+    let written = kbuf.len();
+    if written > 0 {
+        UserPtr::new(dirp_ptr).write_bytes(&vmar, &kbuf)?;
+    }
     *offset_guard = pos as u64;
     Ok(written)
 }
@@ -177,36 +215,38 @@ pub fn sys_getdents(
         return Ok(0);
     }
 
-    let mut written = 0;
+    let mut kbuf = Vec::with_capacity(count.min(65536));
     let vmar = proc.vmspace();
 
     while pos < all_entries.len() {
-        let (name, ino, d_type) = all_entries[pos].clone();
+        let (ref name, ino, d_type) = all_entries[pos];
         let name_bytes = name.as_bytes();
         let unaligned_len = 18 + name_bytes.len() + 1 + 1;
         let reclen = (unaligned_len + 7) & !7;
 
-        if written + reclen > count {
-            if written == 0 {
+        if kbuf.len() + reclen > count {
+            if kbuf.is_empty() {
                 return Err(Errno::EINVAL);
             }
             break;
         }
 
         let next_off = pos + 1;
-        let mut record = alloc::vec![0u8; reclen];
-        record[0..8].copy_from_slice(&(ino as usize).to_ne_bytes());
-        record[8..16].copy_from_slice(&next_off.to_ne_bytes());
-        record[16..18].copy_from_slice(&(reclen as u16).to_ne_bytes());
-        record[18..18 + name_bytes.len()].copy_from_slice(name_bytes);
-        record[18 + name_bytes.len()] = 0;
-        record[reclen - 1] = d_type;
+        let base = kbuf.len();
+        kbuf.resize(base + reclen, 0);
+        kbuf[base..base + 8].copy_from_slice(&(ino as usize).to_ne_bytes());
+        kbuf[base + 8..base + 16].copy_from_slice(&next_off.to_ne_bytes());
+        kbuf[base + 16..base + 18].copy_from_slice(&(reclen as u16).to_ne_bytes());
+        kbuf[base + 18..base + 18 + name_bytes.len()].copy_from_slice(name_bytes);
+        kbuf[base + reclen - 1] = d_type;
 
-        UserPtr::new(dirp_ptr + written).write_bytes(&vmar, &record)?;
-        written += reclen;
         pos += 1;
     }
 
+    let written = kbuf.len();
+    if written > 0 {
+        UserPtr::new(dirp_ptr).write_bytes(&vmar, &kbuf)?;
+    }
     *offset_guard = pos as u64;
     Ok(written)
 }

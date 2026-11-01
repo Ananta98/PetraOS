@@ -58,6 +58,11 @@ pub trait FileOps: Send + Sync {
         crate::return_errno!(ENOTDIR, "not a directory");
     }
 
+    /// Read structured directory entries `(name, ino, d_type)` directly when supported.
+    fn readdir_entries(&self) -> Result<Option<Vec<(alloc::string::String, u64, u8)>>> {
+        Ok(None)
+    }
+
     /// Perform a device-specific control command.
     fn ioctl(&self, cmd: u32, arg: usize) -> Result<usize> {
         let _ = (cmd, arg);
@@ -173,6 +178,8 @@ pub struct File {
     pub seekable: bool,
     /// PathNode this file was opened from, if backed by the filesystem tree.
     pub path_node: Option<PathNode>,
+    /// Cached structured directory entries across chunked `getdents`/`getdents64` calls.
+    pub dir_entries_cache: Mutex<Option<Arc<Vec<(alloc::string::String, u64, u8)>>>>,
 }
 
 impl File {
@@ -186,6 +193,7 @@ impl File {
             offset: Mutex::new(0),
             seekable,
             path_node: None,
+            dir_entries_cache: Mutex::new(None),
         }
     }
 
@@ -274,6 +282,9 @@ impl File {
         let mut offset_guard = self.offset.lock();
         let new_offset = self.ops.seek(*offset_guard, anchor)?;
         *offset_guard = new_offset;
+        if new_offset == 0 {
+            *self.dir_entries_cache.lock() = None;
+        }
         Ok(new_offset)
     }
 
@@ -292,6 +303,11 @@ impl File {
         self.ops.readdir()
     }
 
+    /// Reads structured directory entries `(name, ino, d_type)` when supported by the filesystem.
+    pub fn readdir_entries(&self) -> Result<Option<Vec<(alloc::string::String, u64, u8)>>> {
+        self.ops.readdir_entries()
+    }
+
     /// Current readiness for `poll(2)`.
     pub fn poll(&self) -> PollEvents {
         self.ops.poll()
@@ -299,11 +315,7 @@ impl File {
 
     /// Flushes the file to storage.
     pub fn fsync(&self, datasync: bool) -> Result<()> {
-        self.ops.fsync(datasync)?;
-        if let Some(ref pn) = self.path_node {
-            let _ = pn.mount.fs.sync();
-        }
-        Ok(())
+        self.ops.fsync(datasync)
     }
 
     /// Validates a memory-mapping request against this file.

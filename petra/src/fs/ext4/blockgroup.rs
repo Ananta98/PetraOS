@@ -114,10 +114,8 @@ impl BgTable {
         let per_block = self.raw_jump[0].len();
         let block_idx = start / per_block;
         let in_block = start % per_block;
-        let mut bytes = vec![0u8; self.desc_size];
-        // A descriptor never spans blocks (desc_size divides block size).
-        bytes.copy_from_slice(&self.raw_jump[block_idx][in_block..in_block + self.desc_size]);
-        Ok(Self::parse_desc(&bytes, self.desc_size))
+        let slice = &self.raw_jump[block_idx][in_block..in_block + self.desc_size];
+        Ok(Self::parse_desc(slice, self.desc_size))
     }
 
     /// Serializes + checksums a descriptor into its raw slot and returns the
@@ -134,6 +132,7 @@ impl BgTable {
             let slot = self.desc_bytes(g)?;
             slot.copy_from_slice(&bytes);
         }
+        self.dirty = true;
         Ok(local)
     }
 
@@ -145,6 +144,7 @@ impl BgTable {
         if has_64bit {
             slot[56..58].copy_from_slice(&((sum >> 16) as u16).to_le_bytes());
         }
+        self.dirty = true;
         Ok(())
     }
 
@@ -156,6 +156,7 @@ impl BgTable {
         if has_64bit {
             slot[58..60].copy_from_slice(&((sum >> 16) as u16).to_le_bytes());
         }
+        self.dirty = true;
         Ok(())
     }
 
@@ -166,17 +167,18 @@ impl BgTable {
 
     /// Parses a single descriptor.
     pub fn parse_desc(b: &[u8], desc_size: usize) -> BgDesc {
-        let copy = |off: usize, n: usize| -> Vec<u8> {
-            let mut v = vec![0u8; n];
-            if let Some(s) = b.get(off..off + n) {
-                v.copy_from_slice(s);
-            }
-            v
+        let le32 = |off: usize| -> u32 {
+            b.get(off..off + 4)
+                .and_then(|s| s.try_into().ok())
+                .map(u32::from_le_bytes)
+                .unwrap_or(0)
         };
-        let le32 =
-            |off: usize| -> u32 { u32::from_le_bytes(copy(off, 4).try_into().unwrap_or_default()) };
-        let le16 =
-            |off: usize| -> u16 { u16::from_le_bytes(copy(off, 2).try_into().unwrap_or_default()) };
+        let le16 = |off: usize| -> u16 {
+            b.get(off..off + 2)
+                .and_then(|s| s.try_into().ok())
+                .map(u16::from_le_bytes)
+                .unwrap_or(0)
+        };
 
         let mut d = BgDesc::default();
         d.block_bitmap = (le32(0) as u64)
@@ -284,11 +286,15 @@ impl BgTable {
         }
     }
 
-    /// Flushes all retained descriptor blocks through `write_block`.
-    pub fn flush(&self, write_block: &dyn Fn(u64, &[u8]) -> Result<()>) -> Result<()> {
+    /// Flushes all retained descriptor blocks through `write_block` when dirty.
+    pub fn flush(&mut self, write_block: &dyn Fn(u64, &[u8]) -> Result<()>) -> Result<()> {
+        if !self.dirty {
+            return Ok(());
+        }
         for (i, blk) in self.raw_jump.iter().enumerate() {
             write_block(self.first_desc_block + i as u64, blk)?;
         }
+        self.dirty = false;
         Ok(())
     }
 }
