@@ -153,4 +153,84 @@ impl ClusterManager {
         self.read_chain(first_cluster, no_fat_chain, 0, data_len, &mut data)?;
         Ok(data)
     }
+
+    /// Writes a whole cluster from `buf`.
+    pub fn write_cluster(&self, cluster: u32, buf: &[u8]) -> Result<()> {
+        let cluster_size = self.bs.cluster_size();
+        if buf.len() < cluster_size {
+            return Err(Errno::EINVAL);
+        }
+
+        let start_sector = self.cluster_to_sector(cluster)?;
+        let dev_bs = self.dev.block_size();
+        let sectors_to_write = cluster_size / dev_bs;
+
+        self.dev
+            .write_blocks(start_sector, &buf[..sectors_to_write * dev_bs])?;
+        Ok(())
+    }
+
+    /// Writes arbitrary bytes into a cluster chain starting from `offset`.
+    pub fn write_chain(
+        &self,
+        first_cluster: u32,
+        no_fat_chain: bool,
+        offset: u64,
+        buf: &[u8],
+    ) -> Result<usize> {
+        if first_cluster < 2 || buf.is_empty() {
+            return Ok(0);
+        }
+
+        let cluster_size = self.bs.cluster_size() as u64;
+        let mut current_cluster = first_cluster;
+        let mut cluster_skip = offset / cluster_size;
+
+        // Skip leading clusters
+        while cluster_skip > 0 {
+            if let Some(next) = self.next_cluster(current_cluster, no_fat_chain)? {
+                current_cluster = next;
+                cluster_skip -= 1;
+            } else {
+                return Ok(0);
+            }
+        }
+
+        let mut written_bytes = 0;
+        let to_write = buf.len();
+        let mut cluster_buf = vec![0u8; self.bs.cluster_size()];
+        let mut offset_in_cluster = (offset % cluster_size) as usize;
+
+        while written_bytes < to_write {
+            let available = cluster_size as usize - offset_in_cluster;
+            let chunk = available.min(to_write - written_bytes);
+
+            if offset_in_cluster > 0 || chunk < cluster_size as usize {
+                // Partial cluster write: read-modify-write
+                self.read_cluster(current_cluster, &mut cluster_buf)?;
+                cluster_buf[offset_in_cluster..offset_in_cluster + chunk]
+                    .copy_from_slice(&buf[written_bytes..written_bytes + chunk]);
+                self.write_cluster(current_cluster, &cluster_buf)?;
+            } else {
+                // Full cluster write
+                self.write_cluster(
+                    current_cluster,
+                    &buf[written_bytes..written_bytes + chunk],
+                )?;
+            }
+
+            written_bytes += chunk;
+            offset_in_cluster = 0;
+
+            if written_bytes < to_write {
+                if let Some(next) = self.next_cluster(current_cluster, no_fat_chain)? {
+                    current_cluster = next;
+                } else {
+                    break;
+                }
+            }
+        }
+
+        Ok(written_bytes)
+    }
 }

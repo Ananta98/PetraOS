@@ -26,6 +26,7 @@ pub const AF_NETLINK: i32 = 16;
 pub const SOCK_STREAM: i32 = 1;
 pub const SOCK_DGRAM: i32 = 2;
 pub const SOCK_RAW: i32 = 3;
+pub const SOCK_SEQPACKET: i32 = 5;
 
 // Standard protocols
 pub const IPPROTO_IP: i32 = 0;
@@ -205,7 +206,7 @@ impl KernelSocket {
     /// Creates a new, unconnected UNIX domain socket.
     pub fn new_unix(sock_type: i32) -> Result<Arc<Self>> {
         let kind = match sock_type {
-            SOCK_STREAM => SocketKind::UnixUnconnected { sock_type },
+            SOCK_STREAM | SOCK_SEQPACKET => SocketKind::UnixUnconnected { sock_type },
             SOCK_DGRAM => SocketKind::UnixDgram(Arc::new(crate::net::unix::UnixDgramState::new())),
             _ => crate::return_errno!(ESOCKTNOSUPPORT, "unsupported unix socket type"),
         };
@@ -497,7 +498,7 @@ impl KernelSocket {
                         });
                         let server_sock = Arc::new(KernelSocket {
                             domain: AF_UNIX,
-                            sock_type: SOCK_STREAM,
+                            sock_type: self.sock_type,
                             protocol: 0,
                             kind: Arc::new(Mutex::new(SocketKind::Unix(server_end))),
                             nonblocking: Mutex::new(false),

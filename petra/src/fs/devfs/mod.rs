@@ -296,8 +296,14 @@ impl NodeOps for DevFsDirOps {
             gid: 0,
             rdev,
         };
+        let file_type = mode.bits() & crate::fs::vfs::inode::S_IFMT;
+        let node_ops: Box<dyn NodeOps> = if file_type == Mode::FIFO.bits() {
+            Box::new(crate::fs::pipe::FifoNodeOps::new(attr))
+        } else {
+            Box::new(DevSpecialNodeOps)
+        };
         let node = Arc::new(INode::new_with_attr(
-            Box::new(DevSpecialNodeOps),
+            node_ops,
             ino,
             attr,
         ));

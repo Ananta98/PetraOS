@@ -40,44 +40,77 @@ pub const PIPE_BUF: usize = 4096;
 /// Total bytes a pipe buffers before writers block.
 pub const PIPE_CAPACITY: usize = 65536;
 
-struct PipeState {
-    buf: VecDeque<u8>,
-    readers: usize,
-    writers: usize,
+pub struct PipeState {
+    pub buf: VecDeque<u8>,
+    pub readers: usize,
+    pub writers: usize,
+    pub writers_opened: bool,
 }
 
-struct Pipe {
-    state: Mutex<PipeState>,
+pub struct Pipe {
+    pub state: Mutex<PipeState>,
     /// Sleepers waiting for data (readers) or space (writers).
-    queue: WaitQueue,
+    pub queue: WaitQueue,
 }
 
 impl Pipe {
+    pub fn new() -> Self {
+        Self {
+            state: Mutex::new(PipeState {
+                buf: VecDeque::new(),
+                readers: 0,
+                writers: 0,
+                writers_opened: false,
+            }),
+            queue: WaitQueue::new(),
+        }
+    }
+
+    pub fn new_anonymous() -> Self {
+        Self {
+            state: Mutex::new(PipeState {
+                buf: VecDeque::new(),
+                readers: 1,
+                writers: 1,
+                writers_opened: true,
+            }),
+            queue: WaitQueue::new(),
+        }
+    }
+
     /// Wakes blocked readers/writers and any poller.
-    fn wake(&self) {
+    pub fn wake(&self) {
         self.queue.wake_all();
         poll::notify();
     }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum End {
+pub enum End {
     Read,
     Write,
+    Both,
 }
 
-struct PipeEnd {
-    pipe: Arc<Pipe>,
-    end: End,
-    nonblock: bool,
+pub struct PipeEnd {
+    pub pipe: Arc<Pipe>,
+    pub end: End,
+    pub nonblock: bool,
 }
 
 impl Drop for PipeEnd {
     fn drop(&mut self) {
         let mut st = self.pipe.state.lock();
         match self.end {
-            End::Read => st.readers -= 1,
-            End::Write => st.writers -= 1,
+            End::Read => st.readers = st.readers.saturating_sub(1),
+            End::Write => st.writers = st.writers.saturating_sub(1),
+            End::Both => {
+                st.readers = st.readers.saturating_sub(1);
+                st.writers = st.writers.saturating_sub(1);
+            }
+        }
+        if st.readers == 0 && st.writers == 0 {
+            st.writers_opened = false;
         }
         drop(st);
         // EOF for readers / EPIPE for writers must be observable.
@@ -93,7 +126,7 @@ fn raise_sigpipe() {
 
 impl FileOps for PipeEnd {
     fn read(&self, _offset: u64, buf: &mut [u8]) -> Result<usize> {
-        if self.end != End::Read {
+        if self.end != End::Read && self.end != End::Both {
             return Err(Errno::EBADF);
         }
         if buf.is_empty() {
@@ -108,7 +141,7 @@ impl FileOps for PipeEnd {
                     *slot = byte;
                 }
                 Some(n)
-            } else if st.writers == 0 {
+            } else if st.writers == 0 && st.writers_opened {
                 Some(0) // EOF
             } else {
                 None
@@ -127,7 +160,7 @@ impl FileOps for PipeEnd {
     }
 
     fn write(&self, _offset: u64, buf: &[u8]) -> Result<usize> {
-        if self.end != End::Write {
+        if self.end != End::Write && self.end != End::Both {
             return Err(Errno::EBADF);
         }
         if buf.is_empty() {
@@ -188,26 +221,92 @@ impl FileOps for PipeEnd {
     fn poll(&self) -> PollEvents {
         let st = self.pipe.state.lock();
         let mut ev = PollEvents::empty();
-        match self.end {
-            End::Read => {
-                if !st.buf.is_empty() {
-                    ev |= PollEvents::IN | PollEvents::RDNORM;
-                }
-                if st.writers == 0 {
-                    // POSIX / Linux: when all write ends are closed, read() returns 0 (EOF)
-                    // immediately without blocking, so IN | RDNORM must be set alongside HUP.
-                    ev |= PollEvents::IN | PollEvents::RDNORM | PollEvents::HUP;
-                }
+        let can_read = self.end == End::Read || self.end == End::Both;
+        let can_write = self.end == End::Write || self.end == End::Both;
+
+        if can_read {
+            if !st.buf.is_empty() {
+                ev |= PollEvents::IN | PollEvents::RDNORM;
             }
-            End::Write => {
-                if st.readers == 0 {
-                    ev |= PollEvents::ERR | PollEvents::HUP;
-                } else if PIPE_CAPACITY.saturating_sub(st.buf.len()) > 0 {
-                    ev |= PollEvents::OUT | PollEvents::WRNORM;
-                }
+            if st.writers == 0 && st.writers_opened {
+                // POSIX / Linux: when all write ends are closed, read() returns 0 (EOF)
+                // immediately without blocking, so IN | RDNORM must be set alongside HUP.
+                ev |= PollEvents::IN | PollEvents::RDNORM | PollEvents::HUP;
+            }
+        }
+        if can_write {
+            if st.readers == 0 {
+                ev |= PollEvents::ERR | PollEvents::HUP;
+            } else if PIPE_CAPACITY.saturating_sub(st.buf.len()) > 0 {
+                ev |= PollEvents::OUT | PollEvents::WRNORM;
             }
         }
         ev
+    }
+}
+
+/// Node operations for a named pipe (FIFO) inode in the filesystem.
+pub struct FifoNodeOps {
+    pipe: Arc<Pipe>,
+    attr: spin::RwLock<INodeAttr>,
+}
+
+impl FifoNodeOps {
+    pub fn new(attr: INodeAttr) -> Self {
+        Self {
+            pipe: Arc::new(Pipe::new()),
+            attr: spin::RwLock::new(attr),
+        }
+    }
+
+    pub fn pipe(&self) -> &Arc<Pipe> {
+        &self.pipe
+    }
+}
+
+impl NodeOps for FifoNodeOps {
+    fn open(&self, flags: OpenFlags) -> Result<Box<dyn FileOps>> {
+        let is_read = flags.contains(OpenFlags::READ);
+        let is_write = flags.contains(OpenFlags::WRITE);
+        let nonblock = flags.contains(OpenFlags::NONBLOCK);
+
+        let end = match (is_read, is_write) {
+            (true, true) => End::Both,
+            (false, true) => End::Write,
+            _ => End::Read,
+        };
+
+        {
+            let mut st = self.pipe.state.lock();
+            match end {
+                End::Read => st.readers += 1,
+                End::Write => {
+                    st.writers += 1;
+                    st.writers_opened = true;
+                }
+                End::Both => {
+                    st.readers += 1;
+                    st.writers += 1;
+                    st.writers_opened = true;
+                }
+            }
+        }
+        self.pipe.wake();
+
+        Ok(Box::new(PipeEnd {
+            pipe: self.pipe.clone(),
+            end,
+            nonblock,
+        }))
+    }
+
+    fn getattr(&self) -> Result<INodeAttr> {
+        Ok(*self.attr.read())
+    }
+
+    fn setattr(&self, attr: &INodeAttr) -> Result<()> {
+        *self.attr.write() = *attr;
+        Ok(())
     }
 }
 
@@ -230,14 +329,7 @@ static NEXT_PIPE_INO: AtomicUsize = AtomicUsize::new(1 << 32);
 /// `nonblock` sets `O_NONBLOCK` on both ends. Close-on-exec is a descriptor
 /// property, so the caller applies it when installing the files.
 pub fn create_pipe(nonblock: bool) -> (Arc<File>, Arc<File>) {
-    let pipe = Arc::new(Pipe {
-        state: Mutex::new(PipeState {
-            buf: VecDeque::new(),
-            readers: 1,
-            writers: 1,
-        }),
-        queue: WaitQueue::new(),
-    });
+    let pipe = Arc::new(Pipe::new_anonymous());
 
     let inode = Arc::new(INode::new(
         Box::new(PipeNodeOps),

@@ -9,7 +9,7 @@ use crate::{
     fs::{fd::FdFlags, socket::create_socket_file},
     net::socket::{
         AF_INET, AF_INET6, AF_NETLINK, AF_UNIX, IPPROTO_IP, IPPROTO_TCP, IPPROTO_UDP, KernelSocket,
-        SOCK_DGRAM, SOCK_RAW, SOCK_STREAM,
+        SOCK_DGRAM, SOCK_RAW, SOCK_SEQPACKET, SOCK_STREAM,
     },
     proc::thread::Thread,
     syscall::fs::utils::UserPtr,
@@ -51,7 +51,7 @@ pub fn sys_socket(
             if protocol != 0 && protocol != IPPROTO_IP {
                 crate::return_errno!(EPROTONOSUPPORT, "unsupported protocol for unix socket");
             }
-            if base_type != SOCK_STREAM && base_type != SOCK_DGRAM {
+            if base_type != SOCK_STREAM && base_type != SOCK_DGRAM && base_type != SOCK_SEQPACKET {
                 crate::return_errno!(ESOCKTNOSUPPORT, "unsupported socket type for unix domain");
             }
             KernelSocket::new_unix(base_type)?
@@ -96,7 +96,7 @@ pub fn sys_socketpair(
     let cloexec = (sock_type & SOCK_CLOEXEC) != 0;
     let base_type = sock_type & !(SOCK_NONBLOCK | SOCK_CLOEXEC);
 
-    if base_type != SOCK_STREAM && base_type != SOCK_DGRAM {
+    if base_type != SOCK_STREAM && base_type != SOCK_DGRAM && base_type != SOCK_SEQPACKET {
         crate::return_errno!(ESOCKTNOSUPPORT, "unsupported socketpair socket type");
     }
 

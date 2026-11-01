@@ -87,22 +87,22 @@ pub trait NodeOps: Send + Sync {
 
     /// Create a new file or directory.
     fn create(&self, _name: &str, _mode: Mode) -> Result<Arc<INode>> {
-        crate::return_errno!(ENOSYS, "create not implemented");
+        crate::return_errno!(EPERM, "create not permitted");
     }
 
     /// Remove a directory entry.
     fn unlink(&self, _name: &str) -> Result<()> {
-        crate::return_errno!(ENOSYS, "unlink not implemented");
+        crate::return_errno!(EPERM, "unlink not permitted");
     }
 
     /// Create a hard link.
     fn link(&self, _name: &str, _other: Arc<INode>) -> Result<()> {
-        crate::return_errno!(ENOSYS, "link not implemented");
+        crate::return_errno!(EPERM, "link not permitted");
     }
 
     /// Create a special node (device, FIFO, socket) named `name`.
     fn mknod(&self, _name: &str, _mode: Mode, _rdev: u64) -> Result<Arc<INode>> {
-        crate::return_errno!(ENOSYS, "mknod not implemented");
+        crate::return_errno!(EPERM, "mknod not permitted");
     }
 
     /// Move the entry `old_name` of this directory to `new_name` inside `new_dir`.
@@ -110,12 +110,12 @@ pub trait NodeOps: Send + Sync {
     /// The VFS has already validated permissions, sticky bits and that a
     /// directory is not moved into its own subtree.
     fn rename(&self, _old_name: &str, _new_dir: &Arc<INode>, _new_name: &str) -> Result<()> {
-        crate::return_errno!(ENOSYS, "rename not implemented");
+        crate::return_errno!(EPERM, "rename not permitted");
     }
 
     /// Create a symbolic link `name` pointing at `target`.
     fn symlink(&self, _name: &str, _target: &str) -> Result<Arc<INode>> {
-        crate::return_errno!(ENOSYS, "symlink not implemented");
+        crate::return_errno!(EPERM, "symlink not permitted");
     }
 
     /// Read the target path of a symbolic link.
@@ -125,12 +125,12 @@ pub trait NodeOps: Send + Sync {
 
     /// Create a directory.
     fn mkdir(&self, _name: &str, _mode: Mode) -> Result<Arc<INode>> {
-        crate::return_errno!(ENOSYS, "mkdir not implemented");
+        crate::return_errno!(EPERM, "mkdir not permitted");
     }
 
     /// Remove a directory.
     fn rmdir(&self, _name: &str) -> Result<()> {
-        crate::return_errno!(ENOSYS, "rmdir not implemented");
+        crate::return_errno!(EPERM, "rmdir not permitted");
     }
 
     /// Opens the inode and creates file operations for an open file description.

@@ -103,4 +103,49 @@ mod tests {
         let attr = lookup_node.node_ops.getattr().expect("getattr");
         assert_eq!(attr.size, test_data.len());
     }
+
+    #[ktest]
+    fn tmpfs_mknod_fifo_and_exchange() {
+        let tmpfs = TmpFs::new();
+        let root = tmpfs.root().expect("tmpfs root");
+
+        // Create FIFO via mknod
+        let fifo_node = root
+            .node_ops
+            .mknod("initctl_fifo", Mode::FIFO | Mode::RUSR | Mode::WUSR, 0)
+            .expect("mknod fifo");
+
+        let attr = fifo_node.node_ops.getattr().expect("getattr fifo");
+        assert!(attr.mode.contains(Mode::FIFO));
+
+        // Open FIFO for read and write (like systemd does for listening FIFOs)
+        let fifo_ops = fifo_node
+            .node_ops
+            .open(OpenFlags::READ | OpenFlags::WRITE | OpenFlags::NONBLOCK)
+            .expect("open fifo read/write");
+
+        let payload = b"systemd_fifo_command_packet";
+        let written = fifo_ops.write(0, payload).expect("write fifo");
+        assert_eq!(written, payload.len());
+
+        let mut read_buf = [0u8; 64];
+        let bytes_read = fifo_ops.read(0, &mut read_buf).expect("read fifo");
+        assert_eq!(bytes_read, payload.len());
+        assert_eq!(&read_buf[..bytes_read], payload);
+
+        // Separate reader and writer open
+        let writer_ops = fifo_node
+            .node_ops
+            .open(OpenFlags::WRITE | OpenFlags::NONBLOCK)
+            .expect("open fifo write");
+        let reader_ops = fifo_node
+            .node_ops
+            .open(OpenFlags::READ | OpenFlags::NONBLOCK)
+            .expect("open fifo read");
+
+        let msg2 = b"separate_writer_to_reader";
+        assert_eq!(writer_ops.write(0, msg2).expect("writer write"), msg2.len());
+        let n2 = reader_ops.read(0, &mut read_buf).expect("reader read");
+        assert_eq!(&read_buf[..n2], msg2);
+    }
 }

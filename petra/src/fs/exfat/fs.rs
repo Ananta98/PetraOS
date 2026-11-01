@@ -250,10 +250,7 @@ pub struct ExFatFileNodeOps {
 }
 
 impl NodeOps for ExFatFileNodeOps {
-    fn open(&self, flags: OpenFlags) -> Result<Box<dyn FileOps>> {
-        if flags.contains(OpenFlags::WRITE) {
-            crate::return_errno!(EROFS, "exfat write support not implemented");
-        }
+    fn open(&self, _flags: OpenFlags) -> Result<Box<dyn FileOps>> {
         Ok(Box::new(ExFatFileOps {
             fs: Arc::clone(&self.fs),
             entry: self.entry.clone(),
@@ -263,7 +260,7 @@ impl NodeOps for ExFatFileNodeOps {
     fn getattr(&self) -> Result<INodeAttr> {
         Ok(INodeAttr {
             size: self.entry.data_length as usize,
-            mode: Mode::FILE | Mode::READ,
+            mode: Mode::FILE | Mode::READ | Mode::WRITE,
             nlink: 1,
             uid: 0,
             gid: 0,
@@ -288,8 +285,13 @@ impl FileOps for ExFatFileOps {
         )
     }
 
-    fn write(&self, _offset: u64, _buf: &[u8]) -> Result<usize> {
-        crate::return_errno!(EROFS, "exfat filesystem is currently mounted read-only");
+    fn write(&self, offset: u64, buf: &[u8]) -> Result<usize> {
+        self.fs.cluster_mgr.write_chain(
+            self.entry.first_cluster,
+            self.entry.no_fat_chain,
+            offset,
+            buf,
+        )
     }
 
     fn seek(&self, curr_offset: u64, anchor: SeekAnchor) -> Result<u64> {

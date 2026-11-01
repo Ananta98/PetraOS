@@ -100,7 +100,7 @@ pub fn lookup_unix_socket(path: &str) -> Option<Arc<KernelSocket>> {
 #[cfg(ktest)]
 mod tests {
     use super::*;
-    use crate::net::socket::{SOCK_DGRAM, SOCK_STREAM, SocketAddress};
+    use crate::net::socket::{SOCK_DGRAM, SOCK_SEQPACKET, SOCK_STREAM, SocketAddress};
     use ostd::prelude::ktest;
 
     #[ktest]
@@ -194,6 +194,49 @@ mod tests {
 
         s1.close();
         s2.close();
+    }
+
+    #[ktest]
+    fn unix_seqpacket_socket_listen_connect_and_pair() {
+        let sock_path = "/tmp/test_seqpacket_ktest.sock";
+
+        let server = KernelSocket::new_unix(SOCK_SEQPACKET).expect("seqpacket server");
+        assert_eq!(server.sock_type, SOCK_SEQPACKET);
+        server
+            .bind(SocketAddress::Unix(sock_path.into()))
+            .expect("seqpacket bind");
+        server.listen(5).expect("seqpacket listen");
+
+        let client = KernelSocket::new_unix(SOCK_SEQPACKET).expect("seqpacket client");
+        assert_eq!(client.sock_type, SOCK_SEQPACKET);
+        client
+            .connect(SocketAddress::Unix(sock_path.into()))
+            .expect("seqpacket connect");
+
+        let (conn, _peer_addr) = server.accept().expect("seqpacket accept");
+        assert_eq!(conn.sock_type, SOCK_SEQPACKET);
+
+        let msg = b"seqpacket_packet_payload";
+        assert_eq!(client.send(msg, 0).expect("client send"), msg.len());
+
+        let mut buf = [0u8; 32];
+        let n = conn.recv(&mut buf, 0).expect("conn recv");
+        assert_eq!(&buf[..n], msg);
+
+        server.close();
+        client.close();
+        conn.close();
+        assert!(lookup_unix_socket(sock_path).is_none());
+
+        // Test socketpair with SOCK_SEQPACKET
+        let (p1, p2) = KernelSocket::new_unix_pair(SOCK_SEQPACKET).expect("seqpacket pair");
+        assert_eq!(p1.sock_type, SOCK_SEQPACKET);
+        assert_eq!(p2.sock_type, SOCK_SEQPACKET);
+        assert_eq!(p1.send(b"pair_seq", 0).expect("pair send"), 8);
+        let n_pair = p2.recv(&mut buf, 0).expect("pair recv");
+        assert_eq!(&buf[..n_pair], b"pair_seq");
+        p1.close();
+        p2.close();
     }
 }
 

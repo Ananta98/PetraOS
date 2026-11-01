@@ -12,6 +12,7 @@ use spin::RwLock;
 use crate::fs::vfs::{
     FileOps, FileSystem, INode, INodeAttr, Mode, NodeOps, OpenFlags, SeekAnchor, StatFs,
 };
+pub use crate::fs::pipe::FifoNodeOps as InitramfsFifoNodeOps;
 use crate::uapi::errno::{Errno, Result};
 use crate::utils::cpio::{CpioArchive, CpioEntry, FileType};
 
@@ -393,17 +394,27 @@ impl NodeOps for InitramfsDirNodeOps {
         static NEXT_INO: core::sync::atomic::AtomicUsize =
             core::sync::atomic::AtomicUsize::new(200_000);
         let ino = NEXT_INO.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+        let attr = INodeAttr {
+            size: 0,
+            mode,
+            nlink: 1,
+            uid: 0,
+            gid: 0,
+            rdev,
+        };
+        let file_type = mode.bits() & crate::fs::vfs::inode::S_IFMT;
+        let node_ops: Box<dyn NodeOps> = if file_type == Mode::FIFO.bits() {
+            Box::new(InitramfsFifoNodeOps::new(attr))
+        } else if file_type == Mode::FILE.bits() || file_type == 0 {
+            let data = Arc::new(RwLock::new(Vec::new()));
+            Box::new(InitramfsRamFileNodeOps::new_with_attr(data, attr))
+        } else {
+            Box::new(InitramfsFileNodeOps { data: &[] })
+        };
         let node = Arc::new(INode::new_with_attr(
-            Box::new(InitramfsFileNodeOps { data: &[] }),
+            node_ops,
             ino,
-            INodeAttr {
-                size: 0,
-                mode,
-                nlink: 1,
-                uid: 0,
-                gid: 0,
-                rdev,
-            },
+            attr,
         ));
         self.entries
             .write()
@@ -592,6 +603,29 @@ fn populate_initramfs_tree(initramfs_buf: &'static [u8], root_entries: &DirEntri
                     parent_entries
                         .write()
                         .insert((*leaf_name).into(), symlink_node);
+                }
+            }
+            FileType::Fifo => {
+                let attr = INodeAttr {
+                    size: 0,
+                    mode: Mode::FIFO | Mode::from_bits_truncate(entry.mode),
+                    nlink: (entry.nlink.max(1)) as usize,
+                    uid: entry.uid,
+                    gid: entry.gid,
+                    rdev: 0,
+                };
+                let fifo_node = Arc::new(INode::new_with_attr(
+                    Box::new(InitramfsFifoNodeOps::new(attr)),
+                    ino,
+                    attr,
+                ));
+                ino += 1;
+                count += 1;
+
+                if let Some(parent_entries) = dir_map.get(&parent_path) {
+                    parent_entries
+                        .write()
+                        .insert((*leaf_name).into(), fifo_node);
                 }
             }
             _ => {

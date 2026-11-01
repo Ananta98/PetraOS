@@ -124,11 +124,13 @@ fn exists_in(parent: &PathNode, inode: &Arc<INode>, name: &str) -> Result<bool> 
 /// Publishes a freshly created inode into the dcache and stamps ownership.
 fn publish(parent: &PathNode, name: &str, node: &Arc<INode>) {
     let cred = current_cred();
-    {
+    let updated_attr = {
         let mut attr = node.attr.write();
         attr.uid = cred.cr_uid.as_u32();
         attr.gid = cred.cr_gid.as_u32();
-    }
+        *attr
+    };
+    let _ = node.node_ops.setattr(&updated_attr);
     if let Some(existing) = parent.dentry.lookup_child(name) {
         existing.set_inode(Some(node.clone()));
     } else {
@@ -221,7 +223,10 @@ pub fn mkdir(path: &str, mode: Mode) -> Result<Arc<INode>> {
 ///
 /// Device nodes require superuser, as in POSIX.
 pub fn mknod_at(start: &PathNode, path: &str, mode: Mode, rdev: u64) -> Result<Arc<INode>> {
-    let ty = mode.bits() & S_IFMT;
+    let mut ty = mode.bits() & S_IFMT;
+    if ty == 0 {
+        ty = Mode::FILE.bits();
+    }
     let is_device = ty == Mode::CHAR.bits() || ty == Mode::BLOCK.bits();
     let allowed = matches!(
         ty,
