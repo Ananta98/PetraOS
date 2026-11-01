@@ -52,6 +52,8 @@ pub struct Ext4Fs {
     pub inode_cache: RwLock<BTreeMap<u32, Arc<RawInode>>>,
     /// Block cache mapping (ino, lblock) to cached block data.
     pub block_cache: RwLock<BTreeMap<(u32, u64), Arc<Vec<u8>>>>,
+    /// Dirty block cache mapping physical block number to dirty block data.
+    pub dirty_blocks: RwLock<BTreeMap<u64, Arc<Vec<u8>>>>,
     /// Weak self-reference so nodes can recover the owning `Arc<Ext4Fs>`.
     self_ref: Mutex<Weak<Ext4Fs>>,
 }
@@ -103,6 +105,7 @@ impl Ext4Fs {
             ops_lock: Mutex::new(()),
             inode_cache: RwLock::new(BTreeMap::new()),
             block_cache: RwLock::new(BTreeMap::new()),
+            dirty_blocks: RwLock::new(BTreeMap::new()),
             self_ref: Mutex::new(Weak::new()),
         });
         *fs.self_ref.lock() = Arc::downgrade(&fs);
@@ -565,6 +568,7 @@ impl Ext4Fs {
         raw: &RawInode,
         offset: u64,
         buf: &mut [u8],
+        ra_count: usize,
     ) -> Result<usize> {
         let size = raw.size();
         if offset >= size || buf.is_empty() {
@@ -602,24 +606,51 @@ impl Ext4Fs {
                         bcache.insert((ino, lblock), blk_arc);
                         drop(bcache);
 
-                        // Sequential read-ahead: prefetch up to 3 subsequent blocks into cache
+                        // Sequential adaptive read-ahead: prefetch `ra_count` subsequent blocks
                         let max_lblock = size.div_ceil(bs);
-                        let prefetch_limit = core::cmp::min(lblock + 4, max_lblock);
-                        for next_lb in (lblock + 1)..prefetch_limit {
-                            if self.block_cache.read().contains_key(&(ino, next_lb)) {
+                        let prefetch_limit = core::cmp::min(lblock + 1 + (ra_count as u64), max_lblock);
+                        let mut cur_lb = lblock + 1;
+                        while cur_lb < prefetch_limit {
+                            if self.block_cache.read().contains_key(&(ino, cur_lb)) {
+                                cur_lb += 1;
                                 continue;
                             }
-                            if let Ok(Some(next_phys)) = self.map_read(ino, raw, next_lb) {
-                                let mut next_blk = vec![0u8; self.block_size];
-                                if self.read_fs_block(next_phys, &mut next_blk).is_ok() {
-                                    let mut bcache = self.block_cache.write();
-                                    if bcache.len() >= 16384 {
-                                        if let Some(first_key) = bcache.keys().next().copied() {
-                                            bcache.remove(&first_key);
+                            if let Ok(Some(first_phys)) = self.map_read(ino, raw, cur_lb) {
+                                let mut run_len = 1u64;
+                                let mut next_phys = first_phys + 1;
+                                while (cur_lb + run_len) < prefetch_limit {
+                                    if self.block_cache.read().contains_key(&(ino, cur_lb + run_len)) {
+                                        break;
+                                    }
+                                    if let Ok(Some(p)) = self.map_read(ino, raw, cur_lb + run_len) {
+                                        if p == next_phys {
+                                            run_len += 1;
+                                            next_phys += 1;
+                                            continue;
                                         }
                                     }
-                                    bcache.insert((ino, next_lb), Arc::new(next_blk));
+                                    break;
                                 }
+
+                                let spb = (self.block_size / self.dev_block_size) as u64;
+                                let mut batch_buf = vec![0u8; self.block_size * run_len as usize];
+                                if self.dev.read_blocks(first_phys * spb, &mut batch_buf).is_ok() {
+                                    let mut bcache = self.block_cache.write();
+                                    for i in 0..run_len {
+                                        if bcache.len() >= 16384 {
+                                            if let Some(first_key) = bcache.keys().next().copied() {
+                                                bcache.remove(&first_key);
+                                            }
+                                        }
+                                        let offset_start = (i as usize) * self.block_size;
+                                        let offset_end = offset_start + self.block_size;
+                                        let blk_chunk = batch_buf[offset_start..offset_end].to_vec();
+                                        bcache.insert((ino, cur_lb + i), Arc::new(blk_chunk));
+                                    }
+                                }
+                                cur_lb += run_len;
+                            } else {
+                                cur_lb += 1;
                             }
                         }
                     }
@@ -668,8 +699,8 @@ impl Ext4Fs {
                 }
             }
             blk[rel as usize..rel as usize + take].copy_from_slice(&buf[written..written + take]);
-            self.write_fs_block(phys, &blk)?;
 
+            let blk_arc = Arc::new(blk);
             {
                 let mut bcache = self.block_cache.write();
                 if bcache.len() >= 16384 {
@@ -677,7 +708,17 @@ impl Ext4Fs {
                         bcache.remove(&first_key);
                     }
                 }
-                bcache.insert((ino, lblock), Arc::new(blk));
+                bcache.insert((ino, lblock), Arc::clone(&blk_arc));
+            }
+
+            // Asynchronous dirty page cache writeback
+            {
+                let mut dblocks = self.dirty_blocks.write();
+                dblocks.insert(phys, blk_arc);
+                if dblocks.len() >= 512 {
+                    drop(dblocks);
+                    let _ = self.flush_dirty_blocks(false);
+                }
             }
 
             written += take;
@@ -692,6 +733,59 @@ impl Ext4Fs {
         raw.ctime = now;
         self.write_inode(ino, raw)?;
         Ok(written)
+    }
+
+    /// Flushes dirty cached blocks to disk in batched contiguous physical order.
+    pub fn flush_dirty_blocks(&self, sync_all: bool) -> Result<()> {
+        let to_flush: Vec<(u64, Arc<Vec<u8>>)> = {
+            let mut dblocks = self.dirty_blocks.write();
+            if dblocks.is_empty() {
+                return Ok(());
+            }
+            if sync_all {
+                dblocks.iter().map(|(&k, v)| (k, Arc::clone(v))).collect()
+            } else {
+                let keys: Vec<u64> = dblocks.keys().take(256).copied().collect();
+                let mut list = Vec::with_capacity(keys.len());
+                for k in keys {
+                    if let Some(v) = dblocks.remove(&k) {
+                        list.push((k, v));
+                    }
+                }
+                list
+            }
+        };
+
+        if sync_all {
+            self.dirty_blocks.write().clear();
+        }
+
+        if to_flush.is_empty() {
+            return Ok(());
+        }
+
+        let spb = (self.block_size / self.dev_block_size) as u64;
+        let mut i = 0;
+        while i < to_flush.len() {
+            let start_phys = to_flush[i].0;
+            let mut run_len = 1;
+            while (i + run_len) < to_flush.len() && to_flush[i + run_len].0 == start_phys + (run_len as u64) {
+                run_len += 1;
+            }
+
+            if run_len == 1 {
+                let _ = self.write_fs_block(start_phys, &to_flush[i].1);
+            } else {
+                let mut batch_buf = Vec::with_capacity(run_len * self.block_size);
+                for j in 0..run_len {
+                    batch_buf.extend_from_slice(&to_flush[i + j].1);
+                }
+                let _ = self.dev.write_blocks(start_phys * spb, &batch_buf);
+            }
+            i += run_len;
+        }
+
+        Ok(())
     }
 
     /// Truncates (sparse when growing) to `new_size`.
@@ -887,7 +981,7 @@ impl Ext4Fs {
     pub fn read_dir_data(&self, ino: u32, raw: &RawInode) -> Result<Vec<u8>> {
         let size = raw.size().min(64 * 1024 * 1024) as usize;
         let mut buf = vec![0u8; size];
-        let n = match self.file_read(ino, raw, 0, &mut buf) {
+        let n = match self.file_read(ino, raw, 0, &mut buf, 0) {
             Ok(n) => n,
             Err(e) => {
                 ostd::error!("Ext4: file_read failed on dir ino {}: {:?}", ino, e);
@@ -1048,6 +1142,7 @@ impl Ext4Fs {
     }
 
     pub fn sync_all(&self) -> Result<()> {
+        let _ = self.flush_dirty_blocks(true);
         let write = |blk: u64, buf: &[u8]| self.write_fs_block(blk, buf);
         self.bgt.lock().flush(&write)?;
         {
@@ -1694,7 +1789,7 @@ impl NodeOps for Ext4Node {
             return Ok(String::from_utf8_lossy(&bytes).into_owned());
         }
         let mut buf = vec![0u8; len];
-        let n = fs.file_read(self.ino, &raw, 0, &mut buf)?;
+        let n = fs.file_read(self.ino, &raw, 0, &mut buf, 0)?;
         Ok(String::from_utf8_lossy(&buf[..n]).into_owned())
     }
 
@@ -1858,6 +1953,8 @@ impl NodeOps for Ext4Node {
             Ok(Box::new(Ext4FileOps {
                 fs: Arc::clone(&self.fs),
                 ino: self.ino,
+                ra_prev_pos: Mutex::new(0),
+                ra_window: Mutex::new(4),
             }))
         } else {
             Err(Errno::ENOSYS)
@@ -1932,6 +2029,8 @@ fn ftype_of_mode(mode: u16) -> u8 {
 pub struct Ext4FileOps {
     pub fs: Arc<Ext4Fs>,
     pub ino: u32,
+    pub ra_prev_pos: Mutex<u64>,
+    pub ra_window: Mutex<usize>,
 }
 
 impl FileOps for Ext4FileOps {
@@ -1939,7 +2038,17 @@ impl FileOps for Ext4FileOps {
         let fs = &self.fs;
         let _g = fs.ops_lock.lock();
         let raw = fs.read_inode(self.ino)?;
-        fs.file_read(self.ino, &raw, offset, buf)
+        let mut prev = self.ra_prev_pos.lock();
+        let mut win = self.ra_window.lock();
+        if offset == *prev && *prev > 0 {
+            *win = (*win * 2).min(128);
+        } else if offset != *prev {
+            *win = 4;
+        }
+        let ra_count = *win;
+        let n = fs.file_read(self.ino, &raw, offset, buf, ra_count)?;
+        *prev = offset + (n as u64);
+        Ok(n)
     }
 
     fn write(&self, offset: u64, buf: &[u8]) -> Result<usize> {
@@ -1966,6 +2075,8 @@ impl FileOps for Ext4FileOps {
     }
 
     fn fsync(&self, _datasync: bool) -> Result<()> {
+        let _g = self.fs.ops_lock.lock();
+        self.fs.flush_dirty_blocks(true)?;
         self.fs.sync_all()
     }
 }
