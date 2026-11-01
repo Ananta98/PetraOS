@@ -43,6 +43,7 @@ DEFAULT_ROOTFS_PACKAGES=(
     tar gzip xz bzip2
     systemd systemd-udev dbus
     python3 lua
+    epel-release fastfetch
 )
 
 # Essential binaries staged into the in-memory boot initramfs (initramfs.cpio)
@@ -53,6 +54,7 @@ DEFAULT_INITRAMFS_TOOLS=(
     echo head tail grep sed awk cut find file which
     uname sleep true false dmesg sync
     systemctl poweroff reboot
+    fastfetch
 )
 
 usage() {
@@ -199,6 +201,13 @@ nameserver 1.1.1.1
 nameserver 8.8.8.8
 EOF
     fi
+
+    # Install epel-release first so EPEL repository metadata is available for fastfetch
+    echo "==> Ensuring EPEL repository configuration (epel-release)..."
+    unshare -r chroot "${ROOTFS_STAGING}" /usr/bin/dnf install -y \
+        --setopt=tsflags=nodocs \
+        --setopt=install_weak_deps=False \
+        epel-release || true
 
     unshare -r chroot "${ROOTFS_STAGING}" /usr/bin/dnf install -y \
         --setopt=tsflags=nodocs \
