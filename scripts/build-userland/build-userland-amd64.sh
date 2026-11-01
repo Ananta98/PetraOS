@@ -436,6 +436,21 @@ EOF
         echo "autofs4" > "${target_dir}/usr/lib/modules/6.6.0-petra/modules.builtin"
         echo "unix" >> "${target_dir}/usr/lib/modules/6.6.0-petra/modules.builtin"
 
+        # Disable credential helpers across all services in minimal VM boot
+        mkdir -p "${target_dir}/etc/systemd/system/service.d"
+        cat > "${target_dir}/etc/systemd/system/service.d/10-no-credentials.conf" << 'EOF'
+[Service]
+LoadCredential=
+SetCredential=
+EOF
+
+        mkdir -p "${target_dir}/etc/systemd/system/systemd-sysusers.service.d"
+        cat > "${target_dir}/etc/systemd/system/systemd-sysusers.service.d/override.conf" << 'EOF'
+[Service]
+LoadCredential=
+SetCredential=
+EOF
+
         # Mask / remove unneeded system generators for minimal container/VM boot
         for gen in systemd-system-update-generator \
                    systemd-rc-local-generator \
@@ -444,6 +459,7 @@ EOF
                    systemd-veritysetup-generator \
                    systemd-cryptsetup-generator \
                    systemd-gpt-auto-generator \
+                   systemd-getty-generator \
                    systemd-bless-boot-generator; do
             rm -f "${target_dir}/usr/lib/systemd/system-generators/${gen}"
         done

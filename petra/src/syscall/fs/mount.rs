@@ -88,7 +88,10 @@ pub fn perform_mount(
 ) -> Result<usize> {
     let _data = data;
 
-    let root_node = root()?;
+    let root_node = match Thread::current_proc() {
+        Some(proc) => proc.root().or_else(|_| root())?,
+        None => root()?,
+    };
     let target_node = lookup(
         root_node.clone(),
         root_node.clone(),
@@ -169,7 +172,10 @@ pub fn sys_umount2(target_ptr: usize, _flags: i32, _ctx: &mut UserContext) -> Re
     let vmar = proc.vmspace();
 
     let target = UserCStr::new(target_ptr).read_string(&vmar, 4096)?;
-    let root_node = root()?;
+    let root_node = match Thread::current_proc() {
+        Some(proc) => proc.root().or_else(|_| root())?,
+        None => root()?,
+    };
     let target_node = lookup(
         root_node.clone(),
         root_node,

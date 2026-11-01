@@ -107,17 +107,24 @@ impl SysNode for SysTtyDevDirNode {
             "uevent" => Some(Arc::new(SysAttrNode::new("uevent", move || {
                 format!("MAJOR={TTY_MAJOR}\nMINOR={minor}\nDEVNAME={devname}\n").into_bytes()
             }))),
+            "active" if self.name == "console" => Some(Arc::new(SysAttrNode::new("active", || {
+                b"tty0\n".to_vec()
+            }))),
             "subsystem" => Some(Arc::new(SysSymlinkNode::new("subsystem", "../../class/tty"))),
             _ => None,
         }
     }
 
     fn list_children(&self) -> Vec<(String, bool)> {
-        vec![
+        let mut list = vec![
             (String::from("dev"), false),
             (String::from("uevent"), false),
             (String::from("subsystem"), false),
-        ]
+        ];
+        if self.name == "console" {
+            list.push((String::from("active"), false));
+        }
+        list
     }
 }
 
