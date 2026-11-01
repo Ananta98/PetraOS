@@ -81,7 +81,6 @@ remove() {
 if [ "${CLEAN_USERLAND}" -eq 1 ]; then
     echo "==> Cleaning userland build artifacts"
     remove "${BUILD_DIR}/userland-amd64"
-    remove "${BUILD_DIR}/prebuild-package"
     remove "${BUILD_DIR}/initramfs.cpio"
     remove "${BUILD_DIR}/initramfs.cpio.gz"
     remove "${BUILD_DIR}/ext4.img"

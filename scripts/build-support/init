@@ -51,6 +51,7 @@ if [ -n "$ROOT_DEV" ]; then
         ln -sfn /sysroot /mnt/rootfs 2>/dev/null || true
 
         # Mount virtual filesystems inside sysroot
+        mount -t devtmpfs devtmpfs /sysroot/dev 2>/dev/null || mount -t devfs devfs /sysroot/dev 2>/dev/null || true
         mount -t proc proc /sysroot/proc 2>/dev/null || true
         mount -t sysfs sysfs /sysroot/sys 2>/dev/null || true
         mount -t tmpfs tmpfs /sysroot/tmp 2>/dev/null || true
@@ -79,10 +80,10 @@ if [ -n "$ROOT_DEV" ]; then
 
         echo ""
         echo "============================================================"
-        echo "    Welcome to PetraOS                                      "
+        echo "    Welcome to PetraOS (postmarketOS Userspace)             "
         echo "============================================================"
         echo "Kernel:       $(cat /proc/version 2>/dev/null || echo 'PetraOS x86_64')"
-        echo "Release:      PetraOS $(cat /sysroot/etc/petraos-release 2>/dev/null || echo 'unknown')"
+        echo "Release:      $(cat /sysroot/etc/os-release 2>/dev/null | grep PRETTY_NAME | cut -d= -f2 | tr -d '\"' || echo 'postmarketOS')"
         echo "Rootfs:       $ROOT_DEV (ext4) mounted on /"
         echo "Uptime:       $(cut -d' ' -f1 /proc/uptime 2>/dev/null || echo 0)s"
         echo "Architecture: $(uname -m 2>/dev/null || echo x86_64)"

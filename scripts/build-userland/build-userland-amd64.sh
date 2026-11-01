@@ -1,18 +1,11 @@
 #!/bin/bash
-# Assemble the PetraOS amd64 userland from an official Alpine minirootfs and
-# prebuilt package layers (including developer-tools and openrc), then hand
-# the staging root to the initramfs packer.
-#
-# Usage: build-userland-amd64.sh [--fresh] [--purge-cache]
-#
-#   --fresh        remove existing userland artifacts before rebuilding
-#   --purge-cache  with --fresh, also drop the download cache and re-fetch Alpine
-#
-# Environment:
-#   PETRAOS_USERLAND_PACKAGES  space separated prebuild-package layer names
-#                              (default: developer-tools openrc)
-#   PETRAOS_VERSION            version string reported by /etc/os-release
-#   ALPINE_VERSION/ALPINE_BRANCH/ALPINE_SHA256  override the Alpine release
+# ==============================================================================
+# PetraOS amd64 Userland Builder (postmarketOS + OpenRC)
+# ==============================================================================
+# Assembles the PetraOS x86_64 userland using postmarketOS packages and Alpine
+# minirootfs. Produces a lightweight in-memory initramfs (initramfs.cpio) and a
+# full ext4 rootfs disk image (ext4.img) with postmarketos-base and OpenRC.
+# ==============================================================================
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -24,16 +17,31 @@ ALPINE_ARCH="x86_64"
 ALPINE_SHA256="${ALPINE_SHA256:-d4e6fd67dcf75e40c451560ac7265166c2b72a0f38ddc9aae756a7de3d1efa0c}"
 ALPINE_TAR_NAME="alpine-minirootfs-${ALPINE_VERSION}-${ALPINE_ARCH}.tar.gz"
 
+PMOS_BRANCH="${PMOS_BRANCH:-v24.06}"
+PMOS_MIRROR="${PMOS_MIRROR:-https://mirror.postmarketos.org/postmarketos}"
+ALPINE_MIRROR="${ALPINE_MIRROR:-https://dl-cdn.alpinelinux.org/alpine}"
+APK_TOOLS_VERSION="${APK_TOOLS_VERSION:-2.14.4-r1}"
+
 CACHE_DIR="${REPO_ROOT}/build/cache"
 BUILD_DIR="${REPO_ROOT}/build/userland-amd64"
 STAGING="${BUILD_DIR}/staging"
 ROOTFS_STAGING="${BUILD_DIR}/rootfs_staging"
 INITRAMFS="${REPO_ROOT}/build/initramfs.cpio"
+APK_STATIC="${CACHE_DIR}/apk.static"
 
-PACKAGES="${PETRAOS_USERLAND_PACKAGES:-developer-tools openrc}"
 PETRAOS_VERSION="${PETRAOS_VERSION:-0.1.0}"
 SUPPORT_DIR="${REPO_ROOT}/scripts/build-support"
-PREBUILD_DIR="${REPO_ROOT}/scripts/prebuild-package"
+
+# postmarketOS rootfs packages
+PMOS_PACKAGES=(
+    postmarketos-base
+    bash
+    python3
+    btop
+    e2fsprogs
+    exfatprogs
+)
+packages="${PETRAOS_PACKAGES:-${PMOS_PACKAGES[*]}}"
 
 FRESH=0
 PURGE_CACHE=0
@@ -74,29 +82,34 @@ sha256_file() {
     fi
 }
 
-# Replace symlinked entries before copying so that a package file never writes
-# through a BusyBox applet link and clobbers /bin/busybox itself.
-merge_layer() {
-    local layer="$1"
-    local target_dir="${2:-${STAGING}}"
-    local source relative destination
-    [ -d "$layer" ] || return 0
-    while IFS= read -r -d '' source; do
-        relative="${source#"$layer/"}"
-        destination="${target_dir}/${relative}"
-        if [ -L "$destination" ]; then
-            rm -f "$destination"
-        fi
-    done < <(find "$layer" -mindepth 1 -print0)
-    cp -a "$layer/." "${target_dir}/"
+bootstrap_apk_static() {
+    if [ -x "${APK_STATIC}" ]; then
+        return
+    fi
+
+    local archive tmp
+    archive="${CACHE_DIR}/apk-tools-static-${APK_TOOLS_VERSION}.apk"
+    tmp="$(mktemp "${CACHE_DIR}/.apk.static.XXXXXX")"
+    trap 'rm -f "${tmp}"' RETURN
+
+    echo "==> Fetching apk-tools-static ${APK_TOOLS_VERSION}..."
+    if [ ! -s "${archive}" ]; then
+        curl -fsSL --retry 3 \
+            "${ALPINE_MIRROR}/${ALPINE_BRANCH}/main/${ALPINE_ARCH}/apk-tools-static-${APK_TOOLS_VERSION}.apk" \
+            -o "${archive}"
+    fi
+    tar xOf "${archive}" sbin/apk.static > "${tmp}"
+    chmod 0755 "${tmp}"
+    mv -f "${tmp}" "${APK_STATIC}"
 }
 
 mkdir -p "${CACHE_DIR}" "${BUILD_DIR}"
+bootstrap_apk_static
 
 if [ ! -f "${CACHE_DIR}/${ALPINE_TAR_NAME}" ]; then
     echo "==> Fetching Alpine ${ALPINE_VERSION} ${ALPINE_ARCH} minirootfs..."
     curl -fL --retry 3 \
-        "https://dl-cdn.alpinelinux.org/alpine/${ALPINE_BRANCH}/releases/${ALPINE_ARCH}/${ALPINE_TAR_NAME}" \
+        "${ALPINE_MIRROR}/${ALPINE_BRANCH}/releases/${ALPINE_ARCH}/${ALPINE_TAR_NAME}" \
         -o "${CACHE_DIR}/${ALPINE_TAR_NAME}"
 fi
 
@@ -108,25 +121,34 @@ if [ "${actual_sha256}" != "${ALPINE_SHA256}" ]; then
     exit 1
 fi
 
-echo "==> Extracting the Alpine userland into ${STAGING}"
+echo "==> Extracting base minirootfs into initramfs staging (${STAGING})"
 rm -rf "${STAGING}" "${ROOTFS_STAGING}"
 mkdir -p "${STAGING}" "${ROOTFS_STAGING}"
 tar -xzf "${CACHE_DIR}/${ALPINE_TAR_NAME}" -C "${STAGING}"
 
-# Seed the rootfs with base alpine files so it forms a complete rootfs
+# Seed rootfs_staging with base files
 cp -a "${STAGING}/." "${ROOTFS_STAGING}/"
 
-echo "==> Staging prebuilt package layers into rootfs (${ROOTFS_STAGING})"
-for package in ${PACKAGES}; do
-    layer_script="${PREBUILD_DIR}/build-${package}.sh"
-    if [ ! -x "${layer_script}" ]; then
-        echo "ERROR: no prebuild-package script for '${package}': ${layer_script}" >&2
-        exit 1
-    fi
-    echo "    ${package}"
-    "${layer_script}"
-    merge_layer "${REPO_ROOT}/build/prebuild-package/${package}/staging" "${ROOTFS_STAGING}"
-done
+echo "==> Installing postmarketOS packages into rootfs (${ROOTFS_STAGING})"
+mkdir -p "${ROOTFS_STAGING}/etc/apk"
+cat > "${ROOTFS_STAGING}/etc/apk/repositories" << EOF
+${PMOS_MIRROR}/${PMOS_BRANCH}
+${ALPINE_MIRROR}/${ALPINE_BRANCH}/main
+${ALPINE_MIRROR}/${ALPINE_BRANCH}/community
+EOF
+
+"${APK_STATIC}" \
+    --root "${ROOTFS_STAGING}" \
+    --initdb \
+    --arch "${ALPINE_ARCH}" \
+    --allow-untrusted \
+    --no-scripts \
+    --no-chown \
+    --cache-dir "${CACHE_DIR}/apk" \
+    --repository "${PMOS_MIRROR}/${PMOS_BRANCH}" \
+    --repository "${ALPINE_MIRROR}/${ALPINE_BRANCH}/main" \
+    --repository "${ALPINE_MIRROR}/${ALPINE_BRANCH}/community" \
+    add ${packages}
 
 echo "==> Configuring the userlands (initramfs and rootfs)"
 for target_dir in "${STAGING}" "${ROOTFS_STAGING}"; do
@@ -137,12 +159,12 @@ for target_dir in "${STAGING}" "${ROOTFS_STAGING}"; do
     chmod 0750 "${target_dir}/root"
     install -m0755 "${SUPPORT_DIR}/init" "${target_dir}/init"
 
-    # Ensure /bin/bash exists (fallback to sh if bash not in target)
+    # Ensure /bin/bash fallback
     if [ ! -e "${target_dir}/bin/bash" ]; then
         ln -sf sh "${target_dir}/bin/bash"
     fi
 
-    # Ensure /usr/bin/python symlink points to python3 if python3 is present
+    # Ensure /usr/bin/python symlink
     if [ -x "${target_dir}/usr/bin/python3" ] && [ ! -e "${target_dir}/usr/bin/python" ]; then
         ln -sfn python3 "${target_dir}/usr/bin/python"
     fi
@@ -199,37 +221,22 @@ EOF
 
     printf '%s\n' "${PETRAOS_VERSION}" > "${target_dir}/etc/petraos-release"
 
-    mkdir -p "${target_dir}/usr/lib"
-    cat > "${target_dir}/usr/lib/os-release" << EOF
-NAME="PetraOS"
-PRETTY_NAME="PetraOS"
-ID=petraos
-ID_LIKE=alpine
-VERSION_ID="${PETRAOS_VERSION}"
-VERSION="${PETRAOS_VERSION}"
+    # In STAGING, provide os-release if missing
+    if [ ! -f "${target_dir}/etc/os-release" ] && [ ! -f "${target_dir}/usr/lib/os-release" ]; then
+        mkdir -p "${target_dir}/usr/lib"
+        cat > "${target_dir}/usr/lib/os-release" << EOF
+NAME="postmarketOS"
+PRETTY_NAME="postmarketOS (PetraOS Kernel)"
+ID="postmarketos"
+ID_LIKE="alpine"
+VERSION_ID="v24.06"
+VERSION="v24.06"
 EOF
-    rm -f "${target_dir}/etc/os-release"
-    ln -sf ../usr/lib/os-release "${target_dir}/etc/os-release"
-
-    # Configure OpenRC configuration and runlevels if openrc is present
-    if [ -x "${target_dir}/sbin/openrc" ] || [ -d "${target_dir}/etc/init.d" ]; then
-        mkdir -p "${target_dir}/etc/conf.d" "${target_dir}/etc/runlevels"/{sysinit,boot,default,shutdown,nonetwork}
-        cat > "${target_dir}/etc/rc.conf" << 'EOF'
-# /etc/rc.conf: OpenRC system configuration for PetraOS
-rc_parallel="NO"
-rc_sys="docker"
-unicode="YES"
-rc_controller_cgroups="NO"
-rc_cgroup_mode="none"
-rc_interactive="NO"
-rc_crashed_stop=NO
-rc_crashed_start=YES
-rc_logger="NO"
-EOF
+        ln -sf ../usr/lib/os-release "${target_dir}/etc/os-release"
     fi
 
     cat > "${target_dir}/etc/profile" << 'EOF'
-export PATH=/bin:/sbin:/usr/bin:/usr/sbin
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 export HOME=/root
 export SHELL=/bin/bash
 export TERM=linux
@@ -253,7 +260,7 @@ EOF
 
     cat > "${target_dir}/root/.profile" << 'EOF'
 export PS1='petraos:\w# '
-export PATH=/bin:/sbin:/usr/bin:/usr/sbin
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 export SHELL=/bin/bash
 export TERM=linux
 export HOME=/root
@@ -281,7 +288,7 @@ done
 
 for path in "${STAGING}/bin/busybox" "${STAGING}/lib/ld-musl-${ALPINE_ARCH}.so.1"; do
     if [ ! -e "$path" ]; then
-        echo "ERROR: Alpine userland is incomplete, missing ${path}" >&2
+        echo "ERROR: Initramfs staging is incomplete, missing ${path}" >&2
         exit 1
     fi
 done

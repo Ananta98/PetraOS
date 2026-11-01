@@ -1,5 +1,5 @@
 #!/bin/bash
-# Build the full PetraOS amd64 target: Alpine/postmarketOS userland + initramfs,
+# Build the full PetraOS amd64 target: postmarketOS userland + initramfs,
 # the petra kernel, and a bootable hybrid BIOS/UEFI ISO.
 #
 # Usage: build-amd64.sh [OPTIONS]
