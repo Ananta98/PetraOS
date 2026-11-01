@@ -10,6 +10,7 @@ pub mod ext4;
 pub mod fd;
 pub mod initramfs;
 pub mod io_uring;
+pub mod mount_api;
 pub mod pipe;
 pub mod poll;
 pub mod procfs;

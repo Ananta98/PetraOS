@@ -122,7 +122,8 @@ pub fn sys_recvmsg(fd: i32, msg_ptr: usize, flags: i32, _ctx: &mut UserContext) 
 
     let mut msghdr = MsgHdr::read_from_user(&vmar, msg_ptr)?;
     let iovecs = read_user_iovecs(&vmar, msghdr.msg_iov, msghdr.msg_iovlen)?;
-    if iovecs.is_empty() {
+    let is_trunc = (flags & 0x20) != 0;
+    if iovecs.is_empty() && !is_trunc {
         return Ok(0);
     }
 
@@ -159,32 +160,51 @@ pub fn sys_recvmsg(fd: i32, msg_ptr: usize, flags: i32, _ctx: &mut UserContext) 
     } else {
         let mut total_recv = 0;
         let mut all_received_files = alloc::vec::Vec::new();
-        for (i, iov) in iovecs.iter().enumerate() {
-            if iov.iov_len == 0 {
-                continue;
-            }
-            let mut chunk = alloc::vec![0u8; iov.iov_len.min(65536)];
-            let n = if i == 0 {
-                let (received_bytes, files) = socket.recv_with_ancillary(&mut chunk, flags)?;
-                all_received_files = files;
-                received_bytes
-            } else {
-                socket.recv(&mut chunk, flags)?
-            };
-            if n > 0 {
-                UserPtr::new(iov.iov_base).write_bytes(&vmar, &chunk[..n])?;
+        if iovecs.is_empty() && is_trunc {
+            let mut empty = [];
+            let (n, files) = socket.recv_with_ancillary(&mut empty, flags)?;
+            all_received_files = files;
+            total_recv = n;
+        } else {
+            for (i, iov) in iovecs.iter().enumerate() {
+                if iov.iov_len == 0 && !is_trunc {
+                    continue;
+                }
+                let mut chunk = alloc::vec![0u8; iov.iov_len.min(65536)];
+                let n = if i == 0 {
+                    let (received_bytes, files) = socket.recv_with_ancillary(&mut chunk, flags)?;
+                    all_received_files = files;
+                    received_bytes
+                } else {
+                    socket.recv(&mut chunk, flags)?
+                };
+                if n > 0 {
+                    let to_copy = chunk.len().min(n);
+                    UserPtr::new(iov.iov_base).write_bytes(&vmar, &chunk[..to_copy])?;
+                }
                 total_recv += n;
-            }
-            if n < chunk.len() {
-                break;
+                if n < chunk.len() || is_trunc {
+                    break;
+                }
             }
         }
 
-        if msghdr.msg_name != 0
-            && msghdr.msg_namelen > 0
-            && let Ok(peer) = socket.getpeername()
-        {
-            let _ = write_sockaddr(&proc, peer, msghdr.msg_name, msg_ptr + 8);
+        if msghdr.msg_name != 0 && msghdr.msg_namelen > 0 {
+            let peer = if socket.domain == crate::net::socket::AF_NETLINK {
+                Ok(crate::net::socket::SocketAddress::Netlink { pid: 0, groups: 0 })
+            } else {
+                socket.getpeername()
+            };
+            if let Ok(peer) = peer {
+                let _ = write_sockaddr(&proc, peer, msghdr.msg_name, msg_ptr + 8);
+                if let Ok(actual_len) = UserPtr::new(msg_ptr + 8).read_val::<u32>(&vmar) {
+                    msghdr.msg_namelen = actual_len;
+                }
+            } else {
+                msghdr.msg_namelen = 0;
+            }
+        } else {
+            msghdr.msg_namelen = 0;
         }
 
         msghdr.msg_flags = 0;

@@ -58,8 +58,16 @@ pub fn sys_getsockopt(
     let socket = get_socket(fd)?;
     let proc = Thread::proc_or_esrch()?;
 
-    if optval_ptr == 0 || optlen_ptr == 0 {
+    const SOL_NETLINK: i32 = 270;
+    if level == SOL_NETLINK {
+        return Err(Errno::ENOPROTOOPT);
+    }
+
+    if optlen_ptr == 0 {
         return Err(Errno::EFAULT);
+    }
+    if optval_ptr == 0 {
+        return Err(Errno::ENOPROTOOPT);
     }
     let vmar = proc.vmspace();
 

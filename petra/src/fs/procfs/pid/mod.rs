@@ -25,7 +25,7 @@ pub mod task;
 use alloc::{string::String, sync::Arc, vec::Vec};
 
 use crate::{
-    fs::procfs::template::{ProcDirOps, ProcSymOps, dir_node, file_node, sym_node},
+    fs::procfs::template::{ProcDirOps, ProcFileOps, ProcSymOps, dir_node, file_node, rw_file_node, sym_node},
     fs::vfs::INode,
     proc::{Pid, allproc_find},
     uapi::errno::{Errno, Result},
@@ -55,6 +55,8 @@ pub const TAG_IO: u16 = 0x0011;
 pub const TAG_MAPS: u16 = 0x0012;
 pub const TAG_ENVIRON: u16 = 0x0013;
 pub const TAG_CGROUP: u16 = 0x0014;
+pub const TAG_MOUNTINFO: u16 = 0x0015;
+pub const TAG_OOM_SCORE_ADJ: u16 = 0x0016;
 
 /// Composes the per-entry inode number for `pid` from `tag`.
 pub const fn pid_ino(pid: Pid, tag: u16) -> usize {
@@ -66,7 +68,7 @@ pub const fn pid_ino(pid: Pid, tag: u16) -> usize {
 /// The single source of truth for `readdir`; lookup handles exactly these
 /// names plus the per-hierarchy extras (`task` under `/proc/<pid>/`).
 const SHARED_ENTRIES: &[&str] = &[
-    "exe", "cwd", "cmdline", "status", "stat", "statm", "comm", "mounts", "fd", "io", "maps",
+    "exe", "cwd", "cmdline", "status", "stat", "statm", "comm", "mounts", "mountinfo", "oom_score_adj", "fd", "io", "maps",
     "environ", "cgroup",
 ];
 
@@ -76,6 +78,62 @@ pub struct ProcPidMountsSymlinkOps;
 impl ProcSymOps for ProcPidMountsSymlinkOps {
     fn readlink(&self) -> Result<String> {
         Ok(String::from("/proc/mounts"))
+    }
+}
+
+pub struct ProcPidMountinfoFileOps;
+
+impl ProcFileOps for ProcPidMountinfoFileOps {
+    fn generate_content(&self) -> Vec<u8> {
+        let mounts = crate::fs::vfs::mount::get_mounts();
+        let mut content = String::new();
+        let mut id = 20;
+        let is_chrooted = crate::proc::current_proc()
+            .and_then(|p| p.root.lock().clone())
+            .is_some();
+        let has_sysroot = mounts.iter().any(|m| m.target == "/sysroot");
+
+        for m in &mounts {
+            let target = if is_chrooted && has_sysroot {
+                if m.target == "/sysroot" {
+                    "/"
+                } else if let Some(sub) = m.target.strip_prefix("/sysroot") {
+                    sub
+                } else {
+                    m.target.as_str()
+                }
+            } else {
+                m.target.as_str()
+            };
+            let parent_id = if target == "/" { 1 } else { 20 };
+            let _ = core::fmt::write(
+                &mut content,
+                format_args!(
+                    "{} {} 0:{} / {} rw,relatime shared:1 - {} {} {}\n",
+                    id, parent_id, id, target, m.fstype, m.source, m.options
+                ),
+            );
+            id += 1;
+        }
+        if mounts.is_empty() {
+            content.push_str("20 1 0:20 / / rw,relatime shared:1 - rootfs rootfs rw\n");
+            content.push_str("21 20 0:21 / /dev rw,nosuid,relatime shared:2 - devfs devfs rw\n");
+            content.push_str("22 20 0:22 / /proc rw,nosuid,nodev,noexec,relatime shared:3 - proc proc rw\n");
+            content.push_str("23 20 0:23 / /sys rw,nosuid,nodev,noexec,relatime shared:4 - sysfs sysfs rw\n");
+        }
+        content.into_bytes()
+    }
+}
+
+pub struct ProcPidOomScoreAdjOps;
+
+impl ProcFileOps for ProcPidOomScoreAdjOps {
+    fn generate_content(&self) -> Vec<u8> {
+        alloc::vec![b'0', b'\n']
+    }
+
+    fn write_content(&self, _data: &[u8]) -> Result<()> {
+        Ok(())
     }
 }
 
@@ -125,6 +183,8 @@ pub(super) fn shared_pid_entry(pid: Pid, name: &str) -> Option<Arc<INode>> {
             cgroup::PidCgroupFileOps { pid },
             pid_ino(pid, TAG_CGROUP),
         )),
+        "mountinfo" => Some(file_node(ProcPidMountinfoFileOps, pid_ino(pid, TAG_MOUNTINFO))),
+        "oom_score_adj" => Some(rw_file_node(ProcPidOomScoreAdjOps, pid_ino(pid, TAG_OOM_SCORE_ADJ))),
         _ => None,
     }
 }

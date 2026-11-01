@@ -29,6 +29,10 @@ pub const MS_NODEV: usize = 4;
 pub const MS_NOEXEC: usize = 8;
 pub const MS_REMOUNT: usize = 32;
 pub const MS_BIND: usize = 4096;
+pub const MS_UNBINDABLE: usize = 1 << 17;
+pub const MS_PRIVATE: usize = 1 << 18;
+pub const MS_SLAVE: usize = 1 << 19;
+pub const MS_SHARED: usize = 1 << 20;
 
 pub const MNT_FORCE: i32 = 1;
 pub const MNT_DETACH: i32 = 2;
@@ -62,7 +66,7 @@ pub fn sys_mount(
     } else {
         alloc::string::String::new()
     };
-    let _data = if data_ptr != 0 {
+    let data = if data_ptr != 0 {
         UserCStr::new(data_ptr)
             .read_string(&vmar, 1024)
             .unwrap_or_default()
@@ -70,11 +74,25 @@ pub fn sys_mount(
         alloc::string::String::new()
     };
 
+    perform_mount(&source, &target, &fstype, flags, &data)
+}
+
+/// Shares the mounting work behind legacy `mount(2)` and the `fsopen(2)`
+/// family so every caller sees identical filesystem-type mapping.
+pub fn perform_mount(
+    source: &str,
+    target: &str,
+    fstype: &str,
+    flags: usize,
+    data: &str,
+) -> Result<usize> {
+    let _data = data;
+
     let root_node = root()?;
     let target_node = lookup(
         root_node.clone(),
         root_node.clone(),
-        &target,
+        target,
         LookupFlags::DIRECTORY,
     )?;
 
@@ -83,12 +101,17 @@ pub fn sys_mount(
         return Ok(0);
     }
 
+    // Handle mount propagation (MS_SHARED, MS_PRIVATE, MS_SLAVE, MS_UNBINDABLE)
+    if (flags & (MS_SHARED | MS_PRIVATE | MS_SLAVE | MS_UNBINDABLE)) != 0 {
+        return Ok(0);
+    }
+
     // Handle MS_BIND
     if (flags & MS_BIND) != 0 {
         let source_node = lookup(
             root_node.clone(),
             root_node.clone(),
-            &source,
+            source,
             LookupFlags::DIRECTORY,
         )?;
         let mount_dentry = Arc::new(DEntry::new(
@@ -98,12 +121,12 @@ pub fn sys_mount(
         ));
         let new_mount = Arc::new(Mount::new(mount_dentry, source_node.mount.fs.clone()));
         target_node.mount(new_mount)?;
-        register_mount(&source, &target, source_node.mount.fs.name(), "rw,bind");
+        register_mount(source, target, source_node.mount.fs.name(), "rw,bind");
         return Ok(0);
     }
 
     // Normal filesystem mounting
-    let fs_instance: Arc<dyn FileSystem> = match fstype.as_str() {
+    let fs_instance: Arc<dyn FileSystem> = match fstype {
         "proc" | "procfs" => Arc::new(ProcFs::new()),
         "sysfs" | "sys" => Arc::new(SysFs::new()),
         "tmpfs" | "ramfs" => Arc::new(TmpFs::new()),
@@ -112,7 +135,7 @@ pub fn sys_mount(
         "cgroup" | "cgroup2" => Arc::new(crate::fs::Cgroup2Fs::new()),
         "ext4" | "exfat" => {
             let dev_name = source.trim_start_matches("/dev/").trim_start_matches('/');
-            return crate::fs::registry::mount_device(&target, dev_name, &fstype).map(|_| 0);
+            return crate::fs::registry::mount_device(target, dev_name, fstype).map(|_| 0);
         }
         _ => {
             crate::return_errno!(ENODEV, "unsupported filesystem type");
@@ -133,8 +156,8 @@ pub fn sys_mount(
     } else {
         "rw,relatime"
     };
-    let src = if source.is_empty() { &fstype } else { &source };
-    register_mount(src, &target, fs_instance.name(), opts);
+    let src = if source.is_empty() { fstype } else { source };
+    register_mount(src, target, fs_instance.name(), opts);
 
     ostd::info!("VFS: Mounted \"{}\" ({}) at \"{}\"", src, fstype, target);
     Ok(0)

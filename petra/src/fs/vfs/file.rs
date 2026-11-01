@@ -136,6 +136,11 @@ pub trait FileOps: Send + Sync {
         None
     }
 
+    /// Return the underlying fs_context if this file represents a mount API context.
+    fn as_fsctx(&self) -> Option<Arc<crate::fs::mount_api::FsContext>> {
+        None
+    }
+
     /// Return the underlying eventfd if this file represents an eventfd descriptor.
     fn as_eventfd(&self) -> Option<Arc<crate::fs::fd::EventFd>> {
         None
@@ -354,6 +359,11 @@ impl File {
     /// Return the underlying memfd if this file represents a memfd descriptor.
     pub fn as_memfd(&self) -> Option<Arc<crate::fs::fd::MemFd>> {
         self.ops.as_memfd()
+    }
+
+    /// Return the underlying fs_context if this file represents a mount API context.
+    pub fn as_fsctx(&self) -> Option<Arc<crate::fs::mount_api::FsContext>> {
+        self.ops.as_fsctx()
     }
 
     /// Return the underlying eventfd if this file represents an eventfd descriptor.

@@ -280,6 +280,12 @@ crate::impl_syscall_nums_and_dispatch_fn! {
     SYS_IO_URING_SETUP = 425 => fs::sys_io_uring_setup(u32, usize);
     SYS_IO_URING_ENTER = 426 => fs::sys_io_uring_enter(u32, u32, u32, u32, usize, usize);
     SYS_IO_URING_REGISTER = 427 => fs::sys_io_uring_register(u32, u32, usize, u32);
+    SYS_OPEN_TREE = 428 => fs::sys_open_tree(i32, usize, u32);
+    SYS_MOVE_MOUNT = 429 => fs::sys_move_mount(i32, usize, i32, usize, u32);
+    SYS_FSOPEN = 430 => fs::sys_fsopen(usize, u32);
+    SYS_FSCONFIG = 431 => fs::sys_fsconfig(i32, u32, usize, usize, i32);
+    SYS_FSMOUNT = 432 => fs::sys_fsmount(i32, u32, u32);
+    SYS_FSPICK = 433 => fs::sys_fspick(i32, usize, u32);
     SYS_PIDFD_OPEN = 434 => proc::sys_pidfd_open(i32, u32);
     SYS_CLONE3 = 435 => proc::sys_clone3(usize, usize);
     SYS_CLOSE_RANGE = 436 => fs::sys_close_range(u32, u32, u32);
@@ -287,5 +293,6 @@ crate::impl_syscall_nums_and_dispatch_fn! {
     SYS_PIDFD_GETFD = 438 => proc::sys_pidfd_getfd(i32, i32, u32);
     SYS_FACCESSAT2 = 439 => fs::sys_faccessat2(i32, usize, i32, i32);
     SYS_EPOLL_PWAIT2 = 441 => fs::sys_epoll_pwait2(i32, usize, i32, usize, usize, usize);
+    SYS_MOUNT_SETATTR = 442 => fs::sys_mount_setattr(i32, usize, u32, usize, usize);
     SYS_FCHMODAT2 = 452 => fs::sys_fchmodat2(i32, usize, u32, i32);
 }

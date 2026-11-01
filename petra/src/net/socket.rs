@@ -922,13 +922,40 @@ impl KernelSocket {
                 Ok(n)
             }
             SocketKind::Netlink(ref state) => loop {
-                let mut rx = state.rx_buf.lock();
+                let rx = state.rx_buf.lock();
                 if !rx.is_empty() {
-                    let n = buf.len().min(rx.len());
-                    for (slot, byte) in buf.iter_mut().zip(rx.drain(..n)) {
-                        *slot = byte;
+                    let total_available = rx.len();
+                    // Netlink messages begin with a 4-byte little-endian length.
+                    let nlmsg_len = if total_available >= 4 {
+                        let len = u32::from_ne_bytes([rx[0], rx[1], rx[2], rx[3]]) as usize;
+                        len.max(16).min(total_available)
+                    } else {
+                        total_available
+                    };
+
+                    let is_peek = (flags & 0x02) != 0;  // MSG_PEEK
+                    let is_trunc = (flags & 0x20) != 0; // MSG_TRUNC
+                    drop(rx);
+
+                    let copy_len = buf.len().min(nlmsg_len);
+
+                    if !is_peek {
+                        let mut rx = state.rx_buf.lock();
+                        for (slot, byte) in buf.iter_mut().take(copy_len).zip(rx.drain(..copy_len)) {
+                            *slot = byte;
+                        }
+                    } else {
+                        let rx = state.rx_buf.lock();
+                        for (slot, &byte) in buf.iter_mut().take(copy_len).zip(rx.iter().take(copy_len)) {
+                            *slot = byte;
+                        }
                     }
-                    return Ok(n);
+
+                    if is_trunc {
+                        return Ok(nlmsg_len);
+                    } else {
+                        return Ok(copy_len);
+                    }
                 }
                 if nonblocking {
                     return Err(Errno::EWOULDBLOCK);

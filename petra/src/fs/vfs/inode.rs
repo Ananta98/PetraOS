@@ -145,7 +145,7 @@ pub trait NodeOps: Send + Sync {
 
     /// Updates metadata attributes.
     fn setattr(&self, _attr: &INodeAttr) -> Result<()> {
-        crate::return_errno!(ENOSYS, "setattr not implemented");
+        crate::return_errno!(EPERM, "setattr not permitted");
     }
 
     /// Identity of the filesystem instance backing this node, used to reject

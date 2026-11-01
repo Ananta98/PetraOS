@@ -7,6 +7,7 @@
 //! added declaratively. Values follow Linux `/proc/sys` semantics (readable
 //! by everyone, tunables writable by the owner).
 
+pub mod fs;
 pub mod kernel;
 
 use alloc::{string::String, sync::Arc, vec::Vec};
@@ -25,17 +26,19 @@ struct ProcSysDirOps;
 /// Inode number allocation for `/proc/sys`.
 const PROC_SYS_INO: usize = 2000;
 const PROC_SYS_KERNEL_INO: usize = 2001;
+const PROC_SYS_FS_INO: usize = 2002;
 
 impl ProcDirOps for ProcSysDirOps {
     fn lookup_child(&self, name: &str) -> Result<Arc<INode>> {
         match name {
             "kernel" => Ok(dir_node(kernel::ProcSysKernelDirOps, PROC_SYS_KERNEL_INO)),
+            "fs" => Ok(dir_node(fs::ProcSysFsDirOps, PROC_SYS_FS_INO)),
             _ => crate::return_errno!(ENOENT, "unknown entry in /proc/sys"),
         }
     }
 
     fn list_entries(&self) -> Vec<String> {
-        alloc::vec![String::from("kernel")]
+        alloc::vec![String::from("kernel"), String::from("fs")]
     }
 }
 

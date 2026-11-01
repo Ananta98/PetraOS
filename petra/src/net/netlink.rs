@@ -57,7 +57,7 @@ impl NetlinkSocketState {
 
         let nlmsg_len = u32::from_ne_bytes(data[0..4].try_into().unwrap()) as usize;
         let nlmsg_type = u16::from_ne_bytes(data[4..6].try_into().unwrap());
-        let _nlmsg_flags = u16::from_ne_bytes(data[6..8].try_into().unwrap());
+        let nlmsg_flags = u16::from_ne_bytes(data[6..8].try_into().unwrap());
         let nlmsg_seq = u32::from_ne_bytes(data[8..12].try_into().unwrap());
         let nlmsg_pid = u32::from_ne_bytes(data[12..16].try_into().unwrap());
 
@@ -65,21 +65,33 @@ impl NetlinkSocketState {
             return;
         }
 
+        let is_dump = (nlmsg_flags & NLM_F_DUMP) != 0;
+        let ack_requested = (nlmsg_flags & NLM_F_ACK) != 0;
+
         let mut reply = Vec::new();
 
+        let send_ack = |reply: &mut Vec<u8>| {
+            let start = push_nlmsghdr(reply, NLMSG_ERROR, 0, nlmsg_seq, nlmsg_pid);
+            reply.extend_from_slice(&0i32.to_ne_bytes()); // error = 0 (ACK)
+            let hdr_len = 16.min(nlmsg_len).min(data.len());
+            reply.extend_from_slice(&data[..hdr_len]);
+            if hdr_len < 16 {
+                reply.resize(reply.len() + (16 - hdr_len), 0);
+            }
+            finalize_nlmsg(reply, start);
+        };
+
         match nlmsg_type {
-            RTM_GETLINK => {
+            RTM_GETLINK if is_dump => {
                 // 1. Loopback interface "lo" (index 1)
                 let start =
                     push_nlmsghdr(&mut reply, RTM_NEWLINK, NLM_F_MULTI, nlmsg_seq, nlmsg_pid);
-                // ifinfomsg (16 bytes): family=0, pad=0, type=ARPHRD_LOOPBACK(772), index=1, flags=0x49, change=0
                 reply.push(0); // ifi_family = AF_UNSPEC
                 reply.push(0); // __ifi_pad
                 reply.extend_from_slice(&772u16.to_ne_bytes()); // ARPHRD_LOOPBACK
                 reply.extend_from_slice(&1i32.to_ne_bytes()); // ifi_index = 1
                 reply.extend_from_slice(&(0x1 | 0x8 | 0x40u32).to_ne_bytes()); // IFF_UP | IFF_LOOPBACK | IFF_RUNNING
                 reply.extend_from_slice(&0u32.to_ne_bytes()); // ifi_change
-                // Attributes
                 push_rtattr(&mut reply, 3, b"lo\0"); // IFLA_IFNAME
                 push_rtattr(&mut reply, 4, &65536u32.to_ne_bytes()); // IFLA_MTU
                 finalize_nlmsg(&mut reply, start);
@@ -103,12 +115,15 @@ impl NetlinkSocketState {
                     push_nlmsghdr(&mut reply, NLMSG_DONE, NLM_F_MULTI, nlmsg_seq, nlmsg_pid);
                 reply.extend_from_slice(&0i32.to_ne_bytes());
                 finalize_nlmsg(&mut reply, start);
+
+                if ack_requested {
+                    send_ack(&mut reply);
+                }
             }
-            RTM_GETADDR => {
+            RTM_GETADDR if is_dump => {
                 // 1. Loopback IPv4: 127.0.0.1/8
                 let start =
                     push_nlmsghdr(&mut reply, RTM_NEWADDR, NLM_F_MULTI, nlmsg_seq, nlmsg_pid);
-                // ifaddrmsg (8 bytes): family=AF_INET(2), prefixlen=8, flags=IFA_F_PERMANENT(0x80), scope=254(HOST), index=1
                 reply.push(2); // ifa_family = AF_INET
                 reply.push(8); // ifa_prefixlen
                 reply.push(0x80); // ifa_flags = IFA_F_PERMANENT
@@ -137,13 +152,15 @@ impl NetlinkSocketState {
                     push_nlmsghdr(&mut reply, NLMSG_DONE, NLM_F_MULTI, nlmsg_seq, nlmsg_pid);
                 reply.extend_from_slice(&0i32.to_ne_bytes());
                 finalize_nlmsg(&mut reply, start);
+
+                if ack_requested {
+                    send_ack(&mut reply);
+                }
             }
             _ => {
-                // Default: terminate with NLMSG_DONE
-                let start =
-                    push_nlmsghdr(&mut reply, NLMSG_DONE, NLM_F_MULTI, nlmsg_seq, nlmsg_pid);
-                reply.extend_from_slice(&0i32.to_ne_bytes());
-                finalize_nlmsg(&mut reply, start);
+                // Non-dump requests (e.g. RTM_NEWLINK, RTM_SETLINK, RTM_NEWADDR) or unknown types
+                // must return an ACK (NLMSG_ERROR with error=0) so synchronous callers don't block.
+                send_ack(&mut reply);
             }
         }
 

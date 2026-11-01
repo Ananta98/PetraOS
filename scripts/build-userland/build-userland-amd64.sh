@@ -390,9 +390,14 @@ configure_target_tree() {
         # Autologin root on console and tty1
         mkdir -p "${target_dir}/etc/systemd/system/console-getty.service.d"
         cat > "${target_dir}/etc/systemd/system/console-getty.service.d/override.conf" << 'EOF'
+[Unit]
+After=basic.target
+Wants=
+Requires=
+
 [Service]
 ExecStart=
-ExecStart=-/sbin/agetty --autologin root --noclear --keep-baud 115200,38400,9600 console $TERM
+ExecStart=-/sbin/agetty -o '-p -- \\u' --autologin root --noclear - 115200,38400,9600 $TERM
 EOF
 
         mkdir -p "${target_dir}/etc/systemd/system/getty@tty1.service.d"
@@ -404,6 +409,18 @@ EOF
 
         mkdir -p "${target_dir}/etc/systemd/system/getty.target.wants"
         ln -sfn /usr/lib/systemd/system/console-getty.service "${target_dir}/etc/systemd/system/getty.target.wants/console-getty.service"
+
+        mkdir -p "${target_dir}/etc/systemd/system/multi-user.target.wants"
+        ln -sfn /usr/lib/systemd/system/console-getty.service "${target_dir}/etc/systemd/system/multi-user.target.wants/console-getty.service"
+
+        # Module metadata for modprobe / systemd
+        mkdir -p "${target_dir}/usr/lib/modules/6.6.0-petra"
+        touch "${target_dir}/usr/lib/modules/6.6.0-petra/modules.dep"
+        touch "${target_dir}/usr/lib/modules/6.6.0-petra/modules.alias"
+        touch "${target_dir}/usr/lib/modules/6.6.0-petra/modules.symbols"
+        touch "${target_dir}/usr/lib/modules/6.6.0-petra/modules.builtin"
+        echo "autofs4" > "${target_dir}/usr/lib/modules/6.6.0-petra/modules.builtin"
+        echo "unix" >> "${target_dir}/usr/lib/modules/6.6.0-petra/modules.builtin"
 
         # Mask / remove unneeded system generators for minimal container/VM boot
         for gen in systemd-system-update-generator \
@@ -545,7 +562,11 @@ configure_system_files() {
         sed -i 's|^root:.*|root:x:0:0:root:/root:/bin/bash|' "${ROOTFS_STAGING}/etc/passwd"
     fi
 
-    for account_file in passwd group shells; do
+    if [ -f "${ROOTFS_STAGING}/etc/shadow" ]; then
+        sed -i 's|^root:[^:]*:|root::|' "${ROOTFS_STAGING}/etc/shadow"
+    fi
+
+    for account_file in passwd shadow group shells; do
         if [ -f "${ROOTFS_STAGING}/etc/${account_file}" ]; then
             cp -a "${ROOTFS_STAGING}/etc/${account_file}" "${STAGING}/etc/${account_file}"
         fi

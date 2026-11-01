@@ -187,7 +187,7 @@ pub fn handle_ioctl(
         | ioctl::TIOCNOTTY
         | ioctl::TIOCGSID => handle_job_control_ioctl(tty, cmd, arg, vmar, proc_opt),
 
-        KDSETMODE | KDGETMODE | KDSKBMODE | KDGKBMODE | VT_SETMODE | VT_GETMODE | VT_GETSTATE
+        KDSETMODE | KDGETMODE | KDSKBMODE | KDGKBMODE | KDSIGACCEPT | VT_SETMODE | VT_GETMODE | VT_GETSTATE
         | VT_ACTIVATE | VT_WAITACTIVE | VT_RELDISP => handle_vt_ioctl(cmd, arg, vmar),
 
         _ => crate::return_errno!(ENOTTY, "inappropriate ioctl for device"),
@@ -198,6 +198,7 @@ const KDSETMODE: u32 = 0x4B3A;
 const KDGETMODE: u32 = 0x4B3B;
 const KDSKBMODE: u32 = 0x4B45;
 const KDGKBMODE: u32 = 0x4B44;
+const KDSIGACCEPT: u32 = 0x4B4E;
 const VT_SETMODE: u32 = 0x5602;
 const VT_GETMODE: u32 = 0x5601;
 const VT_GETSTATE: u32 = 0x5603;
@@ -207,7 +208,7 @@ const VT_RELDISP: u32 = 0x5605;
 
 fn handle_vt_ioctl(cmd: u32, arg: usize, vmar: &Arc<Vmar>) -> Result<usize> {
     match cmd {
-        KDSETMODE => Ok(0),
+        KDSETMODE | KDSIGACCEPT => Ok(0),
         KDGETMODE => {
             let mode = 0i32; // KD_TEXT
             UserPtr::new(arg).write_bytes(vmar, &mode.to_ne_bytes())?;

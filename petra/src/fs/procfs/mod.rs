@@ -24,6 +24,7 @@ pub mod diskstats;
 pub mod filesystems;
 pub mod loadavg;
 pub mod meminfo;
+pub mod modules;
 pub mod mounts;
 pub mod partitions;
 pub mod pid;
@@ -110,6 +111,7 @@ pub(crate) const PROC_ROOT_INO_LOADAVG: usize = 109;
 pub(crate) const PROC_ROOT_INO_DISKSTATS: usize = 110;
 pub(crate) const PROC_ROOT_INO_FILESYSTEMS: usize = 111;
 pub(crate) const PROC_ROOT_INO_PARTITIONS: usize = 112;
+pub(crate) const PROC_ROOT_INO_MODULES: usize = 113;
 
 /// Declarative static table of root `/proc` entries.
 ///
@@ -168,6 +170,10 @@ static PROC_ROOT_ENTRIES: &[template::StaticDirEntry] = &[
     template::StaticDirEntry {
         name: "partitions",
         ctor: partitions::PartitionsFileOps::new_inode,
+    },
+    template::StaticDirEntry {
+        name: "modules",
+        ctor: modules::ModulesFileOps::new_inode,
     },
     template::StaticDirEntry {
         name: "bus",

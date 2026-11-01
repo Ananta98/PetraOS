@@ -169,10 +169,6 @@ macro_rules! impl_syscall_nums_and_dispatch_fn {
             }
 
             let pid_val = $crate::proc::thread::Thread::current_proc().map(|p| p.pid.as_u32()).unwrap_or(0);
-            if $crate::syscall::TRACE_SYSCALLS && sys_no != 228 && sys_no != 96 {
-                ostd::info!("syscall: pid {} sys_{} args={:x?}", pid_val, sys_no, args);
-            }
-
             let res = match sys_no {
                 $(
                     $num => $crate::invoke_syscall_handler!($($handler)::+, args, ctx $(, $arg_ty)*),
@@ -187,17 +183,11 @@ macro_rules! impl_syscall_nums_and_dispatch_fn {
 
             ctx.general_regs_mut().rax = match res {
                 Ok(val) => {
-                    if $crate::syscall::TRACE_SYSCALLS && sys_no != 228 && sys_no != 96 {
-                        ostd::info!("syscall: pid {} sys_{} -> Ok({:#x})", pid_val, sys_no, val);
-                    }
                     val
                 }
                 Err(err) => {
                     if err == $crate::uapi::errno::Errno::ENOSYS && !$crate::syscall::is_benign_probe(sys_no) {
                         ostd::warn!("Syscall sys_{sys_no} returned ENOSYS");
-                    }
-                    if $crate::syscall::TRACE_SYSCALLS && sys_no != 228 && sys_no != 96 {
-                        ostd::info!("syscall: pid {} sys_{} -> Err({:?})", pid_val, sys_no, err);
                     }
                     err.to_posix_raw() as isize as usize
                 }

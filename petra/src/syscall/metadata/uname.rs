@@ -45,7 +45,7 @@ impl UtsName {
         copy_cstr(&mut uts.sysname, b"PetraOS");
         let nodename = get_hostname();
         copy_cstr(&mut uts.nodename, nodename.as_bytes());
-        copy_cstr(&mut uts.release, b"6.6.0-petraos");
+        copy_cstr(&mut uts.release, b"6.6.0-petra");
         copy_cstr(&mut uts.version, b"#1 SMP PetraOS 0.1.0");
         copy_cstr(&mut uts.machine, b"x86_64");
         let domainname = get_domainname();

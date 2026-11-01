@@ -148,8 +148,6 @@ if [ -d /sysroot/usr/bin ] || [ -f /sysroot/etc/rocky-release ] || [ -x /sysroot
     [ -e /sysroot/dev/stdout ] || ln -sf /proc/self/fd/1 /sysroot/dev/stdout 2>/dev/null || true
     [ -e /sysroot/dev/stderr ] || ln -sf /proc/self/fd/2 /sysroot/dev/stderr 2>/dev/null || true
     [ -e /sysroot/dev/ptmx ] || ln -sf pts/ptmx /sysroot/dev/ptmx 2>/dev/null || true
-    [ -e /sysroot/dev/console ] || ln -sf tty0 /sysroot/dev/console 2>/dev/null || true
-    [ -e /sysroot/dev/tty1 ] || ln -sf tty0 /sysroot/dev/tty1 2>/dev/null || true
     [ -e /sysroot/etc/mtab ] || ln -sf /proc/self/mounts /sysroot/etc/mtab 2>/dev/null || true
 
     echo ""
