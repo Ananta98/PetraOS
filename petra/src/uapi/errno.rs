@@ -133,6 +133,8 @@ pub enum Errno {
     ECONNREFUSED = 111,
     /// Operation now in progress.
     EINPROGRESS = 115,
+    /// Required key not available.
+    ENOKEY = 126,
 }
 
 impl Errno {
@@ -222,6 +224,7 @@ impl Errno {
             Self::ETIMEDOUT => "ETIMEDOUT",
             Self::ECONNREFUSED => "ECONNREFUSED",
             Self::EINPROGRESS => "EINPROGRESS",
+            Self::ENOKEY => "ENOKEY",
         }
     }
 
@@ -286,6 +289,7 @@ impl Errno {
             Self::ETIMEDOUT => "connection timed out",
             Self::ECONNREFUSED => "connection refused",
             Self::EINPROGRESS => "operation now in progress",
+            Self::ENOKEY => "required key not available",
         }
     }
 }
