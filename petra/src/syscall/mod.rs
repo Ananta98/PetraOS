@@ -24,7 +24,9 @@ pub const fn is_benign_probe(sys_no: usize) -> bool {
         sys_no,
         167 // swapon
         | 168 // swapoff
+        | 250 // keyctl
         | 272 // unshare
+        | 303 // name_to_handle_at
         | 308 // setns
         | 317 // seccomp
         | 321 // bpf

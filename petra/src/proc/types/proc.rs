@@ -178,6 +178,8 @@ pub struct ProcInner {
     pub no_new_privs: bool,
     /// Execution personality (Linux `personality(2)`).
     pub personality: u32,
+    /// Securebits flags (Linux `PR_SET_SECUREBITS` / `PR_GET_SECUREBITS`).
+    pub securebits: u32,
     /// Effective capability bitmask (Linux `capget(2)` / `capset(2)`).
     pub cap_effective: u64,
     /// Permitted capability bitmask.
@@ -280,6 +282,7 @@ impl Proc {
                 is_reaper,
                 no_new_privs: false,
                 personality: 0,
+                securebits: 0,
                 cap_effective: default_caps,
                 cap_permitted: default_caps,
                 cap_inheritable: default_caps,

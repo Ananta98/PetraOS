@@ -206,6 +206,7 @@ crate::impl_syscall_nums_and_dispatch_fn! {
     SYS_TGKILL = 234 => signals::sys_tgkill(i32, i32, i32);
     SYS_UTIMES = 235 => fs::sys_utimes(usize, usize);
     SYS_WAITID = 247 => proc::sys_waitid(i32, i32, usize, i32, usize);
+    SYS_KEYCTL = 250 => proc::sys_keyctl(i32, usize, usize, usize, usize);
     SYS_INOTIFY_INIT = 253 => fs::sys_inotify_init();
     SYS_INOTIFY_ADD_WATCH = 254 => fs::sys_inotify_add_watch(i32, usize, u32);
     SYS_INOTIFY_RM_WATCH = 255 => fs::sys_inotify_rm_watch(i32, i32);
@@ -250,6 +251,7 @@ crate::impl_syscall_nums_and_dispatch_fn! {
     SYS_PWRITEV = 296 => fs::sys_pwritev(i32, usize, usize, usize, usize);
     SYS_RECVMMSG = 299 => net::sys_recvmmsg(i32, usize, u32, i32, usize);
     SYS_PRLIMIT64 = 302 => proc::sys_prlimit64(i32, u32, usize, usize);
+    SYS_NAME_TO_HANDLE_AT = 303 => fs::sys_name_to_handle_at(i32, usize, usize, usize, i32);
     SYS_SYNCFS = 306 => fs::sys_syncfs(i32);
     SYS_SENDMMSG = 307 => net::sys_sendmmsg(i32, usize, u32, i32);
     SYS_SETNS = 308 => proc::sys_setns(i32, i32);

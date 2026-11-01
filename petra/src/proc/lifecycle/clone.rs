@@ -119,6 +119,7 @@ pub fn clone_proc(
         inner.environ = parent_inner.environ.clone();
         inner.no_new_privs = parent_inner.no_new_privs;
         inner.personality = parent_inner.personality;
+        inner.securebits = parent_inner.securebits;
         inner.cap_effective = parent_inner.cap_effective;
         inner.cap_permitted = parent_inner.cap_permitted;
         inner.cap_inheritable = parent_inner.cap_inheritable;

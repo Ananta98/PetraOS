@@ -254,3 +254,16 @@ pub fn sys_readlinkat(
 
     Ok(copy_len)
 }
+
+/// System call `name_to_handle_at(int dirfd, const char *pathname, struct file_handle *handle, int *mount_id, int flags)` (Syscall #303).
+pub fn sys_name_to_handle_at(
+    _dirfd: i32,
+    _path_ptr: usize,
+    _handle_ptr: usize,
+    _mount_id_ptr: usize,
+    _flags: i32,
+    _ctx: &mut UserContext,
+) -> Result<usize> {
+    Err(Errno::EOPNOTSUPP)
+}
+

@@ -14,8 +14,12 @@ const PR_SET_PDEATHSIG: i32 = 1;
 const PR_GET_PDEATHSIG: i32 = 2;
 const PR_GET_DUMPABLE: i32 = 3;
 const PR_SET_DUMPABLE: i32 = 4;
+const PR_GET_KEEPCAPS: i32 = 7;
+const PR_SET_KEEPCAPS: i32 = 8;
 const PR_SET_NAME: i32 = 15;
 const PR_GET_NAME: i32 = 16;
+const PR_GET_SECUREBITS: i32 = 27;
+const PR_SET_SECUREBITS: i32 = 28;
 const PR_SET_CHILD_SUBREAPER: i32 = 36;
 const PR_GET_CHILD_SUBREAPER: i32 = 37;
 const PR_SET_NO_NEW_PRIVS: i32 = 38;
@@ -98,6 +102,13 @@ pub fn sys_prctl(
             let no_new_privs = proc.inner.lock().no_new_privs as usize;
             Ok(no_new_privs)
         }
+        PR_GET_KEEPCAPS => Ok(0),
+        PR_SET_KEEPCAPS => Ok(0),
+        PR_SET_SECUREBITS => {
+            proc.inner.lock().securebits = arg2 as u32;
+            Ok(0)
+        }
+        PR_GET_SECUREBITS => Ok(proc.inner.lock().securebits as usize),
         _ => Err(Errno::EINVAL),
     }
 }
