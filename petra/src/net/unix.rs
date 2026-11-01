@@ -51,6 +51,7 @@ impl core::fmt::Debug for UnixListenerState {
 pub struct UnixDgramPacket {
     pub data: Vec<u8>,
     pub sender: Option<String>,
+    pub cred: Option<crate::uapi::cred::PeerCred>,
     pub files: Vec<Arc<crate::fs::vfs::File>>,
 }
 
@@ -188,7 +189,7 @@ mod tests {
         assert_eq!(sent, 7);
 
         let mut buf = [0u8; 16];
-        let (n, files) = s2.recv_with_ancillary(&mut buf, 0).expect("recv_with_ancillary");
+        let (n, files, _) = s2.recv_with_ancillary(&mut buf, 0).expect("recv_with_ancillary");
         assert_eq!(&buf[..n], b"with_fd");
         assert_eq!(files.len(), 1);
 

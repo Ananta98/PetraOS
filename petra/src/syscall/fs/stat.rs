@@ -299,7 +299,7 @@ pub fn sys_newfstatat(
             } else {
                 LookupFlags::empty()
             };
-            let root_node = crate::fs::root()?;
+            let root_node = proc.root()?;
             let path_node = crate::fs::lookup(root_node, start, &path, lookup_flags)?;
             path_node.dentry.get_inode().ok_or(Errno::ENOENT)?
         }
@@ -369,7 +369,7 @@ pub fn sys_statx(
             } else {
                 LookupFlags::empty()
             };
-            let root_node = crate::fs::root()?;
+            let root_node = proc.root()?;
             let path_node = crate::fs::lookup(root_node, start, &path, lookup_flags)?;
             path_node.dentry.get_inode().ok_or(Errno::ENOENT)?
         }

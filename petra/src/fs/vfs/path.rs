@@ -174,7 +174,10 @@ pub fn open_at(
     flags: OpenFlags,
     mode: super::inode::Mode,
 ) -> Result<Arc<File>> {
-    let root = super::mount::root()?;
+    let root = crate::proc::thread::Thread::current_proc()
+        .and_then(|p| p.root().ok())
+        .or_else(|| super::mount::root().ok())
+        .ok_or(Errno::ENOENT)?;
     let path_node = match lookup(root.clone(), start.clone(), path, LookupFlags::empty()) {
         Ok(node) => {
             if flags.contains(OpenFlags::CREATE) && flags.contains(OpenFlags::EXCL) {
@@ -235,7 +238,10 @@ pub fn open_at(
 
 /// Opens a file by path starting from the current process CWD or global VFS root.
 pub fn open(path: &str, flags: OpenFlags) -> Result<Arc<File>> {
-    let root = super::mount::root()?;
+    let root = crate::proc::thread::Thread::current_proc()
+        .and_then(|p| p.root().ok())
+        .or_else(|| super::mount::root().ok())
+        .ok_or(Errno::ENOENT)?;
     let start = if path.starts_with('/') {
         root.clone()
     } else if let Some(proc) = crate::proc::thread::Thread::current_proc() {

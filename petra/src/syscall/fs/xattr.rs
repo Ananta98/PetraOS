@@ -22,7 +22,7 @@ fn lookup_path(proc: &Arc<Proc>, path_ptr: usize, flags: LookupFlags) -> Result<
     if path.is_empty() {
         return Err(Errno::ENOENT);
     }
-    let root_node = crate::fs::root()?;
+    let root_node = proc.root()?;
     let start = resolve_at_start(proc, AT_FDCWD, &path)?;
     let path_node = crate::fs::lookup(root_node, start, &path, flags)?;
     let _ = path_node.dentry.get_inode().ok_or(Errno::ENOENT)?;

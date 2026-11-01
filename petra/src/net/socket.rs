@@ -136,6 +136,7 @@ pub struct KernelSocket {
     pub local_addr: Mutex<Option<SocketAddress>>,
     pub remote_addr: Mutex<Option<SocketAddress>>,
     pub peer_cred: Mutex<Option<crate::uapi::cred::PeerCred>>,
+    pub passcred: Mutex<bool>,
 }
 
 fn sleep_socket_waiter() {
@@ -183,6 +184,7 @@ impl KernelSocket {
             local_addr: Mutex::new(None),
             remote_addr: Mutex::new(None),
             peer_cred: Mutex::new(None),
+            passcred: Mutex::new(false),
         }))
     }
 
@@ -200,6 +202,7 @@ impl KernelSocket {
             local_addr: Mutex::new(None),
             remote_addr: Mutex::new(None),
             peer_cred: Mutex::new(None),
+            passcred: Mutex::new(false),
         }))
     }
 
@@ -221,6 +224,7 @@ impl KernelSocket {
             local_addr: Mutex::new(None),
             remote_addr: Mutex::new(None),
             peer_cred: Mutex::new(None),
+            passcred: Mutex::new(false),
         }))
     }
 
@@ -255,6 +259,7 @@ impl KernelSocket {
             local_addr: Mutex::new(None),
             remote_addr: Mutex::new(None),
             peer_cred: Mutex::new(current_cred),
+            passcred: Mutex::new(false),
         });
 
         let sock_b = Arc::new(Self {
@@ -268,6 +273,7 @@ impl KernelSocket {
             local_addr: Mutex::new(None),
             remote_addr: Mutex::new(None),
             peer_cred: Mutex::new(current_cred),
+            passcred: Mutex::new(false),
         });
 
         Ok((sock_a, sock_b))
@@ -287,6 +293,7 @@ impl KernelSocket {
             local_addr: Mutex::new(Some(SocketAddress::Netlink { pid: 0, groups: 0 })),
             remote_addr: Mutex::new(None),
             peer_cred: Mutex::new(None),
+            passcred: Mutex::new(false),
         }))
     }
 
@@ -303,6 +310,7 @@ impl KernelSocket {
             local_addr: Mutex::new(self.local_addr.lock().clone()),
             remote_addr: Mutex::new(self.remote_addr.lock().clone()),
             peer_cred: Mutex::new(*self.peer_cred.lock()),
+            passcred: Mutex::new(*self.passcred.lock()),
         }
     }
 
@@ -509,6 +517,7 @@ impl KernelSocket {
                                 my_path.as_ref().map(|p| SocketAddress::Unix(p.clone())),
                             ),
                             peer_cred: Mutex::new(client_cred),
+                            passcred: Mutex::new(*self.passcred.lock()),
                         });
                         *self.kind.lock() = SocketKind::Unix(client_end);
                         *self.remote_addr.lock() = Some(SocketAddress::Unix(path.clone()));
@@ -569,6 +578,7 @@ impl KernelSocket {
                             local_addr: Mutex::new(Some(SocketAddress::Inet(local))),
                             remote_addr: Mutex::new(Some(SocketAddress::Inet(remote))),
                             peer_cred: Mutex::new(None),
+                            passcred: Mutex::new(false),
                         });
 
                         *self.kind.lock() = SocketKind::Tcp(new_listen_handle);
@@ -941,8 +951,11 @@ impl KernelSocket {
 
                     if !is_peek {
                         let mut rx = state.rx_buf.lock();
-                        for (slot, byte) in buf.iter_mut().take(copy_len).zip(rx.drain(..copy_len)) {
-                            *slot = byte;
+                        let drain_len = nlmsg_len.min(rx.len());
+                        for (i, byte) in rx.drain(..drain_len).enumerate() {
+                            if i < copy_len {
+                                buf[i] = byte;
+                            }
                         }
                     } else {
                         let rx = state.rx_buf.lock();
@@ -1015,10 +1028,16 @@ impl KernelSocket {
                         SocketAddress::Unix(p) => Some(p),
                         _ => None,
                     });
+                    let current_cred = crate::proc::thread::Thread::current_proc().map(|p| crate::uapi::cred::PeerCred {
+                        pid: p.pid.as_u32(),
+                        uid: p.cred().cr_uid.as_u32(),
+                        gid: p.cred().cr_gid.as_u32(),
+                    });
                     if let SocketKind::UnixDgram(ref dgram) = *target_sock.kind.lock() {
                         dgram.rx_queue.lock().push_back(crate::net::unix::UnixDgramPacket {
                             data: data.to_vec(),
                             sender: my_path,
+                            cred: current_cred,
                             files: alloc::vec::Vec::new(),
                         });
                         dgram.wq.wake_all();
@@ -1135,14 +1154,15 @@ impl KernelSocket {
         &self,
         buf: &mut [u8],
         flags: i32,
-    ) -> Result<(usize, alloc::vec::Vec<Arc<crate::fs::vfs::File>>)> {
+    ) -> Result<(usize, alloc::vec::Vec<Arc<crate::fs::vfs::File>>, Option<crate::uapi::cred::PeerCred>)> {
         let kind = self.kind.lock().clone();
         match kind {
             SocketKind::Unix(ref end) => {
                 let n = self.recv(buf, flags)?;
                 let files: alloc::vec::Vec<Arc<crate::fs::vfs::File>> =
                     end.rx.files.lock().drain(..).collect();
-                Ok((n, files))
+                let cred = *self.peer_cred.lock();
+                Ok((n, files, cred))
             }
             SocketKind::UnixDgram(ref dgram) => {
                 let nonblocking = *self.nonblocking.lock() || (flags & 0x40) != 0;
@@ -1151,7 +1171,7 @@ impl KernelSocket {
                     if let Some(packet) = rx.pop_front() {
                         let n = buf.len().min(packet.data.len());
                         buf[..n].copy_from_slice(&packet.data[..n]);
-                        return Ok((n, packet.files));
+                        return Ok((n, packet.files, packet.cred));
                     }
                     if nonblocking {
                         return Err(Errno::EWOULDBLOCK);
@@ -1165,7 +1185,7 @@ impl KernelSocket {
             }
             _ => {
                 let n = self.recv(buf, flags)?;
-                Ok((n, alloc::vec::Vec::new()))
+                Ok((n, alloc::vec::Vec::new(), None))
             }
         }
     }
@@ -1191,10 +1211,16 @@ impl KernelSocket {
                     SocketAddress::Unix(p) => Some(p),
                     _ => None,
                 });
+                let current_cred = crate::proc::thread::Thread::current_proc().map(|p| crate::uapi::cred::PeerCred {
+                    pid: p.pid.as_u32(),
+                    uid: p.cred().cr_uid.as_u32(),
+                    gid: p.cred().cr_gid.as_u32(),
+                });
                 if let SocketKind::UnixDgram(ref dgram) = *target_sock.kind.lock() {
                     dgram.rx_queue.lock().push_back(crate::net::unix::UnixDgramPacket {
                         data: data.to_vec(),
                         sender: my_path,
+                        cred: current_cred,
                         files,
                     });
                     dgram.wq.wake_all();
@@ -1211,7 +1237,7 @@ impl KernelSocket {
         &self,
         buf: &mut [u8],
         flags: i32,
-    ) -> Result<(usize, Option<SocketAddress>, alloc::vec::Vec<Arc<crate::fs::vfs::File>>)> {
+    ) -> Result<(usize, Option<SocketAddress>, alloc::vec::Vec<Arc<crate::fs::vfs::File>>, Option<crate::uapi::cred::PeerCred>)> {
         let kind = self.kind.lock().clone();
         if let SocketKind::UnixDgram(ref dgram) = kind {
             let nonblocking = *self.nonblocking.lock() || (flags & 0x40) != 0;
@@ -1221,7 +1247,7 @@ impl KernelSocket {
                     let n = buf.len().min(packet.data.len());
                     buf[..n].copy_from_slice(&packet.data[..n]);
                     let addr = packet.sender.map(SocketAddress::Unix);
-                    return Ok((n, addr, packet.files));
+                    return Ok((n, addr, packet.files, packet.cred));
                 }
                 if nonblocking {
                     return Err(Errno::EWOULDBLOCK);
@@ -1234,7 +1260,7 @@ impl KernelSocket {
             }
         }
         let (n, addr) = self.recvfrom(buf, flags)?;
-        Ok((n, addr, alloc::vec::Vec::new()))
+        Ok((n, addr, alloc::vec::Vec::new(), None))
     }
 
     /// Shuts down all or part of a full-duplex connection.

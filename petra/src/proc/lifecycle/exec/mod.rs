@@ -88,7 +88,10 @@ pub fn read_executable_file(dirfd: i32, path: &str, flags: i32) -> Result<(Vec<u
         }
     }
 
-    let root = crate::fs::root()?;
+    let root = match Thread::current_proc() {
+        Some(proc) => proc.root().or_else(|_| crate::fs::root())?,
+        None => crate::fs::root()?,
+    };
     let start = if path.starts_with('/') {
         root.clone()
     } else if dirfd == AT_FDCWD {

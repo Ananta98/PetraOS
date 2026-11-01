@@ -391,13 +391,27 @@ configure_target_tree() {
         mkdir -p "${target_dir}/etc/systemd/system/console-getty.service.d"
         cat > "${target_dir}/etc/systemd/system/console-getty.service.d/override.conf" << 'EOF'
 [Unit]
-After=basic.target
-Wants=
-Requires=
+Description=Console Root Login Shell
+DefaultDependencies=no
+After=
+Conflicts=shutdown.target
 
 [Service]
+Type=simple
 ExecStart=
-ExecStart=-/sbin/agetty -o '-p -- \\u' --autologin root --noclear - 115200,38400,9600 $TERM
+ExecStart=-/bin/bash -l
+Restart=always
+StandardInput=tty
+StandardOutput=tty
+StandardError=tty
+TTYPath=/dev/console
+TTYReset=yes
+TTYVHangup=yes
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=HOME=/root
+Environment=USER=root
+Environment=LOGNAME=root
+Environment=TERM=linux
 EOF
 
         mkdir -p "${target_dir}/etc/systemd/system/getty@tty1.service.d"
@@ -429,6 +443,7 @@ EOF
                    systemd-integritysetup-generator \
                    systemd-veritysetup-generator \
                    systemd-cryptsetup-generator \
+                   systemd-gpt-auto-generator \
                    systemd-bless-boot-generator; do
             rm -f "${target_dir}/usr/lib/systemd/system-generators/${gen}"
         done
@@ -446,6 +461,11 @@ EOF
     if [ -x "${target_dir}/usr/bin/dnf-3" ] && [ ! -e "${target_dir}/usr/bin/yum" ]; then
         ln -sfn dnf-3 "${target_dir}/usr/bin/yum"
     fi
+
+    cat > "${target_dir}/etc/fstab" << 'EOF'
+# /etc/fstab: static file system information.
+/dev/sda    /    ext4    defaults,noatime    0 1
+EOF
 
     cat > "${target_dir}/etc/hosts" << 'EOF'
 127.0.0.1 localhost petraos

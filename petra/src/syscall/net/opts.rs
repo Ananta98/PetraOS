@@ -42,6 +42,18 @@ pub fn sys_setsockopt(
         UserPtr::new(optval_ptr).read_bytes(&vmar, &mut val[..copy_len])?;
     }
 
+    if level == SOL_SOCKET && optname == SO_PASSCRED {
+        let enabled = if optlen >= 4 {
+            u32::from_ne_bytes(val) != 0
+        } else if optlen > 0 {
+            val[0] != 0
+        } else {
+            false
+        };
+        *socket.passcred.lock() = enabled;
+        return Ok(0);
+    }
+
     let _ = (socket, level, optname);
     Ok(0)
 }
@@ -112,6 +124,7 @@ fn resolve_sockopt_val(socket: &crate::net::socket::KernelSocket, level: i32, op
         (SOL_SOCKET, SO_ERROR) => get_socket_error(socket),
         (SOL_SOCKET, SO_RCVBUF) => 1048576,
         (SOL_SOCKET, SO_SNDBUF) => 262144,
+        (SOL_SOCKET, SO_PASSCRED) => if *socket.passcred.lock() { 1 } else { 0 },
         (IPPROTO_TCP, TCP_NODELAY) => 1,
         _ => 0,
     }

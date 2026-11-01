@@ -168,7 +168,7 @@ macro_rules! impl_syscall_nums_and_dispatch_fn {
                 return;
             }
 
-            let pid_val = $crate::proc::thread::Thread::current_proc().map(|p| p.pid.as_u32()).unwrap_or(0);
+            let _pid_val = $crate::proc::thread::Thread::current_proc().map(|p| p.pid.as_u32()).unwrap_or(0);
             let res = match sys_no {
                 $(
                     $num => $crate::invoke_syscall_handler!($($handler)::+, args, ctx $(, $arg_ty)*),

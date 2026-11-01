@@ -61,7 +61,7 @@ pub fn sys_fchmodat2(
                 LookupFlags::empty()
             };
 
-            let root_node = crate::fs::root()?;
+            let root_node = proc.root()?;
             let path_node = crate::fs::lookup(root_node, start, &path, lookup_flags)?;
             path_node.dentry.get_inode().ok_or(Errno::ENOENT)?
         }
@@ -165,7 +165,7 @@ pub fn sys_fchownat(
             } else {
                 LookupFlags::empty()
             };
-            let root_node = crate::fs::root()?;
+            let root_node = proc.root()?;
             let path_node = crate::fs::lookup(root_node, start, &path, lookup_flags)?;
             path_node.dentry.get_inode().ok_or(Errno::ENOENT)?
         }
@@ -273,7 +273,7 @@ pub fn sys_utimensat(
             } else {
                 LookupFlags::empty()
             };
-            let root_node = crate::fs::root()?;
+            let root_node = proc.root()?;
             let path_node = crate::fs::lookup(root_node, start, &path, lookup_flags)?;
             path_node.dentry.get_inode().ok_or(Errno::ENOENT)?
         }
@@ -348,7 +348,7 @@ pub fn sys_futimesat(
             }
         } else {
             let start = resolve_at_start(&proc, dirfd, &path)?;
-            let root_node = crate::fs::root()?;
+            let root_node = proc.root()?;
             let path_node = crate::fs::lookup(root_node, start, &path, LookupFlags::empty())?;
             path_node.dentry.get_inode().ok_or(Errno::ENOENT)?
         }
@@ -404,7 +404,7 @@ pub fn sys_utime(path_ptr: usize, times_ptr: usize, _ctx: &mut UserContext) -> R
         return Err(Errno::ENOENT);
     }
     let start = resolve_at_start(&proc, AT_FDCWD, &path)?;
-    let root_node = crate::fs::root()?;
+    let root_node = proc.root()?;
     let path_node = crate::fs::lookup(root_node, start, &path, LookupFlags::empty())?;
     let inode = path_node.dentry.get_inode().ok_or(Errno::ENOENT)?;
 

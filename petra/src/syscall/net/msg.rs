@@ -124,13 +124,18 @@ pub fn sys_recvmsg(fd: i32, msg_ptr: usize, flags: i32, _ctx: &mut UserContext) 
     let iovecs = read_user_iovecs(&vmar, msghdr.msg_iov, msghdr.msg_iovlen)?;
     let is_trunc = (flags & 0x20) != 0;
     if iovecs.is_empty() && !is_trunc {
+        msghdr.msg_namelen = 0;
+        msghdr.msg_controllen = 0;
+        msghdr.msg_flags = 0;
+        msghdr.write_results_to_user(&vmar, msg_ptr)?;
         return Ok(0);
     }
 
-    if socket.sock_type == SOCK_DGRAM {
+    let (total_recv, endpoint_opt, received_files, received_cred) = if socket.sock_type == SOCK_DGRAM {
         let total_cap: usize = iovecs.iter().map(|iov| iov.iov_len).sum();
         let mut kbuf = alloc::vec![0u8; total_cap.min(65536)];
-        let (nrecv, endpoint_opt, received_files) = socket.recvfrom_with_ancillary(&mut kbuf, flags)?;
+        let (nrecv, endpoint_opt, received_files, received_cred) =
+            socket.recvfrom_with_ancillary(&mut kbuf, flags)?;
 
         // Scatter received datagram bytes into user iovecs
         let mut offset = 0;
@@ -144,26 +149,16 @@ pub fn sys_recvmsg(fd: i32, msg_ptr: usize, flags: i32, _ctx: &mut UserContext) 
                 offset += to_write;
             }
         }
-
-        if msghdr.msg_name != 0
-            && msghdr.msg_namelen > 0
-            && let Some(endpoint) = endpoint_opt
-        {
-            let _ = write_sockaddr(&proc, endpoint, msghdr.msg_name, msg_ptr + 8);
-        }
-
-        msghdr.msg_flags = 0;
-        write_control_files(&proc, &vmar, &mut msghdr, received_files)?;
-        msghdr.write_results_to_user(&vmar, msg_ptr)?;
-
-        Ok(nrecv)
+        (nrecv, endpoint_opt, received_files, received_cred)
     } else {
         let mut total_recv = 0;
         let mut all_received_files = alloc::vec::Vec::new();
+        let mut stream_cred = None;
         if iovecs.is_empty() && is_trunc {
             let mut empty = [];
-            let (n, files) = socket.recv_with_ancillary(&mut empty, flags)?;
+            let (n, files, cred) = socket.recv_with_ancillary(&mut empty, flags)?;
             all_received_files = files;
+            stream_cred = cred;
             total_recv = n;
         } else {
             for (i, iov) in iovecs.iter().enumerate() {
@@ -172,8 +167,9 @@ pub fn sys_recvmsg(fd: i32, msg_ptr: usize, flags: i32, _ctx: &mut UserContext) 
                 }
                 let mut chunk = alloc::vec![0u8; iov.iov_len.min(65536)];
                 let n = if i == 0 {
-                    let (received_bytes, files) = socket.recv_with_ancillary(&mut chunk, flags)?;
+                    let (received_bytes, files, cred) = socket.recv_with_ancillary(&mut chunk, flags)?;
                     all_received_files = files;
+                    stream_cred = cred;
                     received_bytes
                 } else {
                     socket.recv(&mut chunk, flags)?
@@ -188,31 +184,35 @@ pub fn sys_recvmsg(fd: i32, msg_ptr: usize, flags: i32, _ctx: &mut UserContext) 
                 }
             }
         }
+        (total_recv, None, all_received_files, stream_cred)
+    };
 
-        if msghdr.msg_name != 0 && msghdr.msg_namelen > 0 {
-            let peer = if socket.domain == crate::net::socket::AF_NETLINK {
-                Ok(crate::net::socket::SocketAddress::Netlink { pid: 0, groups: 0 })
-            } else {
-                socket.getpeername()
-            };
-            if let Ok(peer) = peer {
-                let _ = write_sockaddr(&proc, peer, msghdr.msg_name, msg_ptr + 8);
-                if let Ok(actual_len) = UserPtr::new(msg_ptr + 8).read_val::<u32>(&vmar) {
-                    msghdr.msg_namelen = actual_len;
-                }
-            } else {
-                msghdr.msg_namelen = 0;
+    if msghdr.msg_name != 0 && msghdr.msg_namelen > 0 {
+        let peer = if socket.domain == crate::net::socket::AF_NETLINK {
+            Ok(crate::net::socket::SocketAddress::Netlink { pid: 0, groups: 0 })
+        } else if let Some(endpoint) = endpoint_opt {
+            Ok(endpoint)
+        } else {
+            socket.getpeername()
+        };
+        if let Ok(peer) = peer {
+            let _ = write_sockaddr(&proc, peer, msghdr.msg_name, msg_ptr + 8);
+            if let Ok(actual_len) = UserPtr::new(msg_ptr + 8).read_val::<u32>(&vmar) {
+                msghdr.msg_namelen = actual_len;
             }
         } else {
             msghdr.msg_namelen = 0;
         }
-
-        msghdr.msg_flags = 0;
-        write_control_files(&proc, &vmar, &mut msghdr, all_received_files)?;
-        msghdr.write_results_to_user(&vmar, msg_ptr)?;
-
-        Ok(total_recv)
+    } else {
+        msghdr.msg_namelen = 0;
     }
+
+    msghdr.msg_flags = 0;
+    let write_cred = *socket.passcred.lock() || (socket.domain == crate::net::socket::AF_UNIX && received_cred.is_some());
+    write_control_messages(&proc, &vmar, &mut msghdr, received_files, received_cred, write_cred)?;
+    msghdr.write_results_to_user(&vmar, msg_ptr)?;
+
+    Ok(total_recv)
 }
 
 /// Reads attached file descriptors from `msghdr.msg_control` carrying `SCM_RIGHTS`.
@@ -263,20 +263,28 @@ fn parse_control_files(
     Ok(attached_files)
 }
 
-/// Formats received file descriptors into `msghdr.msg_control` as an `SCM_RIGHTS` control message.
-fn write_control_files(
+/// Formats received file descriptors (`SCM_RIGHTS`) and process credentials (`SCM_CREDENTIALS`)
+/// into `msghdr.msg_control`.
+fn write_control_messages(
     proc: &alloc::sync::Arc<crate::proc::Proc>,
     vmar: &alloc::sync::Arc<crate::vm::Vmar>,
     msghdr: &mut MsgHdr,
     files: alloc::vec::Vec<alloc::sync::Arc<crate::fs::vfs::File>>,
+    cred_opt: Option<crate::uapi::cred::PeerCred>,
+    write_cred: bool,
 ) -> Result<()> {
-    if files.is_empty() {
+    if msghdr.msg_control == 0 || msghdr.msg_controllen == 0 {
         msghdr.msg_controllen = 0;
         return Ok(());
     }
 
+    let user_cap = msghdr.msg_controllen;
+    let mut written_bytes = 0;
+    let mut truncated = false;
+
+    // 1. Allocate new FDs for any received files
     let mut new_fds = alloc::vec::Vec::with_capacity(files.len());
-    {
+    if !files.is_empty() {
         let mut fd_table = proc.fd_table.lock();
         for file in files {
             let new_fd = fd_table.alloc_fd(file, crate::fs::fd::FdFlags::empty())?;
@@ -284,33 +292,68 @@ fn write_control_files(
         }
     }
 
-    let required_len = 16 + new_fds.len() * 4;
-    let user_cap = msghdr.msg_controllen;
-    if msghdr.msg_control != 0 && user_cap >= 16 {
-        let to_write_len = required_len.min(user_cap);
-        let mut hdr = [0u8; 16];
-        hdr[0..8].copy_from_slice(&to_write_len.to_ne_bytes());
-        hdr[8..12].copy_from_slice(&1i32.to_ne_bytes()); // SOL_SOCKET
-        hdr[12..16].copy_from_slice(&1i32.to_ne_bytes()); // SCM_RIGHTS
-        UserPtr::new(msghdr.msg_control).write_bytes(vmar, &hdr)?;
+    // 2. Write SCM_RIGHTS if any files
+    if !new_fds.is_empty() {
+        if written_bytes + 16 <= user_cap {
+            let max_fds = (user_cap - (written_bytes + 16)) / 4;
+            let copy_fds = new_fds.len().min(max_fds);
+            let unpadded_len = 16 + copy_fds * 4;
+            let aligned_len = (unpadded_len + 7) & !7;
 
-        let max_fds = (user_cap - 16) / 4;
-        let copy_fds = new_fds.len().min(max_fds);
-        for (i, fd) in new_fds.iter().take(copy_fds).enumerate() {
-            UserPtr::new(msghdr.msg_control + 16 + i * 4).write_bytes(vmar, &fd.to_ne_bytes())?;
-        }
+            let mut hdr = [0u8; 16];
+            hdr[0..8].copy_from_slice(&(16 + new_fds.len() * 4).to_ne_bytes());
+            hdr[8..12].copy_from_slice(&1i32.to_ne_bytes()); // SOL_SOCKET
+            hdr[12..16].copy_from_slice(&1i32.to_ne_bytes()); // SCM_RIGHTS
+            UserPtr::new(msghdr.msg_control + written_bytes).write_bytes(vmar, &hdr)?;
 
-        if required_len > user_cap {
-            msghdr.msg_flags |= 0x20; // MSG_CTRUNC
-            msghdr.msg_controllen = to_write_len;
+            for (i, fd) in new_fds.iter().take(copy_fds).enumerate() {
+                UserPtr::new(msghdr.msg_control + written_bytes + 16 + i * 4)
+                    .write_bytes(vmar, &fd.to_ne_bytes())?;
+            }
+
+            if copy_fds < new_fds.len() {
+                truncated = true;
+            }
+
+            written_bytes += aligned_len.min(user_cap - written_bytes);
         } else {
-            msghdr.msg_controllen = required_len;
+            truncated = true;
         }
-    } else {
-        msghdr.msg_controllen = 0;
-        msghdr.msg_flags |= 0x20; // MSG_CTRUNC
     }
 
+    // 3. Write SCM_CREDENTIALS if requested
+    if write_cred && let Some(cred) = cred_opt {
+        const CMSG_LEN_UCRED: usize = 28; // 16 hdr + 12 ucred
+        const CMSG_SPACE_UCRED: usize = 32; // aligned to 8
+        if written_bytes + 16 <= user_cap {
+            let space_left = user_cap - written_bytes;
+            if space_left >= CMSG_LEN_UCRED {
+                let mut hdr = [0u8; 16];
+                hdr[0..8].copy_from_slice(&CMSG_LEN_UCRED.to_ne_bytes());
+                hdr[8..12].copy_from_slice(&1i32.to_ne_bytes()); // SOL_SOCKET
+                hdr[12..16].copy_from_slice(&2i32.to_ne_bytes()); // SCM_CREDENTIALS
+                UserPtr::new(msghdr.msg_control + written_bytes).write_bytes(vmar, &hdr)?;
+
+                let mut raw_cred = [0u8; 12];
+                raw_cred[0..4].copy_from_slice(&cred.pid.to_ne_bytes());
+                raw_cred[4..8].copy_from_slice(&cred.uid.to_ne_bytes());
+                raw_cred[8..12].copy_from_slice(&cred.gid.to_ne_bytes());
+                UserPtr::new(msghdr.msg_control + written_bytes + 16).write_bytes(vmar, &raw_cred)?;
+
+                let advance = CMSG_SPACE_UCRED.min(space_left);
+                written_bytes += advance;
+            } else {
+                truncated = true;
+            }
+        } else {
+            truncated = true;
+        }
+    }
+
+    if truncated {
+        msghdr.msg_flags |= 0x20; // MSG_CTRUNC
+    }
+    msghdr.msg_controllen = written_bytes;
     Ok(())
 }
 
