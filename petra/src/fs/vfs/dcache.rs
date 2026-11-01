@@ -92,7 +92,7 @@ impl DEntry {
     /// Adds a child to the cache, pruning negative dentries if memory limit is reached.
     pub fn add_child(&self, child: Arc<DEntry>) {
         let mut children = self.children.write();
-        if children.len() >= 2048 {
+        if children.len() >= 8192 {
             children.retain(|_, d| !d.is_not_present());
         }
         children.insert(child.name.clone(), child);
