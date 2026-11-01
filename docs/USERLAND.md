@@ -1,72 +1,59 @@
 # PetraOS Userland Build & Packaging Guide
 
-This document describes the userspace architecture, package provisioning workflow, EPEL repository integration, and rootfs image generation for **PetraOS**.
+This document describes the userspace architecture, package provisioning workflow, and rootfs image generation for **PetraOS**.
 
 ---
 
 ## 1. Overview
 
-PetraOS uses a hybrid two-tier userspace model based on **Rocky Linux 9 (x86_64)**:
+PetraOS uses a hybrid two-tier userspace model based on **Alpine Linux minirootfs (x86_64)** with postmarketOS packages:
 
 1. **In-Memory Boot Initramfs (`build/initramfs.cpio`)**:
-   - Lightweight CPIO archive containing the PID 1 `/init` script, essential core utilities (`bash`, `coreutils`, `mount`, `chroot`), OpenRC binaries (`openrc`, `openrc-init`, `rc-service`), and dynamically resolved ELF shared libraries (`libc`, `librc`, etc.).
-   - Mounts pseudo-filesystems (`/proc`, `/sys`, `/dev`, `/run`), detects block storage (`/dev/sda` / `/dev/vda`), mounts ext4 rootfs to `/sysroot`, and transitions to OpenRC or an interactive shell.
+   - Lightweight CPIO archive containing the PID 1 `/init` script, essential core utilities (`busybox`), dynamic linker (`ld-musl-x86_64.so.1`), and recovery shell fallback.
+   - Mounts pseudo-filesystems (`/proc`, `/sys`, `/dev`, `/run`), detects block storage (`/dev/sda` / `/dev/vda`), mounts the ext4 rootfs to `/sysroot`, prepares nested devpts/sysfs/procfs, and transitions into the full Alpine rootfs environment.
 
 2. **Full Rootfs Block Image (`build/ext4.img`)**:
-   - Complete 2 GB ext4 filesystem image populated with standard Rocky Linux 9 distribution packages, OpenRC init system, compiler toolchain (`gcc`, `g++`, `make`, `gdb`), scripting runtimes (`python3`, `lua`), system utilities, and EPEL packages such as `fastfetch`.
+   - Complete ext4 filesystem image populated with standard Alpine Linux minirootfs base, `postmarketos-base`, OpenRC init system, `bash`, `python3`, `btop`, `e2fsprogs`, and `exfatprogs`.
 
 ---
 
-## 2. EPEL Repository & Fastfetch
+## 2. Rootfs Packages & Repositories
 
-### Why EPEL?
-Rocky Linux base repositories contain enterprise-grade server packages. Community system utilities, modern system-information tools (like `fastfetch`), and development tools reside in the **Extra Packages for Enterprise Linux (EPEL)** repository.
+The userland build script (`scripts/build-userland/build-userland-amd64.sh`) uses static APK (`apk.static`) to provision packages without requiring host root privileges.
 
-### Configuration in `build-userland-amd64.sh`
-The builder automatically provisions `epel-release` before attempting to install EPEL-specific packages:
+### Configured Repositories
+- PostmarketOS (`https://mirror.postmarketos.org/postmarketos/v24.06`)
+- Alpine Linux Main (`https://dl-cdn.alpinelinux.org/alpine/v3.20/main`)
+- Alpine Linux Community (`https://dl-cdn.alpinelinux.org/alpine/v3.20/community`)
 
-```bash
-# 1. Ensure EPEL repository metadata is enabled
-unshare -r chroot "${ROOTFS_STAGING}" /usr/bin/dnf install -y \
-    --setopt=tsflags=nodocs \
-    --setopt=install_weak_deps=False \
-    --nogpgcheck \
-    epel-release
-
-# 2. Install packages including fastfetch from EPEL and build tools from CRB
-DEFAULT_ROOTFS_PACKAGES=(
-    gcc gcc-c++ gdb make binutils
-    file which findutils diffutils
-    procps-ng iproute less nano
-    tar gzip xz bzip2
-    libcap-devel meson ninja-build
-    python3 lua
-    epel-release fastfetch
-)
-```
+### Installed Packages
+- `postmarketos-base`
+- `bash`
+- `python3`
+- `btop`
+- `e2fsprogs`
+- `exfatprogs`
 
 ---
 
 ## 3. Building the Userland
 
 ### Prerequisites
-The host system requires:
-- `bash`, `tar`, `xz`, `cpio`, `mke2fs` (`e2fsprogs`), `unshare` (`util-linux`)
-- Internet connectivity to fetch the Rocky Linux base container and DNF package metadata
+The host system requires (Ubuntu / Ubuntu on WSL):
+- `bash`, `curl`, `tar`, `file`, `cpio`, `mke2fs` (`e2fsprogs`)
+- Internet connectivity to fetch Alpine minirootfs and package archives.
 
 ### Running the Builder
 Run the userland assembly script from the repository root:
 
 ```bash
-# Full build: downloads Rocky Linux 9 base, installs DNF packages (including epel-release and fastfetch),
-# copies ELF dependencies, and creates build/initramfs.cpio and build/ext4.img
+# Assembles the Alpine-based userland, staging directories, and images
 bash scripts/build-userland/build-userland-amd64.sh
 ```
 
 ### Useful Options:
-- `--fresh`: Cleans staging directories and downloads fresh upstream images.
-- `--no-cache`: Re-downloads package metadata without using local DNF cache.
-- `--skip-rootfs`: Skips package provisioning if the rootfs staging directory is already prepared.
+- `--fresh`: Cleans staging directories and rebuilds userland from scratch.
+- `--purge-cache`: Combined with `--fresh`, removes cached tarballs and packages before re-downloading.
 
 ---
 
@@ -79,35 +66,12 @@ bash scripts/build-initramfs.sh
 ```
 
 This generates:
-- `build/initramfs.cpio`: Boot CPIO image passed via `OSDK.toml` (`initramfs = "build/initramfs.cpio"`).
-- `build/ext4.img`: 2 GB ext4 disk image attached to AHCI bus in QEMU.
+- `build/initramfs.cpio`: Boot CPIO image configured in `OSDK.toml` (`initramfs = "build/initramfs.cpio"`).
+- `build/ext4.img`: ext4 disk image attached to the AHCI bus in QEMU.
 
 ---
 
-## 5. Running Fastfetch in PetraOS
-
-Once PetraOS boots into the interactive console:
-
-```bash
-# Execute fastfetch to inspect system information, kernel version, and hardware specs
-fastfetch
-```
-
-Output highlights:
-- **OS**: PetraOS (Rocky Linux 9)
-- **Kernel**: PetraOS (x86_64)
-- **Shell**: GNU bash
-- **Uptime & Memory**: Reported from PetraOS `/proc` and sysfs subsystems.
-
-You can also install additional EPEL packages live at runtime whenever networking is enabled:
-```bash
-dnf install -y <package-name>
-```
-
----
-
-## 6. Maintenance & Attribution
+## 5. Maintenance & Attribution
 
 * All build scripts and configuration updates maintain strict human maintainer attribution (`git config user.name` / `user.email`).
-* Kernel build checks (`cargo osdk check` and `cargo osdk build`) must always pass with exit code `0` when updating userland configuration or sysfs/VFS hooks.
-
+* Kernel build checks (`cargo osdk check` and `cargo osdk build`) must always pass with exit code `0`.
