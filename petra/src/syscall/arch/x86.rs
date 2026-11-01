@@ -158,6 +158,7 @@ crate::impl_syscall_nums_and_dispatch_fn! {
     SYS_SETRLIMIT = 160 => proc::sys_setrlimit(u32, usize);
     SYS_CHROOT = 161 => fs::sys_chroot(usize);
     SYS_SYNC = 162 => fs::sys_sync();
+    SYS_SETTIMEOFDAY = 164 => time::sys_settimeofday(usize, usize);
     SYS_MOUNT = 165 => fs::sys_mount(usize, usize, usize, usize, usize);
     SYS_UMOUNT2 = 166 => fs::sys_umount2(usize, i32);
     SYS_SWAPON = 167 => mm::sys_swapon(usize, i32);
