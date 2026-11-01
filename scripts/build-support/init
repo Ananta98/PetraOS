@@ -42,9 +42,13 @@ spawn_userspace_shell() {
     local target_root="$1"
     shift
 
-    # Unpack OSDK init_args ("sh", "-l", ...) if additional command was supplied
-    if [ "$1" = "sh" ] && [ "$2" = "-l" ] && [ $# -gt 2 ]; then
-        shift 2
+    # Unpack OSDK init_args ("sh", "-l")
+    if [ "$1" = "sh" ]; then
+        if [ "$2" = "-l" ]; then
+            shift 2
+        else
+            shift 1
+        fi
     fi
 
     if [ -n "$target_root" ] && [ "$target_root" != "/" ]; then
@@ -62,16 +66,10 @@ spawn_userspace_shell() {
             exec $chroot_bin "$target_root" "$@" || echo "[init] chroot command failed: $?"
         fi
 
-        # Primary initialization: Launch OpenRC if present, fallback to init
-        if [ -x "$target_root/sbin/openrc-init" ]; then
-            echo "[init] Launching OpenRC as primary initialization (/sbin/openrc-init)..."
-            exec $chroot_bin "$target_root" /sbin/openrc-init || echo "[init] OpenRC execution failed, falling back to shell..."
-        elif [ -x "$target_root/sbin/init" ]; then
-            echo "[init] Launching init as primary initialization (/sbin/init)..."
-            exec $chroot_bin "$target_root" /sbin/init || echo "[init] init execution failed, falling back to shell..."
-        elif [ -x "$target_root/usr/lib/systemd/systemd" ]; then
-            echo "[init] Launching systemd fallback (/usr/lib/systemd/systemd)..."
-            exec $chroot_bin "$target_root" /usr/lib/systemd/systemd || echo "[init] systemd execution failed, falling back to shell..."
+        # Start OpenRC service manager non-interactively if present
+        if [ -x "$target_root/sbin/openrc" ]; then
+            echo "[init] Starting OpenRC system services..."
+            $chroot_bin "$target_root" /sbin/openrc default || true
         fi
 
         if [ -x "$target_root/bin/bash" ] || [ -x "$target_root/usr/bin/bash" ]; then
@@ -87,16 +85,10 @@ spawn_userspace_shell() {
             exec "$@"
         fi
 
-        # Primary initialization: Launch OpenRC if present in current root
-        if [ -x /sbin/openrc-init ]; then
-            echo "[init] Launching OpenRC as primary initialization (/sbin/openrc-init)..."
-            exec /sbin/openrc-init || echo "[init] OpenRC execution failed, falling back to shell..."
-        elif [ -x /sbin/init ]; then
-            echo "[init] Launching init as primary initialization (/sbin/init)..."
-            exec /sbin/init || echo "[init] init execution failed, falling back to shell..."
-        elif [ -x /usr/lib/systemd/systemd ]; then
-            echo "[init] Launching systemd fallback (/usr/lib/systemd/systemd)..."
-            exec /usr/lib/systemd/systemd || echo "[init] systemd execution failed, falling back to shell..."
+        # Start OpenRC service manager non-interactively if present in current root
+        if [ -x /sbin/openrc ]; then
+            echo "[init] Starting OpenRC system services..."
+            /sbin/openrc default || true
         fi
 
         if [ -x /bin/bash ]; then

@@ -446,9 +446,12 @@ configure_target_tree() {
         mkdir -p "${target_dir}/etc/conf.d"
         cat > "${target_dir}/etc/rc.conf" << 'EOF'
 # /etc/rc.conf: OpenRC system configuration for PetraOS
-rc_parallel="YES"
-rc_sys=""
+rc_parallel="NO"
+rc_sys="docker"
 unicode="YES"
+rc_controller_cgroups="NO"
+rc_cgroup_mode="none"
+rc_interactive="NO"
 rc_crashed_stop=NO
 rc_crashed_start=YES
 rc_logger="NO"
@@ -462,12 +465,10 @@ EOF
 
         mkdir -p "${target_dir}/etc/runlevels"/{sysinit,boot,default,shutdown,nonetwork}
 
-        if [ -f "${target_dir}/etc/init.d/agetty" ]; then
-            ln -sfn agetty "${target_dir}/etc/init.d/agetty.console"
-            ln -sfn agetty "${target_dir}/etc/init.d/agetty.tty1"
-            ln -sfn /etc/init.d/agetty.console "${target_dir}/etc/runlevels/default/agetty.console"
-            ln -sfn /etc/init.d/agetty.tty1 "${target_dir}/etc/runlevels/default/agetty.tty1"
-        fi
+        # Clear hardware/conflicting services since PetraOS /init pre-mounts /dev, /proc, /sys
+        rm -f "${target_dir}/etc/runlevels/sysinit"/*
+        rm -f "${target_dir}/etc/runlevels/boot"/{cgroups,devfs,sysfs,network,staticroute,fsck,keymaps,save-keymaps,save-termencoding,hwclock,binfmt,modules,swap}
+        rm -f "${target_dir}/etc/runlevels/default"/{agetty*,netmount}
 
         # Symlink /sbin/init to openrc-init if present
         if [ -x "${target_dir}/sbin/openrc-init" ]; then
@@ -582,6 +583,9 @@ if [ -f ~/.bashrc ]; then
 fi
 export PATH=${DEFAULT_PATH}
 export PS1='petraos:\w# '
+if command -v fastfetch >/dev/null 2>&1; then
+    fastfetch --pipe false 2>/dev/null || true
+fi
 EOF
 
     cat > "${target_dir}/root/.bashrc" << EOF
