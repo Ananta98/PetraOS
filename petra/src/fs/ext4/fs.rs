@@ -2040,9 +2040,9 @@ impl FileOps for Ext4FileOps {
         let raw = fs.read_inode(self.ino)?;
         let mut prev = self.ra_prev_pos.lock();
         let mut win = self.ra_window.lock();
-        if offset == *prev && *prev > 0 {
-            *win = (*win * 2).min(128);
-        } else if offset != *prev {
+        if offset == *prev {
+            *win = (*win * 2).min(32);
+        } else {
             *win = 4;
         }
         let ra_count = *win;
@@ -2075,8 +2075,6 @@ impl FileOps for Ext4FileOps {
     }
 
     fn fsync(&self, _datasync: bool) -> Result<()> {
-        let _g = self.fs.ops_lock.lock();
-        self.fs.flush_dirty_blocks(true)?;
         self.fs.sync_all()
     }
 }
