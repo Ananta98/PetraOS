@@ -157,7 +157,7 @@ impl Ext4Fs {
 
         {
             let mut cache = self.inode_cache.write();
-            if cache.len() >= 2048 {
+            if cache.len() >= 16384 {
                 if let Some(first_key) = cache.keys().next().copied() {
                     cache.remove(&first_key);
                 }
@@ -194,7 +194,7 @@ impl Ext4Fs {
 
         {
             let mut cache = self.inode_cache.write();
-            if cache.len() >= 2048 {
+            if cache.len() >= 16384 {
                 if let Some(first_key) = cache.keys().next().copied() {
                     cache.remove(&first_key);
                 }
@@ -594,7 +594,7 @@ impl Ext4Fs {
                         buf[written..written + take].copy_from_slice(&blk[rel..rel + take]);
                         let blk_arc = Arc::new(blk);
                         let mut bcache = self.block_cache.write();
-                        if bcache.len() >= 2048 {
+                        if bcache.len() >= 16384 {
                             if let Some(first_key) = bcache.keys().next().copied() {
                                 bcache.remove(&first_key);
                             }
@@ -613,7 +613,7 @@ impl Ext4Fs {
                                 let mut next_blk = vec![0u8; self.block_size];
                                 if self.read_fs_block(next_phys, &mut next_blk).is_ok() {
                                     let mut bcache = self.block_cache.write();
-                                    if bcache.len() >= 2048 {
+                                    if bcache.len() >= 16384 {
                                         if let Some(first_key) = bcache.keys().next().copied() {
                                             bcache.remove(&first_key);
                                         }
@@ -672,7 +672,7 @@ impl Ext4Fs {
 
             {
                 let mut bcache = self.block_cache.write();
-                if bcache.len() >= 2048 {
+                if bcache.len() >= 16384 {
                     if let Some(first_key) = bcache.keys().next().copied() {
                         bcache.remove(&first_key);
                     }
@@ -940,7 +940,7 @@ impl Ext4Fs {
 
             {
                 let mut bcache = self.block_cache.write();
-                if bcache.len() >= 2048 {
+                if bcache.len() >= 16384 {
                     if let Some(first_key) = bcache.keys().next().copied() {
                         bcache.remove(&first_key);
                     }
@@ -1036,6 +1036,7 @@ impl Ext4Fs {
         let free = sb.free_blocks_count();
         let reserved = sb.r_blocks_count();
         StatFs {
+            f_type: 0xef53,
             bsize: self.block_size as u64,
             blocks: total,
             bfree: free,
@@ -1356,8 +1357,7 @@ impl NodeOps for Ext4Node {
         if raw.is_indexed_dir() {
             match fs.htree_lookup(self.ino, &raw, name)? {
                 super::htree::HtreeResult::Found(child, _) => return fs.node_for(child),
-                super::htree::HtreeResult::NotFound => return Err(Errno::ENOENT),
-                super::htree::HtreeResult::Fallback => {}
+                super::htree::HtreeResult::NotFound | super::htree::HtreeResult::Fallback => {}
             }
         }
 

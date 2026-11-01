@@ -67,6 +67,7 @@ impl FileSystem for SysFs {
 
     fn statfs(&self) -> Result<StatFs> {
         Ok(StatFs {
+            f_type: 0x6265_6572,
             bsize: 4096,
             blocks: 0,
             bfree: 0,

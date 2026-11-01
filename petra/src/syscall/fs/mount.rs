@@ -107,7 +107,7 @@ pub fn sys_mount(
         "proc" | "procfs" => Arc::new(ProcFs::new()),
         "sysfs" | "sys" => Arc::new(SysFs::new()),
         "tmpfs" | "ramfs" => Arc::new(TmpFs::new()),
-        "devfs" => Arc::new(DevFs::new()),
+        "devfs" | "devtmpfs" => Arc::new(DevFs::new()),
         "devpts" => Arc::new(TmpFs::new()),
         "cgroup" | "cgroup2" => Arc::new(crate::fs::Cgroup2Fs::new()),
         "ext4" | "exfat" => {

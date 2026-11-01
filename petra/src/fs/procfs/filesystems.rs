@@ -21,6 +21,7 @@ impl ProcFileOps for FileSystemsFileOps {
     fn generate_content(&self) -> Vec<u8> {
         b"\
 nodev\tdevfs
+nodev\tdevtmpfs
 nodev\tproc
 nodev\tsysfs
 nodev\ttmpfs

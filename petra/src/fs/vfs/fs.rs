@@ -9,6 +9,8 @@ use alloc::sync::Arc;
 /// Filesystem-wide statistics, as reported by `statfs(2)`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct StatFs {
+    /// Linux filesystem magic type number.
+    pub f_type: i64,
     /// Filesystem block size.
     pub bsize: u64,
     /// Total data blocks.

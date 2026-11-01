@@ -41,6 +41,8 @@ DEFAULT_ROOTFS_PACKAGES=(
     file which findutils diffutils
     procps-ng iproute less nano
     tar gzip xz bzip2
+    systemd systemd-udev dbus
+    python3 lua
 )
 
 # Essential binaries staged into the in-memory boot initramfs (initramfs.cpio)
@@ -50,6 +52,7 @@ DEFAULT_INITRAMFS_TOOLS=(
     cat cp mv rm ln mkdir rmdir chmod chown touch
     echo head tail grep sed awk cut find file which
     uname sleep true false dmesg sync
+    systemctl poweroff reboot
 )
 
 usage() {
@@ -374,6 +377,51 @@ configure_target_tree() {
     fi
     if [ -x "${target_dir}/usr/bin/python3" ] && [ ! -e "${target_dir}/usr/bin/python" ]; then
         ln -sfn python3 "${target_dir}/usr/bin/python"
+    fi
+    if [ -x "${target_dir}/usr/bin/lua" ] && [ ! -e "${target_dir}/usr/bin/lua5.4" ]; then
+        ln -sfn lua "${target_dir}/usr/bin/lua5.4"
+    fi
+
+    # Configure systemd default target to multi-user for console/terminal boot
+    if [ -d "${target_dir}/usr/lib/systemd/system" ]; then
+        mkdir -p "${target_dir}/etc/systemd/system"
+        ln -sfn /usr/lib/systemd/system/multi-user.target "${target_dir}/etc/systemd/system/default.target"
+
+        # Autologin root on console and tty1
+        mkdir -p "${target_dir}/etc/systemd/system/console-getty.service.d"
+        cat > "${target_dir}/etc/systemd/system/console-getty.service.d/override.conf" << 'EOF'
+[Service]
+ExecStart=
+ExecStart=-/sbin/agetty --autologin root --noclear --keep-baud 115200,38400,9600 console $TERM
+EOF
+
+        mkdir -p "${target_dir}/etc/systemd/system/getty@tty1.service.d"
+        cat > "${target_dir}/etc/systemd/system/getty@tty1.service.d/override.conf" << 'EOF'
+[Service]
+ExecStart=
+ExecStart=-/sbin/agetty -o '-p -- \\u' --autologin root --noclear %I $TERM
+EOF
+
+        mkdir -p "${target_dir}/etc/systemd/system/getty.target.wants"
+        ln -sfn /usr/lib/systemd/system/console-getty.service "${target_dir}/etc/systemd/system/getty.target.wants/console-getty.service"
+
+        # Mask / remove unneeded system generators for minimal container/VM boot
+        for gen in systemd-system-update-generator \
+                   systemd-rc-local-generator \
+                   systemd-hibernate-resume-generator \
+                   systemd-integritysetup-generator \
+                   systemd-veritysetup-generator \
+                   systemd-cryptsetup-generator \
+                   systemd-bless-boot-generator; do
+            rm -f "${target_dir}/usr/lib/systemd/system-generators/${gen}"
+        done
+
+        # Configure dynamic linker path for systemd internal shared libraries
+        mkdir -p "${target_dir}/etc/ld.so.conf.d"
+        echo "/usr/lib64/systemd" > "${target_dir}/etc/ld.so.conf.d/systemd.conf"
+        if [ -f "${target_dir}/usr/lib64/systemd/libsystemd-shared-252.so" ] && [ ! -e "${target_dir}/usr/lib64/libsystemd-shared-252.so" ]; then
+            ln -sfn systemd/libsystemd-shared-252.so "${target_dir}/usr/lib64/libsystemd-shared-252.so"
+        fi
     fi
     if [ -x "${target_dir}/usr/bin/dnf-3" ] && [ ! -e "${target_dir}/usr/bin/dnf" ]; then
         ln -sfn dnf-3 "${target_dir}/usr/bin/dnf"

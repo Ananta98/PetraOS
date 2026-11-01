@@ -103,6 +103,11 @@ impl DEntry {
         self.children.write().remove(name)
     }
 
+    /// Clears all cached child entries (including negative dentries).
+    pub fn clear_children(&self) {
+        self.children.write().clear();
+    }
+
     /// Reconstructs the absolute path of this dentry by walking up parent links.
     pub fn abs_path(&self) -> String {
         let mut components = Vec::new();

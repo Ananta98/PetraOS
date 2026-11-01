@@ -364,6 +364,7 @@ pub fn rmdir_at(start: &PathNode, path: &str) -> Result<()> {
     dir.node_ops.rmdir(&name)?;
     if let Some(child) = parent.dentry.lookup_child(&name) {
         child.set_inode(None);
+        child.clear_children();
     } else {
         parent.dentry.add_child(Arc::new(DEntry::new(
             name.clone(),
@@ -481,6 +482,7 @@ pub fn rename_at(old_start: &PathNode, old: &str, new_start: &PathNode, new: &st
     // Update dcache: old_name becomes negative, new_name becomes positive.
     if let Some(old_dentry) = old_parent.dentry.lookup_child(&old_name) {
         old_dentry.set_inode(None);
+        old_dentry.clear_children();
     } else {
         old_parent.dentry.add_child(Arc::new(DEntry::new(
             old_name.clone(),
@@ -491,6 +493,7 @@ pub fn rename_at(old_start: &PathNode, old: &str, new_start: &PathNode, new: &st
 
     if let Some(new_dentry) = new_parent.dentry.lookup_child(&new_name) {
         new_dentry.set_inode(Some(src_inode.clone()));
+        new_dentry.clear_children();
     } else {
         new_parent.dentry.add_child(Arc::new(DEntry::new(
             new_name,

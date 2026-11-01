@@ -90,6 +90,9 @@ fn lookup_static_dev(name: &str) -> Option<Arc<INode>> {
         "random" => (Box::new(RandomNodeOps), chr_mode, 3),
         "urandom" => (Box::new(UrandomNodeOps), chr_mode, 4),
         "tty" => (Box::new(TtyNodeOps), chr_mode, 5),
+        "console" => (Box::new(ConsoleNodeOps), chr_mode, 6),
+        "tty0" => (Box::new(ConsoleNodeOps), chr_mode, 7),
+        "tty1" => (Box::new(ConsoleNodeOps), chr_mode, 8),
         "ptmx" => (Box::new(crate::drivers::char::tty::pty::PtmxNodeOps), chr_mode, 10),
         "pts" => (Box::new(crate::drivers::char::tty::pty::PtsDirNodeOps), dir_mode, 11),
         "dri" => (Box::new(drm::DriDirNodeOps), dir_mode, 12),
@@ -336,6 +339,9 @@ impl FileOps for DevFsDirFileOps {
         out.extend_from_slice(b"random\n");
         out.extend_from_slice(b"urandom\n");
         out.extend_from_slice(b"tty\n");
+        out.extend_from_slice(b"console\n");
+        out.extend_from_slice(b"tty0\n");
+        out.extend_from_slice(b"tty1\n");
         out.extend_from_slice(b"ptmx\n");
         out.extend_from_slice(b"pts\n");
         out.extend_from_slice(b"dri\n");
@@ -428,6 +434,33 @@ impl NodeOps for TtyNodeOps {
     }
 }
 
+/// System console (`/dev/console`, `/dev/tty0`, `/dev/tty1`) node operations.
+pub struct ConsoleNodeOps;
+
+impl NodeOps for ConsoleNodeOps {
+    fn open(&self, _flags: OpenFlags) -> Result<Box<dyn FileOps>> {
+        let tty = crate::drivers::char::tty::get_console().ok_or(Errno::ENODEV)?;
+        Ok(Box::new(crate::drivers::char::tty::TtyFileOps { tty }))
+    }
+
+    fn getattr(&self) -> Result<INodeAttr> {
+        Ok(INodeAttr {
+            size: 0,
+            mode: Mode::CHAR
+                | Mode::RUSR
+                | Mode::WUSR
+                | Mode::RGRP
+                | Mode::WGRP
+                | Mode::ROTH
+                | Mode::WOTH,
+            nlink: 1,
+            uid: 0,
+            gid: 0,
+            rdev: 0x0501, // makedev(5, 1)
+        })
+    }
+}
+
 /// The DevFS filesystem representation.
 pub struct DevFs {
     root: Arc<INode>,
@@ -502,6 +535,7 @@ impl FileSystem for DevFs {
 
     fn statfs(&self) -> Result<StatFs> {
         Ok(StatFs {
+            f_type: 0x0102_1994,
             bsize: 4096,
             blocks: 0,
             bfree: 0,

@@ -55,7 +55,7 @@ impl LinuxStatFs {
 impl From<StatFs> for LinuxStatFs {
     fn from(s: StatFs) -> Self {
         Self {
-            f_type: 0x01021994, // TMPFS_MAGIC
+            f_type: if s.f_type != 0 { s.f_type } else { 0x01021994 },
             f_bsize: s.bsize as i64,
             f_blocks: s.blocks,
             f_bfree: s.bfree,
@@ -94,6 +94,7 @@ pub fn sys_fstatfs(fd: i32, buf_ptr: usize, _ctx: &mut UserContext) -> Result<us
         path_node.mount.fs.statfs()?
     } else {
         StatFs {
+            f_type: 0x01021994,
             bsize: 4096,
             blocks: 1024 * 1024,
             bfree: 1024 * 1024,

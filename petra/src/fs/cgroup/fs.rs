@@ -53,6 +53,7 @@ impl FileSystem for Cgroup2Fs {
 
     fn statfs(&self) -> Result<StatFs> {
         Ok(StatFs {
+            f_type: CGROUP2_SUPER_MAGIC as i64,
             bsize: 4096,
             blocks: 0,
             bfree: 0,

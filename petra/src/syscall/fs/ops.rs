@@ -13,6 +13,8 @@ use crate::{
     uapi::errno::{Errno, Result},
 };
 
+const RENAME_NOREPLACE: u32 = 1;
+
 /// System call `truncate(const char *path, off_t length)` (Syscall #76).
 pub fn sys_truncate(path_ptr: usize, length: usize, _ctx: &mut UserContext) -> Result<usize> {
     let proc = Thread::proc_or_esrch()?;
@@ -178,8 +180,17 @@ pub fn sys_renameat2(
     flags: u32,
     ctx: &mut UserContext,
 ) -> Result<usize> {
-    if flags != 0 {
+    if (flags & !RENAME_NOREPLACE) != 0 {
         return Err(Errno::EINVAL);
+    }
+    if (flags & RENAME_NOREPLACE) != 0 {
+        let proc = Thread::proc_or_esrch()?;
+        let vmar = proc.vmspace();
+        let newpath = UserCStr::new(newpath_ptr).read_string(&vmar, 4096)?;
+        let new_start = resolve_at_start(&proc, newdirfd, &newpath)?;
+        if crate::fs::vfs::lookup_nofollow_at(&new_start, &newpath).is_ok() {
+            return Err(Errno::EEXIST);
+        }
     }
     sys_renameat(olddirfd, oldpath_ptr, newdirfd, newpath_ptr, ctx)
 }

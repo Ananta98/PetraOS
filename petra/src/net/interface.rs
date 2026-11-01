@@ -177,7 +177,7 @@ impl NetworkManager {
             .get_or_insert_with(|| SocketSet::new(Vec::new()));
         if let Some(ref mut bound) = self.bound {
             let mut any_changed = false;
-            for _ in 0..16 {
+            for _ in 0..128 {
                 let poll_res = bound.iface.poll(now, &mut bound.device, sockets);
                 if poll_res != smoltcp::iface::PollResult::None {
                     any_changed = true;

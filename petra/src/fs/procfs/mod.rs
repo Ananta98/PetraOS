@@ -73,6 +73,7 @@ impl FileSystem for ProcFs {
 
     fn statfs(&self) -> Result<StatFs> {
         Ok(StatFs {
+            f_type: 0x9fa0,
             bsize: 4096,
             blocks: 0,
             bfree: 0,

@@ -42,6 +42,11 @@ spawn_userspace_shell() {
     local target_root="$1"
     shift
 
+    # Unpack OSDK init_args ("sh", "-l", ...) if additional command was supplied
+    if [ "$1" = "sh" ] && [ "$2" = "-l" ] && [ $# -gt 2 ]; then
+        shift 2
+    fi
+
     if [ -n "$target_root" ] && [ "$target_root" != "/" ]; then
         local chroot_bin="chroot"
         if [ -x /usr/bin/coreutils ]; then
@@ -57,6 +62,14 @@ spawn_userspace_shell() {
             exec $chroot_bin "$target_root" "$@" || echo "[init] chroot command failed: $?"
         fi
 
+        # Primary initialization: Launch systemd if present
+        if [ -x "$target_root/usr/lib/systemd/systemd" ] || [ -x "$target_root/sbin/init" ]; then
+            local init_bin="/usr/lib/systemd/systemd"
+            [ -x "$target_root/usr/lib/systemd/systemd" ] || init_bin="/sbin/init"
+            echo "[init] Launching systemd as primary initialization ($init_bin)..."
+            exec $chroot_bin "$target_root" "$init_bin" || echo "[init] systemd execution failed, falling back to shell..."
+        fi
+
         if [ -x "$target_root/bin/bash" ] || [ -x "$target_root/usr/bin/bash" ]; then
             echo "[init] Spawning interactive login shell (/bin/bash -l)..."
             exec $chroot_bin "$target_root" /bin/bash -l || echo "[init] chroot to bash failed: $?"
@@ -68,6 +81,14 @@ spawn_userspace_shell() {
         if [ $# -gt 0 ] && [ "$1" != "sh" ]; then
             echo "[init] Executing requested command: $*"
             exec "$@"
+        fi
+
+        # Primary initialization: Launch systemd if present in current root
+        if [ -x /usr/lib/systemd/systemd ] || [ -x /sbin/init ]; then
+            local init_bin="/usr/lib/systemd/systemd"
+            [ -x /usr/lib/systemd/systemd ] || init_bin="/sbin/init"
+            echo "[init] Launching systemd as primary initialization ($init_bin)..."
+            exec "$init_bin" || echo "[init] systemd execution failed, falling back to shell..."
         fi
 
         if [ -x /bin/bash ]; then
@@ -118,14 +139,17 @@ if [ -d /sysroot/usr/bin ] || [ -f /sysroot/etc/rocky-release ] || [ -x /sysroot
     mount -t sysfs sysfs /sysroot/sys 2>/dev/null || true
     mount -t tmpfs tmpfs /sysroot/tmp 2>/dev/null || true
     mount -t tmpfs tmpfs /sysroot/run 2>/dev/null || true
-    mkdir -p /sysroot/dev/pts /sysroot/dev/shm 2>/dev/null || true
+    mkdir -p /sysroot/dev/pts /sysroot/dev/shm /sysroot/sys/fs/cgroup 2>/dev/null || true
     mount -t devpts devpts /sysroot/dev/pts 2>/dev/null || true
     mount -t tmpfs tmpfs /sysroot/dev/shm 2>/dev/null || true
+    mount -t cgroup2 cgroup2 /sysroot/sys/fs/cgroup 2>/dev/null || true
     [ -e /sysroot/dev/fd ] || ln -sf /proc/self/fd /sysroot/dev/fd 2>/dev/null || true
     [ -e /sysroot/dev/stdin ] || ln -sf /proc/self/fd/0 /sysroot/dev/stdin 2>/dev/null || true
     [ -e /sysroot/dev/stdout ] || ln -sf /proc/self/fd/1 /sysroot/dev/stdout 2>/dev/null || true
     [ -e /sysroot/dev/stderr ] || ln -sf /proc/self/fd/2 /sysroot/dev/stderr 2>/dev/null || true
     [ -e /sysroot/dev/ptmx ] || ln -sf pts/ptmx /sysroot/dev/ptmx 2>/dev/null || true
+    [ -e /sysroot/dev/console ] || ln -sf tty0 /sysroot/dev/console 2>/dev/null || true
+    [ -e /sysroot/dev/tty1 ] || ln -sf tty0 /sysroot/dev/tty1 2>/dev/null || true
     [ -e /sysroot/etc/mtab ] || ln -sf /proc/self/mounts /sysroot/etc/mtab 2>/dev/null || true
 
     echo ""

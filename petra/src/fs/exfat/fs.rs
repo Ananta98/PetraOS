@@ -157,6 +157,7 @@ impl FileSystem for ExFatFs {
         let shift = self.bs.bytes_per_sector_shift + self.bs.sectors_per_cluster_shift;
         let cluster_size = 1u64 << shift;
         Ok(StatFs {
+            f_type: 0x2011_BAB0,
             bsize: cluster_size,
             blocks: self.bs.cluster_count as u64,
             bfree: 0,

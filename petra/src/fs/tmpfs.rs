@@ -52,6 +52,7 @@ impl FileSystem for TmpFs {
 
     fn statfs(&self) -> Result<StatFs> {
         Ok(StatFs {
+            f_type: 0x0102_1994,
             bsize: 4096,
             blocks: 1024 * 1024,
             bfree: 1024 * 1024,
