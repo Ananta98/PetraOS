@@ -10,15 +10,15 @@ use alloc::{
     sync::{Arc, Weak},
     vec::Vec,
 };
-use core::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering};
 use ostd::sync::WaitQueue;
-use spin::Mutex;
+use spin::{Mutex, RwLock};
 
 use crate::drivers::char::tty::core::{Tty, TtyDriver};
 use crate::{
     drivers::{CharacterDevice, register_chrdev},
     fs::poll::PollEvents,
-    fs::vfs::{FileOps, INode, Mode, NodeOps, OpenFlags},
+    fs::vfs::{FileOps, INode, INodeAttr, Mode, NodeOps, OpenFlags},
     uapi::errno::{Errno, Result},
     uapi::ioctl,
     uapi::signal::Signal,
@@ -45,7 +45,6 @@ pub const TIOCPKT_IOCTL: u8 = 0x40;
 
 const MASTER_BUF_SIZE: usize = 4096;
 
-static PTY_INDEX: AtomicU32 = AtomicU32::new(0);
 static PTY_TABLE: Mutex<BTreeMap<u32, Arc<PtyPair>>> = Mutex::new(BTreeMap::new());
 
 /// State of an active master/slave PTY pair.
@@ -58,6 +57,7 @@ pub struct PtyPair {
     pub slave_count: AtomicUsize,
     pub packet: AtomicBool,
     pub packet_flags: AtomicU8,
+    pub slave_attr: RwLock<INodeAttr>,
 }
 
 impl PtyPair {
@@ -102,12 +102,30 @@ impl TtyDriver for PtySlaveTtyDriver {
 
 /// Allocates a new pseudo-terminal pair (/dev/ptmx master and /dev/pts/N slave).
 pub fn alloc_pty() -> Result<Arc<PtyPair>> {
-    let index = PTY_INDEX.fetch_add(1, Ordering::Relaxed);
+    let mut table = PTY_TABLE.lock();
+    let mut index = 0;
+    while table.contains_key(&index) {
+        index += 1;
+    }
     let name = format!("pts/{}", index);
 
     let pair = Arc::new_cyclic(|weak: &Weak<PtyPair>| {
         let driver = Arc::new(PtySlaveTtyDriver { pair: weak.clone() });
         let tty = Tty::new(name, driver);
+        let slave_attr = RwLock::new(INodeAttr {
+            size: 0,
+            mode: Mode::CHAR
+                | Mode::RUSR
+                | Mode::WUSR
+                | Mode::RGRP
+                | Mode::WGRP
+                | Mode::ROTH
+                | Mode::WOTH,
+            nlink: 1,
+            uid: 0,
+            gid: 5,
+            rdev: 0x8800 + index as u64,
+        });
         PtyPair {
             index,
             tty,
@@ -117,10 +135,11 @@ pub fn alloc_pty() -> Result<Arc<PtyPair>> {
             slave_count: AtomicUsize::new(0),
             packet: AtomicBool::new(false),
             packet_flags: AtomicU8::new(0),
+            slave_attr,
         }
     });
 
-    PTY_TABLE.lock().insert(index, Arc::clone(&pair));
+    table.insert(index, Arc::clone(&pair));
     Ok(pair)
 }
 
@@ -212,7 +231,11 @@ impl FileOps for PtyMasterFileOps {
                 Ok(0)
             }
             TIOCSPTLCK => {
-                let lock: i32 = UserPtr::new(arg).read_val(&vmar)?;
+                let lock: i32 = if arg == 0 {
+                    0
+                } else {
+                    UserPtr::new(arg).read_val(&vmar).unwrap_or(0)
+                };
                 self.pair.unlocked.store(lock == 0, Ordering::Release);
                 Ok(0)
             }
@@ -239,7 +262,11 @@ impl FileOps for PtyMasterFileOps {
                 Ok(0)
             }
             TIOCSIG => {
-                let signum: i32 = UserPtr::new(arg).read_val(&vmar)?;
+                let signum: i32 = if arg <= 64 {
+                    arg as i32
+                } else {
+                    UserPtr::new(arg).read_val(&vmar).unwrap_or(arg as i32)
+                };
                 if let Some(sig) = Signal::from_u32(signum as u32) {
                     self.pair.tty.signal_foreground(sig);
                 }
@@ -288,6 +315,23 @@ impl NodeOps for PtmxNodeOps {
     fn open(&self, _flags: OpenFlags) -> Result<Box<dyn FileOps>> {
         let pair = alloc_pty()?;
         Ok(Box::new(PtyMasterFileOps::new(pair)))
+    }
+
+    fn getattr(&self) -> Result<INodeAttr> {
+        Ok(INodeAttr {
+            size: 0,
+            mode: Mode::CHAR
+                | Mode::RUSR
+                | Mode::WUSR
+                | Mode::RGRP
+                | Mode::WGRP
+                | Mode::ROTH
+                | Mode::WOTH,
+            nlink: 1,
+            uid: 0,
+            gid: 5,
+            rdev: 0x0502,
+        })
     }
 }
 
@@ -356,6 +400,15 @@ impl NodeOps for PtySlaveNodeOps {
             pair: Arc::clone(&self.pair),
         }))
     }
+
+    fn getattr(&self) -> Result<INodeAttr> {
+        Ok(*self.pair.slave_attr.read())
+    }
+
+    fn setattr(&self, attr: &INodeAttr) -> Result<()> {
+        *self.pair.slave_attr.write() = *attr;
+        Ok(())
+    }
 }
 
 /// Directory node operations for /dev/pts.
@@ -363,24 +416,59 @@ pub struct PtsDirNodeOps;
 
 impl NodeOps for PtsDirNodeOps {
     fn lookup(&self, name: &str) -> Result<Arc<INode>> {
-        let index = name.parse::<u32>().map_err(|_| Errno::ENOENT)?;
-        let pair = get_pty_pair(index).ok_or(Errno::ENOENT)?;
-
-        Ok(Arc::new(INode::new(
-            Box::new(PtySlaveNodeOps { pair }),
-            Mode::CHAR
+        if name == "ptmx" {
+            let chr_mode = Mode::CHAR
                 | Mode::RUSR
                 | Mode::WUSR
                 | Mode::RGRP
                 | Mode::WGRP
                 | Mode::ROTH
-                | Mode::WOTH,
+                | Mode::WOTH;
+            return Ok(Arc::new(INode::new_with_attr(
+                Box::new(PtmxNodeOps),
+                10,
+                INodeAttr {
+                    size: 0,
+                    mode: chr_mode,
+                    nlink: 1,
+                    uid: 0,
+                    gid: 5,
+                    rdev: 0x0502, // makedev(5, 2)
+                },
+            )));
+        }
+
+        let index = name.parse::<u32>().map_err(|_| Errno::ENOENT)?;
+        let pair = get_pty_pair(index).ok_or(Errno::ENOENT)?;
+        let attr = *pair.slave_attr.read();
+
+        Ok(Arc::new(INode::new_with_attr(
+            Box::new(PtySlaveNodeOps { pair }),
             1000 + index as usize,
+            attr,
         )))
     }
 
     fn open(&self, _flags: OpenFlags) -> Result<Box<dyn FileOps>> {
         Ok(Box::new(PtsDirFileOps))
+    }
+
+    fn getattr(&self) -> Result<INodeAttr> {
+        Ok(INodeAttr {
+            size: 0,
+            mode: Mode::DIR
+                | Mode::RUSR
+                | Mode::WUSR
+                | Mode::XUSR
+                | Mode::RGRP
+                | Mode::XGRP
+                | Mode::ROTH
+                | Mode::XOTH,
+            nlink: 2,
+            uid: 0,
+            gid: 0,
+            rdev: 0,
+        })
     }
 }
 
@@ -397,7 +485,7 @@ impl FileOps for PtsDirFileOps {
 
     fn readdir(&self) -> Result<Vec<u8>> {
         let mut out = Vec::new();
-        out.extend_from_slice(b".\n..\n");
+        out.extend_from_slice(b".\n..\nptmx\n");
         let table = PTY_TABLE.lock();
         for &index in table.keys() {
             let entry = format!("{}\n", index);
@@ -411,4 +499,34 @@ impl FileOps for PtsDirFileOps {
 pub fn init() -> Result<()> {
     register_chrdev(Arc::new(PtmxDevice))?;
     Ok(())
+}
+
+#[cfg(ktest)]
+mod tests {
+    use super::*;
+    use ostd::prelude::ktest;
+
+    #[ktest]
+    fn pty_allocation_and_pts_lookup() {
+        let pts_dir = PtsDirNodeOps;
+        let ptmx = pts_dir.lookup("ptmx").expect("lookup ptmx in pts");
+        assert!(ptmx.is_chr());
+
+        let pair = alloc_pty().expect("allocate pty");
+        let idx = pair.index;
+        let idx_str = format!("{}", idx);
+
+        let slave_node = pts_dir.lookup(&idx_str).expect("lookup slave pty node");
+        assert!(slave_node.is_chr());
+
+        // Should be locked initially
+        assert!(slave_node.open(OpenFlags::RDWR).is_err());
+
+        // Unlock slave
+        pair.unlocked.store(true, Ordering::Release);
+        assert!(slave_node.open(OpenFlags::RDWR).is_ok());
+
+        // Clean up
+        PTY_TABLE.lock().remove(&idx);
+    }
 }

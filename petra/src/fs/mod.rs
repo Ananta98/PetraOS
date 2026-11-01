@@ -4,6 +4,7 @@
 
 pub mod cgroup;
 pub mod devfs;
+pub mod devpts;
 pub mod epoll;
 pub mod exfat;
 pub mod ext4;
@@ -22,6 +23,7 @@ pub mod tmpfs;
 pub mod vfs;
 
 pub use cgroup::Cgroup2Fs;
+pub use devpts::DevPtsFs;
 pub use fd::*;
 pub use initramfs::read_file_from_initramfs;
 pub use procfs::ProcFs;

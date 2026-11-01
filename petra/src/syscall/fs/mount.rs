@@ -134,7 +134,7 @@ pub fn perform_mount(
         "sysfs" | "sys" => Arc::new(SysFs::new()),
         "tmpfs" | "ramfs" => Arc::new(TmpFs::new()),
         "devfs" | "devtmpfs" => Arc::new(DevFs::new()),
-        "devpts" => Arc::new(TmpFs::new()),
+        "devpts" => Arc::new(crate::fs::DevPtsFs::new()),
         "cgroup" | "cgroup2" => Arc::new(crate::fs::Cgroup2Fs::new()),
         "ext4" | "exfat" => {
             let dev_name = source.trim_start_matches("/dev/").trim_start_matches('/');
