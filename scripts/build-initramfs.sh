@@ -60,8 +60,10 @@ if [ ! -d "${STAGING}" ]; then
     exit 1
 fi
 
+MUSL_LOADER="${STAGING}/lib/ld-musl-x86_64.so.1"
 GLIBC_LOADER="${STAGING}/lib64/ld-linux-x86-64.so.2"
 [ -e "${GLIBC_LOADER}" ] || GLIBC_LOADER="${STAGING}/usr/lib64/ld-linux-x86-64.so.2"
+[ -e "${GLIBC_LOADER}" ] || GLIBC_LOADER="${MUSL_LOADER}"
 
 # Run a tool that lives inside the staging root using the staging root's own
 # dynamic loader, which works regardless of the host C library.

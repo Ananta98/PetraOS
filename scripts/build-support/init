@@ -1,26 +1,21 @@
 #!/bin/sh
 # PetraOS kernel userspace init (PID 1).
 #
-# Runs from the initramfs or rootfs as /init. Mounts essential
-# pseudo-filesystems, prepares convenience paths, transitions to full Rocky Linux
-# userspace if available, or drops into an interactive shell.
+# Runs from the initramfs as /init. Mounts the pseudo-filesystems the
+# userspace expects, prepares a few convenience paths, starts OpenRC services
+# if available, then either executes the command requested on the kernel command line
+# or drops into a login shell.
 
-export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/libexec
+export PATH=/bin:/sbin:/usr/bin:/usr/sbin
 export HOME=/root
 export USER=root
-export LOGNAME=root
 export TERM=linux
 export SHELL=/bin/bash
 export XDG_CONFIG_HOME=/root/.config
-if [ -d /usr/lib/locale/C.utf8 ] || [ -d /usr/lib/locale/C.UTF-8 ]; then
-    export LANG=C.utf8
-    export LC_ALL=C.utf8
-else
-    export LANG=C
-    export LC_ALL=C
-fi
+export CHARSET=UTF-8
+export LANG=C.UTF-8
+export LC_ALL=C.UTF-8
 
-# Mount essential pseudo-filesystems in the current root
 mount -t proc proc /proc 2>/dev/null || true
 mount -t sysfs sysfs /sys 2>/dev/null || true
 mount -t tmpfs tmpfs /tmp 2>/dev/null || true
@@ -29,7 +24,6 @@ mkdir -p /dev/pts /dev/shm 2>/dev/null || true
 mount -t devpts devpts /dev/pts 2>/dev/null || true
 mount -t tmpfs tmpfs /dev/shm 2>/dev/null || true
 
-# Standard convenience symlinks
 [ -e /dev/fd ] || ln -sf /proc/self/fd /dev/fd 2>/dev/null || true
 [ -e /dev/stdin ] || ln -sf /proc/self/fd/0 /dev/stdin 2>/dev/null || true
 [ -e /dev/stdout ] || ln -sf /proc/self/fd/1 /dev/stdout 2>/dev/null || true
@@ -37,145 +31,40 @@ mount -t tmpfs tmpfs /dev/shm 2>/dev/null || true
 [ -e /dev/ptmx ] || ln -sf pts/ptmx /dev/ptmx 2>/dev/null || true
 [ -e /etc/mtab ] || ln -sf /proc/self/mounts /etc/mtab 2>/dev/null || true
 
-# Helper function to spawn target shell or requested command
-spawn_userspace_shell() {
-    local target_root="$1"
-    shift
-
-    # Unpack OSDK init_args ("sh", "-l")
-    if [ "$1" = "sh" ]; then
-        if [ "$2" = "-l" ]; then
-            shift 2
-        else
-            shift 1
-        fi
-    fi
-
-    if [ -n "$target_root" ] && [ "$target_root" != "/" ]; then
-        local chroot_bin="chroot"
-        if [ -x /usr/bin/coreutils ]; then
-            chroot_bin="/usr/bin/coreutils --coreutils-prog=chroot"
-        elif [ -x /usr/sbin/chroot ]; then
-            chroot_bin="/usr/sbin/chroot"
-        elif [ -x /usr/bin/chroot ]; then
-            chroot_bin="/usr/bin/chroot"
-        fi
-
-        if [ $# -gt 0 ] && [ "$1" != "sh" ]; then
-            echo "[init] Executing requested command in rootfs: $*"
-            exec $chroot_bin "$target_root" "$@" || echo "[init] chroot command failed: $?"
-        fi
-
-        # Start OpenRC service manager non-interactively if present
-        if [ -x "$target_root/sbin/openrc" ]; then
-            echo "[init] Starting OpenRC system services..."
-            $chroot_bin "$target_root" /sbin/openrc default || true
-        fi
-
-        if [ -x "$target_root/bin/bash" ] || [ -x "$target_root/usr/bin/bash" ]; then
-            echo "[init] Spawning interactive login shell (/bin/bash -l)..."
-            exec $chroot_bin "$target_root" /bin/bash -l || echo "[init] chroot to bash failed: $?"
-        elif [ -x "$target_root/bin/sh" ] || [ -x "$target_root/usr/bin/sh" ]; then
-            echo "[init] Spawning interactive login shell (/bin/sh -l)..."
-            exec $chroot_bin "$target_root" /bin/sh -l || echo "[init] chroot to sh failed: $?"
-        fi
-    else
-        if [ $# -gt 0 ] && [ "$1" != "sh" ]; then
-            echo "[init] Executing requested command: $*"
-            exec "$@"
-        fi
-
-        # Start OpenRC service manager non-interactively if present in current root
-        if [ -x /sbin/openrc ]; then
-            echo "[init] Starting OpenRC system services..."
-            /sbin/openrc default || true
-        fi
-
-        if [ -x /bin/bash ]; then
-            echo "[init] Spawning interactive login shell (/bin/bash -l)..."
-            exec /bin/bash -l
-        elif [ -x /usr/bin/bash ]; then
-            echo "[init] Spawning interactive login shell (/usr/bin/bash -l)..."
-            exec /usr/bin/bash -l
-        else
-            echo "[init] Spawning interactive login shell (/bin/sh -l)..."
-            exec /bin/sh -l
-        fi
-    fi
-}
-
-# ----------------------------------------------------------------------------
-# 1. Check if already running inside full Rocky Linux rootfs
-# ----------------------------------------------------------------------------
-if [ -f /etc/rocky-release ] || [ -f /etc/redhat-release ] || [ -x /usr/bin/dnf ] || [ -x /usr/bin/python3 ]; then
-    echo ""
-    echo "============================================================"
-    echo "       Welcome to PetraOS (Rocky Linux Userspace)           "
-    echo "============================================================"
-    echo "Kernel:       $(cat /proc/version 2>/dev/null || echo 'PetraOS x86_64')"
-    echo "Release:      PetraOS $(cat /etc/petraos-release 2>/dev/null || echo '0.1.0') (Rocky Linux 9 + OpenRC)"
-    echo "Rootfs:       /dev/sda (ext4)"
-    echo "Architecture: $(uname -m 2>/dev/null || echo x86_64)"
-    echo "============================================================"
-    echo ""
-
-    spawn_userspace_shell "/" "$@"
-fi
-
-# ----------------------------------------------------------------------------
-# 2. Running in initramfs: mount block device (/dev/sda or /dev/vda) to /sysroot
-# ----------------------------------------------------------------------------
-mkdir -p /sysroot 2>/dev/null || true
+# If an ext4 rootfs disk is attached (e.g. /dev/sda), mount it
 if [ -b /dev/sda ] || [ -e /dev/sda ]; then
-    mount -t ext4 /dev/sda /sysroot 2>/dev/null || true
-elif [ -b /dev/vda ] || [ -e /dev/vda ]; then
-    mount -t ext4 /dev/vda /sysroot 2>/dev/null || true
+    mkdir -p /mnt/rootfs 2>/dev/null || true
+    if mount -t ext4 /dev/sda /mnt/rootfs 2>/dev/null || mount -i -t ext4 /dev/sda /mnt/rootfs 2>/dev/null; then
+        echo "[init] Mounted persistent rootfs (/dev/sda) on /mnt/rootfs"
+    fi
 fi
 
-# If full rootfs is mounted at /sysroot, prepare nested mounts and chroot
-if [ -d /sysroot/usr/bin ] || [ -f /sysroot/etc/rocky-release ] || [ -x /sysroot/usr/bin/dnf ] || [ -d /sysroot/usr ]; then
-    mount -t devfs devfs /sysroot/dev 2>/dev/null || true
-    mount -t proc proc /sysroot/proc 2>/dev/null || true
-    mount -t sysfs sysfs /sysroot/sys 2>/dev/null || true
-    mount -t tmpfs tmpfs /sysroot/tmp 2>/dev/null || true
-    mount -t tmpfs tmpfs /sysroot/run 2>/dev/null || true
-    mkdir -p /sysroot/dev/pts /sysroot/dev/shm /sysroot/sys/fs/cgroup 2>/dev/null || true
-    mount -t devpts devpts /sysroot/dev/pts 2>/dev/null || true
-    mount -t tmpfs tmpfs /sysroot/dev/shm 2>/dev/null || true
-    mount -t cgroup2 cgroup2 /sysroot/sys/fs/cgroup 2>/dev/null || true
-    [ -e /sysroot/dev/fd ] || ln -sf /proc/self/fd /sysroot/dev/fd 2>/dev/null || true
-    [ -e /sysroot/dev/stdin ] || ln -sf /proc/self/fd/0 /sysroot/dev/stdin 2>/dev/null || true
-    [ -e /sysroot/dev/stdout ] || ln -sf /proc/self/fd/1 /sysroot/dev/stdout 2>/dev/null || true
-    [ -e /sysroot/dev/stderr ] || ln -sf /proc/self/fd/2 /sysroot/dev/stderr 2>/dev/null || true
-    [ -e /sysroot/dev/ptmx ] || ln -sf pts/ptmx /sysroot/dev/ptmx 2>/dev/null || true
-    [ -e /sysroot/etc/mtab ] || ln -sf /proc/self/mounts /sysroot/etc/mtab 2>/dev/null || true
-
-    echo ""
-    echo "============================================================"
-    echo "       Welcome to PetraOS (Rocky Linux Userspace)           "
-    echo "============================================================"
-    echo "Kernel:       $(cat /proc/version 2>/dev/null || echo 'PetraOS x86_64')"
-    echo "Release:      PetraOS $(cat /sysroot/etc/petraos-release 2>/dev/null || echo '0.1.0') (Rocky Linux 9 + OpenRC)"
-    echo "Rootfs:       /dev/sda (ext4) mounted on /sysroot"
-    echo "Architecture: $(uname -m 2>/dev/null || echo x86_64)"
-    echo "============================================================"
-    echo ""
-
-    spawn_userspace_shell "/sysroot" "$@"
+# Start OpenRC system services if openrc is installed
+if [ -x /sbin/openrc ]; then
+    echo "[init] Starting OpenRC system services..."
+    /sbin/openrc default || true
 fi
 
-# ----------------------------------------------------------------------------
-# 3. Fallback: Initramfs Recovery Shell (only if rootfs is completely absent)
-# ----------------------------------------------------------------------------
 echo ""
 echo "============================================================"
-echo "       Welcome to PetraOS (Initramfs Recovery Shell)        "
+echo "    Welcome to PetraOS                                      "
 echo "============================================================"
 echo "Kernel:       $(cat /proc/version 2>/dev/null || echo 'PetraOS x86_64')"
 echo "Release:      PetraOS $(cat /etc/petraos-release 2>/dev/null || echo 'unknown')"
-echo "Rootfs:       initramfs (in-memory)"
+echo "Uptime:       $(cut -d' ' -f1 /proc/uptime 2>/dev/null || echo 0)s"
 echo "Architecture: $(uname -m 2>/dev/null || echo x86_64)"
 echo "============================================================"
 echo ""
 
-spawn_userspace_shell "/" "$@"
+if [ $# -gt 0 ] && [ "$1" != "sh" ]; then
+    echo "[init] Executing requested command: $*"
+    exec "$@"
+fi
+
+if [ -x /bin/bash ]; then
+    echo "[init] Spawning interactive login shell (/bin/bash -l)..."
+    exec /bin/bash -l
+else
+    echo "[init] Spawning interactive login shell (/bin/sh -l)..."
+    exec /bin/sh -l
+fi
