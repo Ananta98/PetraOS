@@ -206,6 +206,8 @@ crate::impl_syscall_nums_and_dispatch_fn! {
     SYS_TGKILL = 234 => signals::sys_tgkill(i32, i32, i32);
     SYS_UTIMES = 235 => fs::sys_utimes(usize, usize);
     SYS_WAITID = 247 => proc::sys_waitid(i32, i32, usize, i32, usize);
+    SYS_ADD_KEY = 248 => proc::sys_add_key(usize, usize, usize, usize, i32);
+    SYS_REQUEST_KEY = 249 => proc::sys_request_key(usize, usize, usize, i32);
     SYS_KEYCTL = 250 => proc::sys_keyctl(i32, usize, usize, usize, usize);
     SYS_INOTIFY_INIT = 253 => fs::sys_inotify_init();
     SYS_INOTIFY_ADD_WATCH = 254 => fs::sys_inotify_add_watch(i32, usize, u32);
