@@ -9,11 +9,11 @@ This document describes the userspace architecture, package provisioning workflo
 PetraOS uses a hybrid two-tier userspace model based on **Rocky Linux 9 (x86_64)**:
 
 1. **In-Memory Boot Initramfs (`build/initramfs.cpio`)**:
-   - Lightweight CPIO archive containing the PID 1 `/init` script, essential core utilities (`bash`, `coreutils`, `mount`, `chroot`), and dynamically resolved ELF shared libraries (`libc`, `libm`, etc.).
-   - Mounts pseudo-filesystems (`/proc`, `/sys`, `/dev`, `/run`), detects block storage (`/dev/sda` / `/dev/vda`), mounts ext4 rootfs to `/sysroot`, and transitions to systemd or an interactive shell.
+   - Lightweight CPIO archive containing the PID 1 `/init` script, essential core utilities (`bash`, `coreutils`, `mount`, `chroot`), OpenRC binaries (`openrc`, `openrc-init`, `rc-service`), and dynamically resolved ELF shared libraries (`libc`, `librc`, etc.).
+   - Mounts pseudo-filesystems (`/proc`, `/sys`, `/dev`, `/run`), detects block storage (`/dev/sda` / `/dev/vda`), mounts ext4 rootfs to `/sysroot`, and transitions to OpenRC or an interactive shell.
 
 2. **Full Rootfs Block Image (`build/ext4.img`)**:
-   - Complete 2 GB ext4 filesystem image populated with standard Rocky Linux 9 distribution packages, systemd, compiler toolchain (`gcc`, `g++`, `make`, `gdb`), scripting runtimes (`python3`, `lua`), system utilities, and EPEL packages such as `fastfetch`.
+   - Complete 2 GB ext4 filesystem image populated with standard Rocky Linux 9 distribution packages, OpenRC init system, compiler toolchain (`gcc`, `g++`, `make`, `gdb`), scripting runtimes (`python3`, `lua`), system utilities, and EPEL packages such as `fastfetch`.
 
 ---
 
@@ -30,15 +30,16 @@ The builder automatically provisions `epel-release` before attempting to install
 unshare -r chroot "${ROOTFS_STAGING}" /usr/bin/dnf install -y \
     --setopt=tsflags=nodocs \
     --setopt=install_weak_deps=False \
+    --nogpgcheck \
     epel-release
 
-# 2. Install packages including fastfetch from EPEL
+# 2. Install packages including fastfetch from EPEL and build tools from CRB
 DEFAULT_ROOTFS_PACKAGES=(
     gcc gcc-c++ gdb make binutils
     file which findutils diffutils
     procps-ng iproute less nano
     tar gzip xz bzip2
-    systemd systemd-udev dbus
+    libcap-devel meson ninja-build
     python3 lua
     epel-release fastfetch
 )
@@ -109,3 +110,4 @@ dnf install -y <package-name>
 
 * All build scripts and configuration updates maintain strict human maintainer attribution (`git config user.name` / `user.email`).
 * Kernel build checks (`cargo osdk check` and `cargo osdk build`) must always pass with exit code `0` when updating userland configuration or sysfs/VFS hooks.
+

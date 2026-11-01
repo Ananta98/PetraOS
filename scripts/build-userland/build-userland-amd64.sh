@@ -1,11 +1,11 @@
 #!/bin/bash
 # ==============================================================================
-# PetraOS amd64 Userland & Initramfs Builder (Rocky Linux 9)
+# PetraOS amd64 Userland & Initramfs Builder (Rocky Linux 9 + OpenRC)
 # ==============================================================================
 # Assembles the PetraOS x86_64 userland from the official Rocky Linux 9 base
-# image, provisions standard toolchain packages via DNF, resolves ELF dynamic
-# library dependencies for a lightweight initramfs, and packs initramfs.cpio
-# and ext4.img.
+# image, provisions standard toolchain packages via DNF, builds and configures
+# the lightweight OpenRC init system, resolves ELF dynamic library dependencies
+# for a fast boot initramfs, and packs initramfs.cpio and ext4.img.
 # ==============================================================================
 set -euo pipefail
 
@@ -19,6 +19,11 @@ ROCKY_ARCH="${ROCKY_ARCH:-x86_64}"
 ROCKY_SHA256="${ROCKY_SHA256:-1210df99dcf0ef4d73940244e6d703935175629598b09c0e430da20e76768402}"
 ROCKY_TAR_NAME="Rocky-${ROCKY_VERSION}-Container-Base.latest.${ROCKY_ARCH}.tar.xz"
 ROCKY_URL="${ROCKY_URL:-https://dl.rockylinux.org/pub/rocky/${ROCKY_VERSION}/images/${ROCKY_ARCH}/${ROCKY_TAR_NAME}}"
+
+# OpenRC upstream configuration
+OPENRC_VERSION="${OPENRC_VERSION:-0.64.1}"
+OPENRC_TAR_NAME="openrc-${OPENRC_VERSION}.tar.gz"
+OPENRC_URL="${OPENRC_URL:-https://github.com/OpenRC/openrc/archive/refs/tags/${OPENRC_VERSION}.tar.gz}"
 
 # Build & staging paths
 CACHE_DIR="${REPO_ROOT}/build/cache"
@@ -41,7 +46,7 @@ DEFAULT_ROOTFS_PACKAGES=(
     file which findutils diffutils
     procps-ng iproute less nano
     tar gzip xz bzip2
-    systemd systemd-udev dbus
+    libcap-devel meson ninja-build
     python3 lua
     epel-release fastfetch
 )
@@ -53,7 +58,8 @@ DEFAULT_INITRAMFS_TOOLS=(
     cat cp mv rm ln mkdir rmdir chmod chown touch
     echo head tail grep sed awk cut find file which
     uname sleep true false dmesg sync
-    systemctl poweroff reboot
+    openrc openrc-init openrc-run openrc-shutdown
+    rc-service rc-status rc-update poweroff reboot
     fastfetch
 )
 
@@ -191,7 +197,11 @@ install_rootfs_packages() {
     fi
 
     echo "==> Provisioning Rocky Linux toolchain and utilities via DNF..."
-    mkdir -p "${ROOTFS_STAGING}/etc" "${ROOTFS_STAGING}/var/cache/dnf" "${ROOTFS_STAGING}/tmp"
+    mkdir -p "${ROOTFS_STAGING}/etc" "${ROOTFS_STAGING}/dev" "${ROOTFS_STAGING}/var/cache/dnf" "${ROOTFS_STAGING}/tmp"
+
+    # CRITICAL: GPGME and child process redirects in DNF require /dev/null and /dev/zero to exist
+    touch "${ROOTFS_STAGING}/dev/null" "${ROOTFS_STAGING}/dev/zero"
+
     if [ -f /etc/resolv.conf ]; then
         cp -L /etc/resolv.conf "${ROOTFS_STAGING}/etc/resolv.conf" 2>/dev/null || true
     fi
@@ -207,11 +217,14 @@ EOF
     unshare -r chroot "${ROOTFS_STAGING}" /usr/bin/dnf install -y \
         --setopt=tsflags=nodocs \
         --setopt=install_weak_deps=False \
+        --nogpgcheck \
         epel-release || true
 
     unshare -r chroot "${ROOTFS_STAGING}" /usr/bin/dnf install -y \
         --setopt=tsflags=nodocs \
         --setopt=install_weak_deps=False \
+        --nogpgcheck \
+        --enablerepo=crb \
         "${DEFAULT_ROOTFS_PACKAGES[@]}"
 
     unshare -r chroot "${ROOTFS_STAGING}" /usr/bin/dnf clean all >/dev/null 2>&1 || true
@@ -219,6 +232,43 @@ EOF
         unshare -r chroot "${ROOTFS_STAGING}" /usr/sbin/ldconfig 2>/dev/null || true
     fi
     chmod -R u+rwX "${ROOTFS_STAGING}" 2>/dev/null || true
+}
+
+install_openrc() {
+    if [ -x "${ROOTFS_STAGING}/sbin/openrc" ] && [ -x "${ROOTFS_STAGING}/sbin/openrc-init" ] && [ "${FRESH}" -eq 0 ]; then
+        return 0
+    fi
+
+    echo "==> Building and installing OpenRC (${OPENRC_VERSION})..."
+    local openrc_archive="${CACHE_DIR}/${OPENRC_TAR_NAME}"
+    mkdir -p "${CACHE_DIR}"
+
+    if [ ! -f "${openrc_archive}" ]; then
+        echo "==> Downloading OpenRC ${OPENRC_VERSION} source archive..."
+        curl -fL --retry 3 "${OPENRC_URL}" -o "${openrc_archive}"
+    fi
+
+    local openrc_build_dir="${ROOTFS_STAGING}/tmp/openrc-src"
+    rm -rf "${openrc_build_dir}"
+    mkdir -p "${openrc_build_dir}"
+    tar -xzf "${openrc_archive}" --strip-components=1 -C "${openrc_build_dir}"
+
+    unshare -r chroot "${ROOTFS_STAGING}" /bin/bash -c "
+        cd /tmp/openrc-src
+        rm -rf build
+        meson setup build \
+            --prefix=/usr \
+            --sysconfdir=/etc \
+            --buildtype=release \
+            -Dpam=false \
+            -Daudit=disabled \
+            -Dsysvinit=true
+        meson compile -C build
+        DESTDIR='' meson install -C build
+    "
+
+    rm -rf "${openrc_build_dir}"
+    echo "==> OpenRC ${OPENRC_VERSION} installed successfully."
 }
 
 # Recursively copy all shared library dependencies (DT_NEEDED) of an ELF binary
@@ -391,95 +441,48 @@ configure_target_tree() {
         ln -sfn lua "${target_dir}/usr/bin/lua5.4"
     fi
 
-    # Configure systemd default target to multi-user for console/terminal boot
-    if [ -d "${target_dir}/usr/lib/systemd/system" ]; then
-        mkdir -p "${target_dir}/etc/systemd/system"
-        ln -sfn /usr/lib/systemd/system/multi-user.target "${target_dir}/etc/systemd/system/default.target"
-
-        # Autologin root on console and tty1
-        mkdir -p "${target_dir}/etc/systemd/system/console-getty.service.d"
-        cat > "${target_dir}/etc/systemd/system/console-getty.service.d/override.conf" << 'EOF'
-[Unit]
-Description=Console Root Login Shell
-DefaultDependencies=no
-After=
-Conflicts=shutdown.target
-
-[Service]
-Type=simple
-ExecStart=
-ExecStart=-/bin/bash -l
-Restart=always
-StandardInput=tty
-StandardOutput=tty
-StandardError=tty
-TTYPath=/dev/console
-TTYReset=yes
-TTYVHangup=yes
-Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-Environment=HOME=/root
-Environment=USER=root
-Environment=LOGNAME=root
-Environment=TERM=linux
+    # Configure OpenRC init and service runlevels
+    if [ -x "${target_dir}/sbin/openrc" ] || [ -d "${target_dir}/etc/init.d" ]; then
+        mkdir -p "${target_dir}/etc/conf.d"
+        cat > "${target_dir}/etc/rc.conf" << 'EOF'
+# /etc/rc.conf: OpenRC system configuration for PetraOS
+rc_parallel="YES"
+rc_sys=""
+unicode="YES"
+rc_crashed_stop=NO
+rc_crashed_start=YES
+rc_logger="NO"
 EOF
 
-        mkdir -p "${target_dir}/etc/systemd/system/getty@tty1.service.d"
-        cat > "${target_dir}/etc/systemd/system/getty@tty1.service.d/override.conf" << 'EOF'
-[Service]
-ExecStart=
-ExecStart=-/sbin/agetty -o '-p -- \\u' --autologin root --noclear %I $TERM
+        cat > "${target_dir}/etc/conf.d/agetty" << 'EOF'
+# /etc/conf.d/agetty: Console autologin for PetraOS
+agetty_options="--autologin root --noclear"
+term_type="linux"
 EOF
 
-        mkdir -p "${target_dir}/etc/systemd/system/getty.target.wants"
-        ln -sfn /usr/lib/systemd/system/console-getty.service "${target_dir}/etc/systemd/system/getty.target.wants/console-getty.service"
+        mkdir -p "${target_dir}/etc/runlevels"/{sysinit,boot,default,shutdown,nonetwork}
 
-        mkdir -p "${target_dir}/etc/systemd/system/multi-user.target.wants"
-        ln -sfn /usr/lib/systemd/system/console-getty.service "${target_dir}/etc/systemd/system/multi-user.target.wants/console-getty.service"
+        if [ -f "${target_dir}/etc/init.d/agetty" ]; then
+            ln -sfn agetty "${target_dir}/etc/init.d/agetty.console"
+            ln -sfn agetty "${target_dir}/etc/init.d/agetty.tty1"
+            ln -sfn /etc/init.d/agetty.console "${target_dir}/etc/runlevels/default/agetty.console"
+            ln -sfn /etc/init.d/agetty.tty1 "${target_dir}/etc/runlevels/default/agetty.tty1"
+        fi
 
-        # Module metadata for modprobe / systemd
-        mkdir -p "${target_dir}/usr/lib/modules/6.6.0-petra"
-        touch "${target_dir}/usr/lib/modules/6.6.0-petra/modules.dep"
-        touch "${target_dir}/usr/lib/modules/6.6.0-petra/modules.alias"
-        touch "${target_dir}/usr/lib/modules/6.6.0-petra/modules.symbols"
-        touch "${target_dir}/usr/lib/modules/6.6.0-petra/modules.builtin"
-        echo "autofs4" > "${target_dir}/usr/lib/modules/6.6.0-petra/modules.builtin"
-        echo "unix" >> "${target_dir}/usr/lib/modules/6.6.0-petra/modules.builtin"
-
-        # Disable credential helpers across all services in minimal VM boot
-        mkdir -p "${target_dir}/etc/systemd/system/service.d"
-        cat > "${target_dir}/etc/systemd/system/service.d/10-no-credentials.conf" << 'EOF'
-[Service]
-LoadCredential=
-SetCredential=
-EOF
-
-        mkdir -p "${target_dir}/etc/systemd/system/systemd-sysusers.service.d"
-        cat > "${target_dir}/etc/systemd/system/systemd-sysusers.service.d/override.conf" << 'EOF'
-[Service]
-LoadCredential=
-SetCredential=
-EOF
-
-        # Mask / remove unneeded system generators for minimal container/VM boot
-        for gen in systemd-system-update-generator \
-                   systemd-rc-local-generator \
-                   systemd-hibernate-resume-generator \
-                   systemd-integritysetup-generator \
-                   systemd-veritysetup-generator \
-                   systemd-cryptsetup-generator \
-                   systemd-gpt-auto-generator \
-                   systemd-getty-generator \
-                   systemd-bless-boot-generator; do
-            rm -f "${target_dir}/usr/lib/systemd/system-generators/${gen}"
-        done
-
-        # Configure dynamic linker path for systemd internal shared libraries
-        mkdir -p "${target_dir}/etc/ld.so.conf.d"
-        echo "/usr/lib64/systemd" > "${target_dir}/etc/ld.so.conf.d/systemd.conf"
-        if [ -f "${target_dir}/usr/lib64/systemd/libsystemd-shared-252.so" ] && [ ! -e "${target_dir}/usr/lib64/libsystemd-shared-252.so" ]; then
-            ln -sfn systemd/libsystemd-shared-252.so "${target_dir}/usr/lib64/libsystemd-shared-252.so"
+        # Symlink /sbin/init to openrc-init if present
+        if [ -x "${target_dir}/sbin/openrc-init" ]; then
+            ln -sfn openrc-init "${target_dir}/sbin/init"
         fi
     fi
+
+    # Module metadata for modprobe
+    mkdir -p "${target_dir}/usr/lib/modules/6.6.0-petra"
+    touch "${target_dir}/usr/lib/modules/6.6.0-petra/modules.dep"
+    touch "${target_dir}/usr/lib/modules/6.6.0-petra/modules.alias"
+    touch "${target_dir}/usr/lib/modules/6.6.0-petra/modules.symbols"
+    touch "${target_dir}/usr/lib/modules/6.6.0-petra/modules.builtin"
+    echo "autofs4" > "${target_dir}/usr/lib/modules/6.6.0-petra/modules.builtin"
+    echo "unix" >> "${target_dir}/usr/lib/modules/6.6.0-petra/modules.builtin"
     if [ -x "${target_dir}/usr/bin/dnf-3" ] && [ ! -e "${target_dir}/usr/bin/dnf" ]; then
         ln -sfn dnf-3 "${target_dir}/usr/bin/dnf"
     fi
@@ -617,6 +620,17 @@ configure_system_files() {
         fi
     done
 
+    # Stage OpenRC init scripts and runlevels into initramfs
+    if [ -d "${ROOTFS_STAGING}/etc/runlevels" ]; then
+        cp -a "${ROOTFS_STAGING}/etc/runlevels" "${STAGING}/etc/" 2>/dev/null || true
+        cp -a "${ROOTFS_STAGING}/etc/init.d" "${STAGING}/etc/" 2>/dev/null || true
+        cp -a "${ROOTFS_STAGING}/etc/conf.d" "${STAGING}/etc/" 2>/dev/null || true
+    fi
+    if [ -d "${ROOTFS_STAGING}/usr/libexec/rc" ]; then
+        mkdir -p "${STAGING}/usr/libexec"
+        cp -a "${ROOTFS_STAGING}/usr/libexec/rc" "${STAGING}/usr/libexec/" 2>/dev/null || true
+    fi
+
     configure_target_tree "${STAGING}"
     configure_target_tree "${ROOTFS_STAGING}"
 }
@@ -647,6 +661,7 @@ main() {
     fetch_rocky_archive
     extract_rocky_rootfs
     install_rootfs_packages
+    install_openrc
     assemble_initramfs
     configure_system_files
     verify_staging

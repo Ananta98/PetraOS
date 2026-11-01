@@ -1,6 +1,6 @@
 #!/bin/bash
-# Build the full PetraOS amd64 target: Rocky Linux userland + initramfs, the petra
-# kernel, and a bootable hybrid BIOS/UEFI ISO.
+# Build the full PetraOS amd64 target: Rocky Linux 9 userland + OpenRC init + initramfs,
+# the petra kernel, and a bootable hybrid BIOS/UEFI ISO.
 #
 # Usage: build-amd64.sh [OPTIONS]
 #
@@ -31,7 +31,7 @@ usage() {
     cat << EOF
 Usage: $(basename "$0") [OPTIONS]
 
-Build the full PetraOS amd64 target (Rocky Linux userland, Petra kernel, and hybrid ISO).
+Build the full PetraOS amd64 target (Rocky Linux 9 + OpenRC userland, Petra kernel, and hybrid ISO).
 
 Options:
   --fresh          Rebuild userland staging from scratch
@@ -99,13 +99,13 @@ START_TIME=$(date +%s)
 
 echo "============================================================"
 echo " PetraOS amd64 Build Pipeline"
-echo " Target: Rocky Linux 9 (x86_64) | Profile: ${KERNEL_PROFILE}"
+echo " Target: Rocky Linux 9 + OpenRC (x86_64) | Profile: ${KERNEL_PROFILE}"
 echo "============================================================"
 
 # Step 1: Userland & Initramfs
 if [ "${BUILD_USERLAND}" -eq 1 ]; then
     echo ""
-    echo "[1/3] Building Rocky Linux userland and initramfs..."
+    echo "[1/3] Building Rocky Linux 9 + OpenRC userland and initramfs..."
     "${SCRIPT_DIR}/build-userland/build-userland-amd64.sh" "${USERLAND_ARGS[@]}"
 elif [ ! -f "${INITRAMFS}" ]; then
     echo "ERROR: --no-userland specified, but ${INITRAMFS} not found." >&2

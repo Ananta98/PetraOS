@@ -7,7 +7,7 @@ A modern, modular operating system kernel written in Rust, built on OSTD (Operat
 ## Features
 
 - **Subsystem Architecture**: Domain-partitioned kernel subsystems (`arch`, `fs`, `drivers`, `ipc`, `net`, `proc`, `sched`, `syscall`, `vm`, `time`).
-- **Linux ABI Compatibility**: Supports Rocky Linux 9 userland binaries, GNU toolchain (`gcc`, `g++`, `gdb`, `make`), and systemd.
+- **Linux ABI Compatibility**: Supports Rocky Linux 9 userland binaries, GNU toolchain (`gcc`, `g++`, `gdb`, `make`), and OpenRC.
 - **VFS Subsystem**: Full virtual filesystem supporting `ext4`, `exfat`, `procfs`, `sysfs`, `devfs`, and `tmpfs`.
 - **Networking**: `AF_INET`, `AF_UNIX` (stream and datagram with `SCM_RIGHTS` & `SCM_CREDENTIALS`), and `AF_NETLINK` route socket support.
 

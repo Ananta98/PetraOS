@@ -62,12 +62,16 @@ spawn_userspace_shell() {
             exec $chroot_bin "$target_root" "$@" || echo "[init] chroot command failed: $?"
         fi
 
-        # Primary initialization: Launch systemd if present
-        if [ -x "$target_root/usr/lib/systemd/systemd" ] || [ -x "$target_root/sbin/init" ]; then
-            local init_bin="/usr/lib/systemd/systemd"
-            [ -x "$target_root/usr/lib/systemd/systemd" ] || init_bin="/sbin/init"
-            echo "[init] Launching systemd as primary initialization ($init_bin)..."
-            exec $chroot_bin "$target_root" "$init_bin" || echo "[init] systemd execution failed, falling back to shell..."
+        # Primary initialization: Launch OpenRC if present, fallback to init
+        if [ -x "$target_root/sbin/openrc-init" ]; then
+            echo "[init] Launching OpenRC as primary initialization (/sbin/openrc-init)..."
+            exec $chroot_bin "$target_root" /sbin/openrc-init || echo "[init] OpenRC execution failed, falling back to shell..."
+        elif [ -x "$target_root/sbin/init" ]; then
+            echo "[init] Launching init as primary initialization (/sbin/init)..."
+            exec $chroot_bin "$target_root" /sbin/init || echo "[init] init execution failed, falling back to shell..."
+        elif [ -x "$target_root/usr/lib/systemd/systemd" ]; then
+            echo "[init] Launching systemd fallback (/usr/lib/systemd/systemd)..."
+            exec $chroot_bin "$target_root" /usr/lib/systemd/systemd || echo "[init] systemd execution failed, falling back to shell..."
         fi
 
         if [ -x "$target_root/bin/bash" ] || [ -x "$target_root/usr/bin/bash" ]; then
@@ -83,12 +87,16 @@ spawn_userspace_shell() {
             exec "$@"
         fi
 
-        # Primary initialization: Launch systemd if present in current root
-        if [ -x /usr/lib/systemd/systemd ] || [ -x /sbin/init ]; then
-            local init_bin="/usr/lib/systemd/systemd"
-            [ -x /usr/lib/systemd/systemd ] || init_bin="/sbin/init"
-            echo "[init] Launching systemd as primary initialization ($init_bin)..."
-            exec "$init_bin" || echo "[init] systemd execution failed, falling back to shell..."
+        # Primary initialization: Launch OpenRC if present in current root
+        if [ -x /sbin/openrc-init ]; then
+            echo "[init] Launching OpenRC as primary initialization (/sbin/openrc-init)..."
+            exec /sbin/openrc-init || echo "[init] OpenRC execution failed, falling back to shell..."
+        elif [ -x /sbin/init ]; then
+            echo "[init] Launching init as primary initialization (/sbin/init)..."
+            exec /sbin/init || echo "[init] init execution failed, falling back to shell..."
+        elif [ -x /usr/lib/systemd/systemd ]; then
+            echo "[init] Launching systemd fallback (/usr/lib/systemd/systemd)..."
+            exec /usr/lib/systemd/systemd || echo "[init] systemd execution failed, falling back to shell..."
         fi
 
         if [ -x /bin/bash ]; then
@@ -113,7 +121,7 @@ if [ -f /etc/rocky-release ] || [ -f /etc/redhat-release ] || [ -x /usr/bin/dnf 
     echo "       Welcome to PetraOS (Rocky Linux Userspace)           "
     echo "============================================================"
     echo "Kernel:       $(cat /proc/version 2>/dev/null || echo 'PetraOS x86_64')"
-    echo "Release:      PetraOS $(cat /etc/petraos-release 2>/dev/null || echo '0.1.0') (Rocky Linux 9)"
+    echo "Release:      PetraOS $(cat /etc/petraos-release 2>/dev/null || echo '0.1.0') (Rocky Linux 9 + OpenRC)"
     echo "Rootfs:       /dev/sda (ext4)"
     echo "Architecture: $(uname -m 2>/dev/null || echo x86_64)"
     echo "============================================================"
@@ -155,7 +163,7 @@ if [ -d /sysroot/usr/bin ] || [ -f /sysroot/etc/rocky-release ] || [ -x /sysroot
     echo "       Welcome to PetraOS (Rocky Linux Userspace)           "
     echo "============================================================"
     echo "Kernel:       $(cat /proc/version 2>/dev/null || echo 'PetraOS x86_64')"
-    echo "Release:      PetraOS $(cat /sysroot/etc/petraos-release 2>/dev/null || echo '0.1.0') (Rocky Linux 9)"
+    echo "Release:      PetraOS $(cat /sysroot/etc/petraos-release 2>/dev/null || echo '0.1.0') (Rocky Linux 9 + OpenRC)"
     echo "Rootfs:       /dev/sda (ext4) mounted on /sysroot"
     echo "Architecture: $(uname -m 2>/dev/null || echo x86_64)"
     echo "============================================================"
