@@ -39,12 +39,7 @@ pub fn sys_pipe2(pipefd_ptr: usize, flags: i32, _ctx: &mut UserContext) -> Resul
         }
     };
 
-    let fds: [i32; 2] = [fd0, fd1];
-    let mut bytes = [0u8; 8];
-    bytes[0..4].copy_from_slice(&fds[0].to_ne_bytes());
-    bytes[4..8].copy_from_slice(&fds[1].to_ne_bytes());
-
-    UserPtr::new(pipefd_ptr).write_bytes(&proc.vmspace(), &bytes)?;
+    UserPtr::new(pipefd_ptr).write_val(&proc.vmspace(), [fd0, fd1])?;
     Ok(0)
 }
 

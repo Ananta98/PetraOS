@@ -60,24 +60,12 @@ pub fn sys_prlimit64(
             None => RLimit::infinity(),
         };
 
-        let mut buf = [0u8; 16];
-        buf[0..8].copy_from_slice(&rlim.rlim_cur.to_ne_bytes());
-        buf[8..16].copy_from_slice(&rlim.rlim_max.to_ne_bytes());
-
-        UserPtr::new(old_limit_ptr).write_bytes(&caller_vmar, &buf)?;
+        UserPtr::new(old_limit_ptr).write_val(&caller_vmar, [rlim.rlim_cur, rlim.rlim_max])?;
     }
 
     // 2. If new_limit_ptr != 0, set new limit
     if new_limit_ptr != 0 {
-        let mut buf = [0u8; 16];
-        UserPtr::new(new_limit_ptr).read_bytes(&caller_vmar, &mut buf)?;
-
-        let cur = u64::from_ne_bytes([
-            buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6], buf[7],
-        ]);
-        let max = u64::from_ne_bytes([
-            buf[8], buf[9], buf[10], buf[11], buf[12], buf[13], buf[14], buf[15],
-        ]);
+        let [cur, max]: [u64; 2] = UserPtr::new(new_limit_ptr).read_val(&caller_vmar)?;
 
         let new_rlim = RLimit::new(cur, max);
 

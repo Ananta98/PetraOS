@@ -3,6 +3,7 @@
 //! `times(2)` system call (Syscall #100 on x86_64).
 
 use ostd::arch::cpu::context::UserContext;
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 use crate::{
     proc::Thread,
@@ -12,7 +13,7 @@ use crate::{
 
 /// Linux x86_64 compatible `struct tms` (32 bytes).
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, FromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct Tms {
     pub tms_utime: i64,
     pub tms_stime: i64,
@@ -22,28 +23,11 @@ pub struct Tms {
 
 impl Tms {
     pub fn to_bytes(&self) -> [u8; 32] {
-        let mut buf = [0u8; 32];
-        buf[0..8].copy_from_slice(&self.tms_utime.to_ne_bytes());
-        buf[8..16].copy_from_slice(&self.tms_stime.to_ne_bytes());
-        buf[16..24].copy_from_slice(&self.tms_cutime.to_ne_bytes());
-        buf[24..32].copy_from_slice(&self.tms_cstime.to_ne_bytes());
-        buf
+        zerocopy::transmute!(*self)
     }
 
     pub fn from_bytes(buf: &[u8]) -> Option<Self> {
-        if buf.len() < 32 {
-            return None;
-        }
-        let tms_utime = i64::from_ne_bytes(buf[0..8].try_into().ok()?);
-        let tms_stime = i64::from_ne_bytes(buf[8..16].try_into().ok()?);
-        let tms_cutime = i64::from_ne_bytes(buf[16..24].try_into().ok()?);
-        let tms_cstime = i64::from_ne_bytes(buf[24..32].try_into().ok()?);
-        Some(Self {
-            tms_utime,
-            tms_stime,
-            tms_cutime,
-            tms_cstime,
-        })
+        Self::read_from_bytes(buf).ok()
     }
 }
 
@@ -68,7 +52,7 @@ pub fn sys_times(buf_ptr: usize, _ctx: &mut UserContext) -> Result<usize> {
             tms_cstime: 0,
         };
 
-        UserPtr::new(buf_ptr).write_bytes(&vmar, &tms.to_bytes())?;
+        UserPtr::new(buf_ptr).write_val(&vmar, tms)?;
     }
 
     // Returns the number of clock ticks elapsed since system boot in USER_HZ (100 Hz)

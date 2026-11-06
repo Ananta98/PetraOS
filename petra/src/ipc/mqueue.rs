@@ -20,6 +20,7 @@ use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::time::Duration;
 use ostd::sync::{SpinLock, WaitQueue};
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 use crate::fs::poll::PollEvents;
 use crate::fs::vfs::{File, FileOps, INode, INodeAttr, Mode, NodeOps, OpenFlags, SeekAnchor};
@@ -314,6 +315,8 @@ pub struct MqDesc {
 }
 
 /// The attribute tuple `struct mq_attr` exposes.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, FromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct MqAttrSnapshot {
     /// `mq_flags`: only `O_NONBLOCK` is settable, per descriptor.
     pub flags: u64,

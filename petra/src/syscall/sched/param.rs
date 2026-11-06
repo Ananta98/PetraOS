@@ -29,9 +29,7 @@ pub fn sys_sched_setparam(pid: i32, param_ptr: usize, _ctx: &mut UserContext) ->
     let caller = Thread::proc_or_esrch()?;
     let vmar = caller.vmspace();
 
-    let mut buf = [0u8; 4];
-    UserPtr::new(param_ptr).read_bytes(&vmar, &mut buf)?;
-    let param = SchedParam::from_bytes(&buf).ok_or(Errno::EINVAL)?;
+    let param = UserPtr::new(param_ptr).read_val::<SchedParam>(&vmar)?;
 
     let target = resolve_target_proc(&caller, pid)?;
     crate::sched::check_sched_permission(&caller, &target)?;
@@ -68,7 +66,7 @@ pub fn sys_sched_getparam(pid: i32, param_ptr: usize, _ctx: &mut UserContext) ->
     let state = crate::sched::get_sched_state(target.pid);
     let param = SchedParam::new(state.priority);
 
-    UserPtr::new(param_ptr).write_bytes(&caller.vmspace(), &param.to_bytes())?;
+    UserPtr::new(param_ptr).write_val(&caller.vmspace(), param)?;
     Ok(0)
 }
 
@@ -90,9 +88,7 @@ pub fn sys_sched_setscheduler(
     let caller = Thread::proc_or_esrch()?;
     let vmar = caller.vmspace();
 
-    let mut buf = [0u8; 4];
-    UserPtr::new(param_ptr).read_bytes(&vmar, &mut buf)?;
-    let param = SchedParam::from_bytes(&buf).ok_or(Errno::EINVAL)?;
+    let param = UserPtr::new(param_ptr).read_val::<SchedParam>(&vmar)?;
 
     let target = resolve_target_proc(&caller, pid)?;
     crate::sched::check_sched_permission(&caller, &target)?;

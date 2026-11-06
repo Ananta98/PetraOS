@@ -6,6 +6,8 @@
 //! Resource limits are shared across threads within a process and are cloned
 //! across `fork(2)`. Modifications follow Copy-on-Write semantics.
 
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
+
 use crate::uapi::errno::Result;
 
 /// Unbounded resource limit value (POSIX `RLIM_INFINITY`).
@@ -127,7 +129,7 @@ impl Default for Plimit {
 }
 
 /// Linux x86_64 resource usage statistics (POSIX `struct rusage`).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, FromBytes, IntoBytes, KnownLayout, Immutable)]
 #[repr(C)]
 pub struct Rusage {
     /// User CPU time used (seconds)
@@ -198,30 +200,6 @@ impl Rusage {
 
     /// Converts into raw byte representation for userspace copying.
     pub fn to_bytes(&self) -> [u8; core::mem::size_of::<Self>()] {
-        let mut bytes = [0u8; core::mem::size_of::<Self>()];
-        let fields = [
-            self.ru_utime_sec,
-            self.ru_utime_usec,
-            self.ru_stime_sec,
-            self.ru_stime_usec,
-            self.ru_maxrss,
-            self.ru_ixrss,
-            self.ru_idrss,
-            self.ru_isrss,
-            self.ru_minflt,
-            self.ru_majflt,
-            self.ru_nswap,
-            self.ru_inblock,
-            self.ru_oublock,
-            self.ru_msgsnd,
-            self.ru_msgrcv,
-            self.ru_nsignals,
-            self.ru_nvcsw,
-            self.ru_nivcsw,
-        ];
-        for (i, val) in fields.iter().enumerate() {
-            bytes[i * 8..(i + 1) * 8].copy_from_slice(&val.to_ne_bytes());
-        }
-        bytes
+        zerocopy::transmute!(*self)
     }
 }

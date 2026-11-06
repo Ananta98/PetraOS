@@ -9,6 +9,8 @@
 //! - Timer notification descriptors (`timerfd_create`, `timerfd_settime`, `timerfd_gettime`)
 //! - Signal notification descriptors (`signalfd`, `signalfd4`)
 
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
+
 use crate::uapi::signal::{SIGSET_WORDS, SigInfo};
 
 // --- General File Descriptor Flags ---
@@ -63,7 +65,7 @@ pub const SIGSET_ABI_SIZE_MAX: usize = SIGSET_WORDS * BYTES_PER_SIGSET_WORD;
 
 /// Linux ABI layout for `struct signalfd_siginfo` (128 bytes).
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, FromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct SignalFdSiginfo {
     pub ssi_signo: u32,
     pub ssi_errno: i32,
@@ -105,30 +107,7 @@ impl SignalFdSiginfo {
     }
 
     pub fn to_bytes(&self) -> [u8; SIGNALFD_SIGINFO_SIZE] {
-        let mut buffer = [0u8; SIGNALFD_SIGINFO_SIZE];
-        buffer[0..4].copy_from_slice(&self.ssi_signo.to_ne_bytes());
-        buffer[4..8].copy_from_slice(&self.ssi_errno.to_ne_bytes());
-        buffer[8..12].copy_from_slice(&self.ssi_code.to_ne_bytes());
-        buffer[12..16].copy_from_slice(&self.ssi_pid.to_ne_bytes());
-        buffer[16..20].copy_from_slice(&self.ssi_uid.to_ne_bytes());
-        buffer[20..24].copy_from_slice(&self.ssi_fd.to_ne_bytes());
-        buffer[24..28].copy_from_slice(&self.ssi_tid.to_ne_bytes());
-        buffer[28..32].copy_from_slice(&self.ssi_band.to_ne_bytes());
-        buffer[32..36].copy_from_slice(&self.ssi_overrun.to_ne_bytes());
-        buffer[36..40].copy_from_slice(&self.ssi_trapno.to_ne_bytes());
-        buffer[40..44].copy_from_slice(&self.ssi_status.to_ne_bytes());
-        buffer[44..48].copy_from_slice(&self.ssi_int.to_ne_bytes());
-        buffer[48..56].copy_from_slice(&self.ssi_ptr.to_ne_bytes());
-        buffer[56..64].copy_from_slice(&self.ssi_utime.to_ne_bytes());
-        buffer[64..72].copy_from_slice(&self.ssi_stime.to_ne_bytes());
-        buffer[72..80].copy_from_slice(&self.ssi_addr.to_ne_bytes());
-        buffer[80..82].copy_from_slice(&self.ssi_addr_lsb.to_ne_bytes());
-        buffer[82..84].copy_from_slice(&self._pad2.to_ne_bytes());
-        buffer[84..88].copy_from_slice(&self.ssi_syscall.to_ne_bytes());
-        buffer[88..96].copy_from_slice(&self.ssi_call_addr.to_ne_bytes());
-        buffer[96..100].copy_from_slice(&self.ssi_arch.to_ne_bytes());
-        buffer[100..128].copy_from_slice(&self._pad);
-        buffer
+        zerocopy::transmute!(*self)
     }
 }
 

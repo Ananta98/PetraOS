@@ -7,6 +7,7 @@
 
 use alloc::sync::Arc;
 use core::sync::atomic::Ordering;
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 use crate::uapi::errno::{Errno, Result};
 use crate::uapi::ioctl;
@@ -16,6 +17,15 @@ use crate::proc::{PID_INIT, Pid};
 use crate::utils::UserPtr;
 use crate::vm::vmar::Vmar;
 
+/// Linux `struct vt_stat` (6 bytes).
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, FromBytes, IntoBytes, KnownLayout, Immutable)]
+pub struct VtStat {
+    pub v_active: u16,
+    pub v_signal: u16,
+    pub v_state: u16,
+}
+
 use super::input::{drain_input, flush_input_queue};
 use super::tty::Tty;
 
@@ -23,8 +33,7 @@ pub fn handle_termios_ioctl(tty: &Tty, cmd: u32, arg: usize, vmar: &Arc<Vmar>) -
     match cmd {
         ioctl::TCGETS => {
             let termios = tty.ldisc.lock().termios;
-            let bytes = termios.to_bytes();
-            UserPtr::new(arg).write_bytes(vmar, &bytes)?;
+            UserPtr::new(arg).write_val(vmar, termios)?;
             Ok(0)
         }
         ioctl::TCSETS | ioctl::TCSETSW | ioctl::TCSETSF => {
@@ -79,14 +88,11 @@ pub fn handle_winsize_ioctl(tty: &Tty, cmd: u32, arg: usize, vmar: &Arc<Vmar>) -
                     *tty.winsize.lock() = ws;
                 }
             }
-            let bytes = ws.to_bytes();
-            UserPtr::new(arg).write_bytes(vmar, &bytes)?;
+            UserPtr::new(arg).write_val(vmar, ws)?;
             Ok(0)
         }
         ioctl::TIOCSWINSZ => {
-            let mut bytes = [0u8; winsize::SIZE];
-            UserPtr::new(arg).read_bytes(vmar, &mut bytes)?;
-            let ws = winsize::from_bytes(&bytes);
+            let ws = UserPtr::new(arg).read_val::<winsize>(vmar)?;
             *tty.winsize.lock() = ws;
             tty.winsize_user_set.store(true, Ordering::Release);
             let _ = tty.driver.set_winsize(ws);
@@ -106,9 +112,7 @@ pub fn handle_job_control_ioctl(
 ) -> Result<usize> {
     match cmd {
         ioctl::TIOCSPGRP => {
-            let mut bytes = [0u8; 4];
-            UserPtr::new(arg).read_bytes(vmar, &mut bytes)?;
-            let raw = u32::from_ne_bytes(bytes);
+            let raw = UserPtr::new(arg).read_val::<u32>(vmar)?;
             let pgrp = Pid::from_u32(raw).ok_or(Errno::EINVAL)?;
             *tty.foreground_pgrp.lock() = Some(pgrp);
             Ok(0)
@@ -119,8 +123,7 @@ pub fn handle_job_control_ioctl(
                 .lock()
                 .or_else(|| proc_opt.map(|p| p.pgid()))
                 .unwrap_or(PID_INIT);
-            let bytes = pgrp.as_u32().to_ne_bytes();
-            UserPtr::new(arg).write_bytes(vmar, &bytes)?;
+            UserPtr::new(arg).write_val(vmar, pgrp.as_u32())?;
             Ok(0)
         }
         ioctl::TIOCSCTTY => {
@@ -140,8 +143,7 @@ pub fn handle_job_control_ioctl(
                 .lock()
                 .or_else(|| proc_opt.map(|p| p.pid))
                 .unwrap_or(PID_INIT);
-            let bytes = sid.as_u32().to_ne_bytes();
-            UserPtr::new(arg).write_bytes(vmar, &bytes)?;
+            UserPtr::new(arg).write_val(vmar, sid.as_u32())?;
             Ok(0)
         }
         _ => crate::return_errno!(ENOTTY, "unsupported job control ioctl"),
@@ -172,12 +174,12 @@ pub fn handle_ioctl(
         ioctl::FIONREAD => {
             drain_input();
             let count = tty.ldisc.lock().read_available() as i32;
-            UserPtr::new(arg).write_bytes(vmar, &count.to_ne_bytes())?;
+            UserPtr::new(arg).write_val(vmar, count)?;
             Ok(0)
         }
         ioctl::TIOCOUTQ => {
             let count: i32 = 0;
-            UserPtr::new(arg).write_bytes(vmar, &count.to_ne_bytes())?;
+            UserPtr::new(arg).write_val(vmar, count)?;
             Ok(0)
         }
 
@@ -211,13 +213,13 @@ fn handle_vt_ioctl(cmd: u32, arg: usize, vmar: &Arc<Vmar>) -> Result<usize> {
         KDSETMODE | KDSIGACCEPT => Ok(0),
         KDGETMODE => {
             let mode = 0i32; // KD_TEXT
-            UserPtr::new(arg).write_bytes(vmar, &mode.to_ne_bytes())?;
+            UserPtr::new(arg).write_val(vmar, mode)?;
             Ok(0)
         }
         KDSKBMODE => Ok(0),
         KDGKBMODE => {
             let mode = 1i32; // K_XLATE
-            UserPtr::new(arg).write_bytes(vmar, &mode.to_ne_bytes())?;
+            UserPtr::new(arg).write_val(vmar, mode)?;
             Ok(0)
         }
         VT_SETMODE => Ok(0),
@@ -227,10 +229,12 @@ fn handle_vt_ioctl(cmd: u32, arg: usize, vmar: &Arc<Vmar>) -> Result<usize> {
             Ok(0)
         }
         VT_GETSTATE => {
-            let mut buf = [0u8; 6];
-            buf[0..2].copy_from_slice(&1u16.to_ne_bytes());
-            buf[4..6].copy_from_slice(&1u16.to_ne_bytes());
-            UserPtr::new(arg).write_bytes(vmar, &buf)?;
+            let stat = VtStat {
+                v_active: 1,
+                v_signal: 0,
+                v_state: 1,
+            };
+            UserPtr::new(arg).write_val(vmar, stat)?;
             Ok(0)
         }
         VT_ACTIVATE | VT_WAITACTIVE | VT_RELDISP => Ok(0),

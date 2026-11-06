@@ -17,6 +17,7 @@
 //! | [`ioctl`] | `EVIOCG*`, `EVIOCS*` and `UI_*` request numbers |
 
 use core::mem::size_of;
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 use crate::time::Timeval;
 
@@ -44,7 +45,7 @@ pub const fn bitmap_len(max: usize) -> usize {
 
 /// Absolute axis information (`struct input_absinfo`).
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, FromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct InputAbsInfo {
     pub value: i32,
     pub minimum: i32,
@@ -58,28 +59,11 @@ impl InputAbsInfo {
     pub const SIZE: usize = size_of::<Self>();
 
     pub fn to_bytes(&self) -> [u8; Self::SIZE] {
-        let mut buf = [0u8; Self::SIZE];
-        buf[0..4].copy_from_slice(&self.value.to_ne_bytes());
-        buf[4..8].copy_from_slice(&self.minimum.to_ne_bytes());
-        buf[8..12].copy_from_slice(&self.maximum.to_ne_bytes());
-        buf[12..16].copy_from_slice(&self.fuzz.to_ne_bytes());
-        buf[16..20].copy_from_slice(&self.flat.to_ne_bytes());
-        buf[20..24].copy_from_slice(&self.resolution.to_ne_bytes());
-        buf
+        zerocopy::transmute!(*self)
     }
 
     pub fn from_bytes(buf: &[u8]) -> Option<Self> {
-        if buf.len() < Self::SIZE {
-            return None;
-        }
-        Some(Self {
-            value: i32::from_ne_bytes(buf[0..4].try_into().ok()?),
-            minimum: i32::from_ne_bytes(buf[4..8].try_into().ok()?),
-            maximum: i32::from_ne_bytes(buf[8..12].try_into().ok()?),
-            fuzz: i32::from_ne_bytes(buf[12..16].try_into().ok()?),
-            flat: i32::from_ne_bytes(buf[16..20].try_into().ok()?),
-            resolution: i32::from_ne_bytes(buf[20..24].try_into().ok()?),
-        })
+        Self::read_from_bytes(buf).ok()
     }
 }
 
@@ -110,7 +94,7 @@ pub const CLOCK_BOOTTIME: i32 = 7;
 
 /// Identifies the device to userspace (`struct input_id`).
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, FromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct InputId {
     /// [`bus`] type constant.
     pub bustype: u16,
@@ -124,24 +108,11 @@ impl InputId {
     pub const SIZE: usize = size_of::<Self>();
 
     pub fn to_bytes(&self) -> [u8; Self::SIZE] {
-        let mut buf = [0u8; Self::SIZE];
-        buf[0..2].copy_from_slice(&self.bustype.to_ne_bytes());
-        buf[2..4].copy_from_slice(&self.vendor.to_ne_bytes());
-        buf[4..6].copy_from_slice(&self.product.to_ne_bytes());
-        buf[6..8].copy_from_slice(&self.version.to_ne_bytes());
-        buf
+        zerocopy::transmute!(*self)
     }
 
     pub fn from_bytes(buf: &[u8]) -> Option<Self> {
-        if buf.len() < Self::SIZE {
-            return None;
-        }
-        Some(Self {
-            bustype: u16::from_ne_bytes(buf[0..2].try_into().ok()?),
-            vendor: u16::from_ne_bytes(buf[2..4].try_into().ok()?),
-            product: u16::from_ne_bytes(buf[4..6].try_into().ok()?),
-            version: u16::from_ne_bytes(buf[6..8].try_into().ok()?),
-        })
+        Self::read_from_bytes(buf).ok()
     }
 }
 
@@ -150,7 +121,7 @@ impl InputId {
 /// 24 bytes on x86-64, matching Linux exactly: a `timeval`, the type/code
 /// pair and a signed value. A report ends with `EV_SYN`/`SYN_REPORT`.
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, FromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct InputEvent {
     /// Timestamp of the event.
     pub time: Timeval,
@@ -186,12 +157,7 @@ impl InputEvent {
     }
 
     pub fn to_bytes(&self) -> [u8; Self::SIZE] {
-        let mut buf = [0u8; Self::SIZE];
-        buf[0..16].copy_from_slice(&self.time.to_bytes());
-        buf[16..18].copy_from_slice(&self.type_.to_ne_bytes());
-        buf[18..20].copy_from_slice(&self.code.to_ne_bytes());
-        buf[20..24].copy_from_slice(&self.value.to_ne_bytes());
-        buf
+        zerocopy::transmute!(*self)
     }
 }
 

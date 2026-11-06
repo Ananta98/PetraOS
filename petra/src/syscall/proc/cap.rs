@@ -3,6 +3,7 @@
 //! Capability system calls (`capget` #125, `capset` #126).
 
 use ostd::arch::cpu::context::UserContext;
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 use crate::{
     proc::thread::Thread,
@@ -15,6 +16,23 @@ pub const LINUX_CAPABILITY_VERSION_1: u32 = 0x1998_0330;
 pub const LINUX_CAPABILITY_VERSION_2: u32 = 0x2007_1026;
 pub const LINUX_CAPABILITY_VERSION_3: u32 = 0x2008_0522;
 
+/// Linux `cap_user_header_t` structure.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, FromBytes, IntoBytes, KnownLayout, Immutable)]
+pub struct CapUserHeader {
+    pub version: u32,
+    pub pid: i32,
+}
+
+/// Linux `cap_user_data_t` structure.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, FromBytes, IntoBytes, KnownLayout, Immutable)]
+pub struct CapUserData {
+    pub effective: u32,
+    pub permitted: u32,
+    pub inheritable: u32,
+}
+
 /// System call `capget(cap_user_header_t hdrp, cap_user_data_t datap)` (Syscall #125).
 pub fn sys_capget(hdrp: usize, datap: usize, _ctx: &mut UserContext) -> Result<usize> {
     if hdrp == 0 {
@@ -25,15 +43,13 @@ pub fn sys_capget(hdrp: usize, datap: usize, _ctx: &mut UserContext) -> Result<u
     let caller_proc = caller_td.proc().ok_or(Errno::ESRCH)?;
     let vmar = caller_proc.vmspace();
 
-    let mut hdr_bytes = [0u8; 8];
-    UserPtr::new(hdrp).read_bytes(&vmar, &mut hdr_bytes)?;
-    let version = u32::from_ne_bytes(hdr_bytes[0..4].try_into().unwrap());
-    let pid = i32::from_ne_bytes(hdr_bytes[4..8].try_into().unwrap());
+    let hdr = UserPtr::new(hdrp).read_val::<CapUserHeader>(&vmar)?;
+    let version = hdr.version;
+    let pid = hdr.pid;
 
     // Standard libcap version probe: datap == NULL writes preferred version and returns 0.
     if datap == 0 {
-        let preferred = LINUX_CAPABILITY_VERSION_3.to_ne_bytes();
-        UserPtr::new(hdrp).write_bytes(&vmar, &preferred)?;
+        UserPtr::new(hdrp).write_val(&vmar, LINUX_CAPABILITY_VERSION_3)?;
         return Ok(0);
     }
 
@@ -41,8 +57,7 @@ pub fn sys_capget(hdrp: usize, datap: usize, _ctx: &mut UserContext) -> Result<u
         && version != LINUX_CAPABILITY_VERSION_2
         && version != LINUX_CAPABILITY_VERSION_3
     {
-        let preferred = LINUX_CAPABILITY_VERSION_3.to_ne_bytes();
-        UserPtr::new(hdrp).write_bytes(&vmar, &preferred)?;
+        UserPtr::new(hdrp).write_val(&vmar, LINUX_CAPABILITY_VERSION_3)?;
         return Err(Errno::EINVAL);
     }
 
@@ -63,21 +78,26 @@ pub fn sys_capget(hdrp: usize, datap: usize, _ctx: &mut UserContext) -> Result<u
     };
 
     if version == LINUX_CAPABILITY_VERSION_1 {
-        let mut data_bytes = [0u8; 12];
-        data_bytes[0..4].copy_from_slice(&(eff as u32).to_ne_bytes());
-        data_bytes[4..8].copy_from_slice(&(perm as u32).to_ne_bytes());
-        data_bytes[8..12].copy_from_slice(&(inh as u32).to_ne_bytes());
-        UserPtr::new(datap).write_bytes(&vmar, &data_bytes)?;
+        let data = CapUserData {
+            effective: eff as u32,
+            permitted: perm as u32,
+            inheritable: inh as u32,
+        };
+        UserPtr::new(datap).write_val(&vmar, data)?;
     } else {
-        let mut data_bytes = [0u8; 24];
-        data_bytes[0..4].copy_from_slice(&((eff & 0xffff_ffff) as u32).to_ne_bytes());
-        data_bytes[4..8].copy_from_slice(&((perm & 0xffff_ffff) as u32).to_ne_bytes());
-        data_bytes[8..12].copy_from_slice(&((inh & 0xffff_ffff) as u32).to_ne_bytes());
-
-        data_bytes[12..16].copy_from_slice(&(((eff >> 32) & 0xffff_ffff) as u32).to_ne_bytes());
-        data_bytes[16..20].copy_from_slice(&(((perm >> 32) & 0xffff_ffff) as u32).to_ne_bytes());
-        data_bytes[20..24].copy_from_slice(&(((inh >> 32) & 0xffff_ffff) as u32).to_ne_bytes());
-        UserPtr::new(datap).write_bytes(&vmar, &data_bytes)?;
+        let data = [
+            CapUserData {
+                effective: (eff & 0xffff_ffff) as u32,
+                permitted: (perm & 0xffff_ffff) as u32,
+                inheritable: (inh & 0xffff_ffff) as u32,
+            },
+            CapUserData {
+                effective: ((eff >> 32) & 0xffff_ffff) as u32,
+                permitted: ((perm >> 32) & 0xffff_ffff) as u32,
+                inheritable: ((inh >> 32) & 0xffff_ffff) as u32,
+            },
+        ];
+        UserPtr::new(datap).write_val(&vmar, data)?;
     }
 
     Ok(0)
@@ -93,17 +113,15 @@ pub fn sys_capset(hdrp: usize, datap: usize, _ctx: &mut UserContext) -> Result<u
     let caller_proc = caller_td.proc().ok_or(Errno::ESRCH)?;
     let vmar = caller_proc.vmspace();
 
-    let mut hdr_bytes = [0u8; 8];
-    UserPtr::new(hdrp).read_bytes(&vmar, &mut hdr_bytes)?;
-    let version = u32::from_ne_bytes(hdr_bytes[0..4].try_into().unwrap());
-    let pid = i32::from_ne_bytes(hdr_bytes[4..8].try_into().unwrap());
+    let hdr = UserPtr::new(hdrp).read_val::<CapUserHeader>(&vmar)?;
+    let version = hdr.version;
+    let pid = hdr.pid;
 
     if version != LINUX_CAPABILITY_VERSION_1
         && version != LINUX_CAPABILITY_VERSION_2
         && version != LINUX_CAPABILITY_VERSION_3
     {
-        let preferred = LINUX_CAPABILITY_VERSION_3.to_ne_bytes();
-        UserPtr::new(hdrp).write_bytes(&vmar, &preferred)?;
+        UserPtr::new(hdrp).write_val(&vmar, LINUX_CAPABILITY_VERSION_3)?;
         return Err(Errno::EINVAL);
     }
 
@@ -113,24 +131,15 @@ pub fn sys_capset(hdrp: usize, datap: usize, _ctx: &mut UserContext) -> Result<u
     }
 
     let (new_eff, new_perm, new_inh) = if version == LINUX_CAPABILITY_VERSION_1 {
-        let mut data_bytes = [0u8; 12];
-        UserPtr::new(datap).read_bytes(&vmar, &mut data_bytes)?;
-        let eff = u32::from_ne_bytes(data_bytes[0..4].try_into().unwrap()) as u64;
-        let perm = u32::from_ne_bytes(data_bytes[4..8].try_into().unwrap()) as u64;
-        let inh = u32::from_ne_bytes(data_bytes[8..12].try_into().unwrap()) as u64;
-        (eff, perm, inh)
+        let data = UserPtr::new(datap).read_val::<CapUserData>(&vmar)?;
+        (data.effective as u64, data.permitted as u64, data.inheritable as u64)
     } else {
-        let mut data_bytes = [0u8; 24];
-        UserPtr::new(datap).read_bytes(&vmar, &mut data_bytes)?;
-        let eff0 = u32::from_ne_bytes(data_bytes[0..4].try_into().unwrap()) as u64;
-        let perm0 = u32::from_ne_bytes(data_bytes[4..8].try_into().unwrap()) as u64;
-        let inh0 = u32::from_ne_bytes(data_bytes[8..12].try_into().unwrap()) as u64;
-
-        let eff1 = u32::from_ne_bytes(data_bytes[12..16].try_into().unwrap()) as u64;
-        let perm1 = u32::from_ne_bytes(data_bytes[16..20].try_into().unwrap()) as u64;
-        let inh1 = u32::from_ne_bytes(data_bytes[20..24].try_into().unwrap()) as u64;
-
-        (eff0 | (eff1 << 32), perm0 | (perm1 << 32), inh0 | (inh1 << 32))
+        let data = UserPtr::new(datap).read_val::<[CapUserData; 2]>(&vmar)?;
+        (
+            (data[0].effective as u64) | ((data[1].effective as u64) << 32),
+            (data[0].permitted as u64) | ((data[1].permitted as u64) << 32),
+            (data[0].inheritable as u64) | ((data[1].inheritable as u64) << 32),
+        )
     };
 
     // POSIX security invariants:

@@ -69,11 +69,8 @@ pub fn sys_epoll_ctl(
             }
             let target_file = proc.file(fd)?;
             let vmar = proc.vmspace();
-            let mut raw = [0u8; EPOLL_EVENT_SIZE];
-            UserPtr::new(event_ptr).read_bytes(&vmar, &mut raw)?;
-            let events = u32::from_ne_bytes(raw[0..4].try_into().unwrap());
-            let data = u64::from_ne_bytes(raw[4..12].try_into().unwrap());
-            epoll.add(fd, target_file, events, data)?;
+            let event = UserPtr::new(event_ptr).read_val::<EpollEvent>(&vmar)?;
+            epoll.add(fd, target_file, event.events, event.data)?;
             Ok(0)
         }
         EPOLL_CTL_MOD => {
@@ -81,11 +78,8 @@ pub fn sys_epoll_ctl(
                 return Err(Errno::EFAULT);
             }
             let vmar = proc.vmspace();
-            let mut raw = [0u8; EPOLL_EVENT_SIZE];
-            UserPtr::new(event_ptr).read_bytes(&vmar, &mut raw)?;
-            let events = u32::from_ne_bytes(raw[0..4].try_into().unwrap());
-            let data = u64::from_ne_bytes(raw[4..12].try_into().unwrap());
-            epoll.modify(fd, events, data)?;
+            let event = UserPtr::new(event_ptr).read_val::<EpollEvent>(&vmar)?;
+            epoll.modify(fd, event.events, event.data)?;
             Ok(0)
         }
         _ => Err(Errno::EINVAL),
@@ -115,8 +109,7 @@ fn write_epoll_events(
         for i in 0..chunk {
             let event = &ready_events[offset_idx + i];
             let byte_off = i * EPOLL_EVENT_SIZE;
-            raw_buf[byte_off..byte_off + 4].copy_from_slice(&event.events.to_ne_bytes());
-            raw_buf[byte_off + 4..byte_off + 12].copy_from_slice(&event.data.to_ne_bytes());
+            raw_buf[byte_off..byte_off + EPOLL_EVENT_SIZE].copy_from_slice(&event.to_bytes());
         }
         let total_bytes = chunk * EPOLL_EVENT_SIZE;
         let dest_addr = events_ptr + offset_idx * EPOLL_EVENT_SIZE;

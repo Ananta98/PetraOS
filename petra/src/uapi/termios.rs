@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0
+
 #![allow(non_camel_case_types)]
+
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 pub type tcflag_t = u32;
 pub type cc_t = u8;
@@ -12,7 +15,7 @@ pub type cc_t = u8;
 pub const NCCS: usize = 19;
 
 #[repr(C)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, FromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct termios {
     pub c_iflag: tcflag_t,
     pub c_oflag: tcflag_t,
@@ -23,7 +26,7 @@ pub struct termios {
 }
 
 #[repr(C)]
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, FromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct winsize {
     pub ws_row: u16,
     pub ws_col: u16,
@@ -35,27 +38,11 @@ impl termios {
     pub const SIZE: usize = 36;
 
     pub fn to_bytes(&self) -> [u8; Self::SIZE] {
-        let mut buf = [0u8; Self::SIZE];
-        buf[0..4].copy_from_slice(&self.c_iflag.to_ne_bytes());
-        buf[4..8].copy_from_slice(&self.c_oflag.to_ne_bytes());
-        buf[8..12].copy_from_slice(&self.c_cflag.to_ne_bytes());
-        buf[12..16].copy_from_slice(&self.c_lflag.to_ne_bytes());
-        buf[16] = self.c_line;
-        buf[17..].copy_from_slice(&self.c_cc);
-        buf
+        zerocopy::transmute!(*self)
     }
 
     pub fn from_bytes(buf: &[u8; Self::SIZE]) -> Self {
-        let mut cc = [0u8; NCCS];
-        cc.copy_from_slice(&buf[17..]);
-        Self {
-            c_iflag: u32::from_ne_bytes(buf[0..4].try_into().unwrap()),
-            c_oflag: u32::from_ne_bytes(buf[4..8].try_into().unwrap()),
-            c_cflag: u32::from_ne_bytes(buf[8..12].try_into().unwrap()),
-            c_lflag: u32::from_ne_bytes(buf[12..16].try_into().unwrap()),
-            c_line: buf[16],
-            c_cc: cc,
-        }
+        zerocopy::transmute!(*buf)
     }
 }
 
@@ -63,21 +50,11 @@ impl winsize {
     pub const SIZE: usize = 8;
 
     pub fn to_bytes(&self) -> [u8; Self::SIZE] {
-        let mut buf = [0u8; Self::SIZE];
-        buf[0..2].copy_from_slice(&self.ws_row.to_ne_bytes());
-        buf[2..4].copy_from_slice(&self.ws_col.to_ne_bytes());
-        buf[4..6].copy_from_slice(&self.ws_xpixel.to_ne_bytes());
-        buf[6..8].copy_from_slice(&self.ws_ypixel.to_ne_bytes());
-        buf
+        zerocopy::transmute!(*self)
     }
 
     pub fn from_bytes(buf: &[u8; Self::SIZE]) -> Self {
-        Self {
-            ws_row: u16::from_ne_bytes(buf[0..2].try_into().unwrap()),
-            ws_col: u16::from_ne_bytes(buf[2..4].try_into().unwrap()),
-            ws_xpixel: u16::from_ne_bytes(buf[4..6].try_into().unwrap()),
-            ws_ypixel: u16::from_ne_bytes(buf[6..8].try_into().unwrap()),
-        }
+        zerocopy::transmute!(*buf)
     }
 }
 

@@ -9,6 +9,7 @@
 use alloc::{boxed::Box, sync::Arc, vec::Vec};
 use ostd::sync::WaitQueue;
 use spin::Mutex;
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 use crate::{
     uapi::errno::{Errno, Result},
@@ -46,10 +47,18 @@ pub const EPOLL_CLOEXEC: i32 = 0o2000000;
 
 /// Linux `struct epoll_event` layout on x86-64 (12 bytes packed).
 #[repr(C, packed)]
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, FromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct EpollEvent {
     pub events: u32,
     pub data: u64,
+}
+
+impl EpollEvent {
+    pub const SIZE: usize = 12;
+
+    pub fn to_bytes(&self) -> [u8; 12] {
+        zerocopy::transmute!(*self)
+    }
 }
 
 /// An entry in the epoll interest list.

@@ -5,6 +5,8 @@
 //! Defines `struct sembuf`, `struct semid_ds`, `struct seminfo`, and commands (`GETVAL`,
 //! `SETVAL`, `SEM_UNDO`, etc.) according to the Linux x86-64 ABI.
 
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
+
 use super::ipc::IpcPerm;
 
 /// Set up undo structure on process exit.
@@ -63,7 +65,7 @@ pub const SEMVMU: usize = 32;
 
 /// Linux compatible `struct sembuf` (6 bytes).
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, FromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct SemBuf {
     /// Semaphore number in set (0-indexed).
     pub sem_num: u16,
@@ -74,34 +76,20 @@ pub struct SemBuf {
 }
 
 impl SemBuf {
-    /// Serializes `SemBuf` into a 6-byte array without unsafe code.
+    /// Serializes `SemBuf` into a 6-byte array using zerocopy.
     pub fn to_bytes(&self) -> [u8; 6] {
-        let mut buf = [0u8; 6];
-        buf[0..2].copy_from_slice(&self.sem_num.to_ne_bytes());
-        buf[2..4].copy_from_slice(&self.sem_op.to_ne_bytes());
-        buf[4..6].copy_from_slice(&self.sem_flg.to_ne_bytes());
-        buf
+        zerocopy::transmute!(*self)
     }
 
     /// Deserializes `SemBuf` from a byte slice safely.
     pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
-        if bytes.len() < 6 {
-            return None;
-        }
-        let sem_num = u16::from_ne_bytes(bytes[0..2].try_into().ok()?);
-        let sem_op = i16::from_ne_bytes(bytes[2..4].try_into().ok()?);
-        let sem_flg = i16::from_ne_bytes(bytes[4..6].try_into().ok()?);
-        Some(Self {
-            sem_num,
-            sem_op,
-            sem_flg,
-        })
+        Self::read_from_bytes(bytes).ok()
     }
 }
 
 /// Linux x86_64 compatible `struct semid_ds` (104 bytes).
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, FromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct SemIdDs {
     /// Ownership and permissions.
     pub sem_perm: IpcPerm,
@@ -122,50 +110,20 @@ pub struct SemIdDs {
 }
 
 impl SemIdDs {
-    /// Serializes `SemIdDs` into a 104-byte array without unsafe code.
+    /// Serializes `SemIdDs` into a 104-byte array using zerocopy.
     pub fn to_bytes(&self) -> [u8; 104] {
-        let mut buf = [0u8; 104];
-        buf[0..48].copy_from_slice(&self.sem_perm.to_bytes());
-        buf[48..56].copy_from_slice(&self.sem_otime.to_ne_bytes());
-        buf[56..64].copy_from_slice(&self.glibc_reserved1.to_ne_bytes());
-        buf[64..72].copy_from_slice(&self.sem_ctime.to_ne_bytes());
-        buf[72..80].copy_from_slice(&self.glibc_reserved2.to_ne_bytes());
-        buf[80..88].copy_from_slice(&self.sem_nsems.to_ne_bytes());
-        buf[88..96].copy_from_slice(&self.glibc_reserved3.to_ne_bytes());
-        buf[96..104].copy_from_slice(&self.glibc_reserved4.to_ne_bytes());
-        buf
+        zerocopy::transmute!(*self)
     }
 
     /// Deserializes `SemIdDs` from a byte slice safely.
     pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
-        if bytes.len() < 104 {
-            return None;
-        }
-        let sem_perm = IpcPerm::from_bytes(&bytes[0..48])?;
-        let sem_otime = i64::from_ne_bytes(bytes[48..56].try_into().ok()?);
-        let glibc_reserved1 = u64::from_ne_bytes(bytes[56..64].try_into().ok()?);
-        let sem_ctime = i64::from_ne_bytes(bytes[64..72].try_into().ok()?);
-        let glibc_reserved2 = u64::from_ne_bytes(bytes[72..80].try_into().ok()?);
-        let sem_nsems = usize::from_ne_bytes(bytes[80..88].try_into().ok()?);
-        let glibc_reserved3 = u64::from_ne_bytes(bytes[88..96].try_into().ok()?);
-        let glibc_reserved4 = u64::from_ne_bytes(bytes[96..104].try_into().ok()?);
-
-        Some(Self {
-            sem_perm,
-            sem_otime,
-            glibc_reserved1,
-            sem_ctime,
-            glibc_reserved2,
-            sem_nsems,
-            glibc_reserved3,
-            glibc_reserved4,
-        })
+        Self::read_from_bytes(bytes).ok()
     }
 }
 
 /// Linux `struct seminfo` describing system-wide limits (40 bytes).
 #[repr(C)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, FromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct SemInfo {
     pub semmap: i32,
     pub semmni: i32,
@@ -197,19 +155,8 @@ impl Default for SemInfo {
 }
 
 impl SemInfo {
-    /// Serializes `SemInfo` into a 40-byte array without unsafe code.
+    /// Serializes `SemInfo` into a 40-byte array using zerocopy.
     pub fn to_bytes(&self) -> [u8; 40] {
-        let mut buf = [0u8; 40];
-        buf[0..4].copy_from_slice(&self.semmap.to_ne_bytes());
-        buf[4..8].copy_from_slice(&self.semmni.to_ne_bytes());
-        buf[8..12].copy_from_slice(&self.semmns.to_ne_bytes());
-        buf[12..16].copy_from_slice(&self.semmnu.to_ne_bytes());
-        buf[16..20].copy_from_slice(&self.semmsl.to_ne_bytes());
-        buf[20..24].copy_from_slice(&self.semopm.to_ne_bytes());
-        buf[24..28].copy_from_slice(&self.semume.to_ne_bytes());
-        buf[28..32].copy_from_slice(&self.semusz.to_ne_bytes());
-        buf[32..36].copy_from_slice(&self.semvmx.to_ne_bytes());
-        buf[36..40].copy_from_slice(&self.semaem.to_ne_bytes());
-        buf
+        zerocopy::transmute!(*self)
     }
 }

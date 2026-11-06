@@ -11,6 +11,7 @@ pub mod rtc;
 pub mod tsc;
 
 use core::sync::atomic::{AtomicI64, AtomicU64, Ordering};
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 pub use clocksource::{
     Clocksource, ClocksourceFlags, active_clocksource_name, is_high_resolution, monotonic_now_ns,
@@ -57,7 +58,7 @@ pub const ITIMER_PROF_ID: i32 = -3;
 
 /// POSIX / Linux x86_64 compatible `struct timespec` (16 bytes).
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, FromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct Timespec {
     pub tv_sec: i64,
     pub tv_nsec: i64,
@@ -77,19 +78,11 @@ impl Timespec {
     }
 
     pub fn to_bytes(&self) -> [u8; 16] {
-        let mut buf = [0u8; 16];
-        buf[0..8].copy_from_slice(&self.tv_sec.to_ne_bytes());
-        buf[8..16].copy_from_slice(&self.tv_nsec.to_ne_bytes());
-        buf
+        zerocopy::transmute!(*self)
     }
 
     pub fn from_bytes(buf: &[u8]) -> Option<Self> {
-        if buf.len() < 16 {
-            return None;
-        }
-        let tv_sec = i64::from_ne_bytes(buf[0..8].try_into().ok()?);
-        let tv_nsec = i64::from_ne_bytes(buf[8..16].try_into().ok()?);
-        Some(Self { tv_sec, tv_nsec })
+        Self::read_from_bytes(buf).ok()
     }
 
     pub fn is_valid(&self) -> bool {
@@ -108,7 +101,7 @@ impl Timespec {
 
 /// POSIX / Linux x86_64 compatible `struct timeval` (16 bytes).
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, FromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct Timeval {
     pub tv_sec: i64,
     pub tv_usec: i64,
@@ -141,25 +134,17 @@ impl Timeval {
     }
 
     pub fn to_bytes(&self) -> [u8; 16] {
-        let mut buf = [0u8; 16];
-        buf[0..8].copy_from_slice(&self.tv_sec.to_ne_bytes());
-        buf[8..16].copy_from_slice(&self.tv_usec.to_ne_bytes());
-        buf
+        zerocopy::transmute!(*self)
     }
 
     pub fn from_bytes(buf: &[u8]) -> Option<Self> {
-        if buf.len() < 16 {
-            return None;
-        }
-        let tv_sec = i64::from_ne_bytes(buf[0..8].try_into().ok()?);
-        let tv_usec = i64::from_ne_bytes(buf[8..16].try_into().ok()?);
-        Some(Self { tv_sec, tv_usec })
+        Self::read_from_bytes(buf).ok()
     }
 }
 
 /// POSIX / Linux x86_64 compatible `struct itimerspec` (32 bytes).
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, FromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct Itimerspec {
     pub it_interval: Timespec,
     pub it_value: Timespec,
@@ -179,28 +164,17 @@ impl Itimerspec {
     }
 
     pub fn to_bytes(&self) -> [u8; 32] {
-        let mut buf = [0u8; 32];
-        buf[0..16].copy_from_slice(&self.it_interval.to_bytes());
-        buf[16..32].copy_from_slice(&self.it_value.to_bytes());
-        buf
+        zerocopy::transmute!(*self)
     }
 
     pub fn from_bytes(buf: &[u8]) -> Option<Self> {
-        if buf.len() < 32 {
-            return None;
-        }
-        let it_interval = Timespec::from_bytes(&buf[0..16])?;
-        let it_value = Timespec::from_bytes(&buf[16..32])?;
-        Some(Self {
-            it_interval,
-            it_value,
-        })
+        Self::read_from_bytes(buf).ok()
     }
 }
 
 /// POSIX / Linux x86_64 compatible `struct itimerval` (32 bytes).
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, FromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct Itimerval {
     pub it_interval: Timeval,
     pub it_value: Timeval,
@@ -220,22 +194,11 @@ impl Itimerval {
     }
 
     pub fn to_bytes(&self) -> [u8; 32] {
-        let mut buf = [0u8; 32];
-        buf[0..16].copy_from_slice(&self.it_interval.to_bytes());
-        buf[16..32].copy_from_slice(&self.it_value.to_bytes());
-        buf
+        zerocopy::transmute!(*self)
     }
 
     pub fn from_bytes(buf: &[u8]) -> Option<Self> {
-        if buf.len() < 32 {
-            return None;
-        }
-        let it_interval = Timeval::from_bytes(&buf[0..16])?;
-        let it_value = Timeval::from_bytes(&buf[16..32])?;
-        Some(Self {
-            it_interval,
-            it_value,
-        })
+        Self::read_from_bytes(buf).ok()
     }
 }
 

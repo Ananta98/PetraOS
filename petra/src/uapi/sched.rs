@@ -5,6 +5,8 @@
 //! Defines scheduling policies (`SCHED_OTHER`, `SCHED_FIFO`, `SCHED_RR`, etc.),
 //! `struct sched_param`, `struct sched_attr`, and CPU affinity bitmask definitions.
 
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
+
 /// Default time-sharing policy (EEVDF in PetraOS / Linux).
 pub const SCHED_OTHER: i32 = 0;
 /// Alias for `SCHED_OTHER`.
@@ -50,7 +52,7 @@ pub const CPU_BYTES: usize = CPU_SETSIZE / 8; // 128 bytes
 
 /// Linux compatible `struct sched_param` (4 bytes).
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, FromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct SchedParam {
     /// Scheduling priority (0 for normal policies, 1..99 for real-time).
     pub sched_priority: i32,
@@ -63,22 +65,18 @@ impl SchedParam {
 
     /// Serializes `SchedParam` to a 4-byte array without unsafe code.
     pub fn to_bytes(&self) -> [u8; 4] {
-        self.sched_priority.to_ne_bytes()
+        zerocopy::transmute!(*self)
     }
 
     /// Deserializes `SchedParam` from a byte slice safely.
     pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
-        if bytes.len() < 4 {
-            return None;
-        }
-        let sched_priority = i32::from_ne_bytes(bytes[0..4].try_into().ok()?);
-        Some(Self { sched_priority })
+        Self::read_from_bytes(bytes).ok()
     }
 }
 
 /// Linux compatible `struct sched_attr` (56 bytes minimum).
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, FromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct SchedAttr {
     /// Size of this structure in bytes (for versioning).
     pub size: u32,
@@ -96,6 +94,10 @@ pub struct SchedAttr {
     pub sched_deadline: u64,
     /// Period in nanoseconds for deadline scheduling.
     pub sched_period: u64,
+    /// Minimum utilization clamp (SCHED_FLAG_UTIL_CLAMP).
+    pub sched_util_min: u32,
+    /// Maximum utilization clamp (SCHED_FLAG_UTIL_CLAMP).
+    pub sched_util_max: u32,
 }
 
 impl SchedAttr {
@@ -104,16 +106,7 @@ impl SchedAttr {
 
     /// Serializes `SchedAttr` to a 56-byte array without unsafe code.
     pub fn to_bytes(&self) -> [u8; 56] {
-        let mut buf = [0u8; 56];
-        buf[0..4].copy_from_slice(&self.size.to_ne_bytes());
-        buf[4..8].copy_from_slice(&self.sched_policy.to_ne_bytes());
-        buf[8..16].copy_from_slice(&self.sched_flags.to_ne_bytes());
-        buf[16..20].copy_from_slice(&self.sched_nice.to_ne_bytes());
-        buf[20..24].copy_from_slice(&self.sched_priority.to_ne_bytes());
-        buf[24..32].copy_from_slice(&self.sched_runtime.to_ne_bytes());
-        buf[32..40].copy_from_slice(&self.sched_deadline.to_ne_bytes());
-        buf[40..48].copy_from_slice(&self.sched_period.to_ne_bytes());
-        buf
+        zerocopy::transmute!(*self)
     }
 
     /// Deserializes `SchedAttr` from a byte slice safely.
@@ -121,30 +114,16 @@ impl SchedAttr {
         if bytes.len() < Self::MIN_SIZE {
             return None;
         }
-        let size = u32::from_ne_bytes(bytes[0..4].try_into().ok()?);
-        let sched_policy = u32::from_ne_bytes(bytes[4..8].try_into().ok()?);
-        let sched_flags = u64::from_ne_bytes(bytes[8..16].try_into().ok()?);
-        let sched_nice = i32::from_ne_bytes(bytes[16..20].try_into().ok()?);
-        let sched_priority = u32::from_ne_bytes(bytes[20..24].try_into().ok()?);
-        let sched_runtime = u64::from_ne_bytes(bytes[24..32].try_into().ok()?);
-        let sched_deadline = u64::from_ne_bytes(bytes[32..40].try_into().ok()?);
-        let sched_period = u64::from_ne_bytes(bytes[40..48].try_into().ok()?);
-
-        Some(Self {
-            size,
-            sched_policy,
-            sched_flags,
-            sched_nice,
-            sched_priority,
-            sched_runtime,
-            sched_deadline,
-            sched_period,
-        })
+        let mut buf = [0u8; Self::FULL_SIZE];
+        let copy_len = bytes.len().min(Self::FULL_SIZE);
+        buf[..copy_len].copy_from_slice(&bytes[..copy_len]);
+        Self::read_from_bytes(&buf).ok()
     }
 }
 
 /// A 1024-bit CPU affinity bitmask matching glibc `cpu_set_t` (128 bytes).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, FromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct CpuMask {
     pub bits: [u64; 16],
 }
@@ -203,23 +182,14 @@ impl CpuMask {
 
     /// Serializes the CPU mask to a 128-byte array.
     pub fn to_bytes(&self) -> [u8; 128] {
-        let mut buf = [0u8; 128];
-        for (i, word) in self.bits.iter().enumerate() {
-            buf[i * 8..(i + 1) * 8].copy_from_slice(&word.to_ne_bytes());
-        }
-        buf
+        zerocopy::transmute!(*self)
     }
 
     /// Deserializes a CPU mask from a byte slice.
     pub fn from_slice(bytes: &[u8]) -> Self {
-        let mut mask = Self::new();
+        let mut buf = [0u8; 128];
         let len = bytes.len().min(128);
-        let mut full_buf = [0u8; 128];
-        full_buf[..len].copy_from_slice(&bytes[..len]);
-        for (i, word) in mask.bits.iter_mut().enumerate() {
-            let chunk: [u8; 8] = full_buf[i * 8..(i + 1) * 8].try_into().unwrap();
-            *word = u64::from_ne_bytes(chunk);
-        }
-        mask
+        buf[..len].copy_from_slice(&bytes[..len]);
+        Self::read_from_bytes(&buf).unwrap_or_default()
     }
 }

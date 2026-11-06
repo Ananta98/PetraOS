@@ -7,6 +7,7 @@
 //! lockless read access and atomic credential switching.
 
 use alloc::vec::Vec;
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 /// User identifier.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -42,7 +43,7 @@ impl Gid {
 
 /// Linux ABI layout for `struct ucred` used with `SO_PEERCRED` and `SCM_CREDENTIALS`.
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, FromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct PeerCred {
     pub pid: u32,
     pub uid: u32,

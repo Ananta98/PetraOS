@@ -5,6 +5,7 @@
 use alloc::boxed::Box;
 use core::time::Duration;
 use ostd::{arch::cpu::context::UserContext, sync::Waiter};
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 use crate::{
     fs::poll::{PollEvents, PollFd},
@@ -22,7 +23,7 @@ pub const FD_SETSIZE: usize = 1024;
 
 /// Linux `fd_set` for `select(2)`.
 #[repr(C)]
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, FromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct FdSet {
     pub fds_bits: [u64; FD_SETSIZE / 64],
 }
@@ -43,21 +44,11 @@ impl FdSet {
 }
 
 fn read_fd_set(vmar: &Vmar, ptr: usize) -> Result<FdSet> {
-    let mut set = FdSet::default();
-    let mut raw = [0u8; core::mem::size_of::<FdSet>()];
-    UserPtr::new(ptr).read_bytes(vmar, &mut raw)?;
-    for (i, chunk) in raw.chunks_exact(8).enumerate() {
-        set.fds_bits[i] = u64::from_ne_bytes(chunk.try_into().unwrap());
-    }
-    Ok(set)
+    UserPtr::new(ptr).read_val(vmar)
 }
 
 fn write_fd_set(vmar: &Vmar, ptr: usize, set: &FdSet) -> Result<()> {
-    let mut raw = [0u8; core::mem::size_of::<FdSet>()];
-    for (i, &word) in set.fds_bits.iter().enumerate() {
-        raw[i * 8..(i + 1) * 8].copy_from_slice(&word.to_ne_bytes());
-    }
-    UserPtr::new(ptr).write_bytes(vmar, &raw)
+    UserPtr::new(ptr).write_val(vmar, *set)
 }
 
 /// System call `poll(struct pollfd *fds, nfds_t nfds, int timeout)` (Syscall #7).
@@ -102,17 +93,8 @@ pub fn sys_poll(
     let proc = Thread::proc_or_esrch()?;
     let vmar = proc.vmspace();
 
-    let byte_len = nfds * core::mem::size_of::<PollFd>();
-    let mut raw = alloc::vec![0u8; byte_len];
-    UserPtr::new(fds_ptr).read_bytes(&vmar, &mut raw)?;
-
     let mut fds = alloc::vec![PollFd::default(); nfds];
-    for (i, pfd) in fds.iter_mut().enumerate() {
-        let off = i * 8;
-        pfd.fd = i32::from_ne_bytes(raw[off..off + 4].try_into().unwrap());
-        pfd.events = i16::from_ne_bytes(raw[off + 4..off + 6].try_into().unwrap());
-        pfd.revents = i16::from_ne_bytes(raw[off + 6..off + 8].try_into().unwrap());
-    }
+    UserPtr::new(fds_ptr).read_bytes(&vmar, fds.as_mut_bytes())?;
 
     let check_ready = |fds: &mut [PollFd]| -> usize {
         let mut ready_count = 0;
@@ -142,8 +124,7 @@ pub fn sys_poll(
     if ready_count > 0 || timeout_ms == 0 {
         for (i, pfd) in fds.iter().enumerate() {
             let off = i * 8 + 6;
-            let revents_bytes = pfd.revents.to_ne_bytes();
-            UserPtr::new(fds_ptr + off).write_bytes(&vmar, &revents_bytes)?;
+            UserPtr::new(fds_ptr + off).write_val(&vmar, pfd.revents)?;
         }
         return Ok(ready_count);
     }
@@ -189,8 +170,7 @@ pub fn sys_poll(
 
     for (i, pfd) in fds.iter().enumerate() {
         let off = i * 8 + 6;
-        let revents_bytes = pfd.revents.to_ne_bytes();
-        let _ = UserPtr::new(fds_ptr + off).write_bytes(&vmar, &revents_bytes);
+        let _ = UserPtr::new(fds_ptr + off).write_val(&vmar, pfd.revents);
     }
 
     res

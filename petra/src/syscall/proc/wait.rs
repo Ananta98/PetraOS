@@ -3,6 +3,7 @@
 //! Process wait system calls (`wait4` and `waitid`).
 
 use ostd::arch::cpu::context::UserContext;
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 use crate::{
     proc::{
@@ -16,6 +17,35 @@ use crate::{
     },
     utils::userspace::UserPtr,
 };
+
+/// Linux `siginfo_t` layout for `SIGCHLD`.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, FromBytes, IntoBytes, KnownLayout, Immutable)]
+pub struct SigInfoChild {
+    pub si_signo: i32,
+    pub si_errno: i32,
+    pub si_code: i32,
+    pub _pad0: i32,
+    pub si_pid: i32,
+    pub si_uid: i32,
+    pub si_status: i32,
+    pub _pad1: [u8; 100],
+}
+
+impl Default for SigInfoChild {
+    fn default() -> Self {
+        Self {
+            si_signo: 0,
+            si_errno: 0,
+            si_code: 0,
+            _pad0: 0,
+            si_pid: 0,
+            si_uid: 0,
+            si_status: 0,
+            _pad1: [0u8; 100],
+        }
+    }
+}
 
 pub const P_ALL: i32 = 0;
 pub const P_PID: i32 = 1;
@@ -139,13 +169,6 @@ pub fn sys_waitid(
     match res {
         Some(wait_res) => {
             if infop != 0 {
-                let mut siginfo_bytes = [0u8; 128];
-                // si_signo = SIGCHLD (17)
-                siginfo_bytes[0..4]
-                    .copy_from_slice(&(Signal::SIGCHLD.as_u32() as i32).to_ne_bytes());
-                // si_errno = 0
-                siginfo_bytes[4..8].copy_from_slice(&0i32.to_ne_bytes());
-
                 let (si_code, si_status) = match wait_res.status {
                     ExitStatus::Exited(code) => (CLD_EXITED, code),
                     ExitStatus::Signaled {
@@ -159,22 +182,22 @@ pub fn sys_waitid(
                     ExitStatus::Continued => (CLD_CONTINUED, Signal::SIGCONT.as_u32() as i32),
                 };
 
-                // si_code at offset 8
-                siginfo_bytes[8..12].copy_from_slice(&si_code.to_ne_bytes());
-                // si_pid at offset 16 (x86_64 siginfo layout)
-                siginfo_bytes[16..20]
-                    .copy_from_slice(&(wait_res.pid.as_u32() as i32).to_ne_bytes());
-                // si_uid at offset 20
-                siginfo_bytes[20..24].copy_from_slice(&(wait_res.uid as i32).to_ne_bytes());
-                // si_status at offset 24
-                siginfo_bytes[24..28].copy_from_slice(&si_status.to_ne_bytes());
-
-                UserPtr::new(infop).write_bytes(&vmar, &siginfo_bytes)?;
+                let siginfo = SigInfoChild {
+                    si_signo: Signal::SIGCHLD.as_u32() as i32,
+                    si_errno: 0,
+                    si_code,
+                    _pad0: 0,
+                    si_pid: wait_res.pid.as_u32() as i32,
+                    si_uid: wait_res.uid as i32,
+                    si_status,
+                    _pad1: [0u8; 100],
+                };
+                UserPtr::new(infop).write_val(&vmar, siginfo)?;
             }
 
             if rusage_ptr != 0 {
                 let rusage = proc.inner.lock().children_rusage;
-                UserPtr::new(rusage_ptr).write_bytes(&vmar, &rusage.to_bytes())?;
+                UserPtr::new(rusage_ptr).write_val(&vmar, rusage)?;
             }
 
             Ok(0)
@@ -182,8 +205,7 @@ pub fn sys_waitid(
         None => {
             // WNOHANG and no child was ready: clear si_pid to 0 as required by POSIX
             if infop != 0 {
-                let siginfo_bytes = [0u8; 128];
-                UserPtr::new(infop).write_bytes(&vmar, &siginfo_bytes)?;
+                UserPtr::new(infop).write_val(&vmar, SigInfoChild::default())?;
             }
             Ok(0)
         }

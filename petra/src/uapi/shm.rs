@@ -5,6 +5,8 @@
 //! Defines `struct shmid_ds`, `struct shminfo`, and operation flags (`SHM_RDONLY`, `SHM_RND`,
 //! `SHM_REMAP`, `SHM_DEST`, etc.) according to the Linux x86-64 ABI.
 
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
+
 use super::ipc::IpcPerm;
 
 /// Attach shared memory read-only.
@@ -60,7 +62,7 @@ pub const SHMALL: usize = 2 * 1024 * 1024;
 
 /// Linux x86_64 compatible `struct shmid_ds` (112 bytes).
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, FromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct ShmIdDs {
     /// Ownership and permissions.
     pub shm_perm: IpcPerm,
@@ -85,56 +87,20 @@ pub struct ShmIdDs {
 }
 
 impl ShmIdDs {
-    /// Serializes `ShmIdDs` into a 112-byte array without unsafe code.
+    /// Serializes `ShmIdDs` into a 112-byte array using zerocopy.
     pub fn to_bytes(&self) -> [u8; 112] {
-        let mut buf = [0u8; 112];
-        buf[0..48].copy_from_slice(&self.shm_perm.to_bytes());
-        buf[48..56].copy_from_slice(&self.shm_segsz.to_ne_bytes());
-        buf[56..64].copy_from_slice(&self.shm_atime.to_ne_bytes());
-        buf[64..72].copy_from_slice(&self.shm_dtime.to_ne_bytes());
-        buf[72..80].copy_from_slice(&self.shm_ctime.to_ne_bytes());
-        buf[80..84].copy_from_slice(&self.shm_cpid.to_ne_bytes());
-        buf[84..88].copy_from_slice(&self.shm_lpid.to_ne_bytes());
-        buf[88..96].copy_from_slice(&self.shm_nattch.to_ne_bytes());
-        buf[96..104].copy_from_slice(&self.glibc_reserved4.to_ne_bytes());
-        buf[104..112].copy_from_slice(&self.glibc_reserved5.to_ne_bytes());
-        buf
+        zerocopy::transmute!(*self)
     }
 
     /// Deserializes `ShmIdDs` from a byte slice safely.
     pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
-        if bytes.len() < 112 {
-            return None;
-        }
-        let shm_perm = IpcPerm::from_bytes(&bytes[0..48])?;
-        let shm_segsz = usize::from_ne_bytes(bytes[48..56].try_into().ok()?);
-        let shm_atime = i64::from_ne_bytes(bytes[56..64].try_into().ok()?);
-        let shm_dtime = i64::from_ne_bytes(bytes[64..72].try_into().ok()?);
-        let shm_ctime = i64::from_ne_bytes(bytes[72..80].try_into().ok()?);
-        let shm_cpid = u32::from_ne_bytes(bytes[80..84].try_into().ok()?);
-        let shm_lpid = u32::from_ne_bytes(bytes[84..88].try_into().ok()?);
-        let shm_nattch = usize::from_ne_bytes(bytes[88..96].try_into().ok()?);
-        let glibc_reserved4 = u64::from_ne_bytes(bytes[96..104].try_into().ok()?);
-        let glibc_reserved5 = u64::from_ne_bytes(bytes[104..112].try_into().ok()?);
-
-        Some(Self {
-            shm_perm,
-            shm_segsz,
-            shm_atime,
-            shm_dtime,
-            shm_ctime,
-            shm_cpid,
-            shm_lpid,
-            shm_nattch,
-            glibc_reserved4,
-            glibc_reserved5,
-        })
+        Self::read_from_bytes(bytes).ok()
     }
 }
 
 /// Linux `struct shminfo` describing system-wide limits (40 bytes).
 #[repr(C)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, FromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct ShmInfo {
     pub shmmax: u64,
     pub shmmin: u64,
@@ -156,14 +122,8 @@ impl Default for ShmInfo {
 }
 
 impl ShmInfo {
-    /// Serializes `ShmInfo` to a 40-byte array without unsafe code.
+    /// Serializes `ShmInfo` to a 40-byte array using zerocopy.
     pub fn to_bytes(&self) -> [u8; 40] {
-        let mut buf = [0u8; 40];
-        buf[0..8].copy_from_slice(&self.shmmax.to_ne_bytes());
-        buf[8..16].copy_from_slice(&self.shmmin.to_ne_bytes());
-        buf[16..24].copy_from_slice(&self.shmmni.to_ne_bytes());
-        buf[24..32].copy_from_slice(&self.shmseg.to_ne_bytes());
-        buf[32..40].copy_from_slice(&self.shmall.to_ne_bytes());
-        buf
+        zerocopy::transmute!(*self)
     }
 }

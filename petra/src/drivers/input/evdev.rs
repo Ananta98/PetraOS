@@ -259,31 +259,25 @@ impl EvdevClient {
         match cmd {
             ioc::FIONREAD => {
                 let pending = self.available() as i32;
-                ptr.write_bytes(&vmar, &pending.to_ne_bytes())?;
+                ptr.write_val(&vmar, pending)?;
                 Ok(0)
             }
             ioctl::EVIOCGVERSION => {
-                ptr.write_bytes(&vmar, &EV_VERSION.to_ne_bytes())?;
+                ptr.write_val(&vmar, EV_VERSION)?;
                 Ok(0)
             }
             ioctl::EVIOCGID => {
-                ptr.write_bytes(&vmar, &device.id().to_bytes())?;
+                ptr.write_val(&vmar, device.id())?;
                 Ok(0)
             }
             ioctl::EVIOCGREP => {
                 let rep = device.rep();
-                let mut bytes = [0u8; 8];
-                bytes[0..4].copy_from_slice(&rep[0].to_ne_bytes());
-                bytes[4..8].copy_from_slice(&rep[1].to_ne_bytes());
-                ptr.write_bytes(&vmar, &bytes)?;
+                ptr.write_val(&vmar, rep)?;
                 Ok(0)
             }
             ioctl::EVIOCSREP => {
-                let mut bytes = [0u8; 8];
-                ptr.read_bytes(&vmar, &mut bytes)?;
-                let delay = u32::from_ne_bytes(bytes[0..4].try_into().unwrap());
-                let period = u32::from_ne_bytes(bytes[4..8].try_into().unwrap());
-                device.set_rep([delay, period]);
+                let rep = ptr.read_val::<[u32; 2]>(&vmar)?;
+                device.set_rep(rep);
                 Ok(0)
             }
             ioctl::EVIOCGRAB => {
@@ -322,16 +316,12 @@ impl EvdevClient {
                 let Some(info) = device.absinfo(axis) else {
                     return Err(Errno::EINVAL);
                 };
-                ptr.write_bytes(&vmar, &info.to_bytes())?;
+                ptr.write_val(&vmar, info)?;
                 Ok(0)
             }
             _ if is_abs_set_query(cmd) => {
                 let axis = (ioc::ioc_nr(cmd) - 0xc0) as u16;
-                let mut buf = [0u8; InputAbsInfo::SIZE];
-                ptr.read_bytes(&vmar, &mut buf)?;
-                let Some(info) = InputAbsInfo::from_bytes(&buf) else {
-                    return Err(Errno::EINVAL);
-                };
+                let info = ptr.read_val::<InputAbsInfo>(&vmar)?;
                 device.set_absinfo(axis, info);
                 Ok(0)
             }

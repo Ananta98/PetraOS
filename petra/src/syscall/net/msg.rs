@@ -3,6 +3,7 @@
 //! Advanced message transmission syscalls: `sendmsg`, `recvmsg`, `sendmmsg`, `recvmmsg`.
 
 use ostd::arch::cpu::context::UserContext;
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 use super::addr::{get_socket, read_sockaddr, write_sockaddr};
 use crate::{
@@ -14,7 +15,7 @@ use crate::{
 
 /// Linux `struct msghdr` layout on x86-64 (56 bytes).
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, FromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct MsgHdr {
     pub msg_name: usize,
     pub msg_namelen: u32,
@@ -29,27 +30,24 @@ pub struct MsgHdr {
 
 impl MsgHdr {
     pub fn read_from_user(vmar: &crate::vm::vmar::Vmar, ptr: usize) -> Result<Self> {
-        let mut raw = [0u8; 56];
-        UserPtr::new(ptr).read_bytes(vmar, &mut raw)?;
-        Ok(Self {
-            msg_name: usize::from_ne_bytes(raw[0..8].try_into().unwrap()),
-            msg_namelen: u32::from_ne_bytes(raw[8..12].try_into().unwrap()),
-            _pad1: 0,
-            msg_iov: usize::from_ne_bytes(raw[16..24].try_into().unwrap()),
-            msg_iovlen: usize::from_ne_bytes(raw[24..32].try_into().unwrap()),
-            msg_control: usize::from_ne_bytes(raw[32..40].try_into().unwrap()),
-            msg_controllen: usize::from_ne_bytes(raw[40..48].try_into().unwrap()),
-            msg_flags: i32::from_ne_bytes(raw[48..52].try_into().unwrap()),
-            _pad2: 0,
-        })
+        UserPtr::new(ptr).read_val(vmar)
     }
 
     pub fn write_results_to_user(&self, vmar: &crate::vm::vmar::Vmar, ptr: usize) -> Result<()> {
-        UserPtr::new(ptr + 8).write_bytes(vmar, &self.msg_namelen.to_ne_bytes())?;
-        UserPtr::new(ptr + 40).write_bytes(vmar, &self.msg_controllen.to_ne_bytes())?;
-        UserPtr::new(ptr + 48).write_bytes(vmar, &self.msg_flags.to_ne_bytes())?;
+        UserPtr::new(ptr + 8).write_val(vmar, self.msg_namelen)?;
+        UserPtr::new(ptr + 40).write_val(vmar, self.msg_controllen)?;
+        UserPtr::new(ptr + 48).write_val(vmar, self.msg_flags)?;
         Ok(())
     }
+}
+
+/// Linux `struct cmsghdr` (16 bytes).
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, FromBytes, IntoBytes, KnownLayout, Immutable)]
+pub struct Cmsghdr {
+    pub cmsg_len: usize,
+    pub cmsg_level: i32,
+    pub cmsg_type: i32,
 }
 
 /// System call `sendmsg(int sockfd, const struct msghdr *msg, int flags)` (Syscall #46).
@@ -300,15 +298,16 @@ fn write_control_messages(
             let unpadded_len = 16 + copy_fds * 4;
             let aligned_len = (unpadded_len + 7) & !7;
 
-            let mut hdr = [0u8; 16];
-            hdr[0..8].copy_from_slice(&(16 + new_fds.len() * 4).to_ne_bytes());
-            hdr[8..12].copy_from_slice(&1i32.to_ne_bytes()); // SOL_SOCKET
-            hdr[12..16].copy_from_slice(&1i32.to_ne_bytes()); // SCM_RIGHTS
-            UserPtr::new(msghdr.msg_control + written_bytes).write_bytes(vmar, &hdr)?;
+            let hdr = Cmsghdr {
+                cmsg_len: 16 + new_fds.len() * 4,
+                cmsg_level: 1, // SOL_SOCKET
+                cmsg_type: 1,  // SCM_RIGHTS
+            };
+            UserPtr::new(msghdr.msg_control + written_bytes).write_val(vmar, hdr)?;
 
-            for (i, fd) in new_fds.iter().take(copy_fds).enumerate() {
+            for (i, &fd) in new_fds.iter().take(copy_fds).enumerate() {
                 UserPtr::new(msghdr.msg_control + written_bytes + 16 + i * 4)
-                    .write_bytes(vmar, &fd.to_ne_bytes())?;
+                    .write_val(vmar, fd)?;
             }
 
             if copy_fds < new_fds.len() {
@@ -328,17 +327,14 @@ fn write_control_messages(
         if written_bytes + 16 <= user_cap {
             let space_left = user_cap - written_bytes;
             if space_left >= CMSG_LEN_UCRED {
-                let mut hdr = [0u8; 16];
-                hdr[0..8].copy_from_slice(&CMSG_LEN_UCRED.to_ne_bytes());
-                hdr[8..12].copy_from_slice(&1i32.to_ne_bytes()); // SOL_SOCKET
-                hdr[12..16].copy_from_slice(&2i32.to_ne_bytes()); // SCM_CREDENTIALS
-                UserPtr::new(msghdr.msg_control + written_bytes).write_bytes(vmar, &hdr)?;
+                let hdr = Cmsghdr {
+                    cmsg_len: CMSG_LEN_UCRED,
+                    cmsg_level: 1, // SOL_SOCKET
+                    cmsg_type: 2,  // SCM_CREDENTIALS
+                };
+                UserPtr::new(msghdr.msg_control + written_bytes).write_val(vmar, hdr)?;
 
-                let mut raw_cred = [0u8; 12];
-                raw_cred[0..4].copy_from_slice(&cred.pid.to_ne_bytes());
-                raw_cred[4..8].copy_from_slice(&cred.uid.to_ne_bytes());
-                raw_cred[8..12].copy_from_slice(&cred.gid.to_ne_bytes());
-                UserPtr::new(msghdr.msg_control + written_bytes + 16).write_bytes(vmar, &raw_cred)?;
+                UserPtr::new(msghdr.msg_control + written_bytes + 16).write_val(vmar, cred)?;
 
                 let advance = CMSG_SPACE_UCRED.min(space_left);
                 written_bytes += advance;

@@ -3,6 +3,7 @@
 //! `uname(2)` system call (Syscall #63 on x86_64).
 
 use ostd::arch::cpu::context::UserContext;
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 use crate::{
     fs::procfs::sys::{get_domainname, get_hostname},
@@ -15,7 +16,7 @@ pub const UTS_LEN: usize = 65;
 
 /// Linux x86_64 compatible `struct utsname` (390 bytes).
 #[repr(C)]
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, FromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct UtsName {
     pub sysname: [u8; UTS_LEN],
     pub nodename: [u8; UTS_LEN],
@@ -55,14 +56,7 @@ impl UtsName {
     }
 
     pub fn to_bytes(&self) -> [u8; UTS_LEN * 6] {
-        let mut buf = [0u8; UTS_LEN * 6];
-        buf[0..65].copy_from_slice(&self.sysname);
-        buf[65..130].copy_from_slice(&self.nodename);
-        buf[130..195].copy_from_slice(&self.release);
-        buf[195..260].copy_from_slice(&self.version);
-        buf[260..325].copy_from_slice(&self.machine);
-        buf[325..390].copy_from_slice(&self.domainname);
-        buf
+        zerocopy::transmute!(*self)
     }
 }
 
@@ -78,7 +72,7 @@ pub fn sys_uname(buf_ptr: usize, _ctx: &mut UserContext) -> Result<usize> {
     let vmar = proc.vmspace();
 
     let uts = UtsName::new();
-    UserPtr::new(buf_ptr).write_bytes(&vmar, &uts.to_bytes())?;
+    UserPtr::new(buf_ptr).write_val(&vmar, uts)?;
 
     Ok(0)
 }

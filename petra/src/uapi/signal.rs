@@ -11,6 +11,7 @@
 //! [`crate::proc::signal`]: crate::proc::signal
 
 use core::fmt;
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 /// The lowest signal number.
 pub const SIGRTMIN: u32 = 34;
@@ -280,7 +281,8 @@ pub const SIGSET_WORDS: usize = 16;
 /// A signal mask (`sigset_t`).
 ///
 /// Signals are numbered from one, so signal `n` is bit `n - 1`.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, FromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct SigSet(pub [u64; SIGSET_WORDS]);
 
 impl SigSet {
@@ -591,7 +593,7 @@ pub mod ss_flags {
 
 /// An alternate signal stack (`stack_t`).
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, FromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct SigStack {
     pub ss_sp: usize,
     pub ss_flags: u32,

@@ -4,6 +4,8 @@
 //!
 //! Exposes `struct inotify_event`, watch event mask constants, and creation flags.
 
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
+
 /// File descriptor creation flags for `inotify_init1(2)`.
 pub const IN_CLOEXEC: i32 = 0o2000000;
 pub const IN_NONBLOCK: i32 = 0o4000;
@@ -78,7 +80,7 @@ pub const IN_ALL_EVENTS: u32 = IN_ACCESS
 
 /// Header structure for `struct inotify_event` as delivered through `read(2)`.
 #[repr(C)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, FromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct InotifyEventHeader {
     /// Watch descriptor.
     pub wd: i32,
@@ -88,4 +90,11 @@ pub struct InotifyEventHeader {
     pub cookie: u32,
     /// Size of `name` field including null bytes and padding.
     pub len: u32,
+}
+
+impl InotifyEventHeader {
+    /// Serializes `InotifyEventHeader` to a 16-byte array without unsafe code.
+    pub fn to_bytes(&self) -> [u8; 16] {
+        zerocopy::transmute!(*self)
+    }
 }

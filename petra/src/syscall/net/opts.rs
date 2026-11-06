@@ -105,10 +105,7 @@ fn handle_get_peercred(
         uid: 0,
         gid: 0,
     });
-    let mut raw = [0u8; 12];
-    raw[0..4].copy_from_slice(&cred.pid.to_ne_bytes());
-    raw[4..8].copy_from_slice(&cred.uid.to_ne_bytes());
-    raw[8..12].copy_from_slice(&cred.gid.to_ne_bytes());
+    let raw: [u8; 12] = zerocopy::transmute!(cred);
 
     let user_len: u32 = UserPtr::new(optlen_ptr).read_val(vmar)?;
     let to_copy = (user_len as usize).min(12);

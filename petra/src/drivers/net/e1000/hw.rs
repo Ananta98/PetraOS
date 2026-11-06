@@ -2,14 +2,16 @@
 
 //! Intel e1000 Hardware Descriptors and Memory Structures.
 
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
+
 pub const NUM_RX_DESCRIPTORS: usize = 128;
 pub const NUM_TX_DESCRIPTORS: usize = 128;
 pub const RX_BUFFER_SIZE: usize = 2048;
 pub const TX_BUFFER_SIZE: usize = 2048;
 
 /// 16-byte Receive Descriptor (Legacy format).
-#[repr(C, packed)]
-#[derive(Clone, Copy, Default, Debug)]
+#[repr(C)]
+#[derive(Clone, Copy, Default, Debug, FromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct RxDesc {
     pub addr: u64,
     pub length: u16,
@@ -21,31 +23,17 @@ pub struct RxDesc {
 
 impl RxDesc {
     pub fn to_bytes(self) -> [u8; 16] {
-        let mut b = [0u8; 16];
-        b[0..8].copy_from_slice(&self.addr.to_ne_bytes());
-        b[8..10].copy_from_slice(&self.length.to_ne_bytes());
-        b[10..12].copy_from_slice(&self.checksum.to_ne_bytes());
-        b[12] = self.status;
-        b[13] = self.errors;
-        b[14..16].copy_from_slice(&self.special.to_ne_bytes());
-        b
+        zerocopy::transmute!(self)
     }
 
     pub fn from_bytes(b: [u8; 16]) -> Self {
-        Self {
-            addr: u64::from_ne_bytes([b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]]),
-            length: u16::from_ne_bytes([b[8], b[9]]),
-            checksum: u16::from_ne_bytes([b[10], b[11]]),
-            status: b[12],
-            errors: b[13],
-            special: u16::from_ne_bytes([b[14], b[15]]),
-        }
+        zerocopy::transmute!(b)
     }
 }
 
 /// 16-byte Transmit Descriptor (Legacy format).
-#[repr(C, packed)]
-#[derive(Clone, Copy, Default, Debug)]
+#[repr(C)]
+#[derive(Clone, Copy, Default, Debug, FromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct TxDesc {
     pub addr: u64,
     pub length: u16,
@@ -58,26 +46,10 @@ pub struct TxDesc {
 
 impl TxDesc {
     pub fn to_bytes(self) -> [u8; 16] {
-        let mut b = [0u8; 16];
-        b[0..8].copy_from_slice(&self.addr.to_ne_bytes());
-        b[8..10].copy_from_slice(&self.length.to_ne_bytes());
-        b[10] = self.cso;
-        b[11] = self.cmd;
-        b[12] = self.status;
-        b[13] = self.css;
-        b[14..16].copy_from_slice(&self.special.to_ne_bytes());
-        b
+        zerocopy::transmute!(self)
     }
 
     pub fn from_bytes(b: [u8; 16]) -> Self {
-        Self {
-            addr: u64::from_ne_bytes([b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]]),
-            length: u16::from_ne_bytes([b[8], b[9]]),
-            cso: b[10],
-            cmd: b[11],
-            status: b[12],
-            css: b[13],
-            special: u16::from_ne_bytes([b[14], b[15]]),
-        }
+        zerocopy::transmute!(b)
     }
 }

@@ -147,14 +147,14 @@ impl InotifyInstance {
                 break;
             }
 
-            dest_buffer[bytes_written..bytes_written + 4]
-                .copy_from_slice(&event.wd.to_ne_bytes());
-            dest_buffer[bytes_written + 4..bytes_written + 8]
-                .copy_from_slice(&event.mask.to_ne_bytes());
-            dest_buffer[bytes_written + 8..bytes_written + 12]
-                .copy_from_slice(&event.cookie.to_ne_bytes());
-            dest_buffer[bytes_written + 12..bytes_written + 16]
-                .copy_from_slice(&(name_len as u32).to_ne_bytes());
+            let header = InotifyEventHeader {
+                wd: event.wd,
+                mask: event.mask,
+                cookie: event.cookie,
+                len: name_len as u32,
+            };
+            dest_buffer[bytes_written..bytes_written + min_size]
+                .copy_from_slice(&header.to_bytes());
             bytes_written += min_size;
 
             if name_len > 0 {

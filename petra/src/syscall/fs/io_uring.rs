@@ -4,7 +4,6 @@
 //! (Syscalls #425, #426, and #427 on x86_64).
 
 use alloc::sync::Arc;
-use core::mem::size_of;
 use ostd::{arch::cpu::context::UserContext, mm::io::util::HasVmReaderWriter};
 
 use crate::{
@@ -30,50 +29,8 @@ const IORING_SQ_TAIL_OFFSET: usize = 4;
 const IORING_SQ_ARRAY_OFFSET: usize = 64;
 const IORING_SQES_OFFSET: usize = 1024;
 
-fn serialize_params(params: &IoUringParams, out: &mut [u8; 120]) {
-    out[0..4].copy_from_slice(&params.sq_entries.to_ne_bytes());
-    out[4..8].copy_from_slice(&params.cq_entries.to_ne_bytes());
-    out[8..12].copy_from_slice(&params.flags.to_ne_bytes());
-    out[12..16].copy_from_slice(&params.sq_thread_cpu.to_ne_bytes());
-    out[16..20].copy_from_slice(&params.sq_thread_idle.to_ne_bytes());
-    out[20..24].copy_from_slice(&params.features.to_ne_bytes());
-    out[24..28].copy_from_slice(&params.wq_fd.to_ne_bytes());
-    out[28..40].copy_from_slice(&[0u8; 12]);
-    // sq_off
-    out[40..44].copy_from_slice(&params.sq_off.head.to_ne_bytes());
-    out[44..48].copy_from_slice(&params.sq_off.tail.to_ne_bytes());
-    out[48..52].copy_from_slice(&params.sq_off.ring_mask.to_ne_bytes());
-    out[52..56].copy_from_slice(&params.sq_off.ring_entries.to_ne_bytes());
-    out[56..60].copy_from_slice(&params.sq_off.flags.to_ne_bytes());
-    out[60..64].copy_from_slice(&params.sq_off.dropped.to_ne_bytes());
-    out[64..68].copy_from_slice(&params.sq_off.array.to_ne_bytes());
-    out[68..72].copy_from_slice(&params.sq_off.resv1.to_ne_bytes());
-    out[72..80].copy_from_slice(&params.sq_off.user_addr.to_ne_bytes());
-    // cq_off
-    out[80..84].copy_from_slice(&params.cq_off.head.to_ne_bytes());
-    out[84..88].copy_from_slice(&params.cq_off.tail.to_ne_bytes());
-    out[88..92].copy_from_slice(&params.cq_off.ring_mask.to_ne_bytes());
-    out[92..96].copy_from_slice(&params.cq_off.ring_entries.to_ne_bytes());
-    out[96..100].copy_from_slice(&params.cq_off.overflow.to_ne_bytes());
-    out[100..104].copy_from_slice(&params.cq_off.cqes.to_ne_bytes());
-    out[104..108].copy_from_slice(&params.cq_off.flags.to_ne_bytes());
-    out[108..112].copy_from_slice(&params.cq_off.resv1.to_ne_bytes());
-    out[112..120].copy_from_slice(&params.cq_off.user_addr.to_ne_bytes());
-}
-
 fn parse_sqe(raw: &[u8; 64]) -> IoUringSqe {
-    IoUringSqe {
-        opcode: raw[0],
-        flags: raw[1],
-        ioprio: u16::from_ne_bytes(raw[2..4].try_into().unwrap()),
-        fd: i32::from_ne_bytes(raw[4..8].try_into().unwrap()),
-        off: u64::from_ne_bytes(raw[8..16].try_into().unwrap()),
-        addr: u64::from_ne_bytes(raw[16..24].try_into().unwrap()),
-        len: u32::from_ne_bytes(raw[24..28].try_into().unwrap()),
-        rw_flags: u32::from_ne_bytes(raw[28..32].try_into().unwrap()),
-        user_data: u64::from_ne_bytes(raw[32..40].try_into().unwrap()),
-        pad: [0u8; 24],
-    }
+    zerocopy::transmute!(*raw)
 }
 
 /// System call `io_uring_setup(u32 entries, struct io_uring_params *params)` (Syscall #425).
@@ -88,10 +45,8 @@ pub fn sys_io_uring_setup(entries: u32, params_ptr: usize, _ctx: &mut UserContex
     let proc = Thread::proc_or_esrch()?;
     let vmar = proc.vmspace();
 
-    let mut raw_params = [0u8; size_of::<IoUringParams>()];
-    UserPtr::new(params_ptr).read_bytes(&vmar, &mut raw_params)?;
-
-    let input_flags = u32::from_ne_bytes(raw_params[8..12].try_into().unwrap());
+    let raw_params: IoUringParams = UserPtr::new(params_ptr).read_val(&vmar)?;
+    let input_flags = raw_params.flags;
     let file = create_io_uring_file(entries, input_flags)?;
 
     let sq_entries = entries.next_power_of_two().max(1).min(MAX_IOURING_ENTRIES);
@@ -133,9 +88,7 @@ pub fn sys_io_uring_setup(entries: u32, params_ptr: usize, _ctx: &mut UserContex
         },
     };
 
-    let mut out_bytes = [0u8; 120];
-    serialize_params(&out_params, &mut out_bytes);
-    UserPtr::new(params_ptr).write_bytes(&vmar, &out_bytes)?;
+    UserPtr::new(params_ptr).write_val(&vmar, out_params)?;
 
     let fd = proc.fd_table.lock().alloc_fd(file, FdFlags::FD_CLOEXEC)?;
     Ok(fd as usize)

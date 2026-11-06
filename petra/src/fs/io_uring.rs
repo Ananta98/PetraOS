@@ -9,6 +9,7 @@
 use alloc::{boxed::Box, collections::VecDeque, sync::Arc};
 use ostd::sync::WaitQueue;
 use spin::Mutex;
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 use crate::{
     fs::{
@@ -48,7 +49,7 @@ pub const IORING_OFF_SQES: u64 = 0x1000_0000;
 
 /// Linux `struct io_uring_sqe` (64 bytes).
 #[repr(C)]
-#[derive(Clone, Copy, Default, Debug)]
+#[derive(Clone, Copy, Default, Debug, FromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct IoUringSqe {
     pub opcode: u8,
     pub flags: u8,
@@ -64,7 +65,7 @@ pub struct IoUringSqe {
 
 /// Linux `struct io_uring_cqe` (16 bytes).
 #[repr(C)]
-#[derive(Clone, Copy, Default, Debug)]
+#[derive(Clone, Copy, Default, Debug, FromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct IoUringCqe {
     pub user_data: u64,
     pub res: i32,
@@ -73,7 +74,7 @@ pub struct IoUringCqe {
 
 /// Linux `struct io_sqring_offsets`.
 #[repr(C)]
-#[derive(Clone, Copy, Default, Debug)]
+#[derive(Clone, Copy, Default, Debug, FromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct IoSqringOffsets {
     pub head: u32,
     pub tail: u32,
@@ -88,7 +89,7 @@ pub struct IoSqringOffsets {
 
 /// Linux `struct io_cqring_offsets`.
 #[repr(C)]
-#[derive(Clone, Copy, Default, Debug)]
+#[derive(Clone, Copy, Default, Debug, FromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct IoCqringOffsets {
     pub head: u32,
     pub tail: u32,
@@ -103,7 +104,7 @@ pub struct IoCqringOffsets {
 
 /// Linux `struct io_uring_params` (120 bytes).
 #[repr(C)]
-#[derive(Clone, Copy, Default, Debug)]
+#[derive(Clone, Copy, Default, Debug, FromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct IoUringParams {
     pub sq_entries: u32,
     pub cq_entries: u32,

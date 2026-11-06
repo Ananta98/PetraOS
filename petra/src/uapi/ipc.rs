@@ -5,6 +5,8 @@
 //! Provides common constants, keys, permissions (`struct ipc_perm` / `struct ipc64_perm`),
 //! and operation flags shared across System V Shared Memory, Semaphores, and Message Queues.
 
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
+
 use crate::uapi::cred::Ucred;
 
 /// System V IPC key type (`key_t` in C).
@@ -39,7 +41,7 @@ pub const IPC_MODE_MASK: u32 = 0o777;
 
 /// Linux x86_64 compatible `struct ipc64_perm` (48 bytes).
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, FromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct IpcPerm {
     /// Key supplied to `shmget` or `semget`.
     pub key: Key,
@@ -99,50 +101,13 @@ impl IpcPerm {
         (granted & req_mode) == req_mode
     }
 
-    /// Serializes `IpcPerm` into a 48-byte array without unsafe code.
+    /// Serializes `IpcPerm` into a 48-byte array using zerocopy.
     pub fn to_bytes(&self) -> [u8; 48] {
-        let mut buf = [0u8; 48];
-        buf[0..4].copy_from_slice(&self.key.to_ne_bytes());
-        buf[4..8].copy_from_slice(&self.uid.to_ne_bytes());
-        buf[8..12].copy_from_slice(&self.gid.to_ne_bytes());
-        buf[12..16].copy_from_slice(&self.cuid.to_ne_bytes());
-        buf[16..20].copy_from_slice(&self.cgid.to_ne_bytes());
-        buf[20..24].copy_from_slice(&self.mode.to_ne_bytes());
-        buf[24..26].copy_from_slice(&self.seq.to_ne_bytes());
-        buf[26..32].copy_from_slice(&self.pad);
-        buf[32..40].copy_from_slice(&self.glibc_reserved1.to_ne_bytes());
-        buf[40..48].copy_from_slice(&self.glibc_reserved2.to_ne_bytes());
-        buf
+        zerocopy::transmute!(*self)
     }
 
     /// Deserializes `IpcPerm` from a byte slice safely.
     pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
-        if bytes.len() < 48 {
-            return None;
-        }
-        let key = i32::from_ne_bytes(bytes[0..4].try_into().ok()?);
-        let uid = u32::from_ne_bytes(bytes[4..8].try_into().ok()?);
-        let gid = u32::from_ne_bytes(bytes[8..12].try_into().ok()?);
-        let cuid = u32::from_ne_bytes(bytes[12..16].try_into().ok()?);
-        let cgid = u32::from_ne_bytes(bytes[16..20].try_into().ok()?);
-        let mode = u32::from_ne_bytes(bytes[20..24].try_into().ok()?);
-        let seq = u16::from_ne_bytes(bytes[24..26].try_into().ok()?);
-        let mut pad = [0u8; 6];
-        pad.copy_from_slice(&bytes[26..32]);
-        let glibc_reserved1 = u64::from_ne_bytes(bytes[32..40].try_into().ok()?);
-        let glibc_reserved2 = u64::from_ne_bytes(bytes[40..48].try_into().ok()?);
-
-        Some(Self {
-            key,
-            uid,
-            gid,
-            cuid,
-            cgid,
-            mode,
-            seq,
-            pad,
-            glibc_reserved1,
-            glibc_reserved2,
-        })
+        Self::read_from_bytes(bytes).ok()
     }
 }

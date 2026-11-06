@@ -4,6 +4,8 @@
 //!
 //! Based on the AHCI 1.3.1 Specification and OSDev AHCI reference.
 
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
+
 // ----------------------------------------------------------------------------
 // Generic Host Control (GHC) Register Offsets
 // ----------------------------------------------------------------------------
@@ -71,7 +73,7 @@ pub const HBA_PORT_IPM_ACTIVE: u32 = 1;
 
 /// Command Header in Command List (32 bytes per slot).
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, FromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct HbaCmdHeader {
     /// Command FIS length in DWORDS (bits 0:4), ATAPI bit 5, Write bit 6, Prefetch bit 7, etc.
     pub flags: u16,
@@ -92,23 +94,13 @@ impl HbaCmdHeader {
 
     /// Serialize to 32-byte array without unsafe code.
     pub fn to_bytes(&self) -> [u8; 32] {
-        let mut b = [0u8; 32];
-        b[0..2].copy_from_slice(&self.flags.to_le_bytes());
-        b[2..4].copy_from_slice(&self.prdtl.to_le_bytes());
-        b[4..8].copy_from_slice(&self.prdbc.to_le_bytes());
-        b[8..12].copy_from_slice(&self.ctba.to_le_bytes());
-        b[12..16].copy_from_slice(&self.ctbau.to_le_bytes());
-        b[16..20].copy_from_slice(&self.rsv[0].to_le_bytes());
-        b[20..24].copy_from_slice(&self.rsv[1].to_le_bytes());
-        b[24..28].copy_from_slice(&self.rsv[2].to_le_bytes());
-        b[28..32].copy_from_slice(&self.rsv[3].to_le_bytes());
-        b
+        zerocopy::transmute!(*self)
     }
 }
 
 /// Physical Region Descriptor Table (PRDT) Entry (16 bytes).
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, FromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct HbaPrdtEntry {
     /// Data Base Address.
     pub dba: u32,
@@ -125,11 +117,6 @@ impl HbaPrdtEntry {
 
     /// Serialize to 16-byte array without unsafe code.
     pub fn to_bytes(&self) -> [u8; 16] {
-        let mut b = [0u8; 16];
-        b[0..4].copy_from_slice(&self.dba.to_le_bytes());
-        b[4..8].copy_from_slice(&self.dbau.to_le_bytes());
-        b[8..12].copy_from_slice(&self.rsv0.to_le_bytes());
-        b[12..16].copy_from_slice(&self.dbc_i.to_le_bytes());
-        b
+        zerocopy::transmute!(*self)
     }
 }

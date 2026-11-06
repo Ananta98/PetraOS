@@ -132,11 +132,6 @@ pub fn sys_socketpair(
     };
     drop(table);
 
-    let fds: [i32; 2] = [fd0, fd1];
-    let mut raw_bytes = [0u8; 8];
-    raw_bytes[0..4].copy_from_slice(&fds[0].to_ne_bytes());
-    raw_bytes[4..8].copy_from_slice(&fds[1].to_ne_bytes());
-
-    UserPtr::new(sv_ptr).write_bytes(&proc.vmspace(), &raw_bytes)?;
+    UserPtr::new(sv_ptr).write_val(&proc.vmspace(), [fd0, fd1])?;
     Ok(0)
 }

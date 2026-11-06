@@ -5,6 +5,7 @@
 
 use alloc::sync::Arc;
 use ostd::arch::cpu::context::UserContext;
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 use crate::{
     uapi::errno::{Errno, Result},
@@ -16,9 +17,27 @@ use crate::{
     vm::vmar::Vmar,
 };
 
+/// `STATX_*` mask bits.
+pub const STATX_TYPE: u32 = 0x0000_0001;
+pub const STATX_MODE: u32 = 0x0000_0002;
+pub const STATX_NLINK: u32 = 0x0000_0004;
+pub const STATX_UID: u32 = 0x0000_0008;
+pub const STATX_GID: u32 = 0x0000_0010;
+pub const STATX_ATIME: u32 = 0x0000_0020;
+pub const STATX_MTIME: u32 = 0x0000_0040;
+pub const STATX_CTIME: u32 = 0x0000_0080;
+pub const STATX_INO: u32 = 0x0000_0100;
+pub const STATX_SIZE: u32 = 0x0000_0200;
+pub const STATX_BLOCKS: u32 = 0x0000_0400;
+pub const STATX_BASIC_STATS: u32 = 0x0000_07ff;
+pub const STATX_BTIME: u32 = 0x0000_0800;
+pub const STATX_MNT_ID: u32 = 0x0000_1000;
+pub const STATX_DIOALIGN: u32 = 0x0000_2000;
+pub const STATX_ALL: u32 = 0x0000_0fff;
+
 /// Linux x86_64 ABI compatible `struct stat` (144 bytes).
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, FromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct Stat {
     pub st_dev: u64,
     pub st_ino: u64,
@@ -41,36 +60,15 @@ pub struct Stat {
 }
 
 impl Stat {
-    /// Serializes the stat structure into raw byte representation safely without unsafe.
+    /// Serializes the stat structure into raw byte representation safely using zerocopy.
     pub fn to_bytes(&self) -> [u8; 144] {
-        let mut buf = [0u8; 144];
-        buf[0..8].copy_from_slice(&self.st_dev.to_ne_bytes());
-        buf[8..16].copy_from_slice(&self.st_ino.to_ne_bytes());
-        buf[16..24].copy_from_slice(&self.st_nlink.to_ne_bytes());
-        buf[24..28].copy_from_slice(&self.st_mode.to_ne_bytes());
-        buf[28..32].copy_from_slice(&self.st_uid.to_ne_bytes());
-        buf[32..36].copy_from_slice(&self.st_gid.to_ne_bytes());
-        buf[36..40].copy_from_slice(&self.__pad0.to_ne_bytes());
-        buf[40..48].copy_from_slice(&self.st_rdev.to_ne_bytes());
-        buf[48..56].copy_from_slice(&self.st_size.to_ne_bytes());
-        buf[56..64].copy_from_slice(&self.st_blksize.to_ne_bytes());
-        buf[64..72].copy_from_slice(&self.st_blocks.to_ne_bytes());
-        buf[72..80].copy_from_slice(&self.st_atime.to_ne_bytes());
-        buf[80..88].copy_from_slice(&self.st_atime_nsec.to_ne_bytes());
-        buf[88..96].copy_from_slice(&self.st_mtime.to_ne_bytes());
-        buf[96..104].copy_from_slice(&self.st_mtime_nsec.to_ne_bytes());
-        buf[104..112].copy_from_slice(&self.st_ctime.to_ne_bytes());
-        buf[112..120].copy_from_slice(&self.st_ctime_nsec.to_ne_bytes());
-        buf[120..128].copy_from_slice(&self.__glibc_reserved[0].to_ne_bytes());
-        buf[128..136].copy_from_slice(&self.__glibc_reserved[1].to_ne_bytes());
-        buf[136..144].copy_from_slice(&self.__glibc_reserved[2].to_ne_bytes());
-        buf
+        zerocopy::transmute!(*self)
     }
 }
 
 /// Linux x86_64 ABI compatible `struct statx_timestamp`.
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, FromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct StatxTimestamp {
     pub tv_sec: i64,
     pub tv_nsec: u32,
@@ -79,17 +77,13 @@ pub struct StatxTimestamp {
 
 impl StatxTimestamp {
     pub fn to_bytes(&self) -> [u8; 16] {
-        let mut buf = [0u8; 16];
-        buf[0..8].copy_from_slice(&self.tv_sec.to_ne_bytes());
-        buf[8..12].copy_from_slice(&self.tv_nsec.to_ne_bytes());
-        buf[12..16].copy_from_slice(&self.__reserved.to_ne_bytes());
-        buf
+        zerocopy::transmute!(*self)
     }
 }
 
 /// Linux x86_64 ABI compatible `struct statx` (256 bytes).
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, FromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct Statx {
     pub stx_mask: u32,
     pub stx_blksize: u32,
@@ -119,54 +113,9 @@ pub struct Statx {
 
 impl Statx {
     pub fn to_bytes(&self) -> [u8; 256] {
-        let mut buf = [0u8; 256];
-        buf[0..4].copy_from_slice(&self.stx_mask.to_ne_bytes());
-        buf[4..8].copy_from_slice(&self.stx_blksize.to_ne_bytes());
-        buf[8..16].copy_from_slice(&self.stx_attributes.to_ne_bytes());
-        buf[16..20].copy_from_slice(&self.stx_nlink.to_ne_bytes());
-        buf[20..24].copy_from_slice(&self.stx_uid.to_ne_bytes());
-        buf[24..28].copy_from_slice(&self.stx_gid.to_ne_bytes());
-        buf[28..30].copy_from_slice(&self.stx_mode.to_ne_bytes());
-        buf[30..32].copy_from_slice(&self.__spare0[0].to_ne_bytes());
-        buf[32..40].copy_from_slice(&self.stx_ino.to_ne_bytes());
-        buf[40..48].copy_from_slice(&self.stx_size.to_ne_bytes());
-        buf[48..56].copy_from_slice(&self.stx_blocks.to_ne_bytes());
-        buf[56..64].copy_from_slice(&self.stx_attributes_mask.to_ne_bytes());
-        buf[64..80].copy_from_slice(&self.stx_atime.to_bytes());
-        buf[80..96].copy_from_slice(&self.stx_btime.to_bytes());
-        buf[96..112].copy_from_slice(&self.stx_ctime.to_bytes());
-        buf[112..128].copy_from_slice(&self.stx_mtime.to_bytes());
-        buf[128..132].copy_from_slice(&self.stx_rdev_major.to_ne_bytes());
-        buf[132..136].copy_from_slice(&self.stx_rdev_minor.to_ne_bytes());
-        buf[136..140].copy_from_slice(&self.stx_dev_major.to_ne_bytes());
-        buf[140..144].copy_from_slice(&self.stx_dev_minor.to_ne_bytes());
-        buf[144..152].copy_from_slice(&self.stx_mnt_id.to_ne_bytes());
-        buf[152..156].copy_from_slice(&self.stx_dio_mem_align.to_ne_bytes());
-        buf[156..160].copy_from_slice(&self.stx_dio_offset_align.to_ne_bytes());
-        for i in 0..12 {
-            buf[160 + i * 8..168 + i * 8].copy_from_slice(&self.__spare3[i].to_ne_bytes());
-        }
-        buf
+        zerocopy::transmute!(*self)
     }
 }
-
-/// `STATX_*` mask bits.
-pub const STATX_TYPE: u32 = 0x0000_0001;
-pub const STATX_MODE: u32 = 0x0000_0002;
-pub const STATX_NLINK: u32 = 0x0000_0004;
-pub const STATX_UID: u32 = 0x0000_0008;
-pub const STATX_GID: u32 = 0x0000_0010;
-pub const STATX_ATIME: u32 = 0x0000_0020;
-pub const STATX_MTIME: u32 = 0x0000_0040;
-pub const STATX_CTIME: u32 = 0x0000_0080;
-pub const STATX_INO: u32 = 0x0000_0100;
-pub const STATX_SIZE: u32 = 0x0000_0200;
-pub const STATX_BLOCKS: u32 = 0x0000_0400;
-pub const STATX_BASIC_STATS: u32 = 0x0000_07ff;
-pub const STATX_BTIME: u32 = 0x0000_0800;
-pub const STATX_MNT_ID: u32 = 0x0000_1000;
-pub const STATX_DIOALIGN: u32 = 0x0000_2000;
-pub const STATX_ALL: u32 = 0x0000_0fff;
 
 fn dev_major(dev: u64) -> u32 {
     (((dev >> 8) & 0xfff) | ((dev >> 32) & !0xfff)) as u32
@@ -227,7 +176,7 @@ pub fn statx_inode_to_user(
         __spare3: [0; 12],
     };
 
-    UserPtr::new(statbuf_ptr).write_bytes(vmar, &statx.to_bytes())
+    UserPtr::new(statbuf_ptr).write_val(vmar, statx)
 }
 pub fn stat_inode_to_user(inode: &Arc<INode>, statbuf_ptr: usize, vmar: &Vmar) -> Result<()> {
     let attr = inode
@@ -257,7 +206,7 @@ pub fn stat_inode_to_user(inode: &Arc<INode>, statbuf_ptr: usize, vmar: &Vmar) -
         __glibc_reserved: [0; 3],
     };
 
-    UserPtr::new(statbuf_ptr).write_bytes(vmar, &stat.to_bytes())
+    UserPtr::new(statbuf_ptr).write_val(vmar, stat)
 }
 
 /// System call `newfstatat(int dirfd, const char *pathname, struct stat *statbuf, int flags)` (Syscall #262).

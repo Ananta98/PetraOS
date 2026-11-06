@@ -3,6 +3,7 @@
 //! `sysinfo(2)` system call (Syscall #99 on x86_64).
 
 use ostd::arch::cpu::context::UserContext;
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 use crate::{
     proc::Thread,
@@ -12,7 +13,7 @@ use crate::{
 
 /// Linux x86_64 compatible `struct sysinfo` (112 bytes).
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, FromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct SysInfo {
     pub uptime: i64,
     pub loads: [u64; 3],
@@ -33,25 +34,7 @@ pub struct SysInfo {
 
 impl SysInfo {
     pub fn to_bytes(&self) -> [u8; 112] {
-        let mut buf = [0u8; 112];
-        buf[0..8].copy_from_slice(&self.uptime.to_ne_bytes());
-        buf[8..16].copy_from_slice(&self.loads[0].to_ne_bytes());
-        buf[16..24].copy_from_slice(&self.loads[1].to_ne_bytes());
-        buf[24..32].copy_from_slice(&self.loads[2].to_ne_bytes());
-        buf[32..40].copy_from_slice(&self.totalram.to_ne_bytes());
-        buf[40..48].copy_from_slice(&self.freeram.to_ne_bytes());
-        buf[48..56].copy_from_slice(&self.sharedram.to_ne_bytes());
-        buf[56..64].copy_from_slice(&self.bufferram.to_ne_bytes());
-        buf[64..72].copy_from_slice(&self.totalswap.to_ne_bytes());
-        buf[72..80].copy_from_slice(&self.freeswap.to_ne_bytes());
-        buf[80..82].copy_from_slice(&self.procs.to_ne_bytes());
-        buf[82..84].copy_from_slice(&self.pad.to_ne_bytes());
-        buf[84..88].copy_from_slice(&self._pad2.to_ne_bytes());
-        buf[88..96].copy_from_slice(&self.totalhigh.to_ne_bytes());
-        buf[96..104].copy_from_slice(&self.freehigh.to_ne_bytes());
-        buf[104..108].copy_from_slice(&self.mem_unit.to_ne_bytes());
-        buf[108..112].copy_from_slice(&self._f);
-        buf
+        zerocopy::transmute!(*self)
     }
 }
 
@@ -108,7 +91,7 @@ pub fn sys_sysinfo(info_ptr: usize, _ctx: &mut UserContext) -> Result<usize> {
         _f: [0u8; 4],
     };
 
-    UserPtr::new(info_ptr).write_bytes(&vmar, &info.to_bytes())?;
+    UserPtr::new(info_ptr).write_val(&vmar, info)?;
 
     Ok(0)
 }

@@ -135,6 +135,7 @@ pub fn sys_sched_getattr(
         sched_runtime: state.runtime,
         sched_deadline: state.deadline,
         sched_period: state.period,
+        ..Default::default()
     };
 
     let full_bytes = attr.to_bytes();

@@ -4,6 +4,8 @@
 //!
 //! Matches Linux x86-64 `struct msqid_ds` (120 bytes) and `struct msginfo`.
 
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
+
 use super::ipc::IpcPerm;
 
 /// Maximum bytes allowed in a single message by default.
@@ -27,7 +29,7 @@ pub const MSG_INFO: i32 = 12;
 
 /// Linux x86-64 compatible `struct msqid_ds` (120 bytes).
 #[repr(C)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, FromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct MsqIdDs {
     /// Ownership and permissions (48 bytes).
     pub msg_perm: IpcPerm,
@@ -56,59 +58,20 @@ pub struct MsqIdDs {
 impl MsqIdDs {
     pub const SIZE: usize = 120;
 
-    /// Serializes `MsqIdDs` to a 120-byte array without unsafe code.
+    /// Serializes `MsqIdDs` to a 120-byte array using zerocopy.
     pub fn to_bytes(&self) -> [u8; Self::SIZE] {
-        let mut buf = [0u8; Self::SIZE];
-        buf[0..48].copy_from_slice(&self.msg_perm.to_bytes());
-        buf[48..56].copy_from_slice(&self.msg_stime.to_ne_bytes());
-        buf[56..64].copy_from_slice(&self.msg_rtime.to_ne_bytes());
-        buf[64..72].copy_from_slice(&self.msg_ctime.to_ne_bytes());
-        buf[72..80].copy_from_slice(&self.msg_cbytes.to_ne_bytes());
-        buf[80..88].copy_from_slice(&self.msg_qnum.to_ne_bytes());
-        buf[88..96].copy_from_slice(&self.msg_qbytes.to_ne_bytes());
-        buf[96..100].copy_from_slice(&self.msg_lspid.to_ne_bytes());
-        buf[100..104].copy_from_slice(&self.msg_lrpid.to_ne_bytes());
-        buf[104..112].copy_from_slice(&self.__glibc_reserved4.to_ne_bytes());
-        buf[112..120].copy_from_slice(&self.__glibc_reserved5.to_ne_bytes());
-        buf
+        zerocopy::transmute!(*self)
     }
 
     /// Deserializes `MsqIdDs` from a byte slice safely.
     pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
-        if bytes.len() < Self::SIZE {
-            return None;
-        }
-        let msg_perm = IpcPerm::from_bytes(&bytes[0..48])?;
-        let msg_stime = i64::from_ne_bytes(bytes[48..56].try_into().ok()?);
-        let msg_rtime = i64::from_ne_bytes(bytes[56..64].try_into().ok()?);
-        let msg_ctime = i64::from_ne_bytes(bytes[64..72].try_into().ok()?);
-        let msg_cbytes = u64::from_ne_bytes(bytes[72..80].try_into().ok()?);
-        let msg_qnum = u64::from_ne_bytes(bytes[80..88].try_into().ok()?);
-        let msg_qbytes = u64::from_ne_bytes(bytes[88..96].try_into().ok()?);
-        let msg_lspid = u32::from_ne_bytes(bytes[96..100].try_into().ok()?);
-        let msg_lrpid = u32::from_ne_bytes(bytes[100..104].try_into().ok()?);
-        let __glibc_reserved4 = u64::from_ne_bytes(bytes[104..112].try_into().ok()?);
-        let __glibc_reserved5 = u64::from_ne_bytes(bytes[112..120].try_into().ok()?);
-
-        Some(Self {
-            msg_perm,
-            msg_stime,
-            msg_rtime,
-            msg_ctime,
-            msg_cbytes,
-            msg_qnum,
-            msg_qbytes,
-            msg_lspid,
-            msg_lrpid,
-            __glibc_reserved4,
-            __glibc_reserved5,
-        })
+        Self::read_from_bytes(bytes).ok()
     }
 }
 
 /// Linux compatible `struct msginfo` (32 bytes).
 #[repr(C)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, FromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct MsgInfo {
     pub msgpool: i32,
     pub msgmap: i32,
@@ -141,16 +104,6 @@ impl MsgInfo {
     pub const SIZE: usize = 32;
 
     pub fn to_bytes(&self) -> [u8; Self::SIZE] {
-        let mut buf = [0u8; Self::SIZE];
-        buf[0..4].copy_from_slice(&self.msgpool.to_ne_bytes());
-        buf[4..8].copy_from_slice(&self.msgmap.to_ne_bytes());
-        buf[8..12].copy_from_slice(&self.msgmax.to_ne_bytes());
-        buf[12..16].copy_from_slice(&self.msgmnb.to_ne_bytes());
-        buf[16..20].copy_from_slice(&self.msgmni.to_ne_bytes());
-        buf[20..24].copy_from_slice(&self.msgssz.to_ne_bytes());
-        buf[24..28].copy_from_slice(&self.msgtql.to_ne_bytes());
-        buf[28..30].copy_from_slice(&self.msgseg.to_ne_bytes());
-        buf[30..32].copy_from_slice(&self.__unused.to_ne_bytes());
-        buf
+        zerocopy::transmute!(*self)
     }
 }

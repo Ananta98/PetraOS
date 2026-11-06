@@ -6,6 +6,7 @@ use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use ostd::arch::cpu::context::UserContext;
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 use crate::{
     uapi::errno::{Errno, Result},
@@ -13,6 +14,25 @@ use crate::{
     proc::thread::Thread,
     syscall::fs::utils::UserPtr,
 };
+
+/// Fixed header for `struct linux_dirent64` (19 bytes).
+#[repr(C, packed)]
+#[derive(Clone, Copy, Debug, Default, FromBytes, IntoBytes, KnownLayout, Immutable)]
+pub struct Dirent64Header {
+    pub d_ino: u64,
+    pub d_off: i64,
+    pub d_reclen: u16,
+    pub d_type: u8,
+}
+
+/// Fixed header for `struct linux_dirent` (18 bytes).
+#[repr(C, packed)]
+#[derive(Clone, Copy, Debug, Default, FromBytes, IntoBytes, KnownLayout, Immutable)]
+pub struct DirentHeader {
+    pub d_ino: usize,
+    pub d_off: usize,
+    pub d_reclen: u16,
+}
 
 pub const DT_UNKNOWN: u8 = 0;
 pub const DT_FIFO: u8 = 1;
@@ -181,10 +201,13 @@ pub fn sys_getdents64(
         let next_off = (pos + 1) as i64;
         let base = kbuf.len();
         kbuf.resize(base + reclen, 0);
-        kbuf[base..base + 8].copy_from_slice(&ino.to_ne_bytes());
-        kbuf[base + 8..base + 16].copy_from_slice(&next_off.to_ne_bytes());
-        kbuf[base + 16..base + 18].copy_from_slice(&(reclen as u16).to_ne_bytes());
-        kbuf[base + 18] = d_type;
+        let header = Dirent64Header {
+            d_ino: ino,
+            d_off: next_off,
+            d_reclen: reclen as u16,
+            d_type,
+        };
+        kbuf[base..base + 19].copy_from_slice(header.as_bytes());
         kbuf[base + 19..base + 19 + name_bytes.len()].copy_from_slice(name_bytes);
 
         pos += 1;
@@ -234,9 +257,12 @@ pub fn sys_getdents(
         let next_off = pos + 1;
         let base = kbuf.len();
         kbuf.resize(base + reclen, 0);
-        kbuf[base..base + 8].copy_from_slice(&(ino as usize).to_ne_bytes());
-        kbuf[base + 8..base + 16].copy_from_slice(&next_off.to_ne_bytes());
-        kbuf[base + 16..base + 18].copy_from_slice(&(reclen as u16).to_ne_bytes());
+        let header = DirentHeader {
+            d_ino: ino as usize,
+            d_off: next_off,
+            d_reclen: reclen as u16,
+        };
+        kbuf[base..base + 18].copy_from_slice(header.as_bytes());
         kbuf[base + 18..base + 18 + name_bytes.len()].copy_from_slice(name_bytes);
         kbuf[base + reclen - 1] = d_type;
 

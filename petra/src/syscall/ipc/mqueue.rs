@@ -228,18 +228,8 @@ pub fn sys_mq_getsetattr(
     let desc = mqdesc_from_fd(mqdes)?;
 
     if oldattr_ptr != 0 {
-        let MqAttrSnapshot {
-            flags,
-            maxmsg,
-            msgsize,
-            curmsgs,
-        } = desc.attr_snapshot();
-        let mut raw = [0u8; MQ_ATTR_RAW_SIZE];
-        raw[..8].copy_from_slice(&flags.to_ne_bytes());
-        raw[8..16].copy_from_slice(&maxmsg.to_ne_bytes());
-        raw[16..24].copy_from_slice(&msgsize.to_ne_bytes());
-        raw[24..32].copy_from_slice(&curmsgs.to_ne_bytes());
-        UserPtr::new(oldattr_ptr).write_bytes(&vmar, &raw)?;
+        let snapshot = desc.attr_snapshot();
+        UserPtr::new(oldattr_ptr).write_val(&vmar, snapshot)?;
     }
 
     if newattr_ptr != 0 {

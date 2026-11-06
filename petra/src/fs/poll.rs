@@ -12,6 +12,7 @@
 use alloc::sync::Arc;
 use bitflags::bitflags;
 use ostd::sync::WaitQueue;
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 use core::sync::atomic::{AtomicBool, Ordering};
 
@@ -48,7 +49,7 @@ impl PollEvents {
 
 /// Mirror of `struct pollfd`.
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, FromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct PollFd {
     pub fd: i32,
     pub events: i16,
