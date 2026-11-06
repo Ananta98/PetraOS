@@ -20,7 +20,7 @@ A modern, modular operating system kernel written in Rust, built on OSTD (Operat
 - **Alpine Linux Userspace**: Powered by an Alpine Linux minirootfs userspace on the rootfs image (`musl libc`, `apk` package manager, OpenRC init system, `bash`, `python3`, `btop`).
 - **Two-Tier Storage Architecture**:
   - **In-Memory Boot Initramfs** (`build/initramfs.cpio`): Lightweight CPIO archive containing the PID 1 `/init` script and minimal environment for early boot and device discovery.
-  - **Persistent Rootfs Block Image** (`build/ext4.img`): Full ext4 filesystem populated from Alpine minirootfs and postmarketOS packages.
+  - **Persistent Rootfs Block Image** (`build/ext4.img`): Full ext4 filesystem populated from Alpine minirootfs and prebuilt package layers (including developer tools and OpenRC).
 - **VFS Subsystem**: Full virtual filesystem supporting `ext4`, `exfat`, `procfs`, `sysfs`, `devfs`, `devpts`, and `tmpfs`.
 - **Networking**: `AF_INET`, `AF_UNIX` (stream and datagram with `SCM_RIGHTS` & `SCM_CREDENTIALS`), and `AF_NETLINK` route socket support.
 
@@ -89,4 +89,5 @@ cargo osdk run
 ## Documentation
 
 - [Userland Guide](docs/USERLAND.md): Architecture and packaging details for the Alpine-based userland and rootfs.
+- [Linux Test Project (LTP) Guide](docs/LTP.md): Stress testing, system calls, scheduler, and IPC test harnesses.
 - [Agent Guidelines](AGENTS.md): Architecture standards, coding principles, and human attribution guidelines.
