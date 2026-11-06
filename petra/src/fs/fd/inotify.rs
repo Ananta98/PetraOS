@@ -7,13 +7,15 @@
 
 use alloc::{
     boxed::Box,
-    collections::{BTreeMap, VecDeque},
+    collections::VecDeque,
     string::String,
     sync::Arc,
 };
 use core::sync::atomic::{AtomicI32, Ordering};
 use ostd::sync::WaitQueue;
 use spin::Mutex;
+
+use crate::utils::hashmap::HashMap;
 
 use crate::{
     fs::{
@@ -49,7 +51,7 @@ pub struct InotifyEvent {
 
 /// State of an inotify file description.
 pub struct InotifyInstance {
-    pub watches: Mutex<BTreeMap<i32, InotifyWatch>>,
+    pub watches: Mutex<HashMap<i32, InotifyWatch>>,
     pub next_wd: AtomicI32,
     pub events: Mutex<VecDeque<InotifyEvent>>,
     pub wait_queue: WaitQueue,
@@ -59,7 +61,7 @@ impl InotifyInstance {
     /// Creates a new inotify instance.
     pub fn new() -> Arc<Self> {
         Arc::new(Self {
-            watches: Mutex::new(BTreeMap::new()),
+            watches: Mutex::new(HashMap::new()),
             next_wd: AtomicI32::new(1),
             events: Mutex::new(VecDeque::new()),
             wait_queue: WaitQueue::new(),

@@ -7,14 +7,16 @@
 
 use alloc::{
     boxed::Box,
-    collections::BTreeMap,
     string::String,
     sync::Arc,
     vec::Vec,
 };
 use spin::RwLock;
 
-use crate::fs::vfs::{INode, INodeAttr, Mode, NodeOps};
+use crate::{
+    fs::vfs::{INode, INodeAttr, Mode, NodeOps},
+    utils::hashmap::HashMap,
+};
 
 /// Entry in the DevFS registry.
 pub enum DevNodeEntry {
@@ -36,13 +38,13 @@ pub enum DevNodeEntry {
 }
 
 pub struct DevFsRegistry {
-    entries: RwLock<BTreeMap<String, DevNodeEntry>>,
+    entries: RwLock<HashMap<String, DevNodeEntry>>,
 }
 
 impl DevFsRegistry {
     pub const fn new() -> Self {
         Self {
-            entries: RwLock::new(BTreeMap::new()),
+            entries: RwLock::new(HashMap::new()),
         }
     }
 

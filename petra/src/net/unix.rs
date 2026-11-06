@@ -6,7 +6,7 @@
 //! connection routing, listening accept queues, and datagram queuing.
 
 use alloc::{
-    collections::{BTreeMap, VecDeque},
+    collections::VecDeque,
     string::String,
     sync::Arc,
     vec::Vec,
@@ -17,10 +17,11 @@ use spin::Mutex;
 use crate::{
     net::socket::KernelSocket,
     uapi::errno::{Errno, Result},
+    utils::hashmap::HashMap,
 };
 
 /// Global registry of bound UNIX domain sockets keyed by filesystem path or abstract name.
-pub static UNIX_REGISTRY: Mutex<BTreeMap<String, Arc<KernelSocket>>> = Mutex::new(BTreeMap::new());
+pub static UNIX_REGISTRY: Mutex<HashMap<String, Arc<KernelSocket>>> = Mutex::new(HashMap::new());
 
 /// State for a listening UNIX stream socket (`SOCK_STREAM`).
 pub struct UnixListenerState {

@@ -156,7 +156,7 @@ impl DrmCardFileOps {
     /// the open file: DRM cards only support page-aligned fake offsets inside
     /// the grant region; everything else is rejected (`EACCES`, like Linux).
     fn granted_object(&self, offset: u64, len: usize) -> Result<Arc<gem::GemObject>> {
-        if offset <= FAKE_OFFSET_BASE || offset % 4096 != 0 {
+        if offset < FAKE_OFFSET_BASE || offset % 4096 != 0 {
             crate::return_errno!(EACCES, "not a valid buffer mapping offset");
         }
         let file = self.file.lock();

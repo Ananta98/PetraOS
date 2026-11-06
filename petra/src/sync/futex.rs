@@ -5,14 +5,14 @@
 //! Follows Linux x86-64 semantics for futex operations, matching the Linux ABI
 //! and syscall number 202.
 
-use alloc::{collections::BTreeMap, sync::Arc, vec::Vec};
+use alloc::{sync::Arc, vec::Vec};
 use core::sync::atomic::{AtomicBool, Ordering};
 use ostd::sync::Waker;
 use spin::{Lazy, Mutex};
 
 use crate::{
     uapi::errno::{Errno, Result},
-    utils::UserPtr,
+    utils::{hashmap::HashMap, UserPtr},
     vm::vmar::Vmar,
 };
 
@@ -72,9 +72,9 @@ pub struct FutexWaiter {
     pub bitset: u32,
 }
 
-/// Global futex hash table using `BTreeMap`.
-pub static FUTEX_TABLE: Lazy<Mutex<BTreeMap<FutexKey, Vec<FutexWaiter>>>> =
-    Lazy::new(|| Mutex::new(BTreeMap::new()));
+/// Global futex hash table using `HashMap`.
+pub static FUTEX_TABLE: Lazy<Mutex<HashMap<FutexKey, Vec<FutexWaiter>>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
 
 /// Removes a specific waiter from the futex hash table.
 pub fn remove_waiter(key: &FutexKey, woken: &Arc<AtomicBool>) {

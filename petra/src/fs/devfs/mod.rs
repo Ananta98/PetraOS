@@ -35,9 +35,12 @@ use crate::{
     fs::vfs::{FileOps, FileSystem, INode, INodeAttr, Mode, NodeOps, OpenFlags, StatFs},
 };
 use alloc::collections::BTreeMap;
+use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::{boxed::Box, sync::Arc, vec::Vec};
 use spin::RwLock;
+
+use crate::utils::hashmap::HashMap;
 use blk::GenericBlkNodeOps;
 use chr::GenericChrNodeOps;
 use null::NullNodeOps;
@@ -46,17 +49,17 @@ use zero::ZeroNodeOps;
 
 /// Operations on the `/dev` root directory inode.
 pub struct DevFsDirOps {
-    pub(crate) dynamic_entries: Arc<RwLock<BTreeMap<String, Arc<INode>>>>,
+    pub(crate) dynamic_entries: Arc<RwLock<HashMap<String, Arc<INode>>>>,
 }
 
 impl DevFsDirOps {
     pub fn new() -> Self {
         Self {
-            dynamic_entries: Arc::new(RwLock::new(BTreeMap::new())),
+            dynamic_entries: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
-    pub fn with_entries(dynamic_entries: Arc<RwLock<BTreeMap<String, Arc<INode>>>>) -> Self {
+    pub fn with_entries(dynamic_entries: Arc<RwLock<HashMap<String, Arc<INode>>>>) -> Self {
         Self { dynamic_entries }
     }
 }
@@ -325,7 +328,7 @@ impl NodeOps for DevFsDirOps {
 
 /// Directory file operations for reading `/dev`.
 pub struct DevFsDirFileOps {
-    pub(crate) dynamic_entries: Arc<RwLock<BTreeMap<String, Arc<INode>>>>,
+    pub(crate) dynamic_entries: Arc<RwLock<HashMap<String, Arc<INode>>>>,
 }
 
 impl FileOps for DevFsDirFileOps {
@@ -474,7 +477,7 @@ pub struct DevFs {
 
 impl DevFs {
     pub fn new() -> Self {
-        let entries = Arc::new(RwLock::new(BTreeMap::new()));
+        let entries = Arc::new(RwLock::new(HashMap::new()));
 
         let default_symlinks = [
             ("fd", "/proc/self/fd"),

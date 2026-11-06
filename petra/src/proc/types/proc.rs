@@ -7,9 +7,11 @@
 //! must not be held across blocking operations, and shared handles
 //! (`Arc<...>`) that are cloned into child processes at fork with no deep copy.
 
-use alloc::{collections::BTreeMap, string::String, sync::Arc, vec::Vec};
+use alloc::{string::String, sync::Arc, vec::Vec};
 use core::sync::atomic::{AtomicI16, AtomicU32, AtomicU64, Ordering};
 use ostd::sync::{SpinLock, WaitQueue};
+
+use crate::utils::hashmap::HashMap;
 
 use super::pid::{PID_INIT, Pid};
 use crate::{
@@ -193,7 +195,7 @@ pub struct ProcInner {
     /// Set while the process is stopped, and cleared when it resumes.
     pub stop_status: Option<ExitStatus>,
     /// System V shared memory attachments keyed by virtual start address.
-    pub shm_attachments: BTreeMap<usize, crate::ipc::shm::ShmAttachment>,
+    pub shm_attachments: HashMap<usize, crate::ipc::shm::ShmAttachment>,
     /// Executable path reported for this process. Seeded with the process
     /// name (a bare basename) when the process is first made, then replaced
     /// by `execve` with the full binary path it is actually running.
@@ -239,7 +241,7 @@ pub struct Proc {
     /// OOM killer badness adjustment (-1000..=1000).
     pub oom_score_adj: AtomicI16,
     /// POSIX.1b interval timers (`timer_create(2)`).
-    pub posix_timers: SpinLock<BTreeMap<i32, Arc<crate::time::posix_timer::PosixTimer>>>,
+    pub posix_timers: SpinLock<HashMap<i32, Arc<crate::time::posix_timer::PosixTimer>>>,
 }
 
 impl Proc {
@@ -291,7 +293,7 @@ impl Proc {
                 pgid: None,
                 sid: None,
                 stop_status: None,
-                shm_attachments: BTreeMap::new(),
+                shm_attachments: HashMap::new(),
                 exe_path: Some(String::from(comm_name)),
                 children_rusage: Rusage::default(),
                 environ: Vec::new(),
@@ -310,7 +312,7 @@ impl Proc {
             io_stats: ProcIoStats::default(),
             membarrier_state: AtomicU32::new(0),
             oom_score_adj: AtomicI16::new(0),
-            posix_timers: SpinLock::new(BTreeMap::new()),
+            posix_timers: SpinLock::new(HashMap::new()),
         })
     }
 

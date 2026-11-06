@@ -2,12 +2,10 @@
 
 //! Global process table with primary PID and secondary PGID/SID indexing.
 
-use alloc::{
-    collections::{BTreeMap, BTreeSet},
-    sync::Arc,
-    vec::Vec,
-};
+use alloc::{collections::BTreeSet, sync::Arc, vec::Vec};
 use ostd::sync::{RwLock, SpinLock};
+
+use crate::utils::hashmap::HashMap;
 
 use super::{
     pid::{PID_INIT, Pid, PidAllocator},
@@ -17,17 +15,17 @@ use super::{
 /// Central process registry maintaining primary and secondary group/session indices.
 #[derive(Default)]
 pub struct ProcessTable {
-    pub allproc: BTreeMap<Pid, Arc<Proc>>,
-    pub pgrp_map: BTreeMap<Pid, BTreeSet<Pid>>,
-    pub session_map: BTreeMap<Pid, BTreeSet<Pid>>,
+    pub allproc: HashMap<Pid, Arc<Proc>>,
+    pub pgrp_map: HashMap<Pid, BTreeSet<Pid>>,
+    pub session_map: HashMap<Pid, BTreeSet<Pid>>,
 }
 
 impl ProcessTable {
     pub const fn new() -> Self {
         Self {
-            allproc: BTreeMap::new(),
-            pgrp_map: BTreeMap::new(),
-            session_map: BTreeMap::new(),
+            allproc: HashMap::new(),
+            pgrp_map: HashMap::new(),
+            session_map: HashMap::new(),
         }
     }
 
