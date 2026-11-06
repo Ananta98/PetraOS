@@ -3,6 +3,7 @@
 //! The `statfs` and `fstatfs` system calls (Syscalls #137 and #138 on x86_64).
 
 use ostd::arch::cpu::context::UserContext;
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 use crate::{
     uapi::errno::Result,
@@ -13,7 +14,7 @@ use crate::{
 
 /// Linux x86_64 ABI compatible `struct statfs` (120 bytes).
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, FromBytes, IntoBytes, KnownLayout, Immutable)]
 pub struct LinuxStatFs {
     pub f_type: i64,
     pub f_bsize: i64,
@@ -31,24 +32,7 @@ pub struct LinuxStatFs {
 
 impl LinuxStatFs {
     pub fn to_bytes(&self) -> [u8; 120] {
-        let mut buf = [0u8; 120];
-        buf[0..8].copy_from_slice(&self.f_type.to_ne_bytes());
-        buf[8..16].copy_from_slice(&self.f_bsize.to_ne_bytes());
-        buf[16..24].copy_from_slice(&self.f_blocks.to_ne_bytes());
-        buf[24..32].copy_from_slice(&self.f_bfree.to_ne_bytes());
-        buf[32..40].copy_from_slice(&self.f_bavail.to_ne_bytes());
-        buf[40..48].copy_from_slice(&self.f_files.to_ne_bytes());
-        buf[48..56].copy_from_slice(&self.f_ffree.to_ne_bytes());
-        buf[56..60].copy_from_slice(&self.f_fsid[0].to_ne_bytes());
-        buf[60..64].copy_from_slice(&self.f_fsid[1].to_ne_bytes());
-        buf[64..72].copy_from_slice(&self.f_namelen.to_ne_bytes());
-        buf[72..80].copy_from_slice(&self.f_frsize.to_ne_bytes());
-        buf[80..88].copy_from_slice(&self.f_flags.to_ne_bytes());
-        buf[88..96].copy_from_slice(&self.f_spare[0].to_ne_bytes());
-        buf[96..104].copy_from_slice(&self.f_spare[1].to_ne_bytes());
-        buf[104..112].copy_from_slice(&self.f_spare[2].to_ne_bytes());
-        buf[112..120].copy_from_slice(&self.f_spare[3].to_ne_bytes());
-        buf
+        zerocopy::transmute!(*self)
     }
 }
 
@@ -79,7 +63,7 @@ pub fn sys_statfs(path_ptr: usize, buf_ptr: usize, _ctx: &mut UserContext) -> Re
 
     let statfs = crate::fs::vfs::statfs(&path)?;
     let linux_statfs = LinuxStatFs::from(statfs);
-    UserPtr::new(buf_ptr).write_bytes(&vmar, &linux_statfs.to_bytes())?;
+    UserPtr::new(buf_ptr).write_val(&vmar, linux_statfs)?;
 
     Ok(0)
 }
@@ -106,7 +90,7 @@ pub fn sys_fstatfs(fd: i32, buf_ptr: usize, _ctx: &mut UserContext) -> Result<us
     };
 
     let linux_statfs = LinuxStatFs::from(statfs);
-    UserPtr::new(buf_ptr).write_bytes(&vmar, &linux_statfs.to_bytes())?;
+    UserPtr::new(buf_ptr).write_val(&vmar, linux_statfs)?;
 
     Ok(0)
 }
