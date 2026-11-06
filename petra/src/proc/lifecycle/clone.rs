@@ -125,6 +125,9 @@ pub fn clone_proc(
         inner.cap_inheritable = parent_inner.cap_inheritable;
     }
 
+    // Inherit OOM score adjustment
+    child_proc.set_oom_score_adj(caller_proc.oom_score_adj());
+
     // Inherit SysV shared memory attachments
     crate::ipc::shm::on_proc_fork(&caller_proc, &child_proc);
 

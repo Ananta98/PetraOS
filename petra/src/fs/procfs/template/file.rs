@@ -17,7 +17,7 @@ use alloc::{boxed::Box, sync::Arc, vec::Vec};
 use crate::{
     fs::{
         template::{BufFileOps, WriteHook, ro_file_mode, rw_file_mode},
-        vfs::{FileOps, INode, INodeAttr, NodeOps, OpenFlags},
+        vfs::{FileOps, INode, INodeAttr, Mode, NodeOps, OpenFlags},
     },
     uapi::errno::Result,
 };
@@ -36,6 +36,15 @@ pub trait ProcFileOps: Send + Sync + 'static {
     /// files are read-only reporting surfaces.
     fn write_content(&self, _data: &[u8]) -> Result<()> {
         crate::return_errno!(EROFS, "procfs file is read-only");
+    }
+
+    /// Returns the file mode for this node.
+    fn file_mode(&self, writable: bool) -> Mode {
+        if writable {
+            rw_file_mode()
+        } else {
+            ro_file_mode()
+        }
     }
 }
 
@@ -91,11 +100,7 @@ impl<T: ProcFileOps> NodeOps for ProcFileNodeOps<T> {
     fn getattr(&self) -> Result<INodeAttr> {
         Ok(INodeAttr {
             size: 0,
-            mode: if self.writable {
-                rw_file_mode()
-            } else {
-                ro_file_mode()
-            },
+            mode: self.inner.file_mode(self.writable),
             nlink: 1,
             uid: 0,
             gid: 0,

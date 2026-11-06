@@ -8,7 +8,7 @@
 //! (`Arc<...>`) that are cloned into child processes at fork with no deep copy.
 
 use alloc::{collections::BTreeMap, string::String, sync::Arc, vec::Vec};
-use core::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use core::sync::atomic::{AtomicI16, AtomicU32, AtomicU64, Ordering};
 use ostd::sync::{SpinLock, WaitQueue};
 
 use super::pid::{PID_INIT, Pid};
@@ -236,6 +236,8 @@ pub struct Proc {
     pub io_stats: ProcIoStats,
     /// Registered `membarrier(2)` commands, shared by every thread of the process.
     pub membarrier_state: AtomicU32,
+    /// OOM killer badness adjustment (-1000..=1000).
+    pub oom_score_adj: AtomicI16,
     /// POSIX.1b interval timers (`timer_create(2)`).
     pub posix_timers: SpinLock<BTreeMap<i32, Arc<crate::time::posix_timer::PosixTimer>>>,
 }
@@ -307,8 +309,19 @@ impl Proc {
             vfork_waitq: WaitQueue::new(),
             io_stats: ProcIoStats::default(),
             membarrier_state: AtomicU32::new(0),
+            oom_score_adj: AtomicI16::new(0),
             posix_timers: SpinLock::new(BTreeMap::new()),
         })
+    }
+
+    /// Returns the process OOM score adjustment (-1000..=1000).
+    pub fn oom_score_adj(&self) -> i16 {
+        self.oom_score_adj.load(Ordering::Relaxed)
+    }
+
+    /// Sets the process OOM score adjustment (-1000..=1000).
+    pub fn set_oom_score_adj(&self, val: i16) {
+        self.oom_score_adj.store(val, Ordering::Relaxed);
     }
 
     /// Returns process group identifier. Defaults to self.pid if not explicitly assigned.

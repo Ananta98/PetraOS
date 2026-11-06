@@ -17,6 +17,7 @@ pub mod exe;
 pub mod fd;
 pub mod io;
 pub mod maps;
+pub mod oom;
 pub mod stat;
 pub mod statm;
 pub mod status;
@@ -57,6 +58,7 @@ pub const TAG_ENVIRON: u16 = 0x0013;
 pub const TAG_CGROUP: u16 = 0x0014;
 pub const TAG_MOUNTINFO: u16 = 0x0015;
 pub const TAG_OOM_SCORE_ADJ: u16 = 0x0016;
+pub const TAG_OOM_SCORE: u16 = 0x0017;
 
 /// Composes the per-entry inode number for `pid` from `tag`.
 pub const fn pid_ino(pid: Pid, tag: u16) -> usize {
@@ -68,7 +70,7 @@ pub const fn pid_ino(pid: Pid, tag: u16) -> usize {
 /// The single source of truth for `readdir`; lookup handles exactly these
 /// names plus the per-hierarchy extras (`task` under `/proc/<pid>/`).
 const SHARED_ENTRIES: &[&str] = &[
-    "exe", "cwd", "cmdline", "status", "stat", "statm", "comm", "mounts", "mountinfo", "oom_score_adj", "fd", "io", "maps",
+    "exe", "cwd", "cmdline", "status", "stat", "statm", "comm", "mounts", "mountinfo", "oom_score_adj", "oom_score", "fd", "io", "maps",
     "environ", "cgroup",
 ];
 
@@ -125,18 +127,6 @@ impl ProcFileOps for ProcPidMountinfoFileOps {
     }
 }
 
-pub struct ProcPidOomScoreAdjOps;
-
-impl ProcFileOps for ProcPidOomScoreAdjOps {
-    fn generate_content(&self) -> Vec<u8> {
-        alloc::vec![b'0', b'\n']
-    }
-
-    fn write_content(&self, _data: &[u8]) -> Result<()> {
-        Ok(())
-    }
-}
-
 /// Builds the absolute `/proc/<pid>/<name>` node when shared with `task/`.
 ///
 /// Returns `None` if the name is not part of the shared set (task
@@ -184,7 +174,14 @@ pub(super) fn shared_pid_entry(pid: Pid, name: &str) -> Option<Arc<INode>> {
             pid_ino(pid, TAG_CGROUP),
         )),
         "mountinfo" => Some(file_node(ProcPidMountinfoFileOps, pid_ino(pid, TAG_MOUNTINFO))),
-        "oom_score_adj" => Some(rw_file_node(ProcPidOomScoreAdjOps, pid_ino(pid, TAG_OOM_SCORE_ADJ))),
+        "oom_score_adj" => Some(rw_file_node(
+            oom::PidOomScoreAdjFileOps { pid },
+            pid_ino(pid, TAG_OOM_SCORE_ADJ),
+        )),
+        "oom_score" => Some(file_node(
+            oom::PidOomScoreFileOps { pid },
+            pid_ino(pid, TAG_OOM_SCORE),
+        )),
         _ => None,
     }
 }
