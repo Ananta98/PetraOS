@@ -80,10 +80,10 @@ if [ -n "$ROOT_DEV" ]; then
 
         echo ""
         echo "============================================================"
-        echo "    Welcome to PetraOS (postmarketOS Userspace)             "
+        echo "    Welcome to PetraOS                                      "
         echo "============================================================"
         echo "Kernel:       $(cat /proc/version 2>/dev/null || echo 'PetraOS x86_64')"
-        echo "Release:      $(cat /sysroot/etc/os-release 2>/dev/null | grep PRETTY_NAME | cut -d= -f2 | tr -d '\"' || echo 'postmarketOS')"
+        echo "Release:      PetraOS $(cat /sysroot/etc/petraos-release 2>/dev/null || echo '0.1.0')"
         echo "Rootfs:       $ROOT_DEV (ext4) mounted on /"
         echo "Uptime:       $(cut -d' ' -f1 /proc/uptime 2>/dev/null || echo 0)s"
         echo "Architecture: $(uname -m 2>/dev/null || echo x86_64)"

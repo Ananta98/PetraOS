@@ -5,3 +5,5 @@ downloads/
 build/
 sysroot/
 initramfs/
+*.log
+scripts/linux-test-project/logs/
