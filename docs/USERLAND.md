@@ -6,33 +6,28 @@ This document describes the userspace architecture, package provisioning workflo
 
 ## 1. Overview
 
-PetraOS uses a hybrid two-tier userspace model based on **Alpine Linux minirootfs (x86_64)** with postmarketOS packages:
+PetraOS uses a hybrid two-tier userspace model based on **Alpine Linux minirootfs (x86_64)** with prebuilt package layers:
 
 1. **In-Memory Boot Initramfs (`build/initramfs.cpio`)**:
    - Lightweight CPIO archive containing the PID 1 `/init` script, essential core utilities (`busybox`), dynamic linker (`ld-musl-x86_64.so.1`), and recovery shell fallback.
    - Mounts pseudo-filesystems (`/proc`, `/sys`, `/dev`, `/run`), detects block storage (`/dev/sda` / `/dev/vda`), mounts the ext4 rootfs to `/sysroot`, prepares nested devpts/sysfs/procfs, and transitions into the full Alpine rootfs environment.
 
 2. **Full Rootfs Block Image (`build/ext4.img`)**:
-   - Complete ext4 filesystem image populated with standard Alpine Linux minirootfs base, `postmarketos-base`, OpenRC init system, `bash`, `python3`, `btop`, `e2fsprogs`, and `exfatprogs`.
+   - Complete ext4 filesystem image populated with standard Alpine Linux minirootfs base, `openrc` init system, and prebuilt `developer-tools` layers (`bash`, `python3`, `btop`, `e2fsprogs`, `exfatprogs`, GCC/build-base, etc.).
 
 ---
 
 ## 2. Rootfs Packages & Repositories
 
-The userland build script (`scripts/build-userland/build-userland-amd64.sh`) uses static APK (`apk.static`) to provision packages without requiring host root privileges.
+The userland build script (`scripts/build-userland/build-userland-amd64.sh`) uses prebuilt package scripts in `scripts/prebuild-package/` and static APK (`apk.static`) to provision packages without requiring host root privileges.
 
 ### Configured Repositories
-- PostmarketOS (`https://mirror.postmarketos.org/postmarketos/v24.06`)
 - Alpine Linux Main (`https://dl-cdn.alpinelinux.org/alpine/v3.20/main`)
 - Alpine Linux Community (`https://dl-cdn.alpinelinux.org/alpine/v3.20/community`)
 
-### Installed Packages
-- `postmarketos-base`
-- `bash`
-- `python3`
-- `btop`
-- `e2fsprogs`
-- `exfatprogs`
+### Installed Package Layers
+- `openrc`: OpenRC service manager and init scripts.
+- `developer-tools`: `bash`, `python3`, `btop`, `e2fsprogs`, `exfatprogs`, `build-base`, `coreutils`, etc.
 
 ---
 
