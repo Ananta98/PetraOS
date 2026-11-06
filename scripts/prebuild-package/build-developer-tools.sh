@@ -49,7 +49,6 @@ ROOT_PACKAGES=(
     autoconf
     automake
     bash
-    btop
     build-base
     ca-certificates-bundle
     cmake
@@ -155,7 +154,7 @@ check_binary() {
     exit 1
 }
 
-for binary in bash gawk grep sed btop htop gcc g++ make cmake \
+for binary in bash gawk grep sed htop gcc g++ make cmake \
     gdb git meson ninja pkg-config mkfs.ext4 mkfs.exfat openssl; do
     check_binary "${binary}"
 done
