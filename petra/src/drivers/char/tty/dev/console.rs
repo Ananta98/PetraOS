@@ -20,13 +20,6 @@ pub struct FramebufferConsoleDriver;
 
 impl TtyDriver for FramebufferConsoleDriver {
     fn write_output(&self, data: &[u8]) -> Result<()> {
-        if let Ok(s) = core::str::from_utf8(data) {
-            ostd::early_print!("{}", s);
-        } else {
-            for &b in data {
-                ostd::early_print!("{}", b as char);
-            }
-        }
         vt::write_output(data);
         Ok(())
     }
@@ -63,9 +56,7 @@ impl CharacterDevice for Console {
         if let Ok(tty) = Console::get_active() {
             tty.write(buf)
         } else {
-            for &b in buf {
-                ostd::early_print!("{}", b as char);
-            }
+            vt::write_output(buf);
             Ok(buf.len())
         }
     }
@@ -94,9 +85,7 @@ impl FileOps for ConsoleFileOps {
         if let Ok(tty) = Console::get_active() {
             tty.write(buf)
         } else {
-            for &b in buf {
-                ostd::early_print!("{}", b as char);
-            }
+            vt::write_output(buf);
             Ok(buf.len())
         }
     }

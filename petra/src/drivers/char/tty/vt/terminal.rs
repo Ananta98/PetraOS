@@ -95,7 +95,6 @@ fn ensure_terminal(term_guard: &mut Option<Terminal<FramebufferDisplay>>) {
             // Default to steady block cursor (DECSCUSR 2)
             terminal.process(b"\x1b[2 q");
             *term_guard = Some(terminal);
-            ostd::info!("TTY Terminal: Initialized with os-terminal and ConsoleFont");
         }
     }
 }

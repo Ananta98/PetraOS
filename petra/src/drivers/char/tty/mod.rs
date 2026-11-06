@@ -49,7 +49,6 @@ pub fn init() -> Result<()> {
 
     update_console_winsize();
 
-    ostd::info!("TTY and PTY subsystem initialized successfully");
     Ok(())
 }
 
