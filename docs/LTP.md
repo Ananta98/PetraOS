@@ -1,102 +1,99 @@
 # Linux Test Project (LTP) Conformance & Stress Testing Guide
 
-This document provides a step-by-step walkthrough for building, packaging, and running the **Linux Test Project (LTP)** test suites and stress tests against **PetraOS**.
+This document describes how to execute the Linux Test Project (LTP) test suites against PetraOS to validate Linux ABI compatibility, verify error semantics (`errno`), and stress test kernel subsystems (`fs`, `vm`, `proc`, `sched`, `ipc`).
 
 ---
 
-## 1. Quick Start: Running the Stress Test
+## 1. Quick Start: Running Tests
 
-LTP is distributed as upstream C source code. To make execution seamless, [`scripts/linux-test-project/build-ltp.sh`](file:///home/ananta/PetraOS/scripts/linux-test-project/build-ltp.sh) automates downloading the official release tarball, configuring and compiling statically linked binaries, installing them into the rootfs staging area (`/opt/ltp`), and packaging the bootable `build/ext4.img` disk image.
+The test suite contains **1,398 compiled, statically linked LTP test binaries** staged in `/opt/ltp/testcases/bin` and packed inside `build/ext4.img` (4 GB image).
 
-### Step 1: Download, Build, and Package LTP into PetraOS Rootfs
-
-Run the automated one-shot setup command:
-```bash
-bash scripts/linux-test-project/build-ltp.sh --all
-```
-This performs:
-1. **Download**: Fetches the official `ltp-full-20240930.tar.xz` into `build/cache/`.
-2. **Compile**: Configures LTP with static linking (`LDFLAGS="-static"`) and compiles the core library, the `ltp-pan` test engine, the `fsstress` filesystem stress tool, and syscall/scheduler/IPC test binaries.
-3. **Install**: Strips debugging symbols and installs the binaries into `build/userland-amd64/rootfs_staging/opt/ltp/testcases/bin/`.
-4. **Repack**: Repackages `build/ext4.img` with the updated rootfs.
-
----
-
-### Step 2: Run Filesystem Stress Testing (`fsstress`)
-
-`fsstress` executes concurrent, randomized filesystem operations (file creation, writes, truncates, renames, unlinks, and directories) across multiple worker threads to stress test the ext4/VFS layer:
+### A. Run Any Individual Syscall Test
+You can test any of the 1,398 compiled syscall binaries directly by name:
 
 ```bash
-# Run 4 concurrent worker processes performing 500 operations each
-bash scripts/linux-test-project/test-syscalls.sh --test "fsstress -d /tmp/fsstress -p 4 -n 500 -l 1"
-```
+# File operations
+bash scripts/linux-test-project/test-syscalls.sh --test openat01
+bash scripts/linux-test-project/test-syscalls.sh --test close01
+bash scripts/linux-test-project/test-syscalls.sh --test dup01
+bash scripts/linux-test-project/test-syscalls.sh --test lseek01
+bash scripts/linux-test-project/test-syscalls.sh --test read01
+bash scripts/linux-test-project/test-syscalls.sh --test write01
 
----
+# Process & Scheduling
+bash scripts/linux-test-project/test-syscalls.sh --test getpid01
+bash scripts/linux-test-project/test-syscalls.sh --test fork01
+bash scripts/linux-test-project/test-scheduler.sh --test sched_yield01
 
-### Step 3: Run the Individual Subsystem Suites
-
-#### A. System Calls Conformance & Stress (`test-syscalls.sh`)
-```bash
-# Run pipe syscall test
+# IPC & Memory
 bash scripts/linux-test-project/test-syscalls.sh --test pipe01
-
-# Run curated syscall suite
-bash scripts/linux-test-project/test-syscalls.sh --tier1
+bash scripts/linux-test-project/test-syscalls.sh --test mmap01
+bash scripts/linux-test-project/test-syscalls.sh --test clock_gettime01
 ```
 
-#### B. Scheduler & Process Conformance (`test-scheduler.sh`)
-Tests scheduling, priority yielding, and thread management:
+---
+
+### B. Run the Full Upstream Syscall Scenario (`--all`)
+To run through the full suite of system calls:
+
 ```bash
-# Run scheduler smoke test (sched_yield01)
+bash scripts/linux-test-project/test-syscalls.sh --all
+```
+
+---
+
+### C. Run the Curated Core Syscall Suite
+Runs the curated core set (`openat`, `close`, `dup`, `lseek`, `getpid`, `pipe`):
+
+```bash
+bash scripts/linux-test-project/test-syscalls.sh
+```
+
+---
+
+### D. Run the Filesystem Torture Stress Test (`fsstress`)
+`fsstress` executes concurrent, randomized filesystem operations (creates, writes, truncates, renames, unlinks, and directories) across worker processes. Verbose mode (`-v`) and target directory initialization are automated:
+
+```bash
+bash scripts/linux-test-project/test-syscalls.sh --test fsstress
+```
+
+---
+
+### E. Run Scheduler & IPC Suites
+```bash
+# Scheduler and concurrency tests
 bash scripts/linux-test-project/test-scheduler.sh
 
-# Run specific scheduler test
-bash scripts/linux-test-project/test-scheduler.sh --test sched_yield01
-```
-
-#### C. Inter-Process Communication Suite (`test-ipc.sh`)
-Tests pipes, FIFOs, and message buffers:
-```bash
-# Run IPC smoke tests
+# IPC primitives (pipes and buffers)
 bash scripts/linux-test-project/test-ipc.sh
 
-# Run pipe test
-bash scripts/linux-test-project/test-ipc.sh --pipes
-```
-
-#### D. Run All Test Suites Sequentially (`run-all.sh`)
-```bash
+# Run all suites sequentially
 bash scripts/linux-test-project/run-all.sh
 ```
 
 ---
 
-## 2. Viewing Saved Logs (Git Excluded)
+## 2. Inspecting Saved Logs (Git-Excluded)
 
-Every execution saves full serial and console output to:
+Every run automatically streams output to stdout and saves a complete log to:
 - Timestamped logs: `scripts/linux-test-project/logs/<suite>-<YYYYMMDD-HHMMSS>.log`
-- Latest symlink: `scripts/linux-test-project/logs/<suite>-latest.log`
+- Symlink to latest run: `scripts/linux-test-project/logs/<suite>-latest.log`
 
-To inspect the latest test results:
+Inspect results with:
 ```bash
 cat scripts/linux-test-project/logs/syscalls-latest.log
 cat scripts/linux-test-project/logs/scheduler-latest.log
 cat scripts/linux-test-project/logs/ipc-latest.log
 ```
 
-> [!NOTE]
-> All files in `scripts/linux-test-project/logs/` and `*.log` are added to [`.gitignore`](file:///home/ananta/PetraOS/.gitignore) and are never tracked or committed to git.
-
 ---
 
-## 3. Script Reference (`scripts/linux-test-project/`)
+## 3. Rebuilding & Repackaging LTP (`build-ltp.sh`)
 
-| Script | Responsibility |
-| :--- | :--- |
-| **`build-ltp.sh`** | Downloads, compiles, strips, and installs LTP binaries into `/opt/ltp`, and repacks `build/ext4.img`. |
-| **`test-syscalls.sh`** | Dedicated runner for system call tests and `fsstress`. |
-| **`test-scheduler.sh`** | Dedicated runner for scheduler and concurrency tests. |
-| **`test-ipc.sh`** | Dedicated runner for IPC tests (pipes, shared memory, semaphores). |
-| **`run-all.sh`** | Master script executing syscalls, scheduler, and IPC back-to-back. |
-| **`common.sh`** | Headless QEMU launcher, serial piping, and TPASS/TFAIL result metric parser. |
-| **`guest-runner.sh`** | In-guest driver invoked inside PetraOS userspace by `/init`. |
+If you ever need to rebuild all test binaries and repack `build/ext4.img`:
+
+```bash
+bash scripts/linux-test-project/build-ltp.sh --all
+```
+*(The scripts in `scripts/linux-test-project/` also automatically detect missing binaries or updated scripts and repack `build/ext4.img` on demand).*

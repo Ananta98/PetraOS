@@ -18,7 +18,7 @@ ROOTFS_STAGING="${REPO_ROOT}/build/userland-amd64/rootfs_staging"
 OUTPUT="${REPO_ROOT}/build/initramfs.cpio"
 EXT4_IMAGE="${REPO_ROOT}/build/ext4.img"
 EXFAT_IMAGE="${REPO_ROOT}/build/exfat.img"
-IMAGE_SIZE="2G"
+IMAGE_SIZE="4G"
 BUILD_IMAGES=1
 COMPRESS=0
 

@@ -72,7 +72,7 @@ if [ "${MODE}" = "single" ]; then
 elif [ "${MODE}" = "filter" ]; then
     GUEST_ARGS="syscalls ${SPECIFIC_TEST}"
 elif [ "${MODE}" = "all" ]; then
-    GUEST_ARGS="syscalls"
+    GUEST_ARGS="syscalls-all"
 fi
 
 run_petra_ltp_suite "syscalls" "${GUEST_ARGS}"

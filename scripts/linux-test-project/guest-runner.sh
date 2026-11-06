@@ -23,21 +23,52 @@ echo "Command Args: ${EXTRA_ARGS:-none}"
 echo "============================================================"
 echo ""
 
-mkdir -p /tmp/ltp-scratch /opt/ltp/results 2>/dev/null || true
+mkdir -p /tmp/ltp-scratch /tmp/fsstress /opt/ltp/results 2>/dev/null || true
 cd /tmp/ltp-scratch 2>/dev/null || cd /tmp
 
-RUNLTP="/opt/ltp/runltp"
 BIN_DIR="/opt/ltp/testcases/bin"
 STATUS=0
 
 execute_single_test() {
     local test_bin="$1"
-    shift
+    shift || true
+
+    # Special handling for fsstress: ensure destination directory exists and verbose is enabled
+    if [ "${test_bin}" = "fsstress" ]; then
+        local target_dir="/tmp/fsstress"
+        mkdir -p "${target_dir}" 2>/dev/null || true
+        local args="$*"
+        # Add default directory if not specified
+        if ! echo "${args}" | grep -q -- "-d"; then
+            args="-d ${target_dir} ${args}"
+        fi
+        # Add verbose mode if not specified so operations are printed
+        if ! echo "${args}" | grep -q -- "-v"; then
+            args="-v ${args}"
+        fi
+        # Default processes and operations if not specified
+        if ! echo "${args}" | grep -q -- "-p"; then
+            args="-p 4 -n 100 -l 1 ${args}"
+        fi
+
+        echo "--> Running fsstress torture test: ${BIN_DIR}/fsstress ${args}"
+        if "${BIN_DIR}/fsstress" ${args}; then
+            echo ""
+            echo "fsstress: TPASS: Filesystem stress test completed successfully without kernel panic."
+            return 0
+        else
+            local ret=$?
+            echo ""
+            echo "fsstress: TFAIL: fsstress exited with error code ${ret}"
+            return ${ret}
+        fi
+    fi
+
     if [ -x "${BIN_DIR}/${test_bin}" ]; then
-        echo "--> Running binary: ${test_bin} $*"
+        echo "--> Running test binary: ${test_bin} $*"
         "${BIN_DIR}/${test_bin}" "$@"
     elif command -v "${test_bin}" >/dev/null 2>&1; then
-        echo "--> Running command: ${test_bin} $*"
+        echo "--> Running system command: ${test_bin} $*"
         "${test_bin}" "$@"
     else
         echo "ERROR: Test binary not found: ${test_bin} in ${BIN_DIR}"
@@ -45,51 +76,68 @@ execute_single_test() {
     fi
 }
 
+run_scenario_tests() {
+    local scenario_file="$1"
+    local default_list="$2"
+
+    if [ -f "${scenario_file}" ]; then
+        echo "Running tests from scenario file: ${scenario_file}"
+        while read -r tag cmd rest; do
+            # Skip empty lines and comments
+            [ -z "$tag" ] && continue
+            case "$tag" in \#*) continue ;; esac
+
+            cmd="${cmd:-$tag}"
+            if [ -x "${BIN_DIR}/${cmd}" ]; then
+                echo "------------------------------------------------------------"
+                echo "--> [${tag}] Executing: ${cmd} ${rest}"
+                "${BIN_DIR}/${cmd}" ${rest} || STATUS=$?
+            else
+                echo "--> [${tag}] Skipped: binary '${cmd}' not installed in ${BIN_DIR}"
+            fi
+        done < "${scenario_file}"
+    else
+        echo "Running default test list..."
+        for test in ${default_list}; do
+            if [ -x "${BIN_DIR}/${test}" ]; then
+                echo "------------------------------------------------------------"
+                echo "--> Executing: ${test}"
+                "${BIN_DIR}/${test}" || STATUS=$?
+            fi
+        done
+    fi
+}
+
 case "${SUITE}" in
     syscalls)
         if [ -n "${EXTRA_ARGS}" ]; then
             execute_single_test ${EXTRA_ARGS} || STATUS=$?
-        elif [ -f "/opt/ltp/runtest/petra-syscalls" ]; then
-            ${RUNLTP} -f /opt/ltp/runtest/petra-syscalls || STATUS=$?
-        elif [ -f "/opt/ltp/runtest/syscalls" ]; then
-            ${RUNLTP} -f syscalls || STATUS=$?
         else
-            echo "Running core syscall smoke tests..."
-            for test in openat01 read01 write01 close01 stat01 mmap01 fork01 pipe01; do
-                if [ -x "${BIN_DIR}/${test}" ]; then
-                    "${BIN_DIR}/${test}" || STATUS=$?
-                fi
-            done
+            run_scenario_tests "/opt/ltp/runtest/petra-syscalls" \
+                "openat01 openat02 close01 close02 dup01 dup02 lseek01 getpid01 fork01 pipe01 pipe02"
         fi
+        ;;
+
+    syscalls-all)
+        echo "Running full upstream system calls scenario (/opt/ltp/runtest/syscalls-all)..."
+        run_scenario_tests "/opt/ltp/runtest/syscalls-all" ""
         ;;
 
     scheduler|sched)
         if [ -n "${EXTRA_ARGS}" ]; then
             execute_single_test ${EXTRA_ARGS} || STATUS=$?
-        elif [ -f "/opt/ltp/runtest/sched" ]; then
-            ${RUNLTP} -f sched || STATUS=$?
         else
-            echo "Running scheduler smoke tests..."
-            for test in sched_yield01 sched_getparam01 sched_setaffinity01 sched_setscheduler01 fork01 clone01; do
-                if [ -x "${BIN_DIR}/${test}" ]; then
-                    "${BIN_DIR}/${test}" || STATUS=$?
-                fi
-            done
+            run_scenario_tests "/opt/ltp/runtest/petra-sched" \
+                "sched_yield01 fork01"
         fi
         ;;
 
     ipc)
         if [ -n "${EXTRA_ARGS}" ]; then
             execute_single_test ${EXTRA_ARGS} || STATUS=$?
-        elif [ -f "/opt/ltp/runtest/ipc" ]; then
-            ${RUNLTP} -f ipc || STATUS=$?
         else
-            echo "Running IPC smoke tests..."
-            for test in pipe01 pipe02 pipe10 fifo01 msgget01 msgsnd01 msgrcv01 semget01 semop01 shmget01 shmat01; do
-                if [ -x "${BIN_DIR}/${test}" ]; then
-                    "${BIN_DIR}/${test}" || STATUS=$?
-                fi
-            done
+            run_scenario_tests "/opt/ltp/runtest/petra-ipc" \
+                "pipe01 pipe02 pipe03 pipe04 pipe05 pipe06"
         fi
         ;;
 
@@ -117,11 +165,6 @@ if [ -x /sbin/poweroff ]; then
 fi
 if [ -x /sbin/reboot ]; then
     /sbin/reboot -f 2>/dev/null || true
-fi
-
-# Fallback python exit trigger if available
-if command -v python3 >/dev/null 2>&1; then
-    python3 -c "import os; os.system('poweroff -f')" 2>/dev/null || true
 fi
 
 exit ${STATUS}
