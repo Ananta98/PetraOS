@@ -1,4 +1,7 @@
-# Skill: Bug Verification & Anti-Loop Gate
+---
+name: bug-hunter
+description: To find bugs in PetraOS code, run a single pass of static analysis and dynamic testing to identify reproducible defects. Use when asked to find bugs or when a defect is reported. Also to stop looping bug scans that generate false positives.
+---
 
 ## Intent
 Enforce deterministic reproduction for any reported defect. Prevent open-ended 
