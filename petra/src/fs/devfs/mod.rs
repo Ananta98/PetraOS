@@ -35,7 +35,6 @@ use crate::{
     fs::vfs::{FileOps, FileSystem, INode, INodeAttr, Mode, NodeOps, OpenFlags, StatFs},
 };
 use alloc::collections::BTreeMap;
-use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::{boxed::Box, sync::Arc, vec::Vec};
 use spin::RwLock;

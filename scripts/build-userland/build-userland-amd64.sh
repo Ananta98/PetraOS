@@ -1,28 +1,28 @@
 #!/bin/bash
-# Assemble the PetraOS amd64 userland from an official Alpine minirootfs and
-# prebuilt package layers (including developer-tools and openrc), then hand
-# the staging root to the initramfs packer.
+# Assemble the PetraOS amd64 userland from an official Void Linux glibc rootfs and
+# prebuilt package layers (including developer-tools), then hand the staging root
+# to the initramfs packer.
 #
 # Usage: build-userland-amd64.sh [--fresh] [--purge-cache]
 #
 #   --fresh        remove existing userland artifacts before rebuilding
-#   --purge-cache  with --fresh, also drop the download cache and re-fetch Alpine
+#   --purge-cache  with --fresh, also drop the download cache and re-fetch Void Linux
 #
 # Environment:
 #   PETRAOS_USERLAND_PACKAGES  space separated prebuild-package layer names
-#                              (default: developer-tools openrc)
+#                              (default: developer-tools)
 #   PETRAOS_VERSION            version string reported by /etc/os-release
-#   ALPINE_VERSION/ALPINE_BRANCH/ALPINE_SHA256  override the Alpine release
+#   VOID_VERSION/VOID_SHA256   override the Void Linux release
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
-ALPINE_VERSION="${ALPINE_VERSION:-3.20.3}"
-ALPINE_BRANCH="${ALPINE_BRANCH:-v3.20}"
-ALPINE_ARCH="x86_64"
-ALPINE_SHA256="${ALPINE_SHA256:-d4e6fd67dcf75e40c451560ac7265166c2b72a0f38ddc9aae756a7de3d1efa0c}"
-ALPINE_TAR_NAME="alpine-minirootfs-${ALPINE_VERSION}-${ALPINE_ARCH}.tar.gz"
+VOID_VERSION="${VOID_VERSION:-20250202}"
+VOID_ARCH="x86_64"
+VOID_SHA256="${VOID_SHA256:-3f48e6673ac5907a897d913c97eb96edbfb230162731b4016562c51b3b8f1876}"
+VOID_TAR_NAME="void-${VOID_ARCH}-ROOTFS-${VOID_VERSION}.tar.xz"
+VOID_MIRROR="${VOID_MIRROR:-https://repo-default.voidlinux.org/live/current}"
 
 CACHE_DIR="${REPO_ROOT}/build/cache"
 BUILD_DIR="${REPO_ROOT}/build/userland-amd64"
@@ -30,7 +30,7 @@ STAGING="${BUILD_DIR}/staging"
 ROOTFS_STAGING="${BUILD_DIR}/rootfs_staging"
 INITRAMFS="${REPO_ROOT}/build/initramfs.cpio"
 
-PACKAGES="${PETRAOS_USERLAND_PACKAGES:-developer-tools openrc}"
+PACKAGES="${PETRAOS_USERLAND_PACKAGES:-developer-tools}"
 PETRAOS_VERSION="${PETRAOS_VERSION:-0.1.0}"
 SUPPORT_DIR="${REPO_ROOT}/scripts/build-support"
 PREBUILD_DIR="${REPO_ROOT}/scripts/prebuild-package"
@@ -59,7 +59,7 @@ if [ "${FRESH}" -eq 1 ]; then
     "${SCRIPT_DIR}/../clean.sh" "${clean_args[@]}"
 fi
 
-for tool in curl tar file; do
+for tool in curl tar xz file; do
     command -v "$tool" >/dev/null 2>&1 || {
         echo "ERROR: required command not found: $tool" >&2
         exit 1
@@ -74,47 +74,55 @@ sha256_file() {
     fi
 }
 
-# Replace symlinked entries before copying so that a package file never writes
-# through a BusyBox applet link and clobbers /bin/busybox itself.
+# Merge layer while protecting usr-merge directory symlinks (/bin -> usr/bin, etc.).
 merge_layer() {
     local layer="$1"
     local target_dir="${2:-${STAGING}}"
     local source relative destination
     [ -d "$layer" ] || return 0
+    # Ensure target directory tree is user-writable so read-only files can be replaced
+    chmod -R u+w "${target_dir}" 2>/dev/null || true
     while IFS= read -r -d '' source; do
         relative="${source#"$layer/"}"
         destination="${target_dir}/${relative}"
-        if [ -L "$destination" ]; then
+        # Preserve usr-merge directory symlinks (e.g., bin -> usr/bin)
+        if [ -d "$source" ] && [ -L "$destination" ] && [ -d "$destination" ]; then
+            continue
+        fi
+        # Remove destination file/symlink if source is a file to avoid permission denied on read-only files
+        if [ ! -d "$source" ] && [ -e "$destination" -o -L "$destination" ]; then
             rm -f "$destination"
         fi
     done < <(find "$layer" -mindepth 1 -print0)
-    cp -a "$layer/." "${target_dir}/"
+    cp -af "$layer/." "${target_dir}/"
 }
 
 mkdir -p "${CACHE_DIR}" "${BUILD_DIR}"
 
-if [ ! -f "${CACHE_DIR}/${ALPINE_TAR_NAME}" ]; then
-    echo "==> Fetching Alpine ${ALPINE_VERSION} ${ALPINE_ARCH} minirootfs..."
+if [ ! -f "${CACHE_DIR}/${VOID_TAR_NAME}" ]; then
+    echo "==> Fetching Void Linux ${VOID_VERSION} ${VOID_ARCH} rootfs..."
     curl -fL --retry 3 \
-        "https://dl-cdn.alpinelinux.org/alpine/${ALPINE_BRANCH}/releases/${ALPINE_ARCH}/${ALPINE_TAR_NAME}" \
-        -o "${CACHE_DIR}/${ALPINE_TAR_NAME}"
+        "${VOID_MIRROR}/${VOID_TAR_NAME}" \
+        -o "${CACHE_DIR}/${VOID_TAR_NAME}"
 fi
 
-actual_sha256="$(sha256_file "${CACHE_DIR}/${ALPINE_TAR_NAME}")"
-if [ "${actual_sha256}" != "${ALPINE_SHA256}" ]; then
-    echo "ERROR: Alpine minirootfs checksum mismatch." >&2
-    echo "Expected: ${ALPINE_SHA256}" >&2
+actual_sha256="$(sha256_file "${CACHE_DIR}/${VOID_TAR_NAME}")"
+if [ "${actual_sha256}" != "${VOID_SHA256}" ]; then
+    echo "ERROR: Void Linux rootfs checksum mismatch." >&2
+    echo "Expected: ${VOID_SHA256}" >&2
     echo "Actual:   ${actual_sha256}" >&2
     exit 1
 fi
 
-echo "==> Extracting the Alpine userland into ${STAGING}"
+echo "==> Extracting the Void Linux userland into ${STAGING}"
 rm -rf "${STAGING}" "${ROOTFS_STAGING}"
 mkdir -p "${STAGING}" "${ROOTFS_STAGING}"
-tar -xzf "${CACHE_DIR}/${ALPINE_TAR_NAME}" -C "${STAGING}"
+tar -xf "${CACHE_DIR}/${VOID_TAR_NAME}" -C "${STAGING}"
+chmod -R u+w "${STAGING}" 2>/dev/null || true
 
-# Seed the rootfs with base alpine files so it forms a complete rootfs
+# Seed the rootfs with base Void Linux files so it forms a complete rootfs
 cp -a "${STAGING}/." "${ROOTFS_STAGING}/"
+chmod -R u+w "${ROOTFS_STAGING}" 2>/dev/null || true
 
 echo "==> Staging prebuilt package layers into rootfs (${ROOTFS_STAGING})"
 for package in ${PACKAGES}; do
@@ -130,17 +138,11 @@ done
 
 echo "==> Configuring the userlands (initramfs and rootfs)"
 for target_dir in "${STAGING}" "${ROOTFS_STAGING}"; do
-    mkdir -p "${target_dir}"/{bin,sbin,lib,usr/bin,usr/sbin,usr/lib,usr/share}
     mkdir -p "${target_dir}"/{dev/pts,dev/shm,proc,sys,tmp,run,root,mnt,media,var/log,var/run,var/tmp,sysroot}
     mkdir -p "${target_dir}/root/.config/btop"
     chmod 1777 "${target_dir}/tmp" "${target_dir}/var/tmp"
     chmod 0750 "${target_dir}/root"
     install -m0755 "${SUPPORT_DIR}/init" "${target_dir}/init"
-
-    # Ensure /bin/bash exists (fallback to sh if bash not in target)
-    if [ ! -e "${target_dir}/bin/bash" ]; then
-        ln -sf sh "${target_dir}/bin/bash"
-    fi
 
     # Ensure /usr/bin/python symlink points to python3 if python3 is present
     if [ -x "${target_dir}/usr/bin/python3" ] && [ ! -e "${target_dir}/usr/bin/python" ]; then
@@ -159,6 +161,8 @@ EOF
     cat > "${target_dir}/etc/shells" << 'EOF'
 /bin/sh
 /bin/bash
+/usr/bin/sh
+/usr/bin/bash
 EOF
 
     cat > "${target_dir}/etc/group" << 'EOF'
@@ -202,34 +206,17 @@ EOF
     mkdir -p "${target_dir}/usr/lib"
     cat > "${target_dir}/usr/lib/os-release" << EOF
 NAME="PetraOS"
-PRETTY_NAME="PetraOS"
+PRETTY_NAME="PetraOS (Void Linux userspace)"
 ID=petraos
-ID_LIKE=alpine
+ID_LIKE=void
 VERSION_ID="${PETRAOS_VERSION}"
 VERSION="${PETRAOS_VERSION}"
 EOF
     rm -f "${target_dir}/etc/os-release"
     ln -sf ../usr/lib/os-release "${target_dir}/etc/os-release"
 
-    # Configure OpenRC configuration and runlevels if openrc is present
-    if [ -x "${target_dir}/sbin/openrc" ] || [ -d "${target_dir}/etc/init.d" ]; then
-        mkdir -p "${target_dir}/etc/conf.d" "${target_dir}/etc/runlevels"/{sysinit,boot,default,shutdown,nonetwork}
-        cat > "${target_dir}/etc/rc.conf" << 'EOF'
-# /etc/rc.conf: OpenRC system configuration for PetraOS
-rc_parallel="NO"
-rc_sys="docker"
-unicode="YES"
-rc_controller_cgroups="NO"
-rc_cgroup_mode="none"
-rc_interactive="NO"
-rc_crashed_stop=NO
-rc_crashed_start=YES
-rc_logger="NO"
-EOF
-    fi
-
     cat > "${target_dir}/etc/profile" << 'EOF'
-export PATH=/bin:/sbin:/usr/bin:/usr/sbin
+export PATH=/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin
 export HOME=/root
 export SHELL=/bin/bash
 export TERM=linux
@@ -253,7 +240,7 @@ EOF
 
     cat > "${target_dir}/root/.profile" << 'EOF'
 export PS1='petraos:\w# '
-export PATH=/bin:/sbin:/usr/bin:/usr/sbin
+export PATH=/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin
 export SHELL=/bin/bash
 export TERM=linux
 export HOME=/root
@@ -279,9 +266,10 @@ EOF
     mknod -m 600 "${target_dir}/dev/console" c 5 1 2>/dev/null || true
 done
 
-for path in "${STAGING}/bin/busybox" "${STAGING}/lib/ld-musl-${ALPINE_ARCH}.so.1"; do
-    if [ ! -e "$path" ]; then
-        echo "ERROR: Alpine userland is incomplete, missing ${path}" >&2
+# Check that core binaries and glibc loader exist
+for path in "${STAGING}/usr/bin/bash" "${STAGING}/usr/lib/ld-linux-x86-64.so.2"; do
+    if [ ! -e "$path" ] && [ ! -L "$path" ]; then
+        echo "ERROR: Void Linux userland is incomplete, missing ${path}" >&2
         exit 1
     fi
 done
@@ -289,4 +277,4 @@ done
 echo "==> Packaging the initramfs and disk images"
 "${SCRIPT_DIR}/../build-initramfs.sh" --staging "${STAGING}" --rootfs-staging "${ROOTFS_STAGING}" --output "${INITRAMFS}"
 
-file "${STAGING}/bin/busybox"
+file "${STAGING}/usr/bin/bash"

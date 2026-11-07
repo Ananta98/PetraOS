@@ -7,7 +7,7 @@
 #   --userland   Userland staging, package layers, initramfs and block images
 #                (default when no option is given)
 #   --iso        Bootable ISO and its staging tree
-#   --cache      Downloaded caches (Rocky Linux rootfs)
+#   --cache      Downloaded caches (Void Linux rootfs and package manager)
 #   --kernel     Rust kernel build output (target/)
 #   --all        Everything above
 #   -h, --help   Show this help message
@@ -27,7 +27,7 @@ usage() {
     echo ""
     echo "  --userland   Userland staging, package layers, initramfs and block images (default)"
     echo "  --iso        Bootable ISO and its staging tree"
-    echo "  --cache      Downloaded caches (Rocky Linux rootfs)"
+    echo "  --cache      Downloaded caches (Void Linux rootfs and package manager)"
     echo "  --kernel     Rust kernel build output (target/)"
     echo "  --all        Everything above"
     echo "  -h, --help   Show this help message"

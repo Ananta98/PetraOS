@@ -17,10 +17,10 @@ A modern, modular operating system kernel written in Rust, built on OSTD (Operat
 ## Features
 
 - **Subsystem Architecture**: Domain-partitioned kernel subsystems (`arch`, `fs`, `drivers`, `ipc`, `net`, `proc`, `sched`, `syscall`, `vm`, `time`).
-- **Alpine Linux Userspace**: Powered by an Alpine Linux minirootfs userspace on the rootfs image (`musl libc`, `apk` package manager, OpenRC init system, `bash`, `python3`, `btop`).
+- **Void Linux Userspace**: Powered by a Void Linux glibc userspace on the rootfs image (`glibc`, `xbps` package manager, `bash`, `python3`, `gcc`, `g++`).
 - **Two-Tier Storage Architecture**:
   - **In-Memory Boot Initramfs** (`build/initramfs.cpio`): Lightweight CPIO archive containing the PID 1 `/init` script and minimal environment for early boot and device discovery.
-  - **Persistent Rootfs Block Image** (`build/ext4.img`): Full ext4 filesystem populated from Alpine minirootfs and prebuilt package layers (including developer tools and OpenRC).
+  - **Persistent Rootfs Block Image** (`build/ext4.img`): Full ext4 filesystem populated from Void Linux glibc rootfs and prebuilt developer-tools package layers.
 - **VFS Subsystem**: Full virtual filesystem supporting `ext4`, `exfat`, `procfs`, `sysfs`, `devfs`, `devpts`, and `tmpfs`.
 - **Networking**: `AF_INET`, `AF_UNIX` (stream and datagram with `SCM_RIGHTS` & `SCM_CREDENTIALS`), and `AF_NETLINK` route socket support.
 
@@ -55,7 +55,7 @@ cargo install cargo-osdk
 
 ### 1. Build Userland & Filesystem Images
 
-Download the Alpine minirootfs, provision rootfs packages, and generate `build/initramfs.cpio` and `build/ext4.img`:
+Download the Void Linux glibc rootfs, provision rootfs packages via XBPS, and generate `build/initramfs.cpio` and `build/ext4.img`:
 
 ```bash
 bash scripts/build-userland/build-userland-amd64.sh
@@ -88,6 +88,6 @@ cargo osdk run
 
 ## Documentation
 
-- [Userland Guide](docs/USERLAND.md): Architecture and packaging details for the Alpine-based userland and rootfs.
+- [Userland Guide](docs/USERLAND.md): Architecture and packaging details for the Void Linux glibc-based userland and rootfs.
 - [Linux Test Project (LTP) Guide](docs/LTP.md): Stress testing, system calls, scheduler, and IPC test harnesses.
 - [Agent Guidelines](AGENTS.md): Architecture standards, coding principles, and human attribution guidelines.

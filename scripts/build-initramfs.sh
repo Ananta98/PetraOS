@@ -60,10 +60,9 @@ if [ ! -d "${STAGING}" ]; then
     exit 1
 fi
 
-MUSL_LOADER="${STAGING}/lib/ld-musl-x86_64.so.1"
-GLIBC_LOADER="${STAGING}/lib64/ld-linux-x86-64.so.2"
-[ -e "${GLIBC_LOADER}" ] || GLIBC_LOADER="${STAGING}/usr/lib64/ld-linux-x86-64.so.2"
-[ -e "${GLIBC_LOADER}" ] || GLIBC_LOADER="${MUSL_LOADER}"
+GLIBC_LOADER="${STAGING}/usr/lib/ld-linux-x86-64.so.2"
+[ -e "${GLIBC_LOADER}" ] || GLIBC_LOADER="${STAGING}/lib64/ld-linux-x86-64.so.2"
+[ -e "${GLIBC_LOADER}" ] || GLIBC_LOADER="${STAGING}/lib/ld-musl-x86_64.so.1"
 
 # Run a tool that lives inside the staging root using the staging root's own
 # dynamic loader, which works regardless of the host C library.
@@ -71,7 +70,7 @@ run_staged() {
     local tool="$1"
     shift
     if [ -x "${GLIBC_LOADER}" ]; then
-        "${GLIBC_LOADER}" --library-path "${STAGING}/lib64:${STAGING}/usr/lib64:${STAGING}/lib:${STAGING}/usr/lib" \
+        "${GLIBC_LOADER}" --library-path "${STAGING}/usr/lib:${STAGING}/lib:${STAGING}/lib64:${STAGING}/usr/lib64" \
             "${STAGING}/${tool}" "$@"
     fi
 }

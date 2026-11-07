@@ -72,15 +72,14 @@ if [ -n "$ROOT_DEV" ]; then
         [ -e /sysroot/dev/stderr ] || ln -sf /proc/self/fd/2 /sysroot/dev/stderr 2>/dev/null || true
         [ -e /sysroot/etc/mtab ] || ln -sf /proc/self/mounts /sysroot/etc/mtab 2>/dev/null || true
 
-        # Start OpenRC system services if present in rootfs
-        if [ -x /sysroot/sbin/openrc ]; then
-            echo "[init] Starting OpenRC system services..."
-            chroot /sysroot /sbin/openrc default || true
+        # Generate ld.so.cache if ldconfig is present
+        if [ -x /sysroot/sbin/ldconfig ] || [ -x /sysroot/usr/bin/ldconfig ]; then
+            chroot /sysroot ldconfig 2>/dev/null || true
         fi
 
         echo ""
         echo "============================================================"
-        echo "    Welcome to PetraOS                                      "
+        echo "    Welcome to PetraOS (Void Linux userspace glibc)         "
         echo "============================================================"
         echo "Kernel:       $(cat /proc/version 2>/dev/null || echo 'PetraOS x86_64')"
         echo "Release:      PetraOS $(cat /sysroot/etc/petraos-release 2>/dev/null || echo '0.1.0')"

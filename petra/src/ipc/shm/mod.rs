@@ -364,7 +364,7 @@ pub fn on_proc_fork(parent: &Proc, child: &Proc) {
     }
 
     let reg = SHM_REGISTRY.lock();
-    for (_, att) in &parent_attachments {
+    for (_, att) in parent_attachments.iter() {
         if let Some(segment) = reg.get(&att.shmid) {
             segment.nattch.fetch_add(1, Ordering::Relaxed);
         }

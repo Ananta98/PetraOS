@@ -249,6 +249,7 @@ impl KmsState {
         fb: Arc<Framebuffer>,
         mode: &drm::DrmModeModeInfo,
     ) -> Result<()> {
+        fb.object.flush_pages(0..fb.object.size());
         self.driver.set_scanout(pipeline, &fb, mode)?;
         *self.states[pipeline].fb.lock() = Some(fb);
         Ok(())

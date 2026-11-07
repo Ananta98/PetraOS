@@ -69,7 +69,7 @@ impl GemHandleTable {
 /// mapping is alive; this mirrors the Linux tracking behavior.
 #[derive(Debug, Default)]
 pub struct GemOffsetTable {
-    next: u32,
+    next: u64,
     entries: BTreeMap<u64, Arc<GemObject>>,
 }
 
@@ -84,24 +84,28 @@ impl GemOffsetTable {
 
     /// Grants a fresh fake offset for `object`.
     pub fn grant(&mut self, object: Arc<GemObject>) -> u64 {
+        let pages = object.size().div_ceil(4096) as u64;
         let slot = self.next;
-        self.next += 1;
-        let offset = offset_for(slot as u64);
+        self.next = self.next.saturating_add(pages);
+        let offset = offset_for(slot);
         self.entries.insert(offset, object);
         offset
     }
 
     /// Looks up the object at a fake `offset`, if one is granted.
     ///
-    /// The offset must be above [`FAKE_OFFSET_BASE`] and page aligned; ranges
-    /// straddling a page within the same grant return the owning grant.
+    /// The offset must be at or above [`FAKE_OFFSET_BASE`]; ranges
+    /// straddling within the same object grant return the owning grant.
     pub fn get(&self, offset: u64) -> Option<Arc<GemObject>> {
-        if offset <= FAKE_OFFSET_BASE {
+        if offset < FAKE_OFFSET_BASE {
             return None;
         }
-        // Round down to the grant's page-level layout
-        let page = (offset - FAKE_OFFSET_BASE) >> 12;
-        self.entries.get(&(FAKE_OFFSET_BASE + (page << 12))).cloned()
+        if let Some((&base, object)) = self.entries.range(..=offset).next_back() {
+            if offset < base.saturating_add(object.size() as u64) {
+                return Some(object.clone());
+            }
+        }
+        None
     }
 
     /// Removes the entry granting `offset`. `true` when it existed.

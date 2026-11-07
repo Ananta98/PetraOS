@@ -13,39 +13,33 @@ use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::sync::atomic::{AtomicU64, Ordering};
 use ostd::io::IoMem;
-use ostd::mm::io::{VmIo, VmIoOnce};
+use ostd::mm::io::VmIoOnce;
 use spin::Mutex;
 
 use super::caps::{find_caps, map_cap};
 use crate::drivers::bus::pci::PciDevice;
 use crate::uapi::errno::{Errno, Result};
 
-// `virtio_pci_common_cfg` register offsets (virtio 1.0 spec).
-const CFG_MAGIC_VALUE: usize = 0x00;
-const CFG_VERSION: usize = 0x04;
-const CFG_DEVICE_FEATURE: usize = 0x10;
-const CFG_DEVICE_FEATURE_SEL: usize = 0x14;
-const CFG_DRIVER_FEATURE: usize = 0x18;
-const CFG_DRIVER_FEATURE_SEL: usize = 0x1C;
-const CFG_MSIX_CONFIG: usize = 0x20;
-const CFG_NUM_QUEUES: usize = 0x22;
-const CFG_STATUS: usize = 0x24;
-const CFG_QUEUE_SELECT: usize = 0x28;
-const CFG_QUEUE_SIZE: usize = 0x2A;
-const CFG_QUEUE_MSIX_VECTOR: usize = 0x2C;
-const CFG_QUEUE_ENABLE: usize = 0x2E;
-const CFG_QUEUE_NOTIFY_OFF: usize = 0x30;
-const CFG_QUEUE_DESC: usize = 0x38;
-const CFG_QUEUE_DESC_HI: usize = 0x3C;
-const CFG_QUEUE_AVAIL: usize = 0x40;
-const CFG_QUEUE_AVAIL_HI: usize = 0x44;
-const CFG_QUEUE_USED: usize = 0x48;
-const CFG_QUEUE_USED_HI: usize = 0x4C;
+// `virtio_pci_common_cfg` register offsets (virtio 1.0 spec §4.1.4.3).
+const CFG_DEVICE_FEATURE_SEL: usize = 0x00;
+const CFG_DEVICE_FEATURE: usize = 0x04;
+const CFG_DRIVER_FEATURE_SEL: usize = 0x08;
+const CFG_DRIVER_FEATURE: usize = 0x0C;
+const CFG_MSIX_CONFIG: usize = 0x10;
+const CFG_NUM_QUEUES: usize = 0x12;
+const CFG_STATUS: usize = 0x14;
+const CFG_QUEUE_SELECT: usize = 0x16;
+const CFG_QUEUE_SIZE: usize = 0x18;
+const CFG_QUEUE_MSIX_VECTOR: usize = 0x1A;
+const CFG_QUEUE_ENABLE: usize = 0x1C;
+const CFG_QUEUE_NOTIFY_OFF: usize = 0x1E;
+const CFG_QUEUE_DESC: usize = 0x20;
+const CFG_QUEUE_DESC_HI: usize = 0x24;
+const CFG_QUEUE_AVAIL: usize = 0x28;
+const CFG_QUEUE_AVAIL_HI: usize = 0x2C;
+const CFG_QUEUE_USED: usize = 0x30;
+const CFG_QUEUE_USED_HI: usize = 0x34;
 
-/// The `virt` magic value of the common config.
-const VIRTIO_MAGIC: u32 = 0x7472_6976;
-/// The common config layout spoken here is `virtio 1.0`.
-const VIRTIO_VERSION: u32 = 1;
 /// `VIRTIO_F_VERSION_1`: mandatory feature bit 32 of modern devices.
 pub const VIRTIO_F_VERSION_1: u64 = 1 << 32;
 
@@ -151,7 +145,7 @@ impl VirtioTransport {
         self.device_cfg
             .as_ref()
             .ok_or(Errno::ENODEV)?
-            .read_val::<u32>(offset)
+            .read_once::<u32>(offset)
             .map_err(|_| Errno::EIO)
     }
 
@@ -160,7 +154,7 @@ impl VirtioTransport {
         self.device_cfg
             .as_ref()
             .ok_or(Errno::ENODEV)?
-            .write_val::<u32>(offset, &value)
+            .write_once::<u32>(offset, &value)
             .map_err(|_| Errno::EIO)
     }
 
@@ -169,7 +163,7 @@ impl VirtioTransport {
         self.device_cfg
             .as_ref()
             .ok_or(Errno::ENODEV)?
-            .read_val::<u16>(offset)
+            .read_once::<u16>(offset)
             .map_err(|_| Errno::EIO)
     }
 
@@ -178,7 +172,7 @@ impl VirtioTransport {
         self.device_cfg
             .as_ref()
             .ok_or(Errno::ENODEV)?
-            .write_val::<u16>(offset, &value)
+            .write_once::<u16>(offset, &value)
             .map_err(|_| Errno::EIO)
     }
 
@@ -187,7 +181,7 @@ impl VirtioTransport {
         self.device_cfg
             .as_ref()
             .ok_or(Errno::ENODEV)?
-            .read_val::<u8>(offset)
+            .read_once::<u8>(offset)
             .map_err(|_| Errno::EIO)
     }
 
@@ -196,7 +190,7 @@ impl VirtioTransport {
         self.device_cfg
             .as_ref()
             .ok_or(Errno::ENODEV)?
-            .write_val::<u8>(offset, &value)
+            .write_once::<u8>(offset, &value)
             .map_err(|_| Errno::EIO)
     }
 
@@ -204,7 +198,7 @@ impl VirtioTransport {
     pub fn device_read_bytes(&self, offset: usize, buf: &mut [u8]) -> Result<()> {
         let cfg = self.device_cfg.as_ref().ok_or(Errno::ENODEV)?;
         for (i, byte) in buf.iter_mut().enumerate() {
-            *byte = cfg.read_val::<u8>(offset + i).map_err(|_| Errno::EIO)?;
+            *byte = cfg.read_once::<u8>(offset + i).map_err(|_| Errno::EIO)?;
         }
         Ok(())
     }
@@ -222,49 +216,45 @@ impl VirtioTransport {
 
     fn read_status(&self) -> Result<u8> {
         self.common
-            .read_val::<u8>(CFG_STATUS)
+            .read_once::<u8>(CFG_STATUS)
             .map_err(|_| Errno::EIO)
     }
 
     fn set_status(&self, status: u8) -> Result<()> {
         self.common
-            .write_val::<u8>(CFG_STATUS, &status)
+            .write_once::<u8>(CFG_STATUS, &status)
             .map_err(|_| Errno::EIO)
     }
 
     fn write32(&self, offset: usize, value: u32) -> Result<()> {
         self.common
-            .write_val::<u32>(offset, &value)
+            .write_once::<u32>(offset, &value)
             .map_err(|_| Errno::EIO)
     }
 
     fn write16(&self, offset: usize, value: u16) -> Result<()> {
         self.common
-            .write_val::<u16>(offset, &value)
+            .write_once::<u16>(offset, &value)
             .map_err(|_| Errno::EIO)
     }
 
     fn read32(&self, offset: usize) -> Result<u32> {
-        self.common.read_val::<u32>(offset).map_err(|_| Errno::EIO)
+        self.common.read_once::<u32>(offset).map_err(|_| Errno::EIO)
     }
 
     fn read16(&self, offset: usize) -> Result<u16> {
-        self.common.read_val::<u16>(offset).map_err(|_| Errno::EIO)
+        self.common.read_once::<u16>(offset).map_err(|_| Errno::EIO)
     }
 
     /// Negotiated the features, brings the requested queues online and
     /// runs `driver.on_init`. Claimed by exactly one device.
     pub(super) fn activate(self: &Arc<Self>, driver: Arc<dyn VirtioDevice>) -> Result<()> {
         self.reset()?;
-        // Common config sanity.
-        if self.read32(CFG_MAGIC_VALUE)? != VIRTIO_MAGIC
-            || self.read32(CFG_VERSION)? != VIRTIO_VERSION
-        {
-            crate::return_errno!(ENODEV, "device does not speak virtio 1.0");
-        }
 
-        self.set_status(STATUS_ACKNOWLEDGE)?;
-        self.set_status(STATUS_DRIVER)?;
+        let mut status = STATUS_ACKNOWLEDGE;
+        self.set_status(status)?;
+        status |= STATUS_DRIVER;
+        self.set_status(status)?;
         // Mask MSIX (this device is driven polled).
         let _ = self.write16(CFG_MSIX_CONFIG, 0xFFFF);
 
@@ -283,7 +273,8 @@ impl VirtioTransport {
         self.write32(CFG_DRIVER_FEATURE_SEL, 1)?;
         self.write32(CFG_DRIVER_FEATURE, (accepted >> 32) as u32)?;
 
-        self.set_status(STATUS_FEATURES_OK)?;
+        status |= STATUS_FEATURES_OK;
+        self.set_status(status)?;
         if self.read_status()? & STATUS_FEATURES_OK == 0 {
             self.set_status(STATUS_FAILED)?;
             crate::return_errno!(EIO, "device did not accept the feature set");
@@ -320,7 +311,8 @@ impl VirtioTransport {
             self.queues.lock().push(queue);
         }
 
-        self.set_status(STATUS_DRIVER_OK)?;
+        status |= STATUS_DRIVER_OK;
+        self.set_status(status)?;
         if self.read_status()? & STATUS_DRIVER_OK == 0 {
             crate::return_errno!(EIO, "device refused DRIVER_OK");
         }
@@ -347,8 +339,9 @@ impl VirtioTransport {
     /// Rings the queue doorbell (`notify_off * multiplier` into the notify
     /// window, value = queue index).
     pub(super) fn ring_bell(&self, notify_off: usize, index: u16) -> Result<()> {
+        let offset = notify_off * self.notify_multiplier as usize;
         self.notify
-            .write_once(notify_off * self.notify_multiplier as usize, &index)
+            .write_once(offset, &index)
             .map_err(|_| Errno::EIO)
     }
 

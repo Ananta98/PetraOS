@@ -3,7 +3,7 @@
 //! SysFS Block Device Subsystem (`/sys/block` and `/sys/class/block`).
 //!
 //! Exposes registered block devices, dynamic I/O statistics (`stat`), device geometry (`size`,
-//! `dev`), and queue configurations to userspace monitoring tools such as `btop`, `lsblk`, and `iostat`.
+//! `dev`), and queue configurations to userspace monitoring tools such as `lsblk`, and `iostat`.
 
 use alloc::{format, string::String, sync::Arc, vec, vec::Vec};
 

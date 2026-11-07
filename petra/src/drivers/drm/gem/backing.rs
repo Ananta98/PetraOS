@@ -60,7 +60,7 @@ impl GemBacking {
 
 impl Backing for GemBacking {
     fn size(&self) -> usize {
-        self.size
+        self.base.saturating_add(self.size)
     }
 
     fn frame(&self, offset: usize) -> Result<UFrame> {

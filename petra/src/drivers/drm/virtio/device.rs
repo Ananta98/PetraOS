@@ -14,7 +14,7 @@ use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::mem::size_of;
-use ostd::mm::{HasPaddr, VmIo, VmReader, dma::DmaCoherent, io::util::HasVmReaderWriter};
+use ostd::mm::{HasDaddr, VmIo, VmReader, dma::DmaCoherent, io::util::HasVmReaderWriter};
 use spin::{Mutex, Once};
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
@@ -49,9 +49,9 @@ struct CommandStaging {
 impl CommandStaging {
     fn new() -> Result<Self> {
         Ok(Self {
-            request_dma: DmaCoherent::alloc(1, false).map_err(|_| Errno::ENOMEM)?,
-            response_dma: DmaCoherent::alloc(1, false).map_err(|_| Errno::ENOMEM)?,
-            cursor_dma: DmaCoherent::alloc(1, false).map_err(|_| Errno::ENOMEM)?,
+            request_dma: DmaCoherent::alloc(1, true).map_err(|_| Errno::ENOMEM)?,
+            response_dma: DmaCoherent::alloc(1, true).map_err(|_| Errno::ENOMEM)?,
+            cursor_dma: DmaCoherent::alloc(1, true).map_err(|_| Errno::ENOMEM)?,
         })
     }
 }
@@ -129,12 +129,12 @@ impl VirtioGpu {
 
         self.control_queue.submit_wait(&[
             SubmitBuffer {
-                addr: staging.request_dma.paddr() as u64,
+                addr: staging.request_dma.daddr() as u64,
                 len: req_bytes.len() as u32,
                 writable: false,
             },
             SubmitBuffer {
-                addr: staging.response_dma.paddr() as u64,
+                addr: staging.response_dma.daddr() as u64,
                 len: resp_len as u32,
                 writable: true,
             },
@@ -167,7 +167,7 @@ impl VirtioGpu {
 
         cursor_q
             .submit_wait(&[SubmitBuffer {
-                addr: staging.cursor_dma.paddr() as u64,
+                addr: staging.cursor_dma.daddr() as u64,
                 len: bytes.len() as u32,
                 writable: false,
             }])
@@ -181,13 +181,28 @@ impl VirtioGpu {
         check_response_code(info.hdr.kind, RESP_OK_DISPLAY_INFO)?;
 
         let max_scanouts = (self.config.num_scanouts as usize).min(info.pmodes.len());
-        let enabled = info.pmodes[..max_scanouts]
+        let mut enabled: Vec<(u32, DisplayOne)> = info.pmodes[..max_scanouts]
             .iter()
             .copied()
             .enumerate()
             .filter(|(_, pmode)| pmode.enabled != 0 && pmode.rect.width > 0 && pmode.rect.height > 0)
             .map(|(idx, pmode)| (idx as u32, pmode))
             .collect();
+        if enabled.is_empty() && max_scanouts > 0 {
+            // In headless environments (such as QEMU -display none), QEMU reports enabled = 0.
+            // Fall back to a default standard 1024x768 scanout on scanout 0.
+            let fallback = DisplayOne {
+                rect: Rect {
+                    x: 0,
+                    y: 0,
+                    width: 1024,
+                    height: 768,
+                },
+                enabled: 1,
+                flags: 0,
+            };
+            enabled.push((0, fallback));
+        }
         Ok(enabled)
     }
 
@@ -221,7 +236,7 @@ impl VirtioGpu {
         height: u32,
     ) -> Result<()> {
         let create_cmd = build_create_2d(resource_id, format, width, height)?;
-        let attach_cmd = build_attach_backing(resource_id, object.paddr() as u64, object.size())?;
+        let attach_cmd = build_attach_backing(resource_id, object.daddr() as u64, object.size())?;
 
         self.submit_control_nodata(&create_cmd)?;
         if let Err(err) = self.submit_control_nodata(&attach_cmd) {
@@ -500,8 +515,14 @@ impl VirtioDevice for VirtioGpuDevice {
     }
 
     fn on_init(&self, transport: &Arc<VirtioTransport>) -> Result<()> {
-        let gpu = VirtioGpu::new(transport)?;
-        let kms = gpu.build_kms()?;
+        let gpu = VirtioGpu::new(transport).map_err(|e| {
+            ostd::error!("virtio-gpu: VirtioGpu::new failed: {:?}", e);
+            e
+        })?;
+        let kms = gpu.build_kms().map_err(|e| {
+            ostd::error!("virtio-gpu: build_kms failed: {:?}", e);
+            e
+        })?;
         gpu.kms.call_once(|| kms);
         let _card = register_drm_device(gpu);
         Ok(())

@@ -7,7 +7,7 @@
 //! `cursor`) into validated `virtio-gpu` wire commands while maintaining the
 //! mapping between DRM framebuffers/cursor buffers and host resource IDs.
 
-use alloc::collections::BTreeMap;
+use crate::utils::hashmap::HashMap;
 
 use super::protocol::{
     AttachBackingSingle, CMD_MOVE_CURSOR, CMD_RESOURCE_ATTACH_BACKING, CMD_RESOURCE_CREATE_2D,
@@ -121,7 +121,7 @@ impl CursorState {
 pub struct Pipeline {
     next_resource_id: u32,
     transfer_offset: TransferOffset,
-    fb_resources: BTreeMap<u32, ResourceGeometry>,
+    fb_resources: HashMap<u32, ResourceGeometry>,
     cursors: [CursorState; MAX_SCANOUTS],
 }
 
@@ -136,7 +136,7 @@ impl Pipeline {
             // Host resource ID 0 is reserved by the spec to mean "disabled / no resource".
             next_resource_id: 1,
             transfer_offset,
-            fb_resources: BTreeMap::new(),
+            fb_resources: HashMap::new(),
             cursors,
         }
     }

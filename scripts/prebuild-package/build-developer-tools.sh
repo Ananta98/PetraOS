@@ -1,30 +1,29 @@
 #!/bin/bash
 # Stage the PetraOS developer-tools layer: installs the complete CLI environment
-# and development toolchain into the target root using Alpine's official apk.static.
+# and development toolchain into the target root using Void Linux official xbps-static.
 #
 # Packages, dependencies, file checksums, and metadata are cleanly registered in
-# /lib/apk/db/installed and /etc/apk/world, preventing duplicate downloads and
-# unneeded package purging when apk is later used inside PetraOS.
+# /var/db/xbps, enabling native xbps usage inside PetraOS.
 #
 # Usage: build-developer-tools.sh [--root <target_root>]
 #
 # Environment:
-#   ALPINE_BRANCH/ALPINE_MIRROR  override the Alpine release/mirror
+#   VOID_MIRROR                  override the Void Linux repository mirror
 #   PETRAOS_DEVELOPER_PACKAGES   space separated root package set
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
-ALPINE_BRANCH="${ALPINE_BRANCH:-v3.20}"
-ALPINE_ARCH="${ALPINE_ARCH:-x86_64}"
-ALPINE_MIRROR="${ALPINE_MIRROR:-https://dl-cdn.alpinelinux.org/alpine}"
-APK_TOOLS_VERSION="${APK_TOOLS_VERSION:-2.14.4-r1}"
+VOID_MIRROR="${VOID_MIRROR:-https://repo-default.voidlinux.org/current}"
+XBPS_STATIC_URL="https://repo-default.voidlinux.org/static/xbps-static-latest.x86_64-musl.tar.xz"
 
 CACHE_DIR="${REPO_ROOT}/build/cache"
 BUILD_DIR="${REPO_ROOT}/build/prebuild-package/developer-tools"
 STAGING="${BUILD_DIR}/staging"
-APK_STATIC="${CACHE_DIR}/apk.static"
+
+XBPS_STATIC_DIR="${CACHE_DIR}/xbps_static"
+XBPS_INSTALL="${XBPS_STATIC_DIR}/usr/bin/xbps-install.static"
 
 TARGET_ROOT="${STAGING}"
 
@@ -46,11 +45,10 @@ while [[ $# -gt 0 ]]; do
 done
 
 ROOT_PACKAGES=(
-    autoconf
-    automake
     bash
-    build-base
-    ca-certificates-bundle
+    binutils
+    btop
+    ca-certificates
     cmake
     coreutils
     diffutils
@@ -59,91 +57,76 @@ ROOT_PACKAGES=(
     file
     findutils
     gawk
+    gcc
     gdb
     git
     grep
     htop
-    libtool
-    m4
     make
     meson
+    ninja
     openssl
-    patch
     pkgconf
-    samurai
+    python3
     sed
     strace
     tar
     tmux
     vim
-    python3
+    which
     xz
 )
 root_packages="${PETRAOS_DEVELOPER_PACKAGES:-${ROOT_PACKAGES[*]}}"
 
-for tool in curl tar; do
+for tool in curl tar xz; do
     command -v "$tool" >/dev/null 2>&1 || {
         echo "ERROR: required command not found: $tool" >&2
         exit 1
     }
 done
 
-bootstrap_apk_static() {
-    if [ -x "${APK_STATIC}" ]; then
+bootstrap_xbps_static() {
+    if [ -x "${XBPS_INSTALL}" ]; then
         return
     fi
 
-    local archive tmp
-    archive="${CACHE_DIR}/apk-tools-static-${APK_TOOLS_VERSION}.apk"
-    tmp="$(mktemp "${CACHE_DIR}/.apk.static.XXXXXX")"
-    trap 'rm -f "${tmp}"' RETURN
-
-    echo "==> Fetching apk-tools-static ${APK_TOOLS_VERSION}"
+    local archive="${CACHE_DIR}/xbps-static-latest.x86_64-musl.tar.xz"
+    echo "==> Fetching xbps-static-latest"
     if [ ! -s "${archive}" ]; then
-        curl -fsSL --retry 3 \
-            "${ALPINE_MIRROR}/${ALPINE_BRANCH}/main/${ALPINE_ARCH}/apk-tools-static-${APK_TOOLS_VERSION}.apk" \
-            -o "${archive}"
+        curl -fsSL --retry 3 "${XBPS_STATIC_URL}" -o "${archive}"
     fi
-    tar xOf "${archive}" sbin/apk.static > "${tmp}"
-    chmod 0755 "${tmp}"
-    mv -f "${tmp}" "${APK_STATIC}"
+
+    mkdir -p "${XBPS_STATIC_DIR}"
+    tar -xJf "${archive}" -C "${XBPS_STATIC_DIR}"
+    chmod +x "${XBPS_STATIC_DIR}"/usr/bin/* || true
 }
 
 mkdir -p "${CACHE_DIR}" "${BUILD_DIR}"
-bootstrap_apk_static
+bootstrap_xbps_static
 
 mkdir -p "${TARGET_ROOT}"
-mkdir -p "${TARGET_ROOT}/etc/apk"
+mkdir -p "${TARGET_ROOT}/var/db/xbps/keys"
 
-# Ensure repositories file exists
-cat > "${TARGET_ROOT}/etc/apk/repositories" << EOF
-${ALPINE_MIRROR}/${ALPINE_BRANCH}/main
-${ALPINE_MIRROR}/${ALPINE_BRANCH}/community
-EOF
-
-EXTRA_FLAGS=()
-if [ ! -f "${TARGET_ROOT}/lib/apk/db/installed" ]; then
-    EXTRA_FLAGS+=(--initdb)
+# Copy Void Linux repository signature keys
+if [ -d "${XBPS_STATIC_DIR}/var/db/xbps/keys" ]; then
+    cp -a "${XBPS_STATIC_DIR}/var/db/xbps/keys/." "${TARGET_ROOT}/var/db/xbps/keys/"
 fi
 
+mkdir -p "${CACHE_DIR}/xbps-pkgs"
+
 echo "==> Installing developer-tools into ${TARGET_ROOT}"
-"${APK_STATIC}" \
-    --root "${TARGET_ROOT}" \
-    "${EXTRA_FLAGS[@]}" \
-    --arch "${ALPINE_ARCH}" \
-    --allow-untrusted \
-    --no-scripts \
-    --no-chown \
-    --cache-dir "${CACHE_DIR}/apk" \
-    --repository "${ALPINE_MIRROR}/${ALPINE_BRANCH}/main" \
-    --repository "${ALPINE_MIRROR}/${ALPINE_BRANCH}/community" \
-    add ${root_packages}
+"${XBPS_INSTALL}" \
+    -r "${TARGET_ROOT}" \
+    -R "${VOID_MIRROR}" \
+    -c "${CACHE_DIR}/xbps-pkgs" \
+    -S -u -y --ignore-conf-repos \
+    ${root_packages}
 
 # Sanity checking: key promised tools must exist in the target root.
 echo "==> Verifying installed developer tools"
 check_binary() {
     local name="$1" dir rel
-    for dir in bin usr/bin sbin usr/sbin; do
+    for dir in usr/bin bin usr/sbin sbin; do
         rel="${dir}/${name}"
         if [ -e "${TARGET_ROOT}/${rel}" ] || [ -L "${TARGET_ROOT}/${rel}" ]; then
             echo "    ${rel}"
@@ -154,15 +137,17 @@ check_binary() {
     exit 1
 }
 
-for binary in bash gawk grep sed htop gcc g++ make cmake \
+for binary in bash gawk grep sed htop gcc make cmake \
     gdb git meson ninja pkg-config mkfs.ext4 mkfs.exfat openssl; do
     check_binary "${binary}"
 done
 
-if [ ! -e "${TARGET_ROOT}/lib/ld-musl-${ALPINE_ARCH}.so.1" ]; then
-    echo "ERROR: missing musl loader lib/ld-musl-${ALPINE_ARCH}.so.1" >&2
+if [ ! -e "${TARGET_ROOT}/usr/lib/ld-linux-x86-64.so.2" ] && [ ! -e "${TARGET_ROOT}/lib64/ld-linux-x86-64.so.2" ]; then
+    echo "ERROR: missing glibc loader ld-linux-x86-64.so.2" >&2
     exit 1
 fi
 
-echo "    developer-tools successfully staged in ${TARGET_ROOT} ($(du -sh "${TARGET_ROOT}" | cut -f1))"
+# Ensure all staged files are user-writable for subsequent merge steps
+chmod -R u+w "${TARGET_ROOT}" 2>/dev/null || true
 
+echo "    developer-tools successfully staged in ${TARGET_ROOT} ($(du -sh "${TARGET_ROOT}" | cut -f1))"

@@ -82,7 +82,6 @@ impl BuildHasher for FnvBuildHasher {
 
 /// An entry bucket inside [`HashMap`].
 #[derive(Clone, Debug)]
-#[derive(Clone)]
 struct Bucket<K, V> {
     hash: u64,
     key: K,
@@ -93,7 +92,6 @@ struct Bucket<K, V> {
 ///
 /// Fully compatible with `#![no_std]` kernel environments without requiring external
 /// crates like `hashbrown`.
-#[derive(Clone)]
 pub struct HashMap<K, V, S = FnvBuildHasher> {
     entries: Vec<Option<Bucket<K, V>>>,
     count: usize,
@@ -448,6 +446,187 @@ impl<K, V, S: BuildHasher> HashMap<K, V, S> {
             }
             self.entries[idx] = Some(bucket);
             self.count += 1;
+        }
+    }
+
+    /// Gets the given key's corresponding entry in the map for in-place manipulation.
+    pub fn entry(&mut self, key: K) -> Entry<'_, K, V, S>
+    where
+        K: Hash + Eq,
+    {
+        if !self.entries.is_empty() {
+            let hash = self.make_hash(&key);
+            let mask = self.entries.len() - 1;
+            let mut idx = (hash as usize) & mask;
+            let mut probed = 0;
+            while probed < self.entries.len() {
+                match &self.entries[idx] {
+                    Some(bucket) => {
+                        if bucket.hash == hash && bucket.key == key {
+                            return Entry::Occupied(OccupiedEntry {
+                                key,
+                                map: self,
+                                idx,
+                            });
+                        }
+                    }
+                    None => break,
+                }
+                idx = (idx + 1) & mask;
+                probed += 1;
+            }
+        }
+        Entry::Vacant(VacantEntry { key, map: self })
+    }
+}
+
+/// A view into a single entry in a map, which may either be vacant or occupied.
+pub enum Entry<'a, K, V, S = FnvBuildHasher> {
+    /// An occupied entry.
+    Occupied(OccupiedEntry<'a, K, V, S>),
+    /// A vacant entry.
+    Vacant(VacantEntry<'a, K, V, S>),
+}
+
+impl<'a, K: Hash + Eq, V, S: BuildHasher> Entry<'a, K, V, S> {
+    /// Ensures a value is in the entry by inserting the default if empty, and returns
+    /// a mutable reference to the value in the entry.
+    pub fn or_insert(self, default: V) -> &'a mut V {
+        match self {
+            Entry::Occupied(entry) => entry.into_mut(),
+            Entry::Vacant(entry) => entry.insert(default),
+        }
+    }
+
+    /// Ensures a value is in the entry by inserting the result of the default function if empty,
+    /// and returns a mutable reference to the value in the entry.
+    pub fn or_insert_with<F: FnOnce() -> V>(self, default: F) -> &'a mut V {
+        match self {
+            Entry::Occupied(entry) => entry.into_mut(),
+            Entry::Vacant(entry) => entry.insert(default()),
+        }
+    }
+
+    /// Ensures a value is in the entry by inserting the default value if empty,
+    /// and returns a mutable reference to the value in the entry.
+    pub fn or_default(self) -> &'a mut V
+    where
+        V: Default,
+    {
+        self.or_insert_with(Default::default)
+    }
+
+    /// Returns a reference to this entry's key.
+    pub fn key(&self) -> &K {
+        match self {
+            Entry::Occupied(entry) => entry.key(),
+            Entry::Vacant(entry) => entry.key(),
+        }
+    }
+
+    /// Provides in-place mutable access to an occupied entry before any potential inserts into the map.
+    pub fn and_modify<F: FnOnce(&mut V)>(mut self, f: F) -> Self {
+        if let Entry::Occupied(entry) = &mut self {
+            f(entry.get_mut());
+        }
+        self
+    }
+}
+
+/// A view into an occupied entry in a [`HashMap`].
+pub struct OccupiedEntry<'a, K, V, S> {
+    key: K,
+    map: &'a mut HashMap<K, V, S>,
+    idx: usize,
+}
+
+impl<'a, K, V, S> OccupiedEntry<'a, K, V, S> {
+    /// Gets a reference to the key in the entry.
+    pub fn key(&self) -> &K {
+        &self.key
+    }
+
+    /// Gets a reference to the value in the entry.
+    pub fn get(&self) -> &V {
+        &self.map.entries[self.idx].as_ref().unwrap().value
+    }
+
+    /// Gets a mutable reference to the value in the entry.
+    pub fn get_mut(&mut self) -> &mut V {
+        &mut self.map.entries[self.idx].as_mut().unwrap().value
+    }
+
+    /// Converts the `OccupiedEntry` into a mutable reference to the value in the entry
+    /// with a lifetime bound to the map itself.
+    pub fn into_mut(self) -> &'a mut V {
+        &mut self.map.entries[self.idx].as_mut().unwrap().value
+    }
+
+    /// Sets the value of the entry, and returns the entry's old value.
+    pub fn insert(&mut self, value: V) -> V {
+        core::mem::replace(&mut self.map.entries[self.idx].as_mut().unwrap().value, value)
+    }
+
+    /// Takes the value out of the entry, and returns it.
+    pub fn remove(self) -> V
+    where
+        K: Borrow<K> + Hash + Eq,
+        S: BuildHasher,
+    {
+        let removed = self.map.entries[self.idx].take().unwrap();
+        self.map.count -= 1;
+        let mask = self.map.entries.len() - 1;
+        self.map.rehash_cluster((self.idx + 1) & mask);
+        removed.value
+    }
+}
+
+/// A view into a vacant entry in a [`HashMap`].
+pub struct VacantEntry<'a, K, V, S> {
+    key: K,
+    map: &'a mut HashMap<K, V, S>,
+}
+
+impl<'a, K, V, S> VacantEntry<'a, K, V, S> {
+    /// Gets a reference to the key that would be used when inserting a value through the `VacantEntry`.
+    pub fn key(&self) -> &K {
+        &self.key
+    }
+
+    /// Take ownership of the key.
+    pub fn into_key(self) -> K {
+        self.key
+    }
+}
+
+impl<'a, K: Hash + Eq, V, S: BuildHasher> VacantEntry<'a, K, V, S> {
+    /// Sets the value of the entry with the `VacantEntry`'s key, and returns a mutable reference to it.
+    pub fn insert(self, value: V) -> &'a mut V {
+        if self.map.entries.is_empty() || (self.map.count + 1) * 4 >= self.map.entries.len() * 3 {
+            self.map.grow();
+        }
+        let hash = self.map.make_hash(&self.key);
+        let mask = self.map.entries.len() - 1;
+        let mut idx = (hash as usize) & mask;
+        loop {
+            match &mut self.map.entries[idx] {
+                Some(bucket) => {
+                    if bucket.hash == hash && bucket.key == self.key {
+                        bucket.value = value;
+                        return &mut self.map.entries[idx].as_mut().unwrap().value;
+                    }
+                }
+                None => {
+                    self.map.entries[idx] = Some(Bucket {
+                        hash,
+                        key: self.key,
+                        value,
+                    });
+                    self.map.count += 1;
+                    return &mut self.map.entries[idx].as_mut().unwrap().value;
+                }
+            }
+            idx = (idx + 1) & mask;
         }
     }
 }

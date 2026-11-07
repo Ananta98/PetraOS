@@ -15,8 +15,14 @@ pub use pixel::{Color, Pixel, PixelFormat, RenderedPixel};
 use crate::uapi::errno::Result;
 
 pub fn init() -> Result<()> {
-    framebuffer::init()?;
-    Ok(())
+    match framebuffer::init() {
+        Ok(()) => Ok(()),
+        Err(crate::uapi::errno::Errno::ENODEV) => {
+            ostd::info!("DRM Framebuffer Subsystem: No boot framebuffer present");
+            Ok(())
+        }
+        Err(e) => Err(e),
+    }
 }
 
 crate::module!(

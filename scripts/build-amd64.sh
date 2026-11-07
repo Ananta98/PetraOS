@@ -1,12 +1,12 @@
 #!/bin/bash
-# Build the full PetraOS amd64 target: Alpine userland + initramfs,
+# Build the full PetraOS amd64 target: Void Linux userland + initramfs,
 # the petra kernel, and a bootable hybrid BIOS/UEFI ISO.
 #
 # Usage: build-amd64.sh [OPTIONS]
 #
 # Options:
 #   --fresh        rebuild userland and rootfs staging from scratch
-#   --purge-cache  with --fresh, also drop the download cache and re-fetch Alpine
+#   --purge-cache  with --fresh, also drop the download cache and re-fetch Void Linux
 #   --no-userland  keep the existing initramfs instead of rebuilding it
 #   --no-iso       build the kernel and initramfs only
 #   --release      build kernel in release profile

@@ -4,7 +4,7 @@
 
 use alloc::{
     boxed::Box,
-    collections::{btree_map::BTreeMap, vec_deque::VecDeque},
+    collections::vec_deque::VecDeque,
     format,
     string::String,
     sync::{Arc, Weak},
@@ -13,6 +13,8 @@ use alloc::{
 use core::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering};
 use ostd::sync::WaitQueue;
 use spin::{Mutex, RwLock};
+
+use crate::utils::hashmap::HashMap;
 
 use crate::drivers::char::tty::core::{Tty, TtyDriver};
 use crate::{
@@ -45,7 +47,7 @@ pub const TIOCPKT_IOCTL: u8 = 0x40;
 
 const MASTER_BUF_SIZE: usize = 4096;
 
-static PTY_TABLE: Mutex<BTreeMap<u32, Arc<PtyPair>>> = Mutex::new(BTreeMap::new());
+static PTY_TABLE: Mutex<HashMap<u32, Arc<PtyPair>>> = Mutex::new(HashMap::new());
 
 /// State of an active master/slave PTY pair.
 pub struct PtyPair {

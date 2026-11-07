@@ -9,7 +9,7 @@
 
 use alloc::sync::{Arc, Weak};
 use core::fmt::{self, Debug, Formatter};
-use ostd::mm::{HasPaddr, VmIo, dma::DmaCoherent};
+use ostd::mm::{HasDaddr, VmIo, dma::DmaCoherent};
 use spin::Mutex;
 
 use crate::drivers::bus::virtio::transport::VirtioTransport;
@@ -102,11 +102,11 @@ impl VirtQueue {
         Ok(Arc::new(Self {
             index,
             size,
-            desc_dma: DmaCoherent::alloc(page_frames(size as usize * Self::DESC_SIZE), false)
+            desc_dma: DmaCoherent::alloc(page_frames(size as usize * Self::DESC_SIZE), true)
                 .map_err(|_| Errno::ENOMEM)?,
-            avail_dma: DmaCoherent::alloc(page_frames(Self::avail_ring_bytes(size)), false)
+            avail_dma: DmaCoherent::alloc(page_frames(Self::avail_ring_bytes(size)), true)
                 .map_err(|_| Errno::ENOMEM)?,
-            used_dma: DmaCoherent::alloc(page_frames(Self::used_ring_bytes(size)), false)
+            used_dma: DmaCoherent::alloc(page_frames(Self::used_ring_bytes(size)), true)
                 .map_err(|_| Errno::ENOMEM)?,
             notify_off,
             transport: transport.clone(),
@@ -123,9 +123,9 @@ impl VirtQueue {
     /// them (desc, avail, used).
     pub(crate) fn ring_addresses(&self) -> (u64, u64, u64) {
         (
-            self.desc_dma.paddr() as u64,
-            self.avail_dma.paddr() as u64,
-            self.used_dma.paddr() as u64,
+            self.desc_dma.daddr() as u64,
+            self.avail_dma.daddr() as u64,
+            self.used_dma.daddr() as u64,
         )
     }
 
@@ -277,6 +277,11 @@ impl VirtQueue {
                 return Ok(len);
             }
         }
+        let used_idx: u16 = self.used_dma.read_val(2).unwrap_or(9999);
+        ostd::error!(
+            "virtio queue {}: wait_for_consumed timeout: used_idx={}, local_used={}",
+            self.index, used_idx, local_used
+        );
         crate::return_errno!(ETIMEDOUT, "virtqueue command never completed");
     }
 

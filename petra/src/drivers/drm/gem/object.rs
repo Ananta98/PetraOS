@@ -8,7 +8,7 @@ use core::ops::Range;
 use core::sync::atomic::{AtomicU32, Ordering};
 use ostd::{
     mm::{
-        HasPaddr, PAGE_SIZE, UFrame, VmReader, VmWriter, dma::DmaCoherent,
+        HasDaddr, HasPaddr, PAGE_SIZE, UFrame, VmReader, VmWriter, dma::DmaCoherent,
         io::util::HasVmReaderWriter,
     },
     sync::SpinLock,
@@ -73,6 +73,11 @@ impl GemObject {
     /// or through a user-space mapping instead.
     pub fn paddr(&self) -> usize {
         self.dma.paddr()
+    }
+
+    /// Returns the bus/device DMA address of the object's first byte.
+    pub fn daddr(&self) -> usize {
+        self.dma.daddr()
     }
 
     /// The object's DMA storage, for drivers that program device MMIO
