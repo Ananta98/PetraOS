@@ -96,6 +96,7 @@ pub fn kthread_add(proc: &Arc<Proc>, name: &str, entry: fn(), nice: i8) -> Resul
                 rseq_ptr: 0,
                 rseq_len: 0,
                 rseq_sig: 0,
+                seccomp: crate::proc::seccomp::SeccompState::new(),
             }),
         }
     });

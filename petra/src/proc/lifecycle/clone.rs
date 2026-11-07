@@ -190,6 +190,7 @@ pub fn clone_proc(
                 rseq_ptr: 0,
                 rseq_len: 0,
                 rseq_sig: 0,
+                seccomp: caller_td_inner.seccomp.clone(),
             }),
         }
     });
@@ -286,6 +287,7 @@ pub fn clone_thread(
                 rseq_ptr: 0,
                 rseq_len: 0,
                 rseq_sig: 0,
+                seccomp: caller_td_inner.seccomp.clone(),
             }),
         }
     });
@@ -358,6 +360,7 @@ pub fn create_user_thread(
                 rseq_ptr: 0,
                 rseq_len: 0,
                 rseq_sig: 0,
+                seccomp: crate::proc::seccomp::SeccompState::new(),
             }),
         }
     });

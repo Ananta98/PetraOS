@@ -44,6 +44,7 @@ pub mod msg;
 pub mod random;
 pub mod reboot;
 pub mod sched;
+pub mod seccomp;
 pub mod sem;
 pub mod shm;
 pub mod signal;

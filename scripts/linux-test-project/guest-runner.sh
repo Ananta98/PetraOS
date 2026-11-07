@@ -8,6 +8,17 @@ export PATH=/opt/ltp/testcases/bin:/opt/ltp/bin:/usr/local/sbin:/usr/local/bin:/
 export LTP_COLORIZE=0
 export LTPROOT=/opt/ltp
 
+# Ensure kernel configuration file exists for LTP tst_kconfig checks
+KCONF_VER="$(uname -r 2>/dev/null || echo '6.6.0-petra')"
+mkdir -p /boot 2>/dev/null || true
+if [ ! -f "/boot/config-${KCONF_VER}" ]; then
+    cat << 'EOF' > "/boot/config-${KCONF_VER}"
+CONFIG_SECCOMP=y
+CONFIG_SECCOMP_FILTER=y
+EOF
+fi
+export KCONFIG_PATH="/boot/config-${KCONF_VER}"
+
 SUITE="${1:-syscalls}"
 shift || true
 EXTRA_ARGS="$*"

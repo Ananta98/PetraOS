@@ -35,6 +35,15 @@ impl ProcFileOps for PidStatusFileOps {
         let pgrp = inner.pgid.unwrap_or(proc.pid).as_u32();
         let sid = inner.sid.unwrap_or(proc.pid).as_u32();
         let threads_count = inner.threads.len();
+        let no_new_privs = inner.no_new_privs as u8;
+        let (seccomp_mode, seccomp_filters) = inner
+            .threads
+            .first()
+            .map(|t| {
+                let t_inner = t.inner.lock();
+                (t_inner.seccomp.mode as u8, t_inner.seccomp.filter_count())
+            })
+            .unwrap_or((0, 0));
         drop(inner);
 
         let cred = proc.cred();
@@ -55,6 +64,9 @@ impl ProcFileOps for PidStatusFileOps {
         let _ = writeln!(s, "NSpgid:\t{}", pgrp);
         let _ = writeln!(s, "NSsid:\t{}", sid);
         let _ = writeln!(s, "Threads:\t{}", threads_count);
+        let _ = writeln!(s, "NoNewPrivs:\t{}", no_new_privs);
+        let _ = writeln!(s, "Seccomp:\t{}", seccomp_mode);
+        let _ = writeln!(s, "Seccomp_filters:\t{}", seccomp_filters);
         s.into_bytes()
     }
 }

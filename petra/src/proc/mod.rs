@@ -9,6 +9,7 @@ pub mod init;
 pub mod job;
 pub mod kthread;
 pub mod lifecycle;
+pub mod seccomp;
 pub mod signal;
 pub mod thread;
 pub mod types;

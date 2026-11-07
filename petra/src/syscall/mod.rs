@@ -28,7 +28,6 @@ pub const fn is_benign_probe(sys_no: usize) -> bool {
         | 272 // unshare
         | 303 // name_to_handle_at
         | 308 // setns
-        | 317 // seccomp
         | 321 // bpf
         | 323 // userfaultfd
         | 334 // rseq
@@ -153,6 +152,18 @@ macro_rules! impl_syscall_nums_and_dispatch_fn {
                 let regs = ctx.general_regs();
                 (regs.rax, [regs.rdi, regs.rsi, regs.rdx, regs.r10, regs.r8, regs.r9])
             };
+
+            // Enforce seccomp sandboxing before dispatching any system call.
+            match $crate::proc::seccomp::check_syscall(sys_no, &args, ctx) {
+                $crate::proc::seccomp::SyscallDecision::Allow => {}
+                $crate::proc::seccomp::SyscallDecision::Return(val) => {
+                    ctx.general_regs_mut().rax = val;
+                    return;
+                }
+                $crate::proc::seccomp::SyscallDecision::Terminate => {
+                    return;
+                }
+            }
 
             // `rt_sigreturn` restores the whole register file from the frame the
             // handler left behind. Writing a result over it afterwards would throw

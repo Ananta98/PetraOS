@@ -510,6 +510,8 @@ pub mod code {
     pub const FPE_INTDIV: i32 = 1;
     /// An instruction operand that is not representable.
     pub const FPE_INTOVF: i32 = 2;
+    /// Triggered by a `SECCOMP_RET_TRAP` filter rule (`SYS_SECCOMP`).
+    pub const SYS_SECCOMP: i32 = 1;
 }
 
 /// A signal and why it was sent (`struct siginfo_t`).
@@ -578,6 +580,23 @@ impl SigInfo {
             si_signo: sig.as_u32() as i32,
             si_code: code,
             si_addr: addr as u64,
+            ..Self::default()
+        }
+    }
+
+    /// A `SIGSYS` raised by a `SECCOMP_RET_TRAP` rule (`SYS_SECCOMP`).
+    ///
+    /// Populates the `_sigsys` union layout (`_call_addr` at offset 16,
+    /// `_syscall` at offset 24, `_arch` at offset 28) and stores the
+    /// 16-bit filter return data in `si_errno`.
+    pub fn sigsys(call_addr: usize, syscall: i32, arch: u32, errno: i32) -> Self {
+        Self {
+            si_signo: Signal::SIGSYS.as_u32() as i32,
+            si_errno: errno,
+            si_code: code::SYS_SECCOMP,
+            si_addr: call_addr as u64,
+            si_pid: syscall,
+            si_uid: arch,
             ..Self::default()
         }
     }
