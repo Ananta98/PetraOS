@@ -9,7 +9,7 @@ SCHEME=${1:-"normal"}
 
 # Configurable options via environment variables
 ARCH=${ARCH:-"x86_64"}
-SMP=${SMP:-$(nproc 2>/dev/null || echo 4)}
+SMP=${SMP:-4}
 MEM=${MEM:-"8G"}
 CPU=${CPU:-"host"}
 ENABLE_KVM=${ENABLE_KVM:-"on"}
@@ -20,8 +20,7 @@ MONITOR_SOCK=${MONITOR_SOCK:-"/tmp/petra_qemu_monitor.sock"}
 OVMF=${OVMF:-"on"}
 OVMF_CODE=${OVMF_CODE:-"/usr/share/OVMF/OVMF_CODE_4M.fd"}
 OVMF_VARS=${OVMF_VARS:-"/usr/share/OVMF/OVMF_VARS_4M.fd"}
-DRIVE_BUS=${DRIVE_BUS:-"virtio"}    # "virtio" (high-performance queue) or "ahci"
-CACHE_MODE=${CACHE_MODE:-"writeback"} # "writeback", "unsafe", or "none"
+AHCI_DRIVES=${AHCI_DRIVES:-"on"}
 EXT4_IMG=${EXT4_IMG:-"build/ext4.img"}
 EXFAT_IMG=${EXFAT_IMG:-"build/exfat.img"}
 
@@ -72,25 +71,15 @@ fi
 # Debug exit device for test runners
 QEMU_ARGS="$QEMU_ARGS -device isa-debug-exit,iobase=0xf4,iosize=0x04"
 
-# Storage / Drives (VirtIO Block or AHCI SATA Controller with ext4 and exfat disk images)
-DRIVE_ARGS=""
-if [ "$DRIVE_BUS" = "virtio" ]; then
-    if [ -f "$EXT4_IMG" ]; then
-        DRIVE_ARGS="$DRIVE_ARGS -drive id=ext4,file=${EXT4_IMG},format=raw,if=none,cache=${CACHE_MODE},aio=threads,file.locking=off -device virtio-blk-pci,drive=ext4"
-    fi
-    if [ -f "$EXFAT_IMG" ]; then
-        DRIVE_ARGS="$DRIVE_ARGS -drive id=exfat,file=${EXFAT_IMG},format=raw,if=none,cache=${CACHE_MODE},aio=threads,file.locking=off -device virtio-blk-pci,drive=exfat"
-    fi
-else
+# Storage / Drives (AHCI SATA Controller with ext4 and exfat disk images)
+if [ "$AHCI_DRIVES" = "on" ]; then
     DRIVE_ARGS="-device ich9-ahci,id=ahci"
     if [ -f "$EXT4_IMG" ]; then
-        DRIVE_ARGS="$DRIVE_ARGS -drive id=ext4,file=${EXT4_IMG},format=raw,if=none,cache=${CACHE_MODE},aio=threads,file.locking=off -device ide-hd,drive=ext4,bus=ahci.0"
+        DRIVE_ARGS="$DRIVE_ARGS -drive id=ext4,file=${EXT4_IMG},format=raw,if=none -device ide-hd,drive=ext4,bus=ahci.0"
     fi
     if [ -f "$EXFAT_IMG" ]; then
-        DRIVE_ARGS="$DRIVE_ARGS -drive id=exfat,file=${EXFAT_IMG},format=raw,if=none,cache=${CACHE_MODE},aio=threads,file.locking=off -device ide-hd,drive=exfat,bus=ahci.1"
+        DRIVE_ARGS="$DRIVE_ARGS -drive id=exfat,file=${EXFAT_IMG},format=raw,if=none -device ide-hd,drive=exfat,bus=ahci.1"
     fi
-fi
-if [ -n "$DRIVE_ARGS" ]; then
     QEMU_ARGS="$QEMU_ARGS $DRIVE_ARGS"
 fi
 
