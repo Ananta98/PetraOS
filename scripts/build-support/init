@@ -116,6 +116,12 @@ if [ -n "$ROOT_DEV" ]; then
         exec chroot /sysroot "$@"
     fi
 
+    # Boot into Void Linux runit init system if available
+    if [ -x /sysroot/sbin/init ] || [ -x /sysroot/usr/bin/runit ]; then
+        echo "[init] Booting Void Linux runit init system..."
+        exec chroot /sysroot /sbin/init
+    fi
+
     if [ -x /sysroot/usr/bin/bash ]; then
         echo "[init] Spawning interactive login shell (/usr/bin/bash -l)..."
         exec chroot /sysroot /usr/bin/bash -l

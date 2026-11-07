@@ -211,6 +211,14 @@ daemon:x:2:2:daemon:/sbin:/sbin/nologin
 nobody:x:65534:65534:nobody:/:/sbin/nologin
 EOF
 
+cat > "${ROOTFS_STAGING}/etc/shadow" << 'EOF'
+root::20121:0:99999:7:::
+bin:*:20121:0:99999:7:::
+daemon:*:20121:0:99999:7:::
+nobody:*:20121:0:99999:7:::
+EOF
+chmod 0600 "${ROOTFS_STAGING}/etc/shadow"
+
 cat > "${ROOTFS_STAGING}/etc/shells" << 'EOF'
 /bin/sh
 /bin/bash
@@ -255,6 +263,41 @@ LC_ALL=C.UTF-8
 EOF
 
 printf '%s\n' "${PETRAOS_VERSION}" > "${ROOTFS_STAGING}/etc/petraos-release"
+
+# Configure Void Linux rc.conf for PetraOS runit integration
+cat >> "${ROOTFS_STAGING}/etc/rc.conf" << 'EOF'
+
+# PetraOS Void Linux runit configuration
+HARDWARECLOCK="UTC"
+TIMEZONE="UTC"
+VIRTUALIZATION=1
+IS_CONTAINER=1
+FASTBOOT=1
+EOF
+
+# Configure Void Linux runit services in /etc/runit/runsvdir/default
+mkdir -p "${ROOTFS_STAGING}/etc/runit/runsvdir/default"
+
+# Remove unsupported virtual terminal and hardware-dependent services
+rm -f "${ROOTFS_STAGING}/etc/runit/runsvdir/default/agetty-tty2" \
+      "${ROOTFS_STAGING}/etc/runit/runsvdir/default/agetty-tty3" \
+      "${ROOTFS_STAGING}/etc/runit/runsvdir/default/agetty-tty4" \
+      "${ROOTFS_STAGING}/etc/runit/runsvdir/default/agetty-tty5" \
+      "${ROOTFS_STAGING}/etc/runit/runsvdir/default/agetty-tty6" \
+      "${ROOTFS_STAGING}/etc/runit/runsvdir/default/udevd"
+
+# Enable agetty-console with automatic root login
+mkdir -p "${ROOTFS_STAGING}/etc/sv/agetty-console"
+cat > "${ROOTFS_STAGING}/etc/sv/agetty-console/conf" << 'EOF'
+GETTY_ARGS="--autologin root --noclear"
+BAUD_RATE=38400
+TERM_NAME=linux
+EOF
+ln -sfn /etc/sv/agetty-console "${ROOTFS_STAGING}/etc/runit/runsvdir/default/agetty-console"
+
+# Ensure /var/service points to /run/runit/runsvdir/current
+rm -rf "${ROOTFS_STAGING}/var/service"
+ln -sfn ../run/runit/runsvdir/current "${ROOTFS_STAGING}/var/service"
 
 mkdir -p "${ROOTFS_STAGING}/usr/lib"
 cat > "${ROOTFS_STAGING}/usr/lib/os-release" << EOF
