@@ -10,9 +10,13 @@
 //! actions 0/1 are no-ops, 2/3/4 read (blocking / peeking / read-and-clear),
 //! 5 clears, 6/7/8 control the console level, and 9/10 report buffer sizes.
 
+use alloc::vec::Vec;
 use core::fmt::{self, Write};
 
-use ostd::sync::{LocalIrqDisabled, SpinLock, WaitQueue};
+use ostd::{
+    arch::cpu::context::UserContext,
+    sync::{LocalIrqDisabled, SpinLock, WaitQueue},
+};
 
 use crate::{
     proc::thread::Thread,
@@ -112,7 +116,7 @@ impl ostd::log::Log for KernelLogger {
         let level = level_number(record.level());
 
         // Reproduce the exact default console formatting.
-        ostd::console::early_print(fmt::format_args!(
+        ostd::console::early_print(format_args!(
             "{}: {}{}\n",
             record.level(),
             record.prefix(),
@@ -186,7 +190,7 @@ fn snapshot(out: &mut Vec<u8>, consume: bool) -> usize {
             break;
         }
         out.push(b'<');
-        let _ = write!(out, "{}", slot.level);
+        out.push(b'0' + (slot.level % 10));
         out.push(b'>');
         out.extend_from_slice(&slot.text[..slot.len]);
         out.push(b'\n');

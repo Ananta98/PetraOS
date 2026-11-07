@@ -235,6 +235,7 @@ adm:x:4:root,adm,daemon
 tty:x:5:
 disk:x:6:root
 wheel:x:10:root
+utmp:x:22:
 audio:x:29:
 video:x:44:
 users:x:100:

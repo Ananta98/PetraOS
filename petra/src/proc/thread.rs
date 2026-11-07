@@ -183,6 +183,8 @@ pub struct ThreadInner {
     pub rseq_len: u32,
     /// Signature required to unregister or abort rseq.
     pub rseq_sig: u32,
+    /// Thread seccomp sandboxing state.
+    pub seccomp: super::seccomp::SeccompState,
 }
 
 /// Thread Control Block.
@@ -260,6 +262,7 @@ impl Thread {
     pub fn post_signal(&self, info: SigInfo) {
         self.inner.lock().sigqueue.post(QueuedSignal { info });
         self.inner.lock().flags.insert(ThreadFlags::TDF_ASTPENDING);
+        crate::fs::poll::notify();
     }
 
     /// Takes delivery of at most one pending signal.

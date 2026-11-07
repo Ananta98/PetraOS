@@ -107,6 +107,7 @@ crate::impl_syscall_nums_and_dispatch_fn! {
     SYS_SYSINFO = 99 => metadata::sys_sysinfo(usize);
     SYS_TIMES = 100 => time::sys_times(usize);
     SYS_GETUID = 102 => proc::sys_getuid();
+    SYS_SYSLOG = 103 => platform::sys_syslog(i32, usize, i32);
     SYS_GETGID = 104 => proc::sys_getgid();
     SYS_SETUID = 105 => proc::sys_setuid(u32);
     SYS_SETGID = 106 => proc::sys_setgid(u32);

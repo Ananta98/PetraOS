@@ -28,6 +28,8 @@ const PROC_SYS_KERNEL_INO_VERSION: usize = 2013;
 const PROC_SYS_KERNEL_INO_PID_MAX: usize = 2014;
 const PROC_SYS_KERNEL_INO_DOMAINNAME: usize = 2015;
 const PROC_SYS_KERNEL_INO_RANDOMIZE_VA_SPACE: usize = 2016;
+const PROC_SYS_KERNEL_INO_DMESG_RESTRICT: usize = 2017;
+const PROC_SYS_KERNEL_INO_KEXEC_LOAD_DISABLED: usize = 2018;
 
 /// Current hostname, `None` until user space sets one explicitly.
 static HOSTNAME: RwLock<Option<String>> = RwLock::new(None);
@@ -144,6 +146,8 @@ impl ProcDirOps for ProcSysKernelDirOps {
                 PROC_SYS_KERNEL_INO_VERSION,
             )),
             "pid_max" => Ok(static_file_node(b"32768\n", PROC_SYS_KERNEL_INO_PID_MAX)),
+            "dmesg_restrict" => Ok(static_file_node(b"0\n", PROC_SYS_KERNEL_INO_DMESG_RESTRICT)),
+            "kexec_load_disabled" => Ok(static_file_node(b"0\n", PROC_SYS_KERNEL_INO_KEXEC_LOAD_DISABLED)),
             _ => crate::return_errno!(ENOENT, "unknown entry in /proc/sys/kernel"),
         }
     }
@@ -157,6 +161,8 @@ impl ProcDirOps for ProcSysKernelDirOps {
             "ostype",
             "version",
             "pid_max",
+            "dmesg_restrict",
+            "kexec_load_disabled",
         ]
         .iter()
         .map(|s| String::from(*s))

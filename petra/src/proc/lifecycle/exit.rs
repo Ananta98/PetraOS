@@ -129,6 +129,7 @@ pub fn exit1(td: &Thread, status: ExitStatus) {
         parent.post_signal(Signal::SIGCHLD);
         parent.child_waitq.wake_all();
         super::wait::notify_child_events();
+        crate::fs::poll::notify();
     }
 }
 
@@ -283,6 +284,7 @@ mod tests {
                 rseq_ptr: 0,
                 rseq_len: 0,
                 rseq_sig: 0,
+                seccomp: crate::proc::seccomp::SeccompState::new(),
             }),
         });
 

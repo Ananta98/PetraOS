@@ -59,6 +59,7 @@ pub mod vm;
 #[ostd::main]
 fn kernel_main() {
     ostd::log::set_max_level(ostd::log::LevelFilter::Info);
+    syscall::platform::klog::init();
     // Initialize the global states for all CPUs.
     kernel_init();
     // Initialize the per-CPU states for BSP.

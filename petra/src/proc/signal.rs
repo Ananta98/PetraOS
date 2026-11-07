@@ -212,11 +212,13 @@ impl Proc {
                 drop(td_inner);
                 drop(inner);
                 self.stop_queue.wake_all();
+                crate::fs::poll::notify();
                 return;
             }
         }
         drop(inner);
         self.stop_queue.wake_all();
+        crate::fs::poll::notify();
     }
 }
 
