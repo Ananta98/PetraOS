@@ -5,7 +5,7 @@
 //! Provides a standards-compliant VT100 / XTerm terminal emulator
 //! rendering directly to the physical linear framebuffer.
 
-use alloc::{boxed::Box, sync::Arc};
+use alloc::{boxed::Box, sync::Arc, vec, vec::Vec};
 use os_terminal::{DrawTarget, Rgb, Terminal};
 use spin::Mutex;
 
@@ -16,6 +16,15 @@ use crate::{
     uapi::termios::winsize,
 };
 
+/// RAM-backed double buffer avoiding per-pixel MMIO VM-exits to QEMU/hardware.
+pub struct ShadowFb {
+    data: Vec<u8>,
+    dirty_min_y: usize,
+    dirty_max_y: usize,
+}
+
+static SHADOW_FB: Mutex<Option<Arc<Mutex<ShadowFb>>>> = Mutex::new(None);
+
 /// Hardware display target integrating `FrameBuffer` with `os-terminal`'s `DrawTarget`.
 pub struct FramebufferDisplay {
     fb: Arc<FrameBuffer>,
@@ -24,10 +33,11 @@ pub struct FramebufferDisplay {
     line_size: usize,
     pixel_format: PixelFormat,
     bpp: usize,
+    shadow: Arc<Mutex<ShadowFb>>,
 }
 
 impl FramebufferDisplay {
-    pub fn new(fb: Arc<FrameBuffer>) -> Self {
+    pub fn new(fb: Arc<FrameBuffer>, shadow: Arc<Mutex<ShadowFb>>) -> Self {
         let width = fb.width;
         let height = fb.height;
         let line_size = fb.line_size;
@@ -40,6 +50,7 @@ impl FramebufferDisplay {
             line_size,
             pixel_format,
             bpp,
+            shadow,
         }
     }
 }
@@ -55,25 +66,34 @@ impl DrawTarget for FramebufferDisplay {
             return;
         }
         let offset = x * self.bpp + y * self.line_size;
-        match self.pixel_format {
-            PixelFormat::BgrReserved => {
-                let pixel = (rgb.2 as u32) | ((rgb.1 as u32) << 8) | ((rgb.0 as u32) << 16);
-                let _ = self.fb.write_pixel_u32(offset, pixel);
+        let mut shadow = self.shadow.lock();
+        if offset + self.bpp <= shadow.data.len() {
+            match self.pixel_format {
+                PixelFormat::BgrReserved => {
+                    let pixel = (rgb.2 as u32) | ((rgb.1 as u32) << 8) | ((rgb.0 as u32) << 16);
+                    shadow.data[offset..offset + 4].copy_from_slice(&pixel.to_ne_bytes());
+                }
+                PixelFormat::Rgb888 => {
+                    shadow.data[offset..offset + 3].copy_from_slice(&[rgb.0, rgb.1, rgb.2]);
+                }
+                PixelFormat::Rgb565 => {
+                    let r = (rgb.0 >> 3) as u16;
+                    let g = (rgb.1 >> 2) as u16;
+                    let b = (rgb.2 >> 3) as u16;
+                    let rgb565 = (r << 11) | (g << 5) | b;
+                    shadow.data[offset..offset + 2].copy_from_slice(&rgb565.to_ne_bytes());
+                }
+                PixelFormat::Grayscale8 => {
+                    let gray =
+                        ((77 * rgb.0 as u16 + 150 * rgb.1 as u16 + 29 * rgb.2 as u16) >> 8) as u8;
+                    shadow.data[offset] = gray;
+                }
             }
-            PixelFormat::Rgb888 => {
-                let _ = self.fb.write_bytes_at(offset, &[rgb.0, rgb.1, rgb.2]);
+            if y < shadow.dirty_min_y {
+                shadow.dirty_min_y = y;
             }
-            PixelFormat::Rgb565 => {
-                let r = (rgb.0 >> 3) as u16;
-                let g = (rgb.1 >> 2) as u16;
-                let b = (rgb.2 >> 3) as u16;
-                let rgb565 = (r << 11) | (g << 5) | b;
-                let _ = self.fb.write_pixel_u16(offset, rgb565);
-            }
-            PixelFormat::Grayscale8 => {
-                let gray =
-                    ((77 * rgb.0 as u16 + 150 * rgb.1 as u16 + 29 * rgb.2 as u16) >> 8) as u8;
-                let _ = self.fb.write_bytes_at(offset, &[gray]);
+            if y > shadow.dirty_max_y {
+                shadow.dirty_max_y = y;
             }
         }
     }
@@ -85,7 +105,18 @@ static TERMINAL: Mutex<Option<Terminal<FramebufferDisplay>>> = Mutex::new(None);
 fn ensure_terminal(term_guard: &mut Option<Terminal<FramebufferDisplay>>) {
     if term_guard.is_none() {
         if let Some(fb) = get_framebuffer() {
-            let display = FramebufferDisplay::new(fb);
+            let total_size = fb.total_size;
+            let mut initial_data = vec![0u8; total_size];
+            let _ = fb.read_bytes(0, &mut initial_data);
+
+            let shadow = Arc::new(Mutex::new(ShadowFb {
+                data: initial_data,
+                dirty_min_y: usize::MAX,
+                dirty_max_y: 0,
+            }));
+            *SHADOW_FB.lock() = Some(Arc::clone(&shadow));
+
+            let display = FramebufferDisplay::new(fb, shadow);
             let mut terminal = Terminal::new(display, Box::new(ConsoleFont::new()));
             terminal.set_pty_writer(Box::new(|resp: &str| {
                 for b in resp.bytes() {
@@ -95,7 +126,30 @@ fn ensure_terminal(term_guard: &mut Option<Terminal<FramebufferDisplay>>) {
             // Default to steady block cursor (DECSCUSR 2)
             terminal.process(b"\x1b[2 q");
             *term_guard = Some(terminal);
+            flush_shadow();
         }
+    }
+}
+
+/// Flushes dirty raster rows from RAM shadow buffer directly to physical framebuffer.
+pub fn flush_shadow() {
+    let shadow_guard = SHADOW_FB.lock();
+    let Some(shadow_arc) = shadow_guard.as_ref() else {
+        return;
+    };
+    let mut shadow = shadow_arc.lock();
+    if shadow.dirty_min_y <= shadow.dirty_max_y {
+        if let Some(fb) = get_framebuffer() {
+            let start = shadow.dirty_min_y * fb.line_size;
+            let end = ((shadow.dirty_max_y + 1) * fb.line_size)
+                .min(shadow.data.len())
+                .min(fb.total_size);
+            if start < end {
+                let _ = fb.write_bytes_at(start, &shadow.data[start..end]);
+            }
+        }
+        shadow.dirty_min_y = usize::MAX;
+        shadow.dirty_max_y = 0;
     }
 }
 
@@ -112,6 +166,7 @@ pub fn write_output(data: &[u8]) {
     if let Some(terminal) = term_guard.as_mut() {
         terminal.process(data);
     }
+    flush_shadow();
 }
 
 /// Returns the current terminal window dimensions.

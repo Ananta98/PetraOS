@@ -92,9 +92,19 @@ fn lookup_inner(
                 // Fast path: cached child dentry
                 let resolved_dentry = if let Some(entry) = current.dentry.lookup_child(name) {
                     if entry.is_not_present() || entry.get_inode().is_none() {
-                        return Err(Errno::ENOENT);
+                        // Revalidate against the underlying filesystem for dynamically created nodes
+                        let inode = current.dentry.get_inode().ok_or(Errno::ENOENT)?;
+                        match inode.node_ops.lookup(name) {
+                            Ok(child) => {
+                                entry.set_inode(Some(child));
+                                entry
+                            }
+                            Err(Errno::ENOENT) => return Err(Errno::ENOENT),
+                            Err(e) => return Err(e),
+                        }
+                    } else {
+                        entry
                     }
-                    entry
                 } else {
                     // Slow path: query inode NodeOps
                     let inode = current.dentry.get_inode().ok_or(Errno::ENOENT)?;

@@ -10,7 +10,7 @@ use alloc::sync::Arc;
 
 use crate::{
     drivers::char::tty::pty::PtsDirNodeOps,
-    fs::vfs::{FileSystem, INode, Mode, StatFs},
+    fs::vfs::{FileSystem, INode, INodeAttr, Mode, StatFs},
     uapi::errno::Result,
 };
 
@@ -22,17 +22,24 @@ pub struct DevPtsFs {
 impl DevPtsFs {
     pub fn new() -> Self {
         let dir_ops = Box::new(PtsDirNodeOps);
-        let root = Arc::new(INode::new(
+        let root = Arc::new(INode::new_with_attr(
             dir_ops,
-            Mode::DIR
-                | Mode::RUSR
-                | Mode::WUSR
-                | Mode::XUSR
-                | Mode::RGRP
-                | Mode::XGRP
-                | Mode::ROTH
-                | Mode::XOTH,
-            0,
+            1,
+            INodeAttr {
+                size: 0,
+                mode: Mode::DIR
+                    | Mode::RUSR
+                    | Mode::WUSR
+                    | Mode::XUSR
+                    | Mode::RGRP
+                    | Mode::XGRP
+                    | Mode::ROTH
+                    | Mode::XOTH,
+                nlink: 2,
+                uid: 0,
+                gid: 0,
+                rdev: 0,
+            },
         ));
         Self { root }
     }

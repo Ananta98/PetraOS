@@ -25,6 +25,7 @@ pub use dev::{
     update_console_winsize,
 };
 
+use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::sync::Arc;
 
@@ -41,6 +42,32 @@ pub fn init() -> Result<()> {
 
     register_chrdev(Arc::new(Console))?;
     register_chrdev(Arc::clone(&console_tty) as Arc<dyn CharacterDevice>)?;
+
+    // Register terminal devices in DevFS registry
+    crate::fs::devfs::register_dev_node(
+        "console",
+        crate::fs::vfs::Mode::CHAR | crate::fs::vfs::Mode::from_bits_truncate(0o620),
+        crate::uapi::dev::makedev(5, 1),
+        || Box::new(crate::fs::devfs::ConsoleNodeOps),
+    );
+    crate::fs::devfs::register_dev_node(
+        "tty0",
+        crate::fs::vfs::Mode::CHAR | crate::fs::vfs::Mode::from_bits_truncate(0o620),
+        crate::uapi::dev::makedev(4, 0),
+        || Box::new(crate::fs::devfs::VtNodeOps { minor: 0 }),
+    );
+    crate::fs::devfs::register_dev_node(
+        "tty",
+        crate::fs::vfs::Mode::CHAR | crate::fs::vfs::Mode::from_bits_truncate(0o666),
+        crate::uapi::dev::makedev(5, 0),
+        || Box::new(crate::fs::devfs::TtyNodeOps),
+    );
+    crate::fs::devfs::register_dev_node(
+        "ptmx",
+        crate::fs::vfs::Mode::CHAR | crate::fs::vfs::Mode::from_bits_truncate(0o666),
+        crate::uapi::dev::makedev(5, 2),
+        || Box::new(crate::drivers::char::tty::pty::PtmxNodeOps),
+    );
 
     pty::init()?;
 

@@ -86,22 +86,30 @@ fn lookup_static_dev(name: &str) -> Option<Arc<INode>> {
         | Mode::ROTH
         | Mode::XOTH;
 
-    let (ops, mode, ino): (Box<dyn NodeOps>, Mode, usize) = match name {
-        "null" => (Box::new(NullNodeOps), chr_mode, 1),
-        "zero" => (Box::new(ZeroNodeOps), chr_mode, 2),
-        "random" => (Box::new(RandomNodeOps), chr_mode, 3),
-        "urandom" => (Box::new(UrandomNodeOps), chr_mode, 4),
-        "tty" => (Box::new(TtyNodeOps), chr_mode, 5),
-        "console" => (Box::new(ConsoleNodeOps), chr_mode, 6),
-        "tty0" => (Box::new(ConsoleNodeOps), chr_mode, 7),
-        "tty1" => (Box::new(ConsoleNodeOps), chr_mode, 8),
-        "ptmx" => (Box::new(crate::drivers::char::tty::pty::PtmxNodeOps), chr_mode, 10),
-        "pts" => (Box::new(crate::drivers::char::tty::pty::PtsDirNodeOps), dir_mode, 11),
-        "dri" => (Box::new(drm::DriDirNodeOps), dir_mode, 12),
-        "input" => (Box::new(input::InputDirNodeOps), dir_mode, 13),
+    let (ops, mode, ino, rdev): (Box<dyn NodeOps>, Mode, usize, u64) = match name {
+        "null" => (Box::new(NullNodeOps), chr_mode, 1, crate::uapi::dev::makedev(1, 3)),
+        "zero" => (Box::new(ZeroNodeOps), chr_mode, 2, crate::uapi::dev::makedev(1, 5)),
+        "random" => (Box::new(RandomNodeOps), chr_mode, 3, crate::uapi::dev::makedev(1, 8)),
+        "urandom" => (Box::new(UrandomNodeOps), chr_mode, 4, crate::uapi::dev::makedev(1, 9)),
+        "tty" => (Box::new(TtyNodeOps), chr_mode, 5, crate::uapi::dev::makedev(5, 0)),
+        "console" => (Box::new(ConsoleNodeOps), chr_mode, 6, crate::uapi::dev::makedev(5, 1)),
+        "tty0" => (Box::new(VtNodeOps { minor: 0 }), chr_mode, 7, crate::uapi::dev::makedev(4, 0)),
+        "tty1" => (Box::new(VtNodeOps { minor: 1 }), chr_mode, 8, crate::uapi::dev::makedev(4, 1)),
+        "ptmx" => (Box::new(crate::drivers::char::tty::pty::PtmxNodeOps), chr_mode, 10, crate::uapi::dev::makedev(5, 2)),
+        "pts" => (Box::new(crate::drivers::char::tty::pty::PtsDirNodeOps), dir_mode, 11, 0),
+        "dri" => (Box::new(drm::DriDirNodeOps), dir_mode, 12, 0),
+        "input" => (Box::new(input::InputDirNodeOps), dir_mode, 13, 0),
         _ => return None,
     };
-    Some(Arc::new(INode::new(ops, mode, ino)))
+    let attr = INodeAttr {
+        size: 0,
+        mode,
+        nlink: if mode.contains(Mode::DIR) { 2 } else { 1 },
+        uid: 0,
+        gid: if name == "ptmx" || name == "tty" { 5 } else { 0 },
+        rdev,
+    };
+    Some(Arc::new(INode::new_with_attr(ops, ino, attr)))
 }
 
 fn lookup_driver_device(name: &str) -> Option<Arc<INode>> {
@@ -302,7 +310,7 @@ impl NodeOps for DevFsDirOps {
         let node_ops: Box<dyn NodeOps> = if file_type == Mode::FIFO.bits() {
             Box::new(crate::fs::pipe::FifoNodeOps::new(attr))
         } else {
-            Box::new(DevSpecialNodeOps)
+            Box::new(DevSpecialNodeOps { attr })
         };
         let node = Arc::new(INode::new_with_attr(
             node_ops,
@@ -385,11 +393,33 @@ impl FileOps for DevFsDirFileOps {
 }
 
 /// Special device node operations created via `mknod` in `/dev`.
-pub struct DevSpecialNodeOps;
+pub struct DevSpecialNodeOps {
+    pub attr: INodeAttr,
+}
 
 impl NodeOps for DevSpecialNodeOps {
-    fn open(&self, _flags: OpenFlags) -> Result<Box<dyn FileOps>> {
-        crate::return_errno!(ENODEV, "device not configured");
+    fn open(&self, flags: OpenFlags) -> Result<Box<dyn FileOps>> {
+        let major = crate::uapi::dev::major(self.attr.rdev);
+        let minor = crate::uapi::dev::minor(self.attr.rdev);
+        match (major, minor) {
+            (1, 3) => NullNodeOps.open(flags),
+            (1, 5) => ZeroNodeOps.open(flags),
+            (1, 8) => RandomNodeOps.open(flags),
+            (1, 9) => UrandomNodeOps.open(flags),
+            (4, _) => VtNodeOps { minor }.open(flags),
+            (5, 0) => TtyNodeOps.open(flags),
+            (5, 1) => ConsoleNodeOps.open(flags),
+            (5, 2) => crate::drivers::char::tty::pty::PtmxNodeOps.open(flags),
+            (136, idx) => {
+                let pair = crate::drivers::char::tty::pty::get_pty_pair(idx).ok_or(Errno::ENXIO)?;
+                crate::drivers::char::tty::pty::PtySlaveNodeOps { pair }.open(flags)
+            }
+            _ => crate::return_errno!(ENODEV, "device not configured"),
+        }
+    }
+
+    fn getattr(&self) -> Result<INodeAttr> {
+        Ok(self.attr)
     }
 }
 
@@ -436,13 +466,13 @@ impl NodeOps for TtyNodeOps {
                 | Mode::WOTH,
             nlink: 1,
             uid: 0,
-            gid: 0,
-            rdev: 0x0500, // makedev(5, 0)
+            gid: 5,
+            rdev: crate::uapi::dev::makedev(5, 0),
         })
     }
 }
 
-/// System console (`/dev/console`, `/dev/tty0`, `/dev/tty1`) node operations.
+/// System console (`/dev/console`) node operations.
 pub struct ConsoleNodeOps;
 
 impl NodeOps for ConsoleNodeOps {
@@ -464,7 +494,36 @@ impl NodeOps for ConsoleNodeOps {
             nlink: 1,
             uid: 0,
             gid: 0,
-            rdev: 0x0501, // makedev(5, 1)
+            rdev: crate::uapi::dev::makedev(5, 1),
+        })
+    }
+}
+
+/// Virtual terminal (`/dev/tty0`, `/dev/tty1`, ...) node operations.
+pub struct VtNodeOps {
+    pub minor: u32,
+}
+
+impl NodeOps for VtNodeOps {
+    fn open(&self, _flags: OpenFlags) -> Result<Box<dyn FileOps>> {
+        let tty = crate::drivers::char::tty::get_console().ok_or(Errno::ENODEV)?;
+        Ok(Box::new(crate::drivers::char::tty::TtyFileOps { tty }))
+    }
+
+    fn getattr(&self) -> Result<INodeAttr> {
+        Ok(INodeAttr {
+            size: 0,
+            mode: Mode::CHAR
+                | Mode::RUSR
+                | Mode::WUSR
+                | Mode::RGRP
+                | Mode::WGRP
+                | Mode::ROTH
+                | Mode::WOTH,
+            nlink: 1,
+            uid: 0,
+            gid: 0,
+            rdev: crate::uapi::dev::makedev(4, self.minor),
         })
     }
 }

@@ -108,14 +108,31 @@ impl FileOps for ConsoleFileOps {
 
 /// Creates a standard open file description for /dev/console.
 pub fn create_console_file(flags: OpenFlags) -> Arc<File> {
-    let inode = Arc::new(INode::new(
-        Box::new(crate::fs::devfs::chr::GenericChrNodeOps::new(Arc::new(
-            Console,
-        ))),
-        Mode::CHAR | Mode::RUSR | Mode::WUSR | Mode::RGRP | Mode::WGRP | Mode::ROTH | Mode::WOTH,
-        2,
+    let tty = get_console();
+    let ops: Box<dyn FileOps> = if let Some(tty) = tty {
+        Box::new(crate::drivers::char::tty::TtyFileOps { tty })
+    } else {
+        Box::new(ConsoleFileOps)
+    };
+    let inode = Arc::new(INode::new_with_attr(
+        Box::new(crate::fs::devfs::ConsoleNodeOps),
+        6,
+        crate::fs::vfs::INodeAttr {
+            size: 0,
+            mode: Mode::CHAR
+                | Mode::RUSR
+                | Mode::WUSR
+                | Mode::RGRP
+                | Mode::WGRP
+                | Mode::ROTH
+                | Mode::WOTH,
+            nlink: 1,
+            uid: 0,
+            gid: 0,
+            rdev: crate::uapi::dev::makedev(5, 1),
+        },
     ));
-    Arc::new(File::new(Box::new(ConsoleFileOps), inode, flags, false))
+    Arc::new(File::new(ops, inode, flags, false))
 }
 
 /// Returns the primary system console device.

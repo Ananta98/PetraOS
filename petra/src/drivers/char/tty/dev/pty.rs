@@ -126,7 +126,7 @@ pub fn alloc_pty() -> Result<Arc<PtyPair>> {
             nlink: 1,
             uid: 0,
             gid: 5,
-            rdev: 0x8800 + index as u64,
+            rdev: crate::uapi::dev::makedev(136, index),
         });
         PtyPair {
             index,
@@ -279,6 +279,42 @@ impl FileOps for PtyMasterFileOps {
                 UserPtr::new(arg).write_val(&vmar, avail)?;
                 Ok(0)
             }
+            ioctl::TIOCGPTPEER => {
+                let flags_raw = arg as i32;
+                let mut open_flags = OpenFlags::from_bits_truncate(flags_raw as u32);
+                if (flags_raw & 3) == 0 {
+                    open_flags |= OpenFlags::READ;
+                } else if (flags_raw & 3) == 1 {
+                    open_flags |= OpenFlags::WRITE;
+                } else {
+                    open_flags |= OpenFlags::READ | OpenFlags::WRITE;
+                }
+                let slave_attr = *self.pair.slave_attr.read();
+                let slave_node = Arc::new(INode::new_with_attr(
+                    Box::new(PtySlaveNodeOps {
+                        pair: Arc::clone(&self.pair),
+                    }),
+                    1000 + self.pair.index as usize,
+                    slave_attr,
+                ));
+                self.pair.slave_count.fetch_add(1, Ordering::AcqRel);
+                let slave_file = Arc::new(crate::fs::vfs::File::new(
+                    Box::new(PtySlaveFileOps {
+                        pair: Arc::clone(&self.pair),
+                    }),
+                    slave_node,
+                    open_flags,
+                    false,
+                ));
+                let cloexec = (flags_raw & 0o2000000) != 0;
+                let fd_flags = if cloexec {
+                    crate::fs::fd::FdFlags::FD_CLOEXEC
+                } else {
+                    crate::fs::fd::FdFlags::empty()
+                };
+                let fd = proc.fd_table.lock().alloc_fd(slave_file, fd_flags)?;
+                Ok(fd as usize)
+            }
             _ => self.pair.tty.ioctl(cmd, arg),
         }
     }
@@ -389,7 +425,13 @@ impl FileOps for PtySlaveFileOps {
 
 /// Slave node operations for /dev/pts/N.
 pub struct PtySlaveNodeOps {
-    pair: Arc<PtyPair>,
+    pub pair: Arc<PtyPair>,
+}
+
+impl PtySlaveNodeOps {
+    pub fn new(pair: Arc<PtyPair>) -> Self {
+        Self { pair }
+    }
 }
 
 impl NodeOps for PtySlaveNodeOps {

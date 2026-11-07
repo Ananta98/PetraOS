@@ -117,13 +117,7 @@ impl Statx {
     }
 }
 
-fn dev_major(dev: u64) -> u32 {
-    (((dev >> 8) & 0xfff) | ((dev >> 32) & !0xfff)) as u32
-}
-
-fn dev_minor(dev: u64) -> u32 {
-    ((dev & 0xff) | ((dev >> 12) & !0xff)) as u32
-}
+use crate::uapi::dev::{major as dev_major, minor as dev_minor};
 
 pub fn statx_inode_to_user(
     inode: &Arc<INode>,

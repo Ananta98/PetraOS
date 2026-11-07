@@ -95,6 +95,7 @@ pub const FIONREAD: u32 = 0x541B;
 pub const TIOCLINUX: u32 = 0x541C;
 
 pub const TIOCGSID: u32 = 0x5429;
+pub const TIOCGPTPEER: u32 = 0x5441;
 
 // ----------------------------------------------------------------------------
 // Keyboard & Console Ioctls (Linux kd.h / kbd.h)

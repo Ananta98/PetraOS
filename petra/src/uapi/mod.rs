@@ -31,6 +31,7 @@
 //! descriptors in [`crate::fs`].
 
 pub mod cred;
+pub mod dev;
 pub mod drm;
 pub mod errno;
 pub mod fd;
