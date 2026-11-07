@@ -351,7 +351,7 @@ impl Thread {
     /// Mirrors Linux `force_sig_fault`: when the signal is blocked or has no
     /// handler, the process is terminated, init included. Ignoring it would
     /// resume at the same instruction and fault again forever.
-    fn deliver_fault_signal(&self, queued: QueuedSignal) {
+    pub(crate) fn deliver_fault_signal(&self, queued: QueuedSignal) {
         let sig = queued.signal();
         let Some(proc) = self.proc() else {
             return;
@@ -523,6 +523,19 @@ impl Thread {
         }
     }
 
+    /// Checks and executes rseq resume fixup if registered.
+    pub fn handle_rseq_resume(&self, ctx: &mut UserContext) {
+        let (ptr, len, sig) = {
+            let inner = self.inner.lock();
+            (inner.rseq_ptr, inner.rseq_len, inner.rseq_sig)
+        };
+        if ptr != 0 {
+            if let Some(proc) = self.proc() {
+                crate::syscall::proc::rseq::rseq_notify_resume(self, &proc, ctx, ptr, len, sig);
+            }
+        }
+    }
+
     /// Cleans up child tid and removes thread if marked dead or process is zombie. Returns true if dead.
     fn cleanup_if_dead(&self, proc: &Arc<Proc>) -> bool {
         if self.is_dead() || proc.state() == crate::proc::ProcState::Zombie {
@@ -645,6 +658,10 @@ impl Thread {
             // copy of it, and the last thing that happened there was a syscall or a
             // fault, so the authoritative version is the one it holds -- not the
             // one taken when the thread was built.
+            self.adopt_ctx(user_mode.context());
+
+            // Handle rseq TLS update and critical section restart fixup
+            self.handle_rseq_resume(user_mode.context_mut());
             self.adopt_ctx(user_mode.context());
 
             // Check AST / pending signals prior to entering Ring 3
