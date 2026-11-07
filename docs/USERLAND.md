@@ -13,7 +13,7 @@ PetraOS uses a hybrid two-tier userspace model based on **Void Linux rootfs (x86
    - Mounts pseudo-filesystems (`/proc`, `/sys`, `/dev`, `/run`), detects block storage (`/dev/sda` / `/dev/vda`), mounts the ext4 rootfs to `/sysroot`, prepares nested devpts/sysfs/procfs, and transitions into the full Void Linux rootfs environment.
 
 2. **Full Rootfs Block Image (`build/ext4.img`)**:
-   - Complete ext4 filesystem image populated with standard Void Linux glibc rootfs base, and prebuilt `developer-tools` layers (`bash`, `python3`, `btop`, `e2fsprogs`, `exfatprogs`, GCC/binutils, Make, CMake, Git, GDB, strace, etc.).
+   - Complete ext4 filesystem image populated with standard Void Linux glibc rootfs base (containing `bash`, `coreutils`, `e2fsprogs`, etc.), and prebuilt `developer-tools` layers (`python3`, `exfatprogs`, GCC/binutils, Make, CMake, Git, GDB, strace, htop, etc.).
 
 ---
 
@@ -25,7 +25,7 @@ The userland build script (`scripts/build-userland/build-userland-amd64.sh`) use
 - Void Linux Current (`https://repo-default.voidlinux.org/current`)
 
 ### Installed Package Layers
-- `developer-tools`: `bash`, `python3`, `btop`, `e2fsprogs`, `exfatprogs`, `gcc`, `binutils`, `make`, `cmake`, `meson`, `ninja`, `git`, `gdb`, `strace`, `htop`, `tmux`, `vim`, etc.
+- `developer-tools`: `python3`, `exfatprogs`, `gcc`, `binutils`, `make`, `cmake`, `meson`, `ninja`, `git`, `gdb`, `strace`, `htop`, `tmux`, `vim`, `xz`, etc.
 
 ---
 

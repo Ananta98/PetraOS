@@ -45,35 +45,21 @@ while [[ $# -gt 0 ]]; do
 done
 
 ROOT_PACKAGES=(
-    bash
     binutils
-    btop
-    ca-certificates
     cmake
-    coreutils
-    diffutils
-    e2fsprogs
     exfatprogs
-    file
-    findutils
-    gawk
     gcc
     gdb
     git
-    grep
     htop
     make
     meson
     ninja
-    openssl
     pkgconf
     python3
-    sed
     strace
-    tar
     tmux
     vim
-    which
     xz
 )
 root_packages="${PETRAOS_DEVELOPER_PACKAGES:-${ROOT_PACKAGES[*]}}"
@@ -114,6 +100,14 @@ fi
 
 mkdir -p "${CACHE_DIR}/xbps-pkgs"
 
+echo "==> Updating xbps package manager if needed"
+"${XBPS_INSTALL}" \
+    -r "${TARGET_ROOT}" \
+    -R "${VOID_MIRROR}" \
+    -c "${CACHE_DIR}/xbps-pkgs" \
+    -S -u -y --ignore-conf-repos \
+    xbps || true
+
 echo "==> Installing developer-tools into ${TARGET_ROOT}"
 "${XBPS_INSTALL}" \
     -r "${TARGET_ROOT}" \
@@ -137,8 +131,8 @@ check_binary() {
     exit 1
 }
 
-for binary in bash gawk grep sed htop gcc make cmake \
-    gdb git meson ninja pkg-config mkfs.ext4 mkfs.exfat openssl; do
+for binary in htop gcc make cmake \
+    gdb git meson ninja pkg-config mkfs.exfat python3 strace tmux vim xz; do
     check_binary "${binary}"
 done
 
