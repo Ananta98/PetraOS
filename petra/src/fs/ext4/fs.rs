@@ -1608,9 +1608,17 @@ impl NodeOps for Ext4Node {
             }
         }
 
-        let data = fs.read_dir_data(self.ino, &raw)?;
-        let (child, _) = dir::find_in_data(&data, fs.block_size, name).ok_or(Errno::ENOENT)?;
-        fs.node_for(child)
+        // Streaming block-by-block scan (zero-allocation & early-exit)
+        let blocks = raw.size().div_ceil(fs.block_size as u64);
+        let mut blk = vec![0u8; fs.block_size];
+        for lblock in 0..blocks {
+            if fs.read_inode_block(self.ino, &raw, lblock, &mut blk).is_ok() {
+                if let Some((child, _)) = dir::find_in_block(&blk, name) {
+                    return fs.node_for(child);
+                }
+            }
+        }
+        Err(Errno::ENOENT)
     }
 
     fn create(&self, name: &str, mode: Mode) -> Result<Arc<INode>> {
@@ -2126,6 +2134,25 @@ impl NodeOps for Ext4Node {
                 ra_prev_pos: Mutex::new(0),
                 ra_window: Mutex::new(4),
             }))
+        } else if raw.is_chardev() || raw.is_blockdev() {
+            let rdev = raw.block[0] as u64;
+            let major = crate::uapi::dev::major(rdev);
+            let minor = crate::uapi::dev::minor(rdev);
+            match (major, minor) {
+                (1, 3) => crate::fs::devfs::null::NullNodeOps.open(_flags),
+                (1, 5) => crate::fs::devfs::zero::ZeroNodeOps.open(_flags),
+                (1, 8) => crate::fs::devfs::random::RandomNodeOps.open(_flags),
+                (1, 9) => crate::fs::devfs::random::UrandomNodeOps.open(_flags),
+                (4, _) => crate::fs::devfs::VtNodeOps { minor }.open(_flags),
+                (5, 0) => crate::fs::devfs::TtyNodeOps.open(_flags),
+                (5, 1) => crate::fs::devfs::ConsoleNodeOps.open(_flags),
+                (5, 2) => crate::drivers::char::tty::pty::PtmxNodeOps.open(_flags),
+                (136, idx) => {
+                    let pair = crate::drivers::char::tty::pty::get_pty_pair(idx).ok_or(Errno::ENXIO)?;
+                    crate::drivers::char::tty::pty::PtySlaveNodeOps { pair }.open(_flags)
+                }
+                _ => Err(Errno::ENODEV),
+            }
         } else {
             Err(Errno::ENOSYS)
         }

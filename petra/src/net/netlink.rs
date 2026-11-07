@@ -22,6 +22,7 @@ pub const RTM_NEWLINK: u16 = 16;
 pub const RTM_GETLINK: u16 = 18;
 pub const RTM_NEWADDR: u16 = 20;
 pub const RTM_GETADDR: u16 = 22;
+pub const RTM_NEWROUTE: u16 = 24;
 pub const RTM_GETROUTE: u16 = 26;
 
 pub const NLM_F_REQUEST: u16 = 0x01;
@@ -148,6 +149,50 @@ impl NetlinkSocketState {
                 finalize_nlmsg(&mut reply, start);
 
                 // 3. NLMSG_DONE terminator
+                let start =
+                    push_nlmsghdr(&mut reply, NLMSG_DONE, NLM_F_MULTI, nlmsg_seq, nlmsg_pid);
+                reply.extend_from_slice(&0i32.to_ne_bytes());
+                finalize_nlmsg(&mut reply, start);
+
+                if ack_requested {
+                    send_ack(&mut reply);
+                }
+            }
+            RTM_GETROUTE if is_dump => {
+                // 1. Default IPv4 route via eth0 (gateway 10.0.2.2)
+                let start =
+                    push_nlmsghdr(&mut reply, RTM_NEWROUTE, NLM_F_MULTI, nlmsg_seq, nlmsg_pid);
+                // struct rtmsg (12 bytes)
+                reply.push(2); // rtm_family = AF_INET (2)
+                reply.push(0); // rtm_dst_len = 0 (default route /0)
+                reply.push(0); // rtm_src_len = 0
+                reply.push(0); // rtm_tos = 0
+                reply.push(254); // rtm_table = RT_TABLE_MAIN (254)
+                reply.push(3); // rtm_protocol = RTPROT_BOOT (3)
+                reply.push(0); // rtm_scope = RT_SCOPE_UNIVERSE (0)
+                reply.push(1); // rtm_type = RTN_UNICAST (1)
+                reply.extend_from_slice(&0u32.to_ne_bytes()); // rtm_flags = 0
+
+                // RTA_TABLE = 254 (type 15)
+                push_rtattr(&mut reply, 15, &254u32.to_ne_bytes());
+                // RTA_GATEWAY = 10.0.2.2 (type 5)
+                push_rtattr(&mut reply, 5, &[10, 0, 2, 2]);
+                // RTA_OIF = 2 (eth0) (type 4)
+                push_rtattr(&mut reply, 4, &2i32.to_ne_bytes());
+                finalize_nlmsg(&mut reply, start);
+
+                // 2. NLMSG_DONE terminator
+                let start =
+                    push_nlmsghdr(&mut reply, NLMSG_DONE, NLM_F_MULTI, nlmsg_seq, nlmsg_pid);
+                reply.extend_from_slice(&0i32.to_ne_bytes());
+                finalize_nlmsg(&mut reply, start);
+
+                if ack_requested {
+                    send_ack(&mut reply);
+                }
+            }
+            _ if is_dump => {
+                // Any unhandled dump request must terminate with NLMSG_DONE so multi-part loops never hang.
                 let start =
                     push_nlmsghdr(&mut reply, NLMSG_DONE, NLM_F_MULTI, nlmsg_seq, nlmsg_pid);
                 reply.extend_from_slice(&0i32.to_ne_bytes());

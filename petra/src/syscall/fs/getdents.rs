@@ -106,6 +106,18 @@ fn collect_dir_entries(file: &File) -> Result<Vec<(String, u64, u8)>> {
             if name == "." || name == ".." {
                 continue;
             }
+            if let Some(ref pn) = file.path_node {
+                if pn.dentry.lookup_child(&name).is_none() {
+                    if let Ok(child_inode) = file.inode.node_ops.lookup(&name) {
+                        let dentry = Arc::new(DEntry::new(
+                            name.clone(),
+                            Some(child_inode),
+                            Some(Arc::downgrade(&pn.dentry)),
+                        ));
+                        pn.dentry.add_child(dentry);
+                    }
+                }
+            }
             all_entries.push((name, ino, dtype));
         }
         return Ok(all_entries);
