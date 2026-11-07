@@ -76,7 +76,8 @@ pub fn sys_mmap(
         let file = proc.file(fd)?;
 
         // Linux rule: MAP_SHARED with PROT_WRITE requires the file to be opened for writing
-        if flags.contains(MmapFlags::SHARED) && perms.contains(VmPerms::WRITE) {
+        let is_shared = flags.contains(MmapFlags::SHARED);
+        if is_shared && perms.contains(VmPerms::WRITE) {
             let open_flags = file.flags.lock();
             if !open_flags.contains(OpenFlags::WRITE) {
                 return Err(Errno::EACCES);
@@ -92,7 +93,8 @@ pub fn sys_mmap(
             b
         } else {
             let min_size = offset.saturating_add(len);
-            Arc::new(FileBacking::new_with_min_size(file, min_size)?)
+            let writable_shared = is_shared && file.flags.lock().contains(OpenFlags::WRITE);
+            Arc::new(FileBacking::new_with_min_size(file, min_size, writable_shared)?)
         };
         let res = vmar.mmap_backed(&backing, addr, len, perms, flags, offset)?;
         Ok(res)

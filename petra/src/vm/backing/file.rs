@@ -23,6 +23,7 @@ use crate::{uapi::errno::Result, fs::File};
 pub struct FileBacking {
     file: Arc<File>,
     size: usize,
+    writable_shared: bool,
     /// Materialized frames keyed by their page-aligned offset in the file.
     pages: SpinLock<BTreeMap<usize, UFrame>>,
 }
@@ -30,17 +31,18 @@ pub struct FileBacking {
 impl FileBacking {
     /// Creates a new `FileBacking` for the given open file description.
     pub fn new(file: Arc<File>) -> Result<Self> {
-        Self::new_with_min_size(file, 0)
+        Self::new_with_min_size(file, 0, false)
     }
 
     /// Creates a new `FileBacking` ensuring the backing size covers at least `min_size` bytes.
-    pub fn new_with_min_size(file: Arc<File>, min_size: usize) -> Result<Self> {
+    pub fn new_with_min_size(file: Arc<File>, min_size: usize, writable_shared: bool) -> Result<Self> {
         let raw_size = (file.inode.size() as usize).max(min_size);
         // Page-align the backing size so partial trailing pages can be mapped without failure
         let size = (raw_size + PAGE_SIZE - 1) & !(PAGE_SIZE - 1);
         Ok(Self {
             file,
             size,
+            writable_shared,
             pages: SpinLock::new(BTreeMap::new()),
         })
     }
@@ -93,8 +95,11 @@ impl Backing for FileBacking {
     }
 
     fn flush(&self, range: Range<usize>) -> Result<()> {
+        if !self.writable_shared {
+            return Ok(());
+        }
         let pages = self.pages.lock();
-        let file_len = self.file.inode.size().max(self.size);
+        let file_len = self.file.inode.size();
         for (&offset, frame) in pages.range(range.start..range.end) {
             if offset >= file_len {
                 continue;
@@ -106,10 +111,6 @@ impl Backing for FileBacking {
             let write_len = PAGE_SIZE.min(file_len.saturating_sub(offset));
             if write_len > 0 {
                 let _ = self.file.ops.write(offset as u64, &buf[..write_len]);
-                let new_size = offset + write_len;
-                if new_size > self.file.inode.size() {
-                    self.file.inode.set_size(new_size);
-                }
             }
         }
         self.file.inode.touch_mtime();
@@ -120,7 +121,9 @@ impl Backing for FileBacking {
 
 impl Drop for FileBacking {
     fn drop(&mut self) {
-        let _ = self.flush(0..self.size);
+        if self.writable_shared {
+            let _ = self.flush(0..self.size);
+        }
     }
 }
 

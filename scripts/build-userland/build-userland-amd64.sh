@@ -197,6 +197,13 @@ if [ -x "${ROOTFS_STAGING}/usr/bin/python3" ] && [ ! -e "${ROOTFS_STAGING}/usr/b
     ln -sfn python3 "${ROOTFS_STAGING}/usr/bin/python"
 fi
 
+# Pre-generate ld.so.cache if ldconfig is available
+if [ -x "${ROOTFS_STAGING}/sbin/ldconfig" ] || [ -x "${ROOTFS_STAGING}/usr/bin/ldconfig" ]; then
+    if [ "$(id -u)" -ne 0 ] && command -v unshare >/dev/null 2>&1; then
+        unshare -r chroot "${ROOTFS_STAGING}" ldconfig 2>/dev/null || true
+    fi
+fi
+
 cat > "${ROOTFS_STAGING}/etc/passwd" << 'EOF'
 root:x:0:0:root:/root:/bin/bash
 bin:x:1:1:bin:/bin:/sbin/nologin
