@@ -21,13 +21,6 @@ pub struct FramebufferConsoleDriver;
 impl TtyDriver for FramebufferConsoleDriver {
     fn write_output(&self, data: &[u8]) -> Result<()> {
         vt::write_output(data);
-        if let Ok(s) = core::str::from_utf8(data) {
-            ostd::console::early_print(format_args!("{s}"));
-        } else {
-            for &b in data {
-                ostd::console::early_print(format_args!("{}", b as char));
-            }
-        }
         Ok(())
     }
 
