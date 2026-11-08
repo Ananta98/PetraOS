@@ -1,0 +1,19 @@
+export PATH=/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin
+export HOME=/root
+export SHELL=/bin/bash
+export TERM=linux
+export XDG_CONFIG_HOME=/root/.config
+export CHARSET=UTF-8
+export LANG=C.UTF-8
+export LC_ALL=C.UTF-8
+export PS1='petraos:\w# '
+alias ll='ls -la --color=auto'
+alias l='ls -lh'
+umask 022
+
+for script in /etc/profile.d/*.sh ; do
+    if [ -r "$script" ] ; then
+        . "$script"
+    fi
+done
+unset script

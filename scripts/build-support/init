@@ -24,7 +24,7 @@ mount -t sysfs sysfs /sys 2>/dev/null || true
 mount -t devtmpfs devtmpfs /dev 2>/dev/null || mount -t devfs devfs /dev 2>/dev/null || true
 mount -t tmpfs tmpfs /tmp 2>/dev/null || true
 mount -t tmpfs tmpfs /run 2>/dev/null || true
-mkdir -p /dev/pts /dev/shm 2>/dev/null || true
+mkdir -p /dev/pts /dev/shm /root/.config 2>/dev/null || true
 mount -t devpts devpts /dev/pts 2>/dev/null || true
 mount -t tmpfs tmpfs /dev/shm 2>/dev/null || true
 
@@ -69,7 +69,7 @@ if [ -n "$ROOT_DEV" ]; then
     mount -t sysfs sysfs /sysroot/sys 2>/dev/null || true
     mount -t tmpfs tmpfs /sysroot/tmp 2>/dev/null || true
     mount -t tmpfs tmpfs /sysroot/run 2>/dev/null || true
-    mkdir -p /sysroot/dev/pts /sysroot/dev/shm 2>/dev/null || true
+    mkdir -p /sysroot/dev/pts /sysroot/dev/shm /sysroot/root/.config 2>/dev/null || true
     mount -t devpts devpts /sysroot/dev/pts 2>/dev/null || true
     mount -t tmpfs tmpfs /sysroot/dev/shm 2>/dev/null || true
 

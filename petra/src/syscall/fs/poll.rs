@@ -451,27 +451,12 @@ pub fn sys_pselect6(
         (sec.saturating_mul(1000)).saturating_add(nsec / 1_000_000) as i32
     };
 
-    let sigmask_opt = if sigmask_ptr != 0 {
+    if sigmask_ptr != 0 {
         let td = Thread::current().ok_or(Errno::ESRCH)?;
         let vmar = td.proc().ok_or(Errno::ESRCH)?.vmspace();
-        let mut data = [0u8; 16];
-        UserPtr::new(sigmask_ptr).read_bytes(&vmar, &mut data)?;
-        let ss = usize::from_ne_bytes(data[0..8].try_into().unwrap());
-        let ss_len = usize::from_ne_bytes(data[8..16].try_into().unwrap());
-        if ss != 0 {
-            let mut buf = [0u8; SIGSET_WORDS * 8];
-            let copy_len = ss_len.min(buf.len());
-            UserPtr::new(ss).read_bytes(&vmar, &mut buf[..copy_len])?;
-            Some(decode_sigset(&buf))
-        } else {
-            None
-        }
-    } else {
-        None
-    };
-
-    if let Some(temp_mask) = sigmask_opt {
-        let td = Thread::current().ok_or(Errno::ESRCH)?;
+        let mut buf = [0u8; SIGSET_WORDS * 8];
+        UserPtr::new(sigmask_ptr).read_bytes(&vmar, &mut buf[..8])?;
+        let temp_mask = decode_sigset(&buf);
         let orig_mask = {
             let mut inner = td.inner.lock();
             let prev = inner.sigmask;

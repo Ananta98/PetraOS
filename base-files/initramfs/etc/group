@@ -1,0 +1,3 @@
+root:x:0:root
+disk:x:6:root
+nobody:x:65534:

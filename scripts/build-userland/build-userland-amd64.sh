@@ -42,6 +42,7 @@ PACKAGES="${PETRAOS_USERLAND_PACKAGES:-developer-tools}"
 PETRAOS_VERSION="${PETRAOS_VERSION:-0.1.0}"
 SUPPORT_DIR="${REPO_ROOT}/scripts/build-support"
 PREBUILD_DIR="${REPO_ROOT}/scripts/prebuild-package"
+BASE_FILES_DIR="${REPO_ROOT}/base-files"
 
 FRESH=0
 PURGE_CACHE=0
@@ -149,21 +150,8 @@ mknod -m 660 "${STAGING}/dev/sda" b 8 0 2>/dev/null || true
 mknod -m 660 "${STAGING}/dev/sdb" b 8 16 2>/dev/null || true
 mknod -m 660 "${STAGING}/dev/vda" b 254 0 2>/dev/null || true
 
-cat > "${STAGING}/etc/passwd" << 'EOF'
-root:x:0:0:root:/root:/bin/sh
-nobody:x:65534:65534:nobody:/:/bin/sh
-EOF
-
-cat > "${STAGING}/etc/group" << 'EOF'
-root:x:0:root
-disk:x:6:root
-nobody:x:65534:
-EOF
-
-cat > "${STAGING}/etc/shells" << 'EOF'
-/bin/sh
-EOF
-
+# Install initramfs base-files skeleton
+cp -a "${BASE_FILES_DIR}/initramfs/." "${STAGING}/"
 printf '%s\n' "${PETRAOS_VERSION}" > "${STAGING}/etc/petraos-release"
 
 # ----------------------------------------------------------------------------
@@ -204,77 +192,13 @@ if [ -x "${ROOTFS_STAGING}/sbin/ldconfig" ] || [ -x "${ROOTFS_STAGING}/usr/bin/l
     fi
 fi
 
-cat > "${ROOTFS_STAGING}/etc/passwd" << 'EOF'
-root:x:0:0:root:/root:/bin/bash
-bin:x:1:1:bin:/bin:/sbin/nologin
-daemon:x:2:2:daemon:/sbin:/sbin/nologin
-nobody:x:65534:65534:nobody:/:/sbin/nologin
-EOF
-
-cat > "${ROOTFS_STAGING}/etc/shadow" << 'EOF'
-root::20121:0:99999:7:::
-bin:*:20121:0:99999:7:::
-daemon:*:20121:0:99999:7:::
-nobody:*:20121:0:99999:7:::
-EOF
+# Deploy full rootfs base-files skeleton
+echo "==> Deploying base-files skeleton into rootfs (${ROOTFS_STAGING})"
+cp -a "${BASE_FILES_DIR}/rootfs/." "${ROOTFS_STAGING}/"
 chmod 0600 "${ROOTFS_STAGING}/etc/shadow"
-
-cat > "${ROOTFS_STAGING}/etc/shells" << 'EOF'
-/bin/sh
-/bin/bash
-/usr/bin/sh
-/usr/bin/bash
-EOF
-
-cat > "${ROOTFS_STAGING}/etc/group" << 'EOF'
-root:x:0:root
-bin:x:1:root,bin,daemon
-daemon:x:2:root,bin,daemon
-sys:x:3:root,bin,adm
-adm:x:4:root,adm,daemon
-tty:x:5:
-disk:x:6:root
-wheel:x:10:root
-utmp:x:22:
-audio:x:29:
-video:x:44:
-users:x:100:
-nobody:x:65534:
-EOF
-
-cat > "${ROOTFS_STAGING}/etc/hosts" << 'EOF'
-127.0.0.1 localhost petraos
-::1       localhost ip6-localhost ip6-loopback
-EOF
-
-cat > "${ROOTFS_STAGING}/etc/resolv.conf" << 'EOF'
-nameserver 10.0.2.3
-nameserver 1.1.1.1
-nameserver 8.8.8.8
-EOF
-
-cat > "${ROOTFS_STAGING}/etc/hostname" << 'EOF'
-petraos
-EOF
-
-cat > "${ROOTFS_STAGING}/etc/environment" << 'EOF'
-CHARSET=UTF-8
-LANG=C.UTF-8
-LC_ALL=C.UTF-8
-EOF
-
-printf '%s\n' "${PETRAOS_VERSION}" > "${ROOTFS_STAGING}/etc/petraos-release"
-
-# Configure Void Linux rc.conf for PetraOS runit integration
-cat >> "${ROOTFS_STAGING}/etc/rc.conf" << 'EOF'
-
-# PetraOS Void Linux runit configuration
-HARDWARECLOCK="UTC"
-TIMEZONE="UTC"
-VIRTUALIZATION=1
-IS_CONTAINER=1
-FASTBOOT=1
-EOF
+chmod 0750 "${ROOTFS_STAGING}/root"
+mkdir -p "${ROOTFS_STAGING}/root/.config"
+chmod 0750 "${ROOTFS_STAGING}/root/.config"
 
 # Configure Void Linux runit services in /etc/runit/runsvdir/default
 mkdir -p "${ROOTFS_STAGING}/etc/runit/runsvdir/default"
@@ -288,65 +212,18 @@ rm -f "${ROOTFS_STAGING}/etc/runit/runsvdir/default/agetty-tty2" \
       "${ROOTFS_STAGING}/etc/runit/runsvdir/default/udevd"
 
 # Enable agetty-console with automatic root login
-mkdir -p "${ROOTFS_STAGING}/etc/sv/agetty-console"
-cat > "${ROOTFS_STAGING}/etc/sv/agetty-console/conf" << 'EOF'
-GETTY_ARGS="--autologin root --noclear"
-BAUD_RATE=38400
-TERM_NAME=linux
-EOF
 ln -sfn /etc/sv/agetty-console "${ROOTFS_STAGING}/etc/runit/runsvdir/default/agetty-console"
 
 # Ensure /var/service points to /run/runit/runsvdir/current
 rm -rf "${ROOTFS_STAGING}/var/service"
 ln -sfn ../run/runit/runsvdir/current "${ROOTFS_STAGING}/var/service"
 
-mkdir -p "${ROOTFS_STAGING}/usr/lib"
-cat > "${ROOTFS_STAGING}/usr/lib/os-release" << EOF
-NAME="PetraOS"
-PRETTY_NAME="PetraOS (Void Linux userspace)"
-ID=petraos
-ID_LIKE=void
-VERSION_ID="${PETRAOS_VERSION}"
-VERSION="${PETRAOS_VERSION}"
-EOF
+# Sync version info in os-release and petraos-release
+sed -i "s/VERSION_ID=.*/VERSION_ID=\"${PETRAOS_VERSION}\"/" "${ROOTFS_STAGING}/usr/lib/os-release"
+sed -i "s/VERSION=.*/VERSION=\"${PETRAOS_VERSION}\"/" "${ROOTFS_STAGING}/usr/lib/os-release"
 rm -f "${ROOTFS_STAGING}/etc/os-release"
 ln -sf ../usr/lib/os-release "${ROOTFS_STAGING}/etc/os-release"
-
-cat > "${ROOTFS_STAGING}/etc/profile" << 'EOF'
-export PATH=/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin
-export HOME=/root
-export SHELL=/bin/bash
-export TERM=linux
-export XDG_CONFIG_HOME=/root/.config
-export CHARSET=UTF-8
-export LANG=C.UTF-8
-export LC_ALL=C.UTF-8
-export PS1='petraos:\w# '
-alias ll='ls -la --color=auto'
-alias l='ls -lh'
-umask 022
-
-for script in /etc/profile.d/*.sh ; do
-    if [ -r "$script" ] ; then
-        . "$script"
-    fi
-done
-unset script
-EOF
-
-cat > "${ROOTFS_STAGING}/root/.profile" << 'EOF'
-export PS1='petraos:\w# '
-export PATH=/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin
-export SHELL=/bin/bash
-export TERM=linux
-export HOME=/root
-export XDG_CONFIG_HOME=/root/.config
-export CHARSET=UTF-8
-export LANG=C.UTF-8
-export LC_ALL=C.UTF-8
-alias ll='ls -la --color=auto'
-alias l='ls -lh'
-EOF
+printf '%s\n' "${PETRAOS_VERSION}" > "${ROOTFS_STAGING}/etc/petraos-release"
 
 mknod -m 666 "${ROOTFS_STAGING}/dev/null" c 1 3 2>/dev/null || true
 mknod -m 666 "${ROOTFS_STAGING}/dev/zero" c 1 5 2>/dev/null || true

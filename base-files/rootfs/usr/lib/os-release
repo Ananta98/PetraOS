@@ -1,0 +1,6 @@
+NAME="PetraOS"
+PRETTY_NAME="PetraOS (Void Linux userspace)"
+ID=petraos
+ID_LIKE=void
+VERSION_ID="0.1.0"
+VERSION="0.1.0"

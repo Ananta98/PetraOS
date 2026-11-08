@@ -19,8 +19,7 @@ use crate::{
 /// RAM-backed double buffer avoiding per-pixel MMIO VM-exits to QEMU/hardware.
 pub struct ShadowFb {
     data: Vec<u8>,
-    dirty_min_y: usize,
-    dirty_max_y: usize,
+    dirty_rows: [u64; 16],
 }
 
 static SHADOW_FB: Mutex<Option<Arc<Mutex<ShadowFb>>>> = Mutex::new(None);
@@ -68,32 +67,47 @@ impl DrawTarget for FramebufferDisplay {
         let offset = x * self.bpp + y * self.line_size;
         let mut shadow = self.shadow.lock();
         if offset + self.bpp <= shadow.data.len() {
+            let mut changed = false;
             match self.pixel_format {
                 PixelFormat::BgrReserved => {
                     let pixel = (rgb.2 as u32) | ((rgb.1 as u32) << 8) | ((rgb.0 as u32) << 16);
-                    shadow.data[offset..offset + 4].copy_from_slice(&pixel.to_ne_bytes());
+                    let bytes = pixel.to_ne_bytes();
+                    if shadow.data[offset..offset + 4] != bytes {
+                        shadow.data[offset..offset + 4].copy_from_slice(&bytes);
+                        changed = true;
+                    }
                 }
                 PixelFormat::Rgb888 => {
-                    shadow.data[offset..offset + 3].copy_from_slice(&[rgb.0, rgb.1, rgb.2]);
+                    let bytes = [rgb.0, rgb.1, rgb.2];
+                    if shadow.data[offset..offset + 3] != bytes {
+                        shadow.data[offset..offset + 3].copy_from_slice(&bytes);
+                        changed = true;
+                    }
                 }
                 PixelFormat::Rgb565 => {
                     let r = (rgb.0 >> 3) as u16;
                     let g = (rgb.1 >> 2) as u16;
                     let b = (rgb.2 >> 3) as u16;
-                    let rgb565 = (r << 11) | (g << 5) | b;
-                    shadow.data[offset..offset + 2].copy_from_slice(&rgb565.to_ne_bytes());
+                    let bytes = ((r << 11) | (g << 5) | b).to_ne_bytes();
+                    if shadow.data[offset..offset + 2] != bytes {
+                        shadow.data[offset..offset + 2].copy_from_slice(&bytes);
+                        changed = true;
+                    }
                 }
                 PixelFormat::Grayscale8 => {
                     let gray =
                         ((77 * rgb.0 as u16 + 150 * rgb.1 as u16 + 29 * rgb.2 as u16) >> 8) as u8;
-                    shadow.data[offset] = gray;
+                    if shadow.data[offset] != gray {
+                        shadow.data[offset] = gray;
+                        changed = true;
+                    }
                 }
             }
-            if y < shadow.dirty_min_y {
-                shadow.dirty_min_y = y;
-            }
-            if y > shadow.dirty_max_y {
-                shadow.dirty_max_y = y;
+            if changed {
+                let c = y / 64;
+                if c < shadow.dirty_rows.len() {
+                    shadow.dirty_rows[c] |= 1 << (y % 64);
+                }
             }
         }
     }
@@ -111,8 +125,7 @@ fn ensure_terminal(term_guard: &mut Option<Terminal<FramebufferDisplay>>) {
 
             let shadow = Arc::new(Mutex::new(ShadowFb {
                 data: initial_data,
-                dirty_min_y: usize::MAX,
-                dirty_max_y: 0,
+                dirty_rows: [0u64; 16],
             }));
             *SHADOW_FB.lock() = Some(Arc::clone(&shadow));
 
@@ -138,19 +151,48 @@ pub fn flush_shadow() {
         return;
     };
     let mut shadow = shadow_arc.lock();
-    if shadow.dirty_min_y <= shadow.dirty_max_y {
-        if let Some(fb) = get_framebuffer() {
-            let start = shadow.dirty_min_y * fb.line_size;
-            let end = ((shadow.dirty_max_y + 1) * fb.line_size)
-                .min(shadow.data.len())
-                .min(fb.total_size);
-            if start < end {
-                let _ = fb.write_bytes_at(start, &shadow.data[start..end]);
-            }
+    let Some(fb) = get_framebuffer() else {
+        return;
+    };
+
+    let height = fb.height;
+    let line_size = fb.line_size;
+    let total_size = fb.total_size;
+
+    let mut y = 0;
+    while y < height {
+        let chunk_idx = y / 64;
+        if chunk_idx >= shadow.dirty_rows.len() {
+            break;
         }
-        shadow.dirty_min_y = usize::MAX;
-        shadow.dirty_max_y = 0;
+        let mask = shadow.dirty_rows[chunk_idx];
+        if mask == 0 {
+            y = (chunk_idx + 1) * 64;
+            continue;
+        }
+        let bit = y % 64;
+        if (mask & (1 << bit)) == 0 {
+            y += 1;
+            continue;
+        }
+
+        let start_y = y;
+        while y < height {
+            let c = y / 64;
+            if c >= shadow.dirty_rows.len() || (shadow.dirty_rows[c] & (1 << (y % 64))) == 0 {
+                break;
+            }
+            y += 1;
+        }
+        let end_y = y;
+
+        let start = start_y * line_size;
+        let end = (end_y * line_size).min(shadow.data.len()).min(total_size);
+        if start < end {
+            let _ = fb.write_bytes_at(start, &shadow.data[start..end]);
+        }
     }
+    shadow.dirty_rows.fill(0);
 }
 
 /// Initializes the framebuffer terminal if framebuffer is available.
