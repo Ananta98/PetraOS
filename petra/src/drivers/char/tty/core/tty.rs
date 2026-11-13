@@ -138,59 +138,10 @@ impl Tty {
         };
 
         let (waiter, _) = Waiter::new_pair();
-        let ktimer = if !canon && vtime > 0 {
-            let waker = waiter.waker();
-            Some(crate::kpi::time::arm(
-                core::time::Duration::from_millis((vtime as u64) * 100),
-                Some(alloc::boxed::Box::new(move || {
-                    waker.wake_up();
-                })),
-            ))
-        } else {
-            None
-        };
         let deadline_ns = if !canon && vtime > 0 {
             Some(crate::time::get_monotonic_ns().saturating_add((vtime as u64) * 100_000_000))
         } else {
             None
-        };
-
-        let cond = || -> Option<usize> {
-            drain_input();
-            let mut ldisc = self.ldisc.lock();
-            let avail = ldisc.read_available();
-
-            let ready = if canon {
-                if avail > 0 {
-                    Some(ldisc.read_into(buf))
-                } else if ldisc.eof_received {
-                    ldisc.eof_received = false;
-                    Some(0)
-                } else if self.is_hung_up() {
-                    Some(0)
-                } else {
-                    None
-                }
-            } else if vmin == 0 {
-                if avail > 0 {
-                    Some(ldisc.read_into(buf))
-                } else if vtime == 0 || deadline_ns.is_some_and(|dl| crate::time::get_monotonic_ns() >= dl) {
-                    Some(0)
-                } else {
-                    None
-                }
-            } else if avail > 0 && (avail >= vmin.min(buf.len()) || deadline_ns.is_some_and(|dl| crate::time::get_monotonic_ns() >= dl)) {
-                Some(ldisc.read_into(buf))
-            } else if self.is_hung_up() {
-                Some(ldisc.read_into(buf))
-            } else {
-                None
-            };
-
-            if ready.is_none() {
-                self.wq.enqueue(waiter.waker());
-            }
-            ready
         };
 
         let cancel = || if Thread::should_interrupt() {
@@ -199,10 +150,81 @@ impl Tty {
             Ok(())
         };
 
-        let res = waiter.wait_until_or_cancelled(cond, cancel);
-        if let Some(t) = ktimer {
-            t.cancel();
-        }
+        let res = loop {
+            let fired = Arc::new(AtomicBool::new(false));
+            let ktimer = if let Some(dl) = deadline_ns {
+                let now_ns = crate::time::get_monotonic_ns();
+                if now_ns < dl {
+                    let waker = waiter.waker();
+                    let fired_cb = Arc::clone(&fired);
+                    Some(crate::kpi::time::arm(
+                        core::time::Duration::from_nanos(dl - now_ns),
+                        Some(alloc::boxed::Box::new(move || {
+                            fired_cb.store(true, Ordering::Release);
+                            waker.wake_up();
+                        })),
+                    ))
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            let mut timer_early = false;
+            let cond = || -> Option<usize> {
+                drain_input();
+                let mut ldisc = self.ldisc.lock();
+                let avail = ldisc.read_available();
+
+                let ready = if canon {
+                    if avail > 0 {
+                        Some(ldisc.read_into(buf))
+                    } else if ldisc.eof_received {
+                        ldisc.eof_received = false;
+                        Some(0)
+                    } else if self.is_hung_up() {
+                        Some(0)
+                    } else {
+                        None
+                    }
+                } else if vmin == 0 {
+                    if avail > 0 {
+                        Some(ldisc.read_into(buf))
+                    } else if vtime == 0 || deadline_ns.is_some_and(|dl| crate::time::get_monotonic_ns() >= dl) {
+                        Some(0)
+                    } else if fired.load(Ordering::Acquire) {
+                        timer_early = true;
+                        Some(0)
+                    } else {
+                        None
+                    }
+                } else if avail > 0 && (avail >= vmin.min(buf.len()) || deadline_ns.is_some_and(|dl| crate::time::get_monotonic_ns() >= dl)) {
+                    Some(ldisc.read_into(buf))
+                } else if avail > 0 && fired.load(Ordering::Acquire) {
+                    timer_early = true;
+                    Some(0)
+                } else if self.is_hung_up() {
+                    Some(ldisc.read_into(buf))
+                } else {
+                    None
+                };
+
+                if ready.is_none() {
+                    self.wq.enqueue(waiter.waker());
+                }
+                ready
+            };
+
+            let wait_res = waiter.wait_until_or_cancelled(cond, cancel);
+            if let Some(t) = ktimer {
+                t.cancel();
+            }
+            if timer_early {
+                continue;
+            }
+            break wait_res;
+        };
         res
     }
 

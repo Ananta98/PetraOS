@@ -8,6 +8,7 @@
 //! 3. CPU Idle Task
 
 use alloc::sync::Arc;
+use core::sync::atomic::{AtomicUsize, Ordering};
 use ostd::task::Task;
 use ostd::task::scheduler::UpdateFlags;
 
@@ -75,12 +76,14 @@ pub struct RunQueue {
     /// Last update event flag.
     last_flags: UpdateFlags,
     /// Per-CPU statistics counters.
-    stats: CpuStats,
+    stats: Arc<CpuStats>,
+    /// Atomic mirror of runnable task count for lockless cross-CPU querying.
+    nr_running_atomic: Arc<AtomicUsize>,
 }
 
 impl RunQueue {
-    /// Creates an empty per-CPU runqueue.
-    pub fn new() -> Self {
+    /// Creates an empty per-CPU runqueue with shared atomic stats and run count.
+    pub fn new(stats: Arc<CpuStats>, nr_running_atomic: Arc<AtomicUsize>) -> Self {
         Self {
             cpu: None,
             current: None,
@@ -89,7 +92,8 @@ impl RunQueue {
             idle: None,
             last_update: 0,
             last_flags: UpdateFlags::Tick,
-            stats: CpuStats::new(),
+            stats,
+            nr_running_atomic,
         }
     }
 
@@ -161,6 +165,12 @@ impl RunQueue {
         }
     }
 
+    /// Syncs the atomic runnable task counter for lockless cross-CPU load balancing.
+    fn sync_nr_running(&self) {
+        self.nr_running_atomic
+            .store(self.nr_running(), Ordering::Release);
+    }
+
     /// Places a task into its appropriate scheduling class.
     pub fn place(&mut self, entry: SchedEntry, is_new: bool) {
         if entry.entity.is_rt() {
@@ -168,6 +178,7 @@ impl RunQueue {
         } else {
             self.eevdf.place(entry, is_new);
         }
+        self.sync_nr_running();
     }
 
     /// Checks if a newly arrived entity should preempt the currently running task.
@@ -258,8 +269,9 @@ impl RunQueue {
         }
 
         // Priority 2: EEVDF Fair class
+        let is_idle_or_none = self.current.as_ref().map_or(true, |c| c.is_idle);
         if let Some(best) = self.eevdf.best()
-            && self.eevdf.wins_over_current(best, yielding)
+            && (is_idle_or_none || self.eevdf.wins_over_current(best, yielding))
         {
             return Some(best.clone());
         }
@@ -318,6 +330,7 @@ impl RunQueue {
         }
 
         running.entity.dispatched(now(), running.arrival);
+        self.sync_nr_running();
     }
 
     /// Dequeues the currently running task (e.g. on sleep, wait, or exit).
@@ -338,6 +351,7 @@ impl RunQueue {
             crate::sched::adapter::forget_entity(&current.task);
         }
 
+        self.sync_nr_running();
         Some(current)
     }
 
@@ -370,6 +384,9 @@ impl RunQueue {
 
 impl Default for RunQueue {
     fn default() -> Self {
-        Self::new()
+        Self::new(
+            Arc::new(CpuStats::new()),
+            Arc::new(AtomicUsize::new(0)),
+        )
     }
 }

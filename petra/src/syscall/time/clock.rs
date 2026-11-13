@@ -147,39 +147,14 @@ pub fn sys_clock_nanosleep(
         return Ok(0);
     }
 
-    let sleep_ns = target_ns - now_ns;
-    let (waiter, _) = ostd::sync::Waiter::new_pair();
-    let waker = waiter.waker();
-    let ktimer = crate::kpi::time::arm(
-        core::time::Duration::from_nanos(sleep_ns),
-        Some(alloc::boxed::Box::new(move || {
-            waker.wake_up();
-        })),
-    );
-
-    let cond = || {
-        let now_ns = if clock_id == CLOCK_REALTIME {
+    let now_fn = || {
+        if clock_id == CLOCK_REALTIME {
             crate::time::get_realtime_ns()
         } else {
             crate::time::get_monotonic_ns()
-        };
-        if now_ns >= target_ns {
-            Some(())
-        } else {
-            None
         }
     };
-
-    let cancel = || {
-        if Thread::should_interrupt() {
-            Err(Errno::EINTR)
-        } else {
-            Ok(())
-        }
-    };
-
-    let res = waiter.wait_until_or_cancelled(cond, cancel);
-    ktimer.cancel();
+    let res = super::sleep_until_ns(target_ns, now_fn);
 
     if let Err(Errno::EINTR) = res {
         if !is_abstime && rem_ptr != 0 {

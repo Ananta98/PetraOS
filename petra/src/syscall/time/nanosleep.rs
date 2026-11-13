@@ -33,34 +33,7 @@ pub fn sys_nanosleep(req_ptr: usize, rem_ptr: usize, _ctx: &mut UserContext) -> 
     let start_ns = crate::time::get_monotonic_ns();
     let end_ns = start_ns.saturating_add(sleep_ns);
 
-    let (waiter, _) = ostd::sync::Waiter::new_pair();
-    let waker = waiter.waker();
-    let ktimer = crate::kpi::time::arm(
-        core::time::Duration::from_nanos(sleep_ns),
-        Some(alloc::boxed::Box::new(move || {
-            waker.wake_up();
-        })),
-    );
-
-    let cond = || {
-        let now_ns = crate::time::get_monotonic_ns();
-        if now_ns >= end_ns {
-            Some(())
-        } else {
-            None
-        }
-    };
-
-    let cancel = || {
-        if Thread::should_interrupt() {
-            Err(Errno::EINTR)
-        } else {
-            Ok(())
-        }
-    };
-
-    let res = waiter.wait_until_or_cancelled(cond, cancel);
-    ktimer.cancel();
+    let res = super::sleep_until_ns(end_ns, crate::time::get_monotonic_ns);
 
     if let Err(Errno::EINTR) = res {
         if rem_ptr != 0 {

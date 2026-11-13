@@ -24,7 +24,7 @@ use spin::Once;
 use super::{
     now,
     sched_class::{RunQueue, SchedEntity, SchedEntry, eevdf::BASE_SLICE_NS},
-    stats,
+    stats::{self, CpuStats},
 };
 
 /// Global sequencer for unique tie-breaking order.
@@ -34,6 +34,10 @@ static NEXT_SEQ: AtomicUsize = AtomicUsize::new(0);
 pub struct EevdfScheduler {
     /// Per-CPU runqueues.
     rqs: Box<[SpinLock<RunQueue>]>,
+    /// Per-CPU running task count atomics for lockless cross-CPU load balancing.
+    nr_running: Box<[Arc<AtomicUsize>]>,
+    /// Per-CPU CPU stats for lockless stats snapshotting.
+    cpu_stats: Box<[Arc<CpuStats>]>,
     /// Global registry mapping task addresses to unified scheduling entities.
     entities: SpinLock<BTreeMap<usize, Arc<SchedEntity>>>,
 }
@@ -41,17 +45,27 @@ pub struct EevdfScheduler {
 impl EevdfScheduler {
     /// Creates a scheduler instance with per-CPU runqueues.
     fn new() -> Self {
-        let rqs = (0..num_cpus())
-            .map(|i| {
-                let mut rq = RunQueue::new();
-                if let Ok(cpu) = i.try_into() {
-                    rq.set_cpu(cpu);
-                }
-                SpinLock::new(rq)
-            })
-            .collect();
+        let ncpus = num_cpus();
+        let mut rqs = alloc::vec::Vec::with_capacity(ncpus);
+        let mut nr_running = alloc::vec::Vec::with_capacity(ncpus);
+        let mut cpu_stats = alloc::vec::Vec::with_capacity(ncpus);
+
+        for i in 0..ncpus {
+            let stats = Arc::new(CpuStats::new());
+            let nr = Arc::new(AtomicUsize::new(0));
+            let mut rq = RunQueue::new(Arc::clone(&stats), Arc::clone(&nr));
+            if let Ok(cpu) = i.try_into() {
+                rq.set_cpu(cpu);
+            }
+            rqs.push(SpinLock::new(rq));
+            nr_running.push(nr);
+            cpu_stats.push(stats);
+        }
+
         Self {
-            rqs,
+            rqs: rqs.into_boxed_slice(),
+            nr_running: nr_running.into_boxed_slice(),
+            cpu_stats: cpu_stats.into_boxed_slice(),
             entities: SpinLock::new(BTreeMap::new()),
         }
     }
@@ -84,7 +98,10 @@ impl EevdfScheduler {
 
         let current_id = u32::from(current_cpu) as usize;
         if affinity.is_set(current_id)
-            && self.rq(current_cpu).disable_irq().lock().nr_running() == 0
+            && self
+                .nr_running
+                .get(current_id)
+                .is_some_and(|nr| nr.load(Ordering::Relaxed) == 0)
         {
             return current_cpu;
         }
@@ -97,7 +114,10 @@ impl EevdfScheduler {
                 continue;
             }
             if let Ok(cpu) = cpu_idx.try_into() {
-                let load = self.rq(cpu).disable_irq().lock().nr_running();
+                let load = self
+                    .nr_running
+                    .get(cpu_idx)
+                    .map_or(0, |nr| nr.load(Ordering::Relaxed));
                 if load == 0 {
                     return cpu;
                 }
@@ -273,14 +293,20 @@ pub fn entity_of(task: &Task) -> Option<Arc<SchedEntity>> {
 
 /// Returns the number of runnable tasks on `cpu`, excluding idle.
 pub fn nr_running_on(cpu: CpuId) -> usize {
-    scheduler().rq(cpu).disable_irq().lock().nr_running()
+    SCHEDULER
+        .get()
+        .and_then(|s| s.nr_running.get(u32::from(cpu) as usize))
+        .map(|nr| nr.load(Ordering::Relaxed))
+        .unwrap_or(0)
 }
 
 /// Returns a snapshot of CPU scheduling statistics for `cpu`.
 pub fn cpu_stats_on(cpu: CpuId) -> Option<stats::CpuStatsSnapshot> {
     SCHEDULER
-        .get()
-        .map(|s| s.rq(cpu).disable_irq().lock().stats().snapshot())
+        .get()?
+        .cpu_stats
+        .get(u32::from(cpu) as usize)
+        .map(|s| s.snapshot())
 }
 
 fn scheduler() -> &'static EevdfScheduler {

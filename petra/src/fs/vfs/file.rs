@@ -204,8 +204,16 @@ impl File {
 
     /// Reads data from the file, advancing the cursor if seekable.
     pub fn read(&self, buf: &mut [u8]) -> Result<usize> {
-        if !self.flags.lock().contains(OpenFlags::READ) {
+        let flags = *self.flags.lock();
+        if !flags.contains(OpenFlags::READ) {
             return Err(Errno::EBADF);
+        }
+
+        if flags.contains(OpenFlags::NONBLOCK) {
+            let poll = self.ops.poll();
+            if !poll.intersects(PollEvents::IN | PollEvents::RDNORM) {
+                return Err(Errno::EAGAIN);
+            }
         }
 
         let mut offset_guard = self.offset.lock();
@@ -249,11 +257,18 @@ impl File {
 
     /// Reads data from the file at `offset` without altering the cursor position (`pread(2)`).
     pub fn pread(&self, offset: u64, buf: &mut [u8]) -> Result<usize> {
-        if !self.flags.lock().contains(OpenFlags::READ) {
+        let flags = *self.flags.lock();
+        if !flags.contains(OpenFlags::READ) {
             return Err(Errno::EBADF);
         }
         if !self.seekable {
             return Err(Errno::ESPIPE);
+        }
+        if flags.contains(OpenFlags::NONBLOCK) {
+            let poll = self.ops.poll();
+            if !poll.intersects(PollEvents::IN | PollEvents::RDNORM) {
+                return Err(Errno::EAGAIN);
+            }
         }
         let nread = self.ops.read(offset, buf)?;
         self.inode.touch_atime();

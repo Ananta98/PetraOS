@@ -12,9 +12,13 @@ use crate::{
         },
         fd::FdFlags,
     },
-    proc::thread::Thread,
+    proc::thread::{Thread, ThreadFlags},
     syscall::fs::utils::UserPtr,
-    uapi::errno::{Errno, Result},
+    syscall::signals::utils::decode_sigset,
+    uapi::{
+        errno::{Errno, Result},
+        signal::SIGSET_WORDS,
+    },
 };
 
 /// System call `epoll_create(int size)` (Syscall #213).
@@ -157,13 +161,17 @@ fn execute_epoll_wait(
     let (waiter, _) = ostd::sync::Waiter::new_pair();
     let ktimer = if let Some(ref dl) = deadline {
         let remaining_ns = dl.remaining_ns();
-        let waker = waiter.waker();
-        Some(crate::kpi::time::arm(
-            core::time::Duration::from_nanos(remaining_ns.max(1_000_000)),
-            Some(alloc::boxed::Box::new(move || {
-                waker.wake_up();
-            })),
-        ))
+        if remaining_ns > 0 {
+            let waker = waiter.waker();
+            Some(crate::kpi::time::arm(
+                core::time::Duration::from_nanos(remaining_ns.max(1_000_000)),
+                Some(alloc::boxed::Box::new(move || {
+                    waker.wake_up();
+                })),
+            ))
+        } else {
+            None
+        }
     } else {
         None
     };
@@ -225,6 +233,43 @@ pub fn sys_epoll_wait(
     execute_epoll_wait(epfd, events_ptr, maxevents, deadline)
 }
 
+fn with_temp_sigmask<F: FnOnce() -> Result<usize>>(
+    sigmask_ptr: usize,
+    sigsetsize: usize,
+    f: F,
+) -> Result<usize> {
+    if sigmask_ptr == 0 {
+        return f();
+    }
+    if sigsetsize != SIGSET_SIZE_BYTES {
+        return Err(Errno::EINVAL);
+    }
+    let td = Thread::current().ok_or(Errno::ESRCH)?;
+    let vmar = td.proc().ok_or(Errno::ESRCH)?.vmspace();
+    let mut buf = [0u8; SIGSET_WORDS * 8];
+    UserPtr::new(sigmask_ptr).read_bytes(&vmar, &mut buf[..sigsetsize])?;
+    let temp_mask = decode_sigset(&buf);
+    let orig_mask = {
+        let mut inner = td.inner.lock();
+        let prev = inner.sigmask;
+        inner.sigmask = temp_mask;
+        prev
+    };
+
+    let res = f();
+
+    let mut inner = td.inner.lock();
+    inner.sigmask = orig_mask;
+    if inner.sigqueue.has_unmasked(&orig_mask)
+        || td.proc().is_some_and(|p| p.sigqueue.has_unmasked(&orig_mask))
+    {
+        inner.flags.insert(ThreadFlags::TDF_ASTPENDING);
+    } else {
+        inner.flags.remove(ThreadFlags::TDF_ASTPENDING);
+    }
+    res
+}
+
 /// System call `epoll_pwait(int epfd, struct epoll_event *events, int maxevents, int timeout, const sigset_t *sigmask, size_t sigsetsize)` (Syscall #281).
 pub fn sys_epoll_pwait(
     epfd: i32,
@@ -235,10 +280,9 @@ pub fn sys_epoll_pwait(
     sigsetsize: usize,
     ctx: &mut UserContext,
 ) -> Result<usize> {
-    if sigmask_ptr != 0 && sigsetsize != SIGSET_SIZE_BYTES {
-        return Err(Errno::EINVAL);
-    }
-    sys_epoll_wait(epfd, events_ptr, maxevents, timeout_ms, ctx)
+    with_temp_sigmask(sigmask_ptr, sigsetsize, || {
+        sys_epoll_wait(epfd, events_ptr, maxevents, timeout_ms, ctx)
+    })
 }
 
 fn parse_timespec_deadline(
@@ -268,13 +312,11 @@ pub fn sys_epoll_pwait2(
     sigsetsize: usize,
     _ctx: &mut UserContext,
 ) -> Result<usize> {
-    if sigmask_ptr != 0 && sigsetsize != SIGSET_SIZE_BYTES {
-        return Err(Errno::EINVAL);
-    }
-
     let proc = Thread::proc_or_esrch()?;
     let vmar = proc.vmspace();
     let deadline = parse_timespec_deadline(timeout_ts_ptr, &vmar)?;
 
-    execute_epoll_wait(epfd, events_ptr, maxevents, deadline)
+    with_temp_sigmask(sigmask_ptr, sigsetsize, || {
+        execute_epoll_wait(epfd, events_ptr, maxevents, deadline)
+    })
 }

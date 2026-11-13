@@ -95,45 +95,8 @@ pub fn sys_futex(
             });
             drop(table);
 
-            // Arm a timer if timeout is specified
-            let ktimer = if has_timeout {
-                let now_ns = if clock_is_realtime {
-                    crate::time::get_realtime_ns()
-                } else {
-                    crate::time::get_monotonic_ns()
-                };
-                let rem_ns = deadline_ns.saturating_sub(now_ns);
-                let waker = waiter.waker();
-                Some(crate::kpi::time::arm(
-                    core::time::Duration::from_nanos(rem_ns),
-                    Some(alloc::boxed::Box::new(move || {
-                        waker.wake_up();
-                    })),
-                ))
-            } else {
-                None
-            };
-
-            // Wait until woken, timed out, or interrupted by signal
-            let cond = || {
-                if woken.load(Ordering::Acquire) {
-                    Some(Ok(0))
-                } else if has_timeout {
-                    let now_ns = if clock_is_realtime {
-                        crate::time::get_realtime_ns()
-                    } else {
-                        crate::time::get_monotonic_ns()
-                    };
-                    if now_ns >= deadline_ns {
-                        Some(Err(Errno::ETIMEDOUT))
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
-            };
-
+            // Wait until woken, timed out, or interrupted by signal.
+            // Re-arm the one-shot timer if Jiffies fires slightly before monotonic/realtime ns reaches deadline_ns.
             let cancel = || {
                 if Thread::should_interrupt() {
                     Err(Errno::EINTR)
@@ -142,10 +105,65 @@ pub fn sys_futex(
                 }
             };
 
-            let wait_res = waiter.wait_until_or_cancelled(cond, cancel);
-            if let Some(timer) = ktimer {
-                timer.cancel();
-            }
+            let wait_res = loop {
+                if woken.load(Ordering::Acquire) {
+                    break Ok(Ok(0));
+                }
+
+                let fired = Arc::new(core::sync::atomic::AtomicBool::new(false));
+                let ktimer = if has_timeout {
+                    let now_ns = if clock_is_realtime {
+                        crate::time::get_realtime_ns()
+                    } else {
+                        crate::time::get_monotonic_ns()
+                    };
+                    if now_ns >= deadline_ns {
+                        break Ok(Err(Errno::ETIMEDOUT));
+                    }
+                    let rem_ns = deadline_ns - now_ns;
+                    let waker = waiter.waker();
+                    let fired_cb = Arc::clone(&fired);
+                    Some(crate::kpi::time::arm(
+                        core::time::Duration::from_nanos(rem_ns),
+                        Some(alloc::boxed::Box::new(move || {
+                            fired_cb.store(true, Ordering::Release);
+                            waker.wake_up();
+                        })),
+                    ))
+                } else {
+                    None
+                };
+
+                let cond = || {
+                    if woken.load(Ordering::Acquire) {
+                        Some(Ok(0))
+                    } else if has_timeout {
+                        let now_ns = if clock_is_realtime {
+                            crate::time::get_realtime_ns()
+                        } else {
+                            crate::time::get_monotonic_ns()
+                        };
+                        if now_ns >= deadline_ns {
+                            Some(Err(Errno::ETIMEDOUT))
+                        } else if fired.load(Ordering::Acquire) {
+                            Some(Ok(1))
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                };
+
+                let res = waiter.wait_until_or_cancelled(cond, cancel);
+                if let Some(timer) = ktimer {
+                    timer.cancel();
+                }
+                match res {
+                    Ok(Ok(1)) => continue, // Timer fired early; re-arm for remaining ns
+                    other => break other,
+                }
+            };
 
             remove_waiter(&key, &woken);
 
