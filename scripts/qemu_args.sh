@@ -14,6 +14,8 @@ MEM=${MEM:-"8G"}
 CPU=${CPU:-"host"}
 ENABLE_KVM=${ENABLE_KVM:-"on"}
 DISPLAY=${DISPLAY_MODE:-"std"}       # "std", "none", "vnc", or custom
+VIRTIO_GPU_XRES=${VIRTIO_GPU_XRES:-1920}
+VIRTIO_GPU_YRES=${VIRTIO_GPU_YRES:-1080}
 SERIAL=${SERIAL:-"stdio"}           # "stdio", "file", "none"
 LOG_FILE=${LOG_FILE:-"qemu-serial.log"}
 MONITOR_SOCK=${MONITOR_SOCK:-"/tmp/petra_qemu_monitor.sock"}
@@ -45,7 +47,7 @@ case "$SCHEME" in
         if [ "$DISPLAY" = "none" ]; then
             QEMU_ARGS="$QEMU_ARGS -nographic -display none"
         elif [ "$DISPLAY" = "std" ]; then
-            QEMU_ARGS="$QEMU_ARGS -vga std -device virtio-gpu-pci"
+            QEMU_ARGS="$QEMU_ARGS -vga std -device virtio-gpu-pci,xres=${VIRTIO_GPU_XRES},yres=${VIRTIO_GPU_YRES}"
         else
             QEMU_ARGS="$QEMU_ARGS -display $DISPLAY"
         fi
