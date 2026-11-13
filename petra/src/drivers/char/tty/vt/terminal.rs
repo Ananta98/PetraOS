@@ -6,7 +6,9 @@
 //! rendering directly to the physical linear framebuffer.
 
 use alloc::{boxed::Box, sync::Arc, vec, vec::Vec};
+use core::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
 use os_terminal::{DrawTarget, Rgb, Terminal};
+use ostd::timer::{Jiffies, TIMER_FREQ};
 use spin::Mutex;
 
 use super::font::ConsoleFont;
@@ -17,39 +19,62 @@ use crate::{
 };
 
 /// RAM-backed double buffer avoiding per-pixel MMIO VM-exits to QEMU/hardware.
+///
+/// Pixel bytes and dirty-row bitmasks use relaxed atomics so `draw_pixel`
+/// never acquires a mutex per pixel; writers are serialized by `TERMINAL`.
 pub struct ShadowFb {
-    data: Vec<u8>,
-    dirty_rows: [u64; 16],
+    data: Vec<AtomicU8>,
+    dirty_rows: Vec<AtomicU64>,
+    scratch: Mutex<Vec<u8>>,
 }
 
-static SHADOW_FB: Mutex<Option<Arc<Mutex<ShadowFb>>>> = Mutex::new(None);
+static SHADOW_FB: Mutex<Option<Arc<ShadowFb>>> = Mutex::new(None);
+static NEEDS_FLUSH: AtomicBool = AtomicBool::new(false);
+static TIMER_ACTIVE: AtomicBool = AtomicBool::new(false);
+static LAST_FLUSH_TICK: AtomicU64 = AtomicU64::new(0);
 
 /// Hardware display target integrating `FrameBuffer` with `os-terminal`'s `DrawTarget`.
 pub struct FramebufferDisplay {
-    fb: Arc<FrameBuffer>,
     width: usize,
     height: usize,
     line_size: usize,
     pixel_format: PixelFormat,
     bpp: usize,
-    shadow: Arc<Mutex<ShadowFb>>,
+    shadow: Arc<ShadowFb>,
 }
 
 impl FramebufferDisplay {
-    pub fn new(fb: Arc<FrameBuffer>, shadow: Arc<Mutex<ShadowFb>>) -> Self {
+    pub fn new(fb: Arc<FrameBuffer>, shadow: Arc<ShadowFb>) -> Self {
         let width = fb.width;
         let height = fb.height;
         let line_size = fb.line_size;
         let pixel_format = fb.pixel_format;
         let bpp = pixel_format.nbytes();
         Self {
-            fb,
             width,
             height,
             line_size,
             pixel_format,
             bpp,
             shadow,
+        }
+    }
+
+    #[inline(always)]
+    fn write_pixel_bytes<const N: usize>(&self, offset: usize, bytes: [u8; N], y: usize) {
+        let slice = &self.shadow.data[offset..offset + N];
+        let mut changed = false;
+        for (dst, &src) in slice.iter().zip(bytes.iter()) {
+            if dst.load(Ordering::Relaxed) != src {
+                dst.store(src, Ordering::Relaxed);
+                changed = true;
+            }
+        }
+        if changed {
+            let chunk = y / 64;
+            if let Some(mask) = self.shadow.dirty_rows.get(chunk) {
+                mask.fetch_or(1 << (y % 64), Ordering::Relaxed);
+            }
         }
     }
 }
@@ -65,49 +90,27 @@ impl DrawTarget for FramebufferDisplay {
             return;
         }
         let offset = x * self.bpp + y * self.line_size;
-        let mut shadow = self.shadow.lock();
-        if offset + self.bpp <= shadow.data.len() {
-            let mut changed = false;
-            match self.pixel_format {
-                PixelFormat::BgrReserved => {
-                    let pixel = (rgb.2 as u32) | ((rgb.1 as u32) << 8) | ((rgb.0 as u32) << 16);
-                    let bytes = pixel.to_ne_bytes();
-                    if shadow.data[offset..offset + 4] != bytes {
-                        shadow.data[offset..offset + 4].copy_from_slice(&bytes);
-                        changed = true;
-                    }
-                }
-                PixelFormat::Rgb888 => {
-                    let bytes = [rgb.0, rgb.1, rgb.2];
-                    if shadow.data[offset..offset + 3] != bytes {
-                        shadow.data[offset..offset + 3].copy_from_slice(&bytes);
-                        changed = true;
-                    }
-                }
-                PixelFormat::Rgb565 => {
-                    let r = (rgb.0 >> 3) as u16;
-                    let g = (rgb.1 >> 2) as u16;
-                    let b = (rgb.2 >> 3) as u16;
-                    let bytes = ((r << 11) | (g << 5) | b).to_ne_bytes();
-                    if shadow.data[offset..offset + 2] != bytes {
-                        shadow.data[offset..offset + 2].copy_from_slice(&bytes);
-                        changed = true;
-                    }
-                }
-                PixelFormat::Grayscale8 => {
-                    let gray =
-                        ((77 * rgb.0 as u16 + 150 * rgb.1 as u16 + 29 * rgb.2 as u16) >> 8) as u8;
-                    if shadow.data[offset] != gray {
-                        shadow.data[offset] = gray;
-                        changed = true;
-                    }
-                }
+        if offset + self.bpp > self.shadow.data.len() {
+            return;
+        }
+        match self.pixel_format {
+            PixelFormat::BgrReserved => {
+                let pixel = (rgb.2 as u32) | ((rgb.1 as u32) << 8) | ((rgb.0 as u32) << 16);
+                self.write_pixel_bytes(offset, pixel.to_ne_bytes(), y);
             }
-            if changed {
-                let c = y / 64;
-                if c < shadow.dirty_rows.len() {
-                    shadow.dirty_rows[c] |= 1 << (y % 64);
-                }
+            PixelFormat::Rgb888 => {
+                self.write_pixel_bytes(offset, [rgb.0, rgb.1, rgb.2], y);
+            }
+            PixelFormat::Rgb565 => {
+                let r = (rgb.0 >> 3) as u16;
+                let g = (rgb.1 >> 2) as u16;
+                let b = (rgb.2 >> 3) as u16;
+                self.write_pixel_bytes(offset, ((r << 11) | (g << 5) | b).to_ne_bytes(), y);
+            }
+            PixelFormat::Grayscale8 => {
+                let gray =
+                    ((77 * rgb.0 as u16 + 150 * rgb.1 as u16 + 29 * rgb.2 as u16) >> 8) as u8;
+                self.write_pixel_bytes(offset, [gray], y);
             }
         }
     }
@@ -123,14 +126,20 @@ fn ensure_terminal(term_guard: &mut Option<Terminal<FramebufferDisplay>>) {
             let mut initial_data = vec![0u8; total_size];
             let _ = fb.read_bytes(0, &mut initial_data);
 
-            let shadow = Arc::new(Mutex::new(ShadowFb {
-                data: initial_data,
-                dirty_rows: [0u64; 16],
-            }));
+            let atomic_data: Vec<AtomicU8> = initial_data.into_iter().map(AtomicU8::new).collect();
+            let dirty_len = fb.height.div_ceil(64);
+            let dirty_rows = (0..dirty_len).map(|_| AtomicU64::new(0)).collect();
+
+            let shadow = Arc::new(ShadowFb {
+                data: atomic_data,
+                dirty_rows,
+                scratch: Mutex::new(Vec::new()),
+            });
             *SHADOW_FB.lock() = Some(Arc::clone(&shadow));
 
             let display = FramebufferDisplay::new(fb, shadow);
             let mut terminal = Terminal::new(display, Box::new(ConsoleFont::new()));
+            terminal.set_auto_flush(false);
             terminal.set_pty_writer(Box::new(|resp: &str| {
                 for b in resp.bytes() {
                     crate::drivers::char::tty::queue_input(b);
@@ -138,6 +147,7 @@ fn ensure_terminal(term_guard: &mut Option<Terminal<FramebufferDisplay>>) {
             }));
             // Default to steady block cursor (DECSCUSR 2)
             terminal.process(b"\x1b[2 q");
+            terminal.flush();
             *term_guard = Some(terminal);
             flush_shadow();
         }
@@ -147,10 +157,9 @@ fn ensure_terminal(term_guard: &mut Option<Terminal<FramebufferDisplay>>) {
 /// Flushes dirty raster rows from RAM shadow buffer directly to physical framebuffer.
 pub fn flush_shadow() {
     let shadow_guard = SHADOW_FB.lock();
-    let Some(shadow_arc) = shadow_guard.as_ref() else {
+    let Some(shadow) = shadow_guard.as_ref() else {
         return;
     };
-    let mut shadow = shadow_arc.lock();
     let Some(fb) = get_framebuffer() else {
         return;
     };
@@ -158,14 +167,15 @@ pub fn flush_shadow() {
     let height = fb.height;
     let line_size = fb.line_size;
     let total_size = fb.total_size;
+    let mut scratch = shadow.scratch.lock();
 
     let mut y = 0;
     while y < height {
         let chunk_idx = y / 64;
-        if chunk_idx >= shadow.dirty_rows.len() {
+        let Some(mask_atom) = shadow.dirty_rows.get(chunk_idx) else {
             break;
-        }
-        let mask = shadow.dirty_rows[chunk_idx];
+        };
+        let mask = mask_atom.load(Ordering::Relaxed);
         if mask == 0 {
             y = (chunk_idx + 1) * 64;
             continue;
@@ -179,7 +189,10 @@ pub fn flush_shadow() {
         let start_y = y;
         while y < height {
             let c = y / 64;
-            if c >= shadow.dirty_rows.len() || (shadow.dirty_rows[c] & (1 << (y % 64))) == 0 {
+            let Some(m) = shadow.dirty_rows.get(c) else {
+                break;
+            };
+            if (m.load(Ordering::Relaxed) & (1 << (y % 64))) == 0 {
                 break;
             }
             y += 1;
@@ -189,14 +202,54 @@ pub fn flush_shadow() {
         let start = start_y * line_size;
         let end = (end_y * line_size).min(shadow.data.len()).min(total_size);
         if start < end {
-            let _ = fb.write_bytes_at(start, &shadow.data[start..end]);
+            let len = end - start;
+            scratch.clear();
+            scratch.reserve(len);
+            for b in &shadow.data[start..end] {
+                scratch.push(b.load(Ordering::Relaxed));
+            }
+            let _ = fb.write_bytes_at(start, &scratch);
         }
     }
-    shadow.dirty_rows.fill(0);
+    for row in &shadow.dirty_rows {
+        row.store(0, Ordering::Relaxed);
+    }
+}
+
+/// Timer callback that coalesces rapid terminal writes into ~60 Hz display flushes.
+fn tick_flush() {
+    TIMER_ACTIVE.store(true, Ordering::Relaxed);
+    if !NEEDS_FLUSH.load(Ordering::Acquire) {
+        return;
+    }
+
+    let now = Jiffies::elapsed().as_u64();
+    let min_interval = (TIMER_FREQ / 60).max(1);
+    let last = LAST_FLUSH_TICK.load(Ordering::Relaxed);
+    if now.saturating_sub(last) < min_interval {
+        return;
+    }
+
+    let Some(mut term_guard) = TERMINAL.try_lock() else {
+        return;
+    };
+    if !NEEDS_FLUSH.swap(false, Ordering::AcqRel) {
+        return;
+    }
+    LAST_FLUSH_TICK.store(now, Ordering::Relaxed);
+    if let Some(terminal) = term_guard.as_mut() {
+        terminal.flush();
+    }
+    drop(term_guard);
+    flush_shadow();
 }
 
 /// Initializes the framebuffer terminal if framebuffer is available.
 pub fn init() {
+    static TIMER_REGISTERED: spin::Once<()> = spin::Once::new();
+    TIMER_REGISTERED.call_once(|| {
+        ostd::timer::register_callback_on_cpu(tick_flush);
+    });
     let mut term_guard = TERMINAL.lock();
     ensure_terminal(&mut term_guard);
 }
@@ -207,8 +260,14 @@ pub fn write_output(data: &[u8]) {
     ensure_terminal(&mut term_guard);
     if let Some(terminal) = term_guard.as_mut() {
         terminal.process(data);
+        if !TIMER_ACTIVE.load(Ordering::Relaxed) {
+            terminal.flush();
+            drop(term_guard);
+            flush_shadow();
+            return;
+        }
+        NEEDS_FLUSH.store(true, Ordering::Release);
     }
-    flush_shadow();
 }
 
 /// Returns the current terminal window dimensions.

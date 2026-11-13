@@ -95,7 +95,13 @@ impl FrameBuffer {
         );
 
         let io_mem = IoMem::acquire_with_cache_policy(range.clone(), CachePolicy::WriteCombining)
-            .or_else(|_| IoMem::acquire(range))
+            .or_else(|err| {
+                ostd::warn!(
+                    "Framebuffer: WriteCombining unavailable ({:?}), falling back to default cache policy",
+                    err
+                );
+                IoMem::acquire(range)
+            })
             .map_err(|_| {
                 ostd::error!("Framebuffer: Failed to acquire MMIO memory region");
                 Errno::EIO
