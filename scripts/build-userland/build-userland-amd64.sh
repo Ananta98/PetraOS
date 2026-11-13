@@ -38,7 +38,7 @@ STAGING="${BUILD_DIR}/staging"
 ROOTFS_STAGING="${BUILD_DIR}/rootfs_staging"
 INITRAMFS="${REPO_ROOT}/build/initramfs.cpio"
 
-PACKAGES="${PETRAOS_USERLAND_PACKAGES:-developer-tools}"
+PACKAGES="${PETRAOS_USERLAND_PACKAGES:-developer-tools hyprland}"
 PETRAOS_VERSION="${PETRAOS_VERSION:-0.1.0}"
 SUPPORT_DIR="${REPO_ROOT}/scripts/build-support"
 PREBUILD_DIR="${REPO_ROOT}/scripts/prebuild-package"
@@ -199,6 +199,13 @@ chmod 0600 "${ROOTFS_STAGING}/etc/shadow"
 chmod 0750 "${ROOTFS_STAGING}/root"
 mkdir -p "${ROOTFS_STAGING}/root/.config"
 chmod 0750 "${ROOTFS_STAGING}/root/.config"
+
+# Deploy PetraOS Quickshell UI from repository shell/ directory
+if [ -d "${REPO_ROOT}/shell" ]; then
+    echo "==> Staging PetraOS Quickshell UI into /usr/share/petra/shell"
+    mkdir -p "${ROOTFS_STAGING}/usr/share/petra/shell"
+    cp -a "${REPO_ROOT}/shell/." "${ROOTFS_STAGING}/usr/share/petra/shell/"
+fi
 
 # Configure Void Linux runit services in /etc/runit/runsvdir/default
 mkdir -p "${ROOTFS_STAGING}/etc/runit/runsvdir/default"

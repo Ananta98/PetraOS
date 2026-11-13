@@ -1,0 +1,9 @@
+module qs.Ui
+BorderSurface 1.0 BorderSurface.qml
+Button 1.0 Button.qml
+BarWidget 1.0 BarWidget.qml
+BarIconButton 1.0 BarIconButton.qml
+Panel 1.0 Panel.qml
+PopupCard 1.0 PopupCard.qml
+PanelSlider 1.0 PanelSlider.qml
+Toggle 1.0 Toggle.qml
