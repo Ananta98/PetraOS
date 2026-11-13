@@ -123,6 +123,12 @@ if [ -n "$ROOT_DEV" ]; then
         chroot /sysroot /usr/bin/runsvdir -P /var/service &
     fi
 
+    if [ -e /dev/dri/card0 ] && [ -x /sysroot/usr/bin/start-petra-desktop ]; then
+        echo "[init] Starting Hyprland desktop (/usr/bin/start-petra-desktop)..."
+        chroot /sysroot /usr/bin/start-petra-desktop
+        export PETRA_NO_AUTO_GUI=1
+    fi
+
     if [ -x /sysroot/usr/bin/bash ]; then
         echo "[init] Spawning interactive login shell (/usr/bin/bash -l)..."
         exec chroot /sysroot /usr/bin/bash -l

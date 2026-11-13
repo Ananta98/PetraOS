@@ -319,7 +319,7 @@ if [ ! -e /dev/dri/card0 ]; then
     exit 0
 fi
 
-Hyprland -c /etc/hypr/hyprland.conf >/var/log/hyprland.log 2>&1
+Hyprland --i-am-really-stupid -c /etc/hypr/hyprland.conf >/var/log/hyprland.log 2>&1
 rc=$?
 if [ "$rc" -ne 0 ]; then
     echo "start-petra-desktop: Hyprland exited with status $rc" >&2
