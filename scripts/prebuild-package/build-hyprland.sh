@@ -208,6 +208,7 @@ fi
 RUNTIME_PACKAGES=(
     quickshell
     seatd
+    libseat
     foot
     mesa-dri
     wayland
@@ -309,6 +310,7 @@ export WLR_NO_HARDWARE_CURSORS=1
 export AQ_DRM_DEVICES=/dev/dri/card0
 export LIBGL_ALWAYS_SOFTWARE=1
 export QT_QPA_PLATFORM=wayland
+export LIBSEAT_BACKEND=builtin
 
 mkdir -p -m 0700 "${XDG_RUNTIME_DIR}"
 
@@ -317,12 +319,13 @@ if [ ! -e /dev/dri/card0 ]; then
     exit 0
 fi
 
-if ! pgrep -x seatd >/dev/null 2>&1; then
-    seatd -u root -g root >/var/log/seatd.log 2>&1 &
-    sleep 0.2
+Hyprland -c /etc/hypr/hyprland.conf >/var/log/hyprland.log 2>&1
+rc=$?
+if [ "$rc" -ne 0 ]; then
+    echo "start-petra-desktop: Hyprland exited with status $rc" >&2
+    tail -n 20 /var/log/hyprland.log >&2
 fi
-
-exec Hyprland -c /etc/hypr/hyprland.conf >/var/log/hyprland.log 2>&1
+exit "$rc"
 EOF
 chmod 0755 "${TARGET_ROOT}/usr/bin/start-petra-desktop"
 
