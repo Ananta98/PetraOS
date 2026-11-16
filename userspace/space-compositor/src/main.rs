@@ -2,6 +2,7 @@ mod compositor;
 mod decorator;
 mod panel;
 mod scene;
+mod wallpaper;
 
 use compositor::Compositor;
 use space_hal::{DrmKmsBackend, EvdevInputBackend};

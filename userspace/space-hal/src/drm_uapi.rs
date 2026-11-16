@@ -22,6 +22,8 @@ const fn io(ty: u32, nr: u32) -> c_ulong {
 
 const DRM_BASE: u32 = 0x64;
 
+pub const DRM_MODE_TYPE_PREFERRED: u32 = 1 << 3;
+
 pub const DRM_IOCTL_SET_MASTER: c_ulong = io(DRM_BASE, 0x1E);
 pub const DRM_IOCTL_DROP_MASTER: c_ulong = io(DRM_BASE, 0x1F);
 pub const DRM_IOCTL_MODE_GETRESOURCES: c_ulong = iowr::<DrmModeCardRes>(DRM_BASE, 0xA0);

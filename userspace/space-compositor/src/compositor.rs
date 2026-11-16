@@ -60,48 +60,7 @@ const DESKTOP_SHORTCUTS: [(&str, &str, IconId); 4] = [
 ];
 
 fn shortcut_rect(idx: usize) -> Rect {
-    Rect::new(14, 16 + (idx as i32) * 76, 112, 66)
-}
-
-fn build_bliss_wallpaper(w: u32, h: u32) -> Vec<u32> {
-    let mut buf = vec![0xFF3A_6EA5; w as usize * h as usize];
-    let sky_top = Color::rgb(0x3A, 0x6E, 0xA5);
-    let sky_bot = Color::rgb(0x7E, 0xC0, 0xEE);
-    let hill_top = Color::rgb(0x68, 0xB3, 0x47);
-    let hill_mid = Color::rgb(0x56, 0x9E, 0x40);
-    let hill_bot = Color::rgb(0x4B, 0x8B, 0x3B);
-
-    let wf = w.max(1) as f32;
-    let hf = h.max(1) as f32;
-    for x in 0..w as usize {
-        let xf = x as f32;
-        let hy = (hf * 0.56
-            + (xf * 0.0045).sin() * (hf * 0.04)
-            + (xf * 0.011 + 1.2).cos() * (hf * 0.018)) as i32;
-        let hy2 = (hf * 0.72 + (xf * 0.006 + 2.5).sin() * (hf * 0.035)) as i32;
-        // Soft cloud band in upper sky
-        let cloud_y = (hf * 0.28 + (xf * 0.008).sin() * (hf * 0.03)) as i32;
-        let cloud_w = ((xf / wf - 0.55).abs() < 0.25) as i32;
-
-        for y in 0..h as usize {
-            let yi = y as i32;
-            let col = if yi < hy {
-                let base = Color::lerp(sky_top, sky_bot, yi, hy.max(1));
-                if cloud_w != 0 && (yi - cloud_y).abs() < 18 {
-                    let dist = (yi - cloud_y).abs();
-                    Color::lerp(Color::rgb(236, 246, 255), base, dist, 18)
-                } else {
-                    base
-                }
-            } else if yi < hy2 {
-                Color::lerp(hill_top, hill_mid, yi - hy, (hy2 - hy).max(1))
-            } else {
-                Color::lerp(hill_mid, hill_bot, yi - hy2, (h as i32 - hy2).max(1))
-            };
-            buf[y * w as usize + x] = col.0;
-        }
-    }
-    buf
+    Rect::new(16, 16 + (idx as i32) * 86, 116, 76)
 }
 
 pub struct Compositor<R: RenderBackend, I: InputBackend> {
@@ -157,7 +116,7 @@ impl<R: RenderBackend, I: InputBackend> Compositor<R, I> {
 
         let mut panel = DesktopPanel::new();
         panel.update_stats();
-        let wallpaper = build_bliss_wallpaper(renderer.width(), renderer.height());
+        let wallpaper = crate::wallpaper::build_bliss_wallpaper(renderer.width(), renderer.height());
 
         Ok(Self {
             renderer,
@@ -318,20 +277,24 @@ impl<R: RenderBackend, I: InputBackend> Compositor<R, I> {
         let sh = self.renderer.height() as i32;
         match ev {
             InputEvent::PointerMoveRel { dx, dy } => {
-                self.prev_cursor = self.cursor;
-                self.cursor.x = (self.cursor.x + dx).clamp(0, sw - 1);
-                self.cursor.y = (self.cursor.y + dy).clamp(0, sh - 1);
-                self.on_pointer_moved();
+                let next_x = (self.cursor.x + dx).clamp(0, sw - 1);
+                let next_y = (self.cursor.y + dy).clamp(0, sh - 1);
+                if next_x != self.cursor.x || next_y != self.cursor.y {
+                    self.prev_cursor = self.cursor;
+                    self.cursor.x = next_x;
+                    self.cursor.y = next_y;
+                    self.on_pointer_moved();
+                }
             }
             InputEvent::PointerMoveAbs { x, y } => {
-                self.prev_cursor = self.cursor;
-                if x >= 0 {
-                    self.cursor.x = x.clamp(0, sw - 1);
+                let next_x = if x >= 0 { x.clamp(0, sw - 1) } else { self.cursor.x };
+                let next_y = if y >= 0 { y.clamp(0, sh - 1) } else { self.cursor.y };
+                if next_x != self.cursor.x || next_y != self.cursor.y {
+                    self.prev_cursor = self.cursor;
+                    self.cursor.x = next_x;
+                    self.cursor.y = next_y;
+                    self.on_pointer_moved();
                 }
-                if y >= 0 {
-                    self.cursor.y = y.clamp(0, sh - 1);
-                }
-                self.on_pointer_moved();
             }
             InputEvent::PointerButton { button, pressed } => {
                 self.on_pointer_button(button, pressed);
@@ -403,8 +366,8 @@ impl<R: RenderBackend, I: InputBackend> Compositor<R, I> {
     }
 
     fn on_pointer_moved(&mut self) {
-        self.damage.add(Rect::new(self.prev_cursor.x, self.prev_cursor.y, 16, 20));
-        self.damage.add(Rect::new(self.cursor.x, self.cursor.y, 16, 20));
+        self.damage.add(Rect::new(self.prev_cursor.x, self.prev_cursor.y, 16, 22));
+        self.damage.add(Rect::new(self.cursor.x, self.cursor.y, 16, 22));
 
         let sh = self.renderer.height() as i32;
         match self.drag {
@@ -698,12 +661,11 @@ impl<R: RenderBackend, I: InputBackend> Compositor<R, I> {
                     canvas.fill_rect(sr, Color::argb(145, 49, 106, 197));
                     canvas.draw_rect_outline(sr, 1, Color::rgb(120, 178, 248));
                 }
-                icons::draw_icon(&mut canvas, sr.x + (sr.w - 24) / 2, sr.y + 8, 24, icon);
+                icons::draw_icon(&mut canvas, sr.x + (sr.w - 32) / 2, sr.y + 8, 32, icon);
                 let lw = font::measure_text_width(label, 2);
                 let lx = sr.x + (sr.w - lw) / 2;
-                let ly = sr.y + 40;
-                font::draw_text(&mut canvas, lx + 1, ly + 1, label, Color::argb(190, 0, 0, 0), 2);
-                font::draw_text(&mut canvas, lx, ly, label, Color::WHITE, 2);
+                let ly = sr.y + 46;
+                font::draw_text_shadow(&mut canvas, lx, ly, label, Color::WHITE, Color::argb(200, 0, 0, 0), 2, false);
             }
 
             // 2. Windows back-to-front
@@ -742,14 +704,52 @@ impl<R: RenderBackend, I: InputBackend> Compositor<R, I> {
                 self.panel.paint(&mut canvas, &self.scene, sw as i32, sh as i32);
             }
 
-            // 4. Crisp hardware-style arrow cursor
-            let cur_r = Rect::new(self.cursor.x, self.cursor.y, 12, 16);
+            // 4. Crisp Windows XP-style arrow cursor (12x19) with drop shadow
+            let cur_r = Rect::new(self.cursor.x, self.cursor.y, 14, 21);
             if cur_r.intersects(clip) {
-                for row in 0..14i32 {
-                    let w = (row + 1).min(10 - (row - 8).max(0) * 2).max(1);
-                    canvas.fill_rect(Rect::new(self.cursor.x, self.cursor.y + row, w + 1, 1), Color::BLACK);
-                    if w > 1 {
-                        canvas.fill_rect(Rect::new(self.cursor.x + 1, self.cursor.y + row, w - 1, 1), Color::WHITE);
+                const CURSOR_ROWS: [&str; 19] = [
+                    "X...........",
+                    "XX..........",
+                    "XWX.........",
+                    "XWWX........",
+                    "XWWWX.......",
+                    "XWWWWX......",
+                    "XWWWWWX.....",
+                    "XWWWWWWX....",
+                    "XWWWWWWWX...",
+                    "XWWWWWWWWX..",
+                    "XWWWWWWXXXX.",
+                    "XWWWXWWX....",
+                    "XWWX.XWWX...",
+                    "XWX..XWWX...",
+                    "XX....XWWX..",
+                    "X.....XWWX..",
+                    ".......XX...",
+                    "............",
+                    "............",
+                ];
+                let shadow = Color::argb(90, 0, 0, 0);
+                for (ry, row) in CURSOR_ROWS.iter().enumerate() {
+                    for (rx, ch) in row.bytes().enumerate() {
+                        if ch != b'.' {
+                            canvas.fill_rect(
+                                Rect::new(self.cursor.x + rx as i32 + 1, self.cursor.y + ry as i32 + 2, 1, 1),
+                                shadow,
+                            );
+                        }
+                    }
+                }
+                for (ry, row) in CURSOR_ROWS.iter().enumerate() {
+                    for (rx, ch) in row.bytes().enumerate() {
+                        let col = match ch {
+                            b'X' => Color::BLACK,
+                            b'W' => Color::WHITE,
+                            _ => continue,
+                        };
+                        canvas.fill_rect(
+                            Rect::new(self.cursor.x + rx as i32, self.cursor.y + ry as i32, 1, 1),
+                            col,
+                        );
                     }
                 }
             }

@@ -1,110 +1,126 @@
-//! Zero-dependency crisp bitmap font renderer for PetraSpace GUI.
+//! Anti-aliased TrueType font renderer for PetraSpace GUI using embedded Ubuntu fonts.
 
 use crate::geometry::Rect;
 use crate::pixel::{Canvas, Color};
+use ab_glyph::{Font, FontRef, PxScale, ScaleFont};
+use std::collections::HashMap;
+use std::sync::{Mutex, OnceLock};
 
-pub const GLYPH_W: i32 = 6;
+pub const GLYPH_W: i32 = 7;
 pub const GLYPH_H: i32 = 8;
 
-/// 5x7 bitmap font for printable ASCII 0x20..=0x7E (5 bytes per glyph, LSB=top).
-const FONT_5X7: [[u8; 5]; 95] = [
-    [0x00, 0x00, 0x00, 0x00, 0x00], // ' '
-    [0x00, 0x00, 0x5F, 0x00, 0x00], // '!'
-    [0x00, 0x07, 0x00, 0x07, 0x00], // '"'
-    [0x14, 0x7F, 0x14, 0x7F, 0x14], // '#'
-    [0x24, 0x2A, 0x7F, 0x2A, 0x12], // '$'
-    [0x23, 0x13, 0x08, 0x64, 0x62], // '%'
-    [0x36, 0x49, 0x55, 0x22, 0x50], // '&'
-    [0x00, 0x05, 0x03, 0x00, 0x00], // '\''
-    [0x00, 0x1C, 0x22, 0x41, 0x00], // '('
-    [0x00, 0x41, 0x22, 0x1C, 0x00], // ')'
-    [0x14, 0x08, 0x3E, 0x08, 0x14], // '*'
-    [0x08, 0x08, 0x3E, 0x08, 0x08], // '+'
-    [0x00, 0x50, 0x30, 0x00, 0x00], // ','
-    [0x08, 0x08, 0x08, 0x08, 0x08], // '-'
-    [0x00, 0x60, 0x60, 0x00, 0x00], // '.'
-    [0x20, 0x10, 0x08, 0x04, 0x02], // '/'
-    [0x3E, 0x51, 0x49, 0x45, 0x3E], // '0'
-    [0x00, 0x42, 0x7F, 0x40, 0x00], // '1'
-    [0x42, 0x61, 0x51, 0x49, 0x46], // '2'
-    [0x21, 0x41, 0x45, 0x4B, 0x31], // '3'
-    [0x18, 0x14, 0x12, 0x7F, 0x10], // '4'
-    [0x27, 0x45, 0x45, 0x45, 0x39], // '5'
-    [0x3C, 0x4A, 0x49, 0x49, 0x30], // '6'
-    [0x01, 0x71, 0x09, 0x05, 0x03], // '7'
-    [0x36, 0x49, 0x49, 0x49, 0x36], // '8'
-    [0x06, 0x49, 0x49, 0x29, 0x1E], // '9'
-    [0x00, 0x36, 0x36, 0x00, 0x00], // ':'
-    [0x00, 0x56, 0x36, 0x00, 0x00], // ';'
-    [0x08, 0x14, 0x22, 0x41, 0x00], // '<'
-    [0x14, 0x14, 0x14, 0x14, 0x14], // '='
-    [0x00, 0x41, 0x22, 0x14, 0x08], // '>'
-    [0x02, 0x01, 0x51, 0x09, 0x06], // '?'
-    [0x32, 0x49, 0x79, 0x41, 0x3E], // '@'
-    [0x7E, 0x11, 0x11, 0x11, 0x7E], // 'A'
-    [0x7F, 0x49, 0x49, 0x49, 0x36], // 'B'
-    [0x3E, 0x41, 0x41, 0x41, 0x22], // 'C'
-    [0x7F, 0x41, 0x41, 0x22, 0x1C], // 'D'
-    [0x7F, 0x49, 0x49, 0x49, 0x41], // 'E'
-    [0x7F, 0x09, 0x09, 0x09, 0x01], // 'F'
-    [0x3E, 0x41, 0x49, 0x49, 0x7A], // 'G'
-    [0x7F, 0x08, 0x08, 0x08, 0x7F], // 'H'
-    [0x00, 0x41, 0x7F, 0x41, 0x00], // 'I'
-    [0x20, 0x40, 0x41, 0x3F, 0x01], // 'J'
-    [0x7F, 0x08, 0x14, 0x22, 0x41], // 'K'
-    [0x7F, 0x40, 0x40, 0x40, 0x40], // 'L'
-    [0x7F, 0x02, 0x0C, 0x02, 0x7F], // 'M'
-    [0x7F, 0x04, 0x08, 0x10, 0x7F], // 'N'
-    [0x3E, 0x41, 0x41, 0x41, 0x3E], // 'O'
-    [0x7F, 0x09, 0x09, 0x09, 0x06], // 'P'
-    [0x3E, 0x41, 0x51, 0x21, 0x5E], // 'Q'
-    [0x7F, 0x09, 0x19, 0x29, 0x46], // 'R'
-    [0x46, 0x49, 0x49, 0x49, 0x31], // 'S'
-    [0x01, 0x01, 0x7F, 0x01, 0x01], // 'T'
-    [0x3F, 0x40, 0x40, 0x40, 0x3F], // 'U'
-    [0x1F, 0x20, 0x40, 0x20, 0x1F], // 'V'
-    [0x3F, 0x40, 0x38, 0x40, 0x3F], // 'W'
-    [0x63, 0x14, 0x08, 0x14, 0x63], // 'X'
-    [0x07, 0x08, 0x70, 0x08, 0x07], // 'Y'
-    [0x61, 0x51, 0x49, 0x45, 0x43], // 'Z'
-    [0x00, 0x7F, 0x41, 0x41, 0x00], // '['
-    [0x02, 0x04, 0x08, 0x10, 0x20], // '\\'
-    [0x00, 0x41, 0x41, 0x7F, 0x00], // ']'
-    [0x04, 0x02, 0x01, 0x02, 0x04], // '^'
-    [0x40, 0x40, 0x40, 0x40, 0x40], // '_'
-    [0x00, 0x01, 0x02, 0x04, 0x00], // '`'
-    [0x20, 0x54, 0x54, 0x54, 0x78], // 'a'
-    [0x7F, 0x48, 0x44, 0x44, 0x38], // 'b'
-    [0x38, 0x44, 0x44, 0x44, 0x20], // 'c'
-    [0x38, 0x44, 0x44, 0x48, 0x7F], // 'd'
-    [0x38, 0x54, 0x54, 0x54, 0x18], // 'e'
-    [0x08, 0x7E, 0x09, 0x01, 0x02], // 'f'
-    [0x0C, 0x52, 0x52, 0x52, 0x3E], // 'g'
-    [0x7F, 0x08, 0x04, 0x04, 0x78], // 'h'
-    [0x00, 0x44, 0x7D, 0x40, 0x00], // 'i'
-    [0x20, 0x40, 0x44, 0x3D, 0x00], // 'j'
-    [0x7F, 0x10, 0x28, 0x44, 0x00], // 'k'
-    [0x00, 0x41, 0x7F, 0x40, 0x00], // 'l'
-    [0x7C, 0x04, 0x18, 0x04, 0x78], // 'm'
-    [0x7C, 0x08, 0x04, 0x04, 0x78], // 'n'
-    [0x38, 0x44, 0x44, 0x44, 0x38], // 'o'
-    [0x7C, 0x14, 0x14, 0x14, 0x08], // 'p'
-    [0x08, 0x14, 0x14, 0x18, 0x7C], // 'q'
-    [0x7C, 0x08, 0x04, 0x04, 0x08], // 'r'
-    [0x48, 0x54, 0x54, 0x54, 0x20], // 's'
-    [0x04, 0x3F, 0x44, 0x40, 0x20], // 't'
-    [0x3C, 0x40, 0x40, 0x20, 0x7C], // 'u'
-    [0x1C, 0x20, 0x40, 0x20, 0x1C], // 'v'
-    [0x3C, 0x40, 0x30, 0x40, 0x3C], // 'w'
-    [0x44, 0x28, 0x10, 0x28, 0x44], // 'x'
-    [0x0C, 0x50, 0x50, 0x50, 0x3C], // 'y'
-    [0x44, 0x64, 0x54, 0x4C, 0x44], // 'z'
-    [0x00, 0x08, 0x36, 0x41, 0x00], // '{'
-    [0x00, 0x00, 0x7F, 0x00, 0x00], // '|'
-    [0x00, 0x41, 0x36, 0x08, 0x00], // '}'
-    [0x08, 0x04, 0x08, 0x10, 0x08], // '~'
-];
+static REGULAR_FONT_BYTES: &[u8] = include_bytes!("../../../assets/fonts/Ubuntu-R.ttf");
+static BOLD_FONT_BYTES: &[u8] = include_bytes!("../../../assets/fonts/Ubuntu-B.ttf");
+static MONO_FONT_BYTES: &[u8] = include_bytes!("../../../assets/fonts/UbuntuMono-R.ttf");
 
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+enum FontFace {
+    Regular,
+    Bold,
+    Mono,
+}
+
+struct CachedGlyph {
+    width: i32,
+    height: i32,
+    offset_x: i32,
+    offset_y: i32,
+    advance: i32,
+    alpha: Vec<u8>,
+}
+
+struct FontEngine {
+    regular: FontRef<'static>,
+    bold: FontRef<'static>,
+    mono: FontRef<'static>,
+    cache: HashMap<(FontFace, char, u32), CachedGlyph>,
+}
+
+impl FontEngine {
+    fn new() -> Self {
+        let regular = FontRef::try_from_slice(REGULAR_FONT_BYTES)
+            .expect("invalid embedded Ubuntu-R.ttf");
+        let bold = FontRef::try_from_slice(BOLD_FONT_BYTES)
+            .expect("invalid embedded Ubuntu-B.ttf");
+        let mono = FontRef::try_from_slice(MONO_FONT_BYTES)
+            .expect("invalid embedded UbuntuMono-R.ttf");
+        Self {
+            regular,
+            bold,
+            mono,
+            cache: HashMap::with_capacity(512),
+        }
+    }
+
+    #[inline]
+    fn px_size(scale: i32) -> f32 {
+        match scale.max(1) {
+            1 => 11.0,
+            2 => 14.5,
+            3 => 21.0,
+            s => (s as f32) * 7.5,
+        }
+    }
+
+    fn glyph(&mut self, face: FontFace, ch: char, scale: i32) -> &CachedGlyph {
+        let px_bits = Self::px_size(scale).to_bits();
+        let key = (face, ch, px_bits);
+        if !self.cache.contains_key(&key) {
+            let font = match face {
+                FontFace::Regular => &self.regular,
+                FontFace::Bold => &self.bold,
+                FontFace::Mono => &self.mono,
+            };
+            let px = Self::px_size(scale);
+            let scaled = font.as_scaled(PxScale::from(px));
+            let glyph_id = font.glyph_id(ch);
+            let advance = scaled.h_advance(glyph_id).ceil() as i32;
+            let q = glyph_id.with_scale_and_position(
+                PxScale::from(px),
+                ab_glyph::point(0.0, scaled.ascent()),
+            );
+            let cached = if let Some(outlined) = font.outline_glyph(q) {
+                let bounds = outlined.px_bounds();
+                let w = bounds.width().ceil().max(0.0) as i32;
+                let h = bounds.height().ceil().max(0.0) as i32;
+                let mut alpha = vec![0u8; (w * h).max(0) as usize];
+                outlined.draw(|gx, gy, cov| {
+                    let idx = (gy as i32 * w + gx as i32) as usize;
+                    if idx < alpha.len() {
+                        alpha[idx] = (cov.clamp(0.0, 1.0) * 255.0) as u8;
+                    }
+                });
+                CachedGlyph {
+                    width: w,
+                    height: h,
+                    offset_x: bounds.min.x.floor() as i32,
+                    offset_y: bounds.min.y.floor() as i32,
+                    advance: advance.max(1),
+                    alpha,
+                }
+            } else {
+                CachedGlyph {
+                    width: 0,
+                    height: 0,
+                    offset_x: 0,
+                    offset_y: 0,
+                    advance: advance.max(1),
+                    alpha: Vec::new(),
+                }
+            };
+            self.cache.insert(key, cached);
+        }
+        &self.cache[&key]
+    }
+}
+
+static ENGINE: OnceLock<Mutex<FontEngine>> = OnceLock::new();
+
+fn engine() -> &'static Mutex<FontEngine> {
+    ENGINE.get_or_init(|| Mutex::new(FontEngine::new()))
+}
+
+/// Draws anti-aliased TrueType text at `(x, y)` with `scale` (`2` ≈ 14.5px UI size).
 pub fn draw_text<C: Canvas + ?Sized>(
     canvas: &mut C,
     x: i32,
@@ -113,52 +129,167 @@ pub fn draw_text<C: Canvas + ?Sized>(
     color: Color,
     scale: i32,
 ) {
-    let s = scale.max(1);
-    let bounds = canvas.bounds();
-    let stride = canvas.stride_pixels() as usize;
-    let buf = canvas.pixels_mut();
-    let mut cx = x;
+    draw_text_face(canvas, x, y, text, color, scale, FontFace::Regular);
+}
 
-    for ch in text.chars() {
-        if ch == '\n' {
-            break;
+/// Draws bold anti-aliased TrueType text at `(x, y)`.
+pub fn draw_text_bold<C: Canvas + ?Sized>(
+    canvas: &mut C,
+    x: i32,
+    y: i32,
+    text: &str,
+    color: Color,
+    scale: i32,
+) {
+    draw_text_face(canvas, x, y, text, color, scale, FontFace::Bold);
+}
+
+/// Draws monospace anti-aliased TrueType text at `(x, y)` (ideal for terminal & code).
+pub fn draw_text_mono<C: Canvas + ?Sized>(
+    canvas: &mut C,
+    x: i32,
+    y: i32,
+    text: &str,
+    color: Color,
+    scale: i32,
+) {
+    draw_text_face(canvas, x, y, text, color, scale, FontFace::Mono);
+}
+
+/// Draws text with a subtle 1px drop shadow (ideal for desktop icon labels & titlebars).
+pub fn draw_text_shadow<C: Canvas + ?Sized>(
+    canvas: &mut C,
+    x: i32,
+    y: i32,
+    text: &str,
+    color: Color,
+    shadow: Color,
+    scale: i32,
+    bold: bool,
+) {
+    let face = if bold { FontFace::Bold } else { FontFace::Regular };
+    draw_text_face(canvas, x + 1, y + 1, text, shadow, scale, face);
+    draw_text_face(canvas, x, y, text, color, scale, face);
+}
+
+fn draw_text_face<C: Canvas + ?Sized>(
+    canvas: &mut C,
+    x: i32,
+    y: i32,
+    text: &str,
+    color: Color,
+    scale: i32,
+    face: FontFace,
+) {
+    if text.is_empty() {
+        return;
+    }
+    let scale = scale.max(1);
+    let cw = canvas.width() as i32;
+    let ch = canvas.height() as i32;
+    let stride = canvas.stride_pixels() as i32;
+    let fg_a = color.alpha() as u32;
+    let fg_r = color.red() as u32;
+    let fg_g = color.green() as u32;
+    let fg_b = color.blue() as u32;
+
+    let mut eng = engine().lock().unwrap();
+    let mut pen_x = x;
+
+    for c in text.chars() {
+        if c == '\n' {
+            pen_x = x;
+            continue;
         }
-        let code = ch as usize;
-        let glyph = if (0x20..=0x7E).contains(&code) {
-            &FONT_5X7[code - 0x20]
-        } else {
-            &FONT_5X7[b'?' as usize - 0x20]
-        };
+        let g = eng.glyph(face, c, scale);
+        let gx0 = pen_x + g.offset_x;
+        let gy0 = y + g.offset_y;
+        let gw = g.width;
+        let gh = g.height;
+        let adv = g.advance;
 
-        for (col_idx, &col_bits) in glyph.iter().enumerate() {
-            for row_idx in 0..7 {
-                if (col_bits >> row_idx) & 1 != 0 {
-                    let px = cx + (col_idx as i32) * s;
-                    let py = y + row_idx * s;
-                    if s == 1 {
-                        if px >= bounds.x
-                            && px < bounds.right()
-                            && py >= bounds.y
-                            && py < bounds.bottom()
-                        {
-                            buf[py as usize * stride + px as usize] = color.0;
-                        }
+        if gw > 0 && gh > 0 {
+            let pixels = canvas.pixels_mut();
+            for row in 0..gh {
+                let dy = gy0 + row;
+                if dy < 0 || dy >= ch {
+                    continue;
+                }
+                let row_off = (dy * stride) as usize;
+                let g_off = (row * gw) as usize;
+                for col in 0..gw {
+                    let dx = gx0 + col;
+                    if dx < 0 || dx >= cw {
+                        continue;
+                    }
+                    let cov = g.alpha[g_off + col as usize] as u32;
+                    if cov == 0 {
+                        continue;
+                    }
+                    let a = (cov * fg_a) / 255;
+                    if a == 0 {
+                        continue;
+                    }
+                    let idx = row_off + dx as usize;
+                    if a >= 254 {
+                        pixels[idx] = Color::rgb(fg_r as u8, fg_g as u8, fg_b as u8).0;
                     } else {
-                        let r = Rect::new(px, py, s, s).intersect(bounds);
-                        for ry in r.y..r.bottom() {
-                            for rx in r.x..r.right() {
-                                buf[ry as usize * stride + rx as usize] = color.0;
-                            }
-                        }
+                        let dst = Color(pixels[idx]);
+                        let inv = 255 - a;
+                        let r = (fg_r * a + dst.red() as u32 * inv) / 255;
+                        let g_ch = (fg_g * a + dst.green() as u32 * inv) / 255;
+                        let b = (fg_b * a + dst.blue() as u32 * inv) / 255;
+                        pixels[idx] = Color::rgb(r as u8, g_ch as u8, b as u8).0;
                     }
                 }
             }
         }
-        cx += GLYPH_W * s;
+        pen_x += adv;
     }
 }
 
-#[inline]
+/// Measures the pixel width of `text` at `scale`.
+/// Measures the pixel width of monospace `text` at `scale`.
+pub fn measure_text_width_mono(text: &str, scale: i32) -> i32 {
+    if text.is_empty() {
+        return 0;
+    }
+    let mut eng = engine().lock().unwrap();
+    let mut w = 0;
+    for c in text.chars() {
+        if c != '\n' {
+            w += eng.glyph(FontFace::Mono, c, scale.max(1)).advance;
+        }
+    }
+    w
+}
+
 pub fn measure_text_width(text: &str, scale: i32) -> i32 {
-    text.chars().count() as i32 * GLYPH_W * scale.max(1)
+    if text.is_empty() {
+        return 0;
+    }
+    let mut eng = engine().lock().unwrap();
+    let mut w = 0;
+    for c in text.chars() {
+        if c != '\n' {
+            w += eng.glyph(FontFace::Regular, c, scale.max(1)).advance;
+        }
+    }
+    w
+}
+
+/// Draws text clipped to `clip`.
+pub fn draw_text_clipped<C: Canvas + ?Sized>(
+    canvas: &mut C,
+    clip: Rect,
+    x: i32,
+    y: i32,
+    text: &str,
+    color: Color,
+    scale: i32,
+) {
+    if clip.w <= 0 || clip.h <= 0 {
+        return;
+    }
+    draw_text(canvas, x, y, text, color, scale);
 }

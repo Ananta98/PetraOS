@@ -48,6 +48,9 @@ case "$SCHEME" in
             QEMU_ARGS="$QEMU_ARGS -nographic -display none"
         elif [ "$DISPLAY" = "std" ]; then
             QEMU_ARGS="$QEMU_ARGS -vga none -device virtio-vga,id=vgpu0,xres=${VIRTIO_GPU_XRES},yres=${VIRTIO_GPU_YRES}"
+            # Absolute pointer: keeps the guest cursor locked to the host pointer
+            # (a relative PS/2 mouse drifts and accelerates independently).
+            QEMU_ARGS="$QEMU_ARGS -device virtio-tablet-pci"
         else
             QEMU_ARGS="$QEMU_ARGS -display $DISPLAY"
         fi

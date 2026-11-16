@@ -102,7 +102,15 @@ impl DrmKmsBackend {
             if chosen_enc == 0 && !conn_encs.is_empty() {
                 chosen_enc = conn_encs[0];
             }
-            chosen_mode = modes[0];
+            chosen_mode = modes
+                .iter()
+                .copied()
+                .max_by_key(|m| {
+                    let pref = u32::from((m.ty & (1 << 3)) != 0);
+                    let area = u32::from(m.hdisplay) * u32::from(m.vdisplay);
+                    (pref, area)
+                })
+                .unwrap_or(modes[0]);
             break;
         }
 

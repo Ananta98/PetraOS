@@ -5,3 +5,6 @@ edition = "2021"
 description = "Core geometry, SIMD pixel operations, damage tracking, zero-copy SHM, and lock-free IPC for PetraSpace GUI"
 
 [dependencies]
+ab_glyph = "0.2"
+resvg = { version = "0.48", default-features = false }
+tiny-skia = "0.12"

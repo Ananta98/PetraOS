@@ -1,4 +1,4 @@
-//! Crisp 16x16 and 24x24 ARGB pixel-art/procedural icon system with alpha blending.
+//! Smooth anti-aliased ARGB icon renderer (32x32 master + bilinear scaling) for PetraSpace GUI.
 
 use crate::geometry::Rect;
 use crate::pixel::{Canvas, Color};
@@ -45,327 +45,245 @@ pub enum WindowGlyph {
     Close,
 }
 
-struct IconBuf<'a> {
+struct MasterCanvas {
     size: i32,
-    px: &'a mut [u32],
+    px: Vec<u32>,
 }
 
-impl<'a> IconBuf<'a> {
+impl MasterCanvas {
+    fn new(size: i32) -> Self {
+        Self {
+            size,
+            px: vec![0u32; (size * size) as usize],
+        }
+    }
+
     #[inline]
-    fn set(&mut self, x: i32, y: i32, c: Color) {
-        if x >= 0 && x < self.size && y >= 0 && y < self.size {
-            self.px[(y * self.size + x) as usize] = c.0;
+    fn blend(&mut self, x: i32, y: i32, c: Color) {
+        if x < 0 || y < 0 || x >= self.size || y >= self.size {
+            return;
         }
+        let a = c.alpha() as u32;
+        if a == 0 {
+            return;
+        }
+        let idx = (y * self.size + x) as usize;
+        if a >= 254 {
+            self.px[idx] = c.0;
+            return;
+        }
+        let dst = Color(self.px[idx]);
+        let da = dst.alpha() as u32;
+        if da == 0 {
+            self.px[idx] = c.0;
+            return;
+        }
+        let inv = 255 - a;
+        let out_a = (a + (da * inv) / 255).min(255);
+        let r = (c.red() as u32 * a + dst.red() as u32 * inv) / 255;
+        let g = (c.green() as u32 * a + dst.green() as u32 * inv) / 255;
+        let b = (c.blue() as u32 * a + dst.blue() as u32 * inv) / 255;
+        self.px[idx] = Color::argb(out_a as u8, r as u8, g as u8, b as u8).0;
     }
 
-    fn fill(&mut self, x: i32, y: i32, w: i32, h: i32, c: Color) {
-        for py in y..(y + h) {
-            for px in x..(x + w) {
-                self.set(px, py, c);
+    fn fill_rounded_grad(
+        &mut self,
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+        r: f32,
+        top: Color,
+        bot: Color,
+    ) {
+        let x0 = (x.floor() as i32 - 1).max(0);
+        let y0 = (y.floor() as i32 - 1).max(0);
+        let x1 = ((x + w).ceil() as i32 + 1).min(self.size);
+        let y1 = ((y + h).ceil() as i32 + 1).min(self.size);
+        let cx = x + w * 0.5;
+        let cy = y + h * 0.5;
+        let hx = w * 0.5 - r;
+        let hy = h * 0.5 - r;
+
+        for py in y0..y1 {
+            let fy = py as f32 + 0.5;
+            let t = ((fy - y) / h.max(1.0)).clamp(0.0, 1.0);
+            let col = Color::lerp(top, bot, (t * 255.0) as i32, 255);
+            for px in x0..x1 {
+                let fx = px as f32 + 0.5;
+                let dx = (fx - cx).abs() - hx;
+                let dy = (fy - cy).abs() - hy;
+                let dist = dx.max(0.0).hypot(dy.max(0.0)) + dx.max(dy).min(0.0) - r;
+                let cov = (0.5 - dist).clamp(0.0, 1.0);
+                if cov > 0.0 {
+                    let a = ((col.alpha() as f32) * cov) as u8;
+                    self.blend(px, py, col.with_alpha(a));
+                }
             }
         }
     }
 
-    fn outline(&mut self, x: i32, y: i32, w: i32, h: i32, c: Color) {
-        self.fill(x, y, w, 1, c);
-        self.fill(x, y + h - 1, w, 1, c);
-        self.fill(x, y, 1, h, c);
-        self.fill(x + w - 1, y, 1, h, c);
-    }
-
-    fn blit_16_template(&mut self, rows: &[&str; 16], palette: &[(char, Color)]) {
-        for (y, row) in rows.iter().enumerate() {
-            for (x, ch) in row.chars().take(16).enumerate() {
-                if let Some(&(_, col)) = palette.iter().find(|&&(k, _)| k == ch) {
-                    self.set(x as i32, y as i32, col);
+    fn fill_circle(&mut self, cx: f32, cy: f32, r: f32, col: Color) {
+        let x0 = ((cx - r).floor() as i32 - 1).max(0);
+        let y0 = ((cy - r).floor() as i32 - 1).max(0);
+        let x1 = ((cx + r).ceil() as i32 + 1).min(self.size);
+        let y1 = ((cy + r).ceil() as i32 + 1).min(self.size);
+        for py in y0..y1 {
+            for px in x0..x1 {
+                let d = ((px as f32 + 0.5 - cx).hypot(py as f32 + 0.5 - cy)) - r;
+                let cov = (0.5 - d).clamp(0.0, 1.0);
+                if cov > 0.0 {
+                    let a = ((col.alpha() as f32) * cov) as u8;
+                    self.blend(px, py, col.with_alpha(a));
                 }
             }
         }
     }
 }
 
-fn paint_16(b: &mut IconBuf<'_>, id: IconId) {
+fn paint_master_32(id: IconId) -> MasterCanvas {
+    let mut m = MasterCanvas::new(32);
     match id {
         IconId::StartFlag => {
-            // Classic 4-color waving flag
-            let rows = [
-                "................",
-                "...rrrr.........",
-                "..rrrrrr..gggg..",
-                "..rrrrrr.gggggg.",
-                "..rrrrrr.gggggg.",
-                "..rrrrrr.gggggg.",
-                "...rrrr..gggggg.",
-                "..........gggg..",
-                "...bbbb.........",
-                "..bbbbbb..yyyy..",
-                "..bbbbbb.yyyyyy.",
-                "..bbbbbb.yyyyyy.",
-                "..bbbbbb.yyyyyy.",
-                "...bbbb..yyyyyy.",
-                "..........yyyy..",
-                "................",
+            // Classic 4-pane wavy XP flag with subtle drop shadow
+            let panes = [
+                (4.0, 5.0, 10.5, 10.5, Color::rgb(243, 83, 37), Color::rgb(212, 52, 18)),
+                (16.5, 6.5, 10.5, 10.5, Color::rgb(129, 188, 6), Color::rgb(88, 152, 4)),
+                (4.0, 17.0, 10.5, 10.5, Color::rgb(5, 166, 240), Color::rgb(4, 122, 204)),
+                (16.5, 18.5, 10.5, 10.5, Color::rgb(255, 186, 8), Color::rgb(228, 142, 4)),
             ];
-            let pal = [
-                ('r', Color::rgb(235, 76, 38)),
-                ('g', Color::rgb(118, 185, 36)),
-                ('b', Color::rgb(42, 132, 232)),
-                ('y', Color::rgb(248, 194, 34)),
-            ];
-            b.blit_16_template(&rows, &pal);
-            // Subtle highlight pixels on each pane
-            b.set(3, 2, Color::rgb(255, 160, 120));
-            b.set(11, 3, Color::rgb(190, 235, 110));
-            b.set(3, 9, Color::rgb(130, 195, 255));
-            b.set(11, 10, Color::rgb(255, 235, 140));
+            for (x, y, w, h, t, b) in panes {
+                m.fill_rounded_grad(x + 1.0, y + 1.0, w, h, 2.0, Color::argb(90, 0, 0, 0), Color::argb(90, 0, 0, 0));
+                m.fill_rounded_grad(x, y, w, h, 2.0, t, b);
+                m.fill_rounded_grad(x + 1.0, y + 1.0, w - 2.0, h * 0.38, 1.5, Color::argb(70, 255, 255, 255), Color::argb(0, 255, 255, 255));
+            }
         }
         IconId::Files => {
-            // Yellow XP folder
-            let out = Color::rgb(168, 112, 24);
-            let tab = Color::rgb(245, 200, 72);
-            let body = Color::rgb(252, 218, 104);
-            let hi = Color::rgb(255, 242, 170);
-            let sh = Color::rgb(224, 168, 48);
-            b.fill(2, 3, 5, 2, tab);
-            b.fill(1, 5, 14, 9, body);
-            b.outline(1, 5, 14, 9, out);
-            b.fill(2, 2, 5, 1, out);
-            b.set(1, 3, out);
-            b.set(1, 4, out);
-            b.set(7, 3, out);
-            b.set(7, 4, out);
-            b.fill(2, 6, 12, 1, hi);
-            b.fill(2, 12, 12, 1, sh);
-            b.fill(2, 14, 12, 1, Color::argb(90, 0, 0, 0));
+            // XP Luna golden folder with shadow, back tab, white paper sheet, and glossy front flap
+            m.fill_rounded_grad(3.0, 24.0, 26.0, 4.0, 2.0, Color::argb(75, 0, 0, 0), Color::argb(0, 0, 0, 0));
+            m.fill_rounded_grad(3.0, 5.0, 12.0, 6.0, 2.5, Color::rgb(228, 168, 42), Color::rgb(198, 138, 22));
+            m.fill_rounded_grad(3.0, 8.0, 26.0, 18.0, 2.5, Color::rgb(245, 188, 56), Color::rgb(206, 144, 24));
+            m.fill_rounded_grad(6.0, 9.5, 20.0, 6.0, 1.0, Color::rgb(252, 252, 255), Color::rgb(224, 232, 244));
+            m.fill_rounded_grad(2.5, 12.0, 27.0, 15.0, 2.5, Color::rgb(255, 220, 98), Color::rgb(232, 166, 36));
+            m.fill_rounded_grad(3.5, 12.5, 25.0, 4.0, 1.5, Color::argb(110, 255, 255, 255), Color::argb(0, 255, 255, 255));
         }
         IconId::Terminal => {
-            // Dark console with >_ prompt
-            b.fill(1, 2, 14, 12, Color::rgb(24, 28, 34));
-            b.outline(1, 2, 14, 12, Color::rgb(96, 104, 116));
-            b.fill(2, 3, 12, 2, Color::rgb(0, 84, 227));
-            let fg = Color::rgb(88, 240, 108);
-            // '>'
-            b.set(3, 7, fg);
-            b.set(4, 8, fg);
-            b.set(5, 9, fg);
-            b.set(4, 10, fg);
-            b.set(3, 11, fg);
-            // '_'
-            b.fill(7, 11, 4, 1, fg);
+            // XP Command Prompt dark glass window
+            m.fill_rounded_grad(3.0, 5.0, 26.0, 23.0, 3.0, Color::argb(80, 0, 0, 0), Color::argb(80, 0, 0, 0));
+            m.fill_rounded_grad(2.0, 4.0, 26.0, 23.0, 3.0, Color::rgb(208, 214, 224), Color::rgb(118, 128, 144));
+            m.fill_rounded_grad(3.0, 5.0, 24.0, 5.0, 2.0, Color::rgb(16, 102, 226), Color::rgb(8, 68, 180));
+            m.fill_rounded_grad(3.5, 10.5, 23.0, 15.0, 1.5, Color::rgb(18, 24, 34), Color::rgb(10, 14, 20));
+            // Prompt ">_"
+            m.fill_rounded_grad(6.0, 14.0, 5.0, 2.0, 0.5, Color::rgb(96, 232, 130), Color::rgb(76, 210, 110));
+            m.fill_rounded_grad(8.0, 16.0, 4.0, 2.0, 0.5, Color::rgb(96, 232, 130), Color::rgb(76, 210, 110));
+            m.fill_rounded_grad(6.0, 18.0, 5.0, 2.0, 0.5, Color::rgb(96, 232, 130), Color::rgb(76, 210, 110));
+            m.fill_rounded_grad(14.0, 19.0, 7.0, 2.0, 0.5, Color::rgb(228, 236, 246), Color::rgb(228, 236, 246));
         }
         IconId::Tasks => {
-            // System monitor graph
-            b.fill(1, 2, 14, 12, Color::rgb(14, 34, 20));
-            b.outline(1, 2, 14, 12, Color::rgb(112, 118, 128));
-            let grid = Color::rgb(24, 68, 36);
-            b.fill(2, 6, 12, 1, grid);
-            b.fill(2, 10, 12, 1, grid);
-            b.fill(6, 3, 1, 10, grid);
-            b.fill(10, 3, 1, 10, grid);
-            let wave = Color::rgb(64, 244, 96);
-            for (x, y) in [
-                (2, 10), (3, 10), (4, 9), (5, 7), (6, 4), (7, 9),
-                (8, 11), (9, 8), (10, 6), (11, 9), (12, 9), (13, 8),
-            ] {
-                b.set(x, y, wave);
+            // Task Manager green waveform monitor
+            m.fill_rounded_grad(3.0, 5.0, 26.0, 22.0, 3.0, Color::rgb(198, 204, 216), Color::rgb(122, 132, 148));
+            m.fill_rounded_grad(5.0, 7.0, 22.0, 18.0, 1.5, Color::rgb(10, 34, 22), Color::rgb(6, 22, 14));
+            for i in 0..5 {
+                let x = 7.0 + i as f32 * 4.0;
+                let h = [6.0, 11.0, 8.0, 13.0, 7.0][i];
+                m.fill_rounded_grad(x, 22.0 - h, 2.6, h, 1.0, Color::rgb(92, 242, 128), Color::rgb(34, 178, 72));
             }
         }
         IconId::Notepad => {
-            // Lined page + pen
-            b.fill(2, 1, 10, 14, Color::rgb(252, 252, 246));
-            b.outline(2, 1, 10, 14, Color::rgb(120, 132, 148));
-            b.fill(3, 2, 8, 2, Color::rgb(52, 120, 216));
-            let line_c = Color::rgb(168, 194, 226);
-            b.fill(4, 6, 6, 1, line_c);
-            b.fill(4, 9, 6, 1, line_c);
-            b.fill(4, 12, 5, 1, line_c);
-            // Yellow/orange pen on the right
-            for i in 0..7 {
-                b.set(13 - i / 2, 5 + i, Color::rgb(240, 176, 32));
-                b.set(14 - i / 2, 5 + i, Color::rgb(184, 116, 16));
+            // XP Notepad sheet + diagonal yellow pencil
+            m.fill_rounded_grad(6.0, 4.0, 20.0, 25.0, 2.5, Color::argb(75, 0, 0, 0), Color::argb(75, 0, 0, 0));
+            m.fill_rounded_grad(5.0, 3.0, 20.0, 25.0, 2.5, Color::rgb(156, 174, 198), Color::rgb(122, 140, 166));
+            m.fill_rounded_grad(6.0, 4.0, 18.0, 23.0, 1.5, Color::rgb(255, 255, 252), Color::rgb(238, 242, 248));
+            m.fill_rounded_grad(6.0, 4.0, 18.0, 4.0, 1.0, Color::rgb(46, 118, 214), Color::rgb(28, 88, 178));
+            for row in 0..4 {
+                m.fill_rounded_grad(8.5, 11.0 + row as f32 * 3.8, 12.0, 1.4, 0.5, Color::rgb(164, 180, 200), Color::rgb(164, 180, 200));
             }
-            b.set(9, 12, Color::rgb(64, 64, 64));
+            for step in 0..10 {
+                let px = 17.0 + step as f32 * 0.9;
+                let py = 19.0 - step as f32 * 0.9;
+                m.fill_circle(px, py, 1.8, Color::rgb(246, 186, 36));
+            }
         }
         IconId::Calc => {
-            // Calculator body + display + grid
-            b.fill(2, 1, 12, 14, Color::rgb(212, 216, 224));
-            b.outline(2, 1, 12, 14, Color::rgb(84, 96, 112));
-            b.fill(4, 3, 8, 3, Color::rgb(188, 224, 192));
-            b.outline(4, 3, 8, 3, Color::rgb(96, 120, 100));
-            for gy in 0..3 {
-                for gx in 0..3 {
-                    let col = if gx == 2 && gy == 2 {
-                        Color::rgb(220, 84, 48)
+            // XP Calculator
+            m.fill_rounded_grad(6.0, 3.0, 20.0, 26.0, 3.0, Color::rgb(112, 142, 186), Color::rgb(64, 88, 126));
+            m.fill_rounded_grad(8.0, 5.5, 16.0, 5.5, 1.0, Color::rgb(214, 242, 224), Color::rgb(184, 222, 198));
+            for r in 0..3 {
+                for c in 0..3 {
+                    let col = if r == 2 && c == 2 {
+                        Color::rgb(232, 112, 42)
                     } else {
-                        Color::rgb(68, 116, 196)
+                        Color::rgb(236, 240, 248)
                     };
-                    b.fill(4 + gx * 3, 7 + gy * 2, 2, 1, col);
+                    m.fill_rounded_grad(8.5 + c as f32 * 5.2, 13.0 + r as f32 * 4.5, 4.0, 3.3, 0.8, col, col);
                 }
             }
         }
         IconId::ControlPanel => {
-            // Gear / sliders
-            let metal = Color::rgb(132, 146, 164);
-            let dark = Color::rgb(68, 80, 96);
-            let hi = Color::rgb(224, 232, 240);
-            b.fill(5, 4, 6, 8, metal);
-            b.fill(4, 5, 8, 6, metal);
-            // Teeth
-            b.fill(7, 2, 2, 2, dark);
-            b.fill(7, 12, 2, 2, dark);
-            b.fill(2, 7, 2, 2, dark);
-            b.fill(12, 7, 2, 2, dark);
-            b.fill(3, 3, 2, 2, metal);
-            b.fill(11, 3, 2, 2, metal);
-            b.fill(3, 11, 2, 2, metal);
-            b.fill(11, 11, 2, 2, metal);
-            b.fill(6, 6, 4, 4, hi);
-            b.fill(7, 7, 2, 2, Color::rgb(48, 116, 216));
+            // XP Control Panel gear
+            m.fill_circle(16.0, 16.0, 11.5, Color::rgb(108, 132, 166));
+            for i in 0..8 {
+                let ang = (i as f32) * core::f32::consts::TAU / 8.0;
+                m.fill_circle(16.0 + ang.cos() * 11.0, 16.0 + ang.sin() * 11.0, 2.5, Color::rgb(138, 162, 196));
+            }
+            m.fill_circle(16.0, 16.0, 8.5, Color::rgb(198, 212, 232));
+            m.fill_circle(16.0, 16.0, 4.2, Color::rgb(46, 122, 220));
         }
         IconId::MyComputer => {
-            // CRT/LCD monitor + base
-            b.fill(1, 2, 14, 10, Color::rgb(220, 224, 230));
-            b.outline(1, 2, 14, 10, Color::rgb(92, 104, 120));
-            b.fill(3, 4, 10, 6, Color::rgb(42, 126, 224));
-            b.fill(3, 4, 10, 2, Color::rgb(104, 178, 248));
-            b.fill(6, 12, 4, 2, Color::rgb(156, 164, 176));
-            b.fill(4, 14, 8, 1, Color::rgb(92, 104, 120));
+            // XP My Computer LCD monitor + stand
+            m.fill_rounded_grad(3.0, 4.0, 26.0, 19.0, 2.5, Color::rgb(168, 178, 192), Color::rgb(104, 114, 132));
+            m.fill_rounded_grad(5.0, 6.0, 22.0, 14.0, 1.5, Color::rgb(42, 138, 242), Color::rgb(18, 78, 182));
+            m.fill_rounded_grad(5.5, 6.5, 21.0, 5.0, 1.0, Color::argb(90, 255, 255, 255), Color::argb(0, 255, 255, 255));
+            m.fill_rounded_grad(12.0, 23.0, 8.0, 3.0, 0.5, Color::rgb(138, 148, 162), Color::rgb(108, 118, 132));
+            m.fill_rounded_grad(8.0, 26.0, 16.0, 2.8, 1.2, Color::rgb(164, 174, 188), Color::rgb(112, 122, 138));
         }
     }
+    m
 }
 
-fn paint_24(b: &mut IconBuf<'_>, id: IconId) {
-    // Crisp 24x24 icons with richer detail & drop shadows
-    match id {
-        IconId::StartFlag => {
-            let r = Color::rgb(235, 76, 38);
-            let g = Color::rgb(118, 185, 36);
-            let bl = Color::rgb(42, 132, 232);
-            let y = Color::rgb(248, 194, 34);
-            b.fill(3, 3, 8, 8, r);
-            b.fill(13, 4, 8, 8, g);
-            b.fill(3, 13, 8, 8, bl);
-            b.fill(13, 14, 8, 8, y);
-            // Gloss highlights
-            b.fill(4, 4, 5, 2, Color::rgb(255, 152, 112));
-            b.fill(14, 5, 5, 2, Color::rgb(184, 232, 104));
-            b.fill(4, 14, 5, 2, Color::rgb(126, 192, 255));
-            b.fill(14, 15, 5, 2, Color::rgb(255, 232, 132));
-        }
-        IconId::Files => {
-            let out = Color::rgb(168, 112, 24);
-            let tab = Color::rgb(245, 200, 72);
-            let body = Color::rgb(252, 218, 104);
-            let hi = Color::rgb(255, 244, 180);
-            let sh = Color::rgb(220, 162, 42);
-            b.fill(2, 4, 8, 3, tab);
-            b.outline(2, 4, 8, 3, out);
-            b.fill(2, 7, 20, 14, body);
-            b.outline(2, 7, 20, 14, out);
-            b.fill(3, 8, 18, 2, hi);
-            b.fill(3, 18, 18, 2, sh);
-            b.fill(3, 21, 18, 1, Color::argb(90, 0, 0, 0));
-        }
-        IconId::Terminal => {
-            b.fill(2, 3, 20, 18, Color::rgb(22, 26, 32));
-            b.outline(2, 3, 20, 18, Color::rgb(96, 108, 124));
-            b.fill(3, 4, 18, 3, Color::rgb(0, 84, 227));
-            let fg = Color::rgb(88, 244, 112);
-            for i in 0..4 {
-                b.fill(5 + i, 10 + i, 2, 1, fg);
-                b.fill(5 + i, 16 - i, 2, 1, fg);
-            }
-            b.fill(11, 16, 6, 2, fg);
-        }
-        IconId::Tasks => {
-            b.fill(2, 3, 20, 18, Color::rgb(14, 34, 20));
-            b.outline(2, 3, 20, 18, Color::rgb(104, 112, 124));
-            let grid = Color::rgb(24, 68, 36);
-            b.fill(3, 9, 18, 1, grid);
-            b.fill(3, 15, 18, 1, grid);
-            b.fill(9, 4, 1, 16, grid);
-            b.fill(15, 4, 1, 16, grid);
-            let wave = Color::rgb(64, 248, 96);
-            for (x, y) in [
-                (3, 15), (4, 15), (5, 14), (6, 11), (7, 7), (8, 5),
-                (9, 10), (10, 16), (11, 17), (12, 13), (13, 9), (14, 12),
-                (15, 14), (16, 14), (17, 11), (18, 8), (19, 13), (20, 14),
-            ] {
-                b.fill(x, y, 1, 2, wave);
-            }
-        }
-        IconId::Notepad => {
-            b.fill(3, 2, 15, 20, Color::rgb(252, 252, 246));
-            b.outline(3, 2, 15, 20, Color::rgb(112, 124, 140));
-            b.fill(4, 3, 13, 3, Color::rgb(52, 120, 216));
-            let line_c = Color::rgb(168, 194, 226);
-            b.fill(5, 9, 10, 1, line_c);
-            b.fill(5, 13, 10, 1, line_c);
-            b.fill(5, 17, 8, 1, line_c);
-            for i in 0..10 {
-                b.fill(20 - i / 2, 7 + i, 2, 1, Color::rgb(242, 178, 34));
-            }
-            b.fill(14, 17, 2, 2, Color::rgb(64, 64, 64));
-        }
-        IconId::Calc => {
-            b.fill(3, 2, 18, 20, Color::rgb(214, 218, 226));
-            b.outline(3, 2, 18, 20, Color::rgb(84, 96, 112));
-            b.fill(5, 4, 14, 5, Color::rgb(188, 224, 192));
-            b.outline(5, 4, 14, 5, Color::rgb(96, 120, 100));
-            for gy in 0..3 {
-                for gx in 0..3 {
-                    let col = if gx == 2 && gy == 2 {
-                        Color::rgb(220, 84, 48)
-                    } else {
-                        Color::rgb(68, 116, 196)
-                    };
-                    b.fill(5 + gx * 5, 11 + gy * 3, 3, 2, col);
-                }
-            }
-        }
-        IconId::ControlPanel => {
-            let metal = Color::rgb(138, 152, 170);
-            let dark = Color::rgb(68, 80, 96);
-            let hi = Color::rgb(232, 238, 246);
-            b.fill(7, 6, 10, 12, metal);
-            b.fill(6, 7, 12, 10, metal);
-            b.fill(10, 3, 4, 3, dark);
-            b.fill(10, 18, 4, 3, dark);
-            b.fill(3, 10, 3, 4, dark);
-            b.fill(18, 10, 3, 4, dark);
-            b.fill(5, 5, 3, 3, metal);
-            b.fill(16, 5, 3, 3, metal);
-            b.fill(5, 16, 3, 3, metal);
-            b.fill(16, 16, 3, 3, metal);
-            b.fill(9, 9, 6, 6, hi);
-            b.fill(10, 10, 4, 4, Color::rgb(48, 116, 216));
-        }
-        IconId::MyComputer => {
-            b.fill(2, 3, 20, 14, Color::rgb(224, 228, 236));
-            b.outline(2, 3, 20, 14, Color::rgb(88, 100, 116));
-            b.fill(4, 5, 16, 9, Color::rgb(42, 126, 224));
-            b.fill(4, 5, 16, 3, Color::rgb(104, 178, 248));
-            b.fill(9, 17, 6, 3, Color::rgb(156, 164, 176));
-            b.fill(6, 20, 12, 2, Color::rgb(92, 104, 120));
-        }
-    }
-}
-
-/// Draws a 16x16 or 24x24 ARGB icon with alpha blending, clipped to `canvas.bounds()`.
+/// Draws an anti-aliased ARGB icon scaled cleanly to `size x size`, clipped to `canvas.bounds()`.
 pub fn draw_icon(canvas: &mut dyn Canvas, x: i32, y: i32, size: i32, id: IconId) {
-    if size <= 16 {
-        let mut buf = [0u32; 16 * 16];
-        let mut ib = IconBuf { size: 16, px: &mut buf };
-        paint_16(&mut ib, id);
-        let clip = canvas.bounds();
-        canvas.blit_from(&buf, 16, Rect::new(0, 0, 16, 16), x, y, clip, true);
-    } else {
-        let mut buf = [0u32; 24 * 24];
-        let mut ib = IconBuf { size: 24, px: &mut buf };
-        paint_24(&mut ib, id);
-        let clip = canvas.bounds();
-        canvas.blit_from(&buf, 24, Rect::new(0, 0, 24, 24), x, y, clip, true);
+    let target = size.max(8);
+    let master = paint_master_32(id);
+    let clip = canvas.bounds();
+
+    if target == 32 {
+        canvas.blit_from(&master.px, 32, Rect::new(0, 0, 32, 32), x, y, clip, true);
+        return;
     }
+
+    let mut scaled = vec![0u32; (target * target) as usize];
+    for dy in 0..target {
+        let sy = (dy as f32 + 0.5) * 32.0 / (target as f32) - 0.5;
+        let y0 = (sy.floor() as i32).clamp(0, 31);
+        let y1 = (y0 + 1).min(31);
+        let fy = (sy - y0 as f32).clamp(0.0, 1.0);
+
+        for dx in 0..target {
+            let sx = (dx as f32 + 0.5) * 32.0 / (target as f32) - 0.5;
+            let x0 = (sx.floor() as i32).clamp(0, 31);
+            let x1 = (x0 + 1).min(31);
+            let fx = (sx - x0 as f32).clamp(0.0, 1.0);
+
+            let c00 = Color(master.px[(y0 * 32 + x0) as usize]);
+            let c10 = Color(master.px[(y0 * 32 + x1) as usize]);
+            let c01 = Color(master.px[(y1 * 32 + x0) as usize]);
+            let c11 = Color(master.px[(y1 * 32 + x1) as usize]);
+
+            let w00 = (1.0 - fx) * (1.0 - fy);
+            let w10 = fx * (1.0 - fy);
+            let w01 = (1.0 - fx) * fy;
+            let w11 = fx * fy;
+
+            let a = (c00.alpha() as f32 * w00 + c10.alpha() as f32 * w10 + c01.alpha() as f32 * w01 + c11.alpha() as f32 * w11) as u8;
+            let r = (c00.red() as f32 * w00 + c10.red() as f32 * w10 + c01.red() as f32 * w01 + c11.red() as f32 * w11) as u8;
+            let g = (c00.green() as f32 * w00 + c10.green() as f32 * w10 + c01.green() as f32 * w01 + c11.green() as f32 * w11) as u8;
+            let b = (c00.blue() as f32 * w00 + c10.blue() as f32 * w10 + c01.blue() as f32 * w01 + c11.blue() as f32 * w11) as u8;
+
+            scaled[(dy * target + dx) as usize] = Color::argb(a, r, g, b).0;
+        }
+    }
+    canvas.blit_from(&scaled, target as u32, Rect::new(0, 0, target, target), x, y, clip, true);
 }
 
 /// Draws crisp window control glyphs (`_`, `□`, `×`) centered inside `rect`, clipped to `canvas.bounds()`.

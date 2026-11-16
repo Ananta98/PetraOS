@@ -95,7 +95,9 @@ pub trait InputBackend {
 
 struct EvdevDevice {
     fd: c_int,
+    abs_min_x: i32,
     abs_max_x: i32,
+    abs_min_y: i32,
     abs_max_y: i32,
 }
 
@@ -129,23 +131,25 @@ impl EvdevInputBackend {
                 ) {
                     let mut abs_x = InputAbsInfo::default();
                     let mut abs_y = InputAbsInfo::default();
-                    let max_x = if unsafe { space_core::sys::ioctl(fd, EVIOCGABS_X, &mut abs_x) } == 0
-                        && abs_x.maximum > 0
+                    let (min_x, max_x) = if unsafe { space_core::sys::ioctl(fd, EVIOCGABS_X, &mut abs_x) } == 0
+                        && abs_x.maximum > abs_x.minimum
                     {
-                        abs_x.maximum
+                        (abs_x.minimum, abs_x.maximum)
                     } else {
-                        32767
+                        (0, 32767)
                     };
-                    let max_y = if unsafe { space_core::sys::ioctl(fd, EVIOCGABS_Y, &mut abs_y) } == 0
-                        && abs_y.maximum > 0
+                    let (min_y, max_y) = if unsafe { space_core::sys::ioctl(fd, EVIOCGABS_Y, &mut abs_y) } == 0
+                        && abs_y.maximum > abs_y.minimum
                     {
-                        abs_y.maximum
+                        (abs_y.minimum, abs_y.maximum)
                     } else {
-                        32767
+                        (0, 32767)
                     };
                     devices.push(EvdevDevice {
                         fd,
+                        abs_min_x: min_x,
                         abs_max_x: max_x,
+                        abs_min_y: min_y,
                         abs_max_y: max_y,
                     });
                 }
@@ -187,11 +191,13 @@ impl InputBackend for EvdevInputBackend {
                         },
                         EV_ABS => match ev.code {
                             ABS_X => {
-                                let x = (ev.value as i64 * screen_w as i64 / dev.abs_max_x.max(1) as i64) as i32;
+                                let span = (dev.abs_max_x - dev.abs_min_x).max(1) as i64;
+                                let x = ((ev.value - dev.abs_min_x) as i64 * screen_w as i64 / span) as i32;
                                 out.push(InputEvent::PointerMoveAbs { x, y: -1 });
                             }
                             ABS_Y => {
-                                let y = (ev.value as i64 * screen_h as i64 / dev.abs_max_y.max(1) as i64) as i32;
+                                let span = (dev.abs_max_y - dev.abs_min_y).max(1) as i64;
+                                let y = ((ev.value - dev.abs_min_y) as i64 * screen_h as i64 / span) as i32;
                                 out.push(InputEvent::PointerMoveAbs { x: -1, y });
                             }
                             _ => {}

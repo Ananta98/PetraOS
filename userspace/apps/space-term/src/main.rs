@@ -313,7 +313,7 @@ impl Paintable for TermApp {
                 }
                 if cell.ch != ' ' {
                     let s = cell.ch.encode_utf8(&mut tmp);
-                    font::draw_text(canvas, x, y + 2, s, cell.fg, 2);
+                    font::draw_text_mono(canvas, x, y + 2, s, cell.fg, 2);
                 }
             }
         }

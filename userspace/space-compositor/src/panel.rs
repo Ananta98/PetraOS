@@ -115,14 +115,14 @@ impl DesktopPanel {
 
     #[inline]
     pub fn launcher_rect(&self, screen_h: i32) -> Rect {
-        Rect::new(0, screen_h - TASKBAR_H - 310, 380, 310)
+        Rect::new(0, screen_h - TASKBAR_H - 310, 412, 310)
     }
 
     fn tray_width(&self) -> i32 {
         let stats = format!("RAM {}M/{}M", self.mem_mb, self.mem_total_mb);
         let sw = font::measure_text_width(&stats, 2);
-        // 4 workspaces (4*22=88) + layout (66) + stats + padding
-        88 + 66 + sw + 28
+        // 4 workspaces (4*22=88) + layout (68) + stats + padding
+        88 + 68 + sw + 30
     }
 
     fn start_button_rect(&self, screen_h: i32) -> Rect {
@@ -168,8 +168,7 @@ impl DesktopPanel {
             }
         }
         icons::draw_icon(canvas, 10, tb_y + 9, 16, IconId::StartFlag);
-        font::draw_text(canvas, 33, tb_y + 10, "start", Color::rgb(20, 70, 20), 2);
-        font::draw_text(canvas, 32, tb_y + 9, "start", Color::WHITE, 2);
+        font::draw_text_shadow(canvas, 34, tb_y + 9, "start", Color::WHITE, Color::rgb(20, 70, 20), 2, true);
 
         // 3. Quick Launch Icons
         for (i, &(_, icon)) in QUICK_LAUNCH.iter().enumerate() {
@@ -212,8 +211,9 @@ impl DesktopPanel {
         };
         canvas.fill_rect(lay_r, Color::rgb(0x16, 0x72, 0xD2));
         canvas.draw_rect_outline(lay_r, 1, Color::rgb(0x74, 0xC0, 0xFF));
-        font::draw_text(canvas, lay_r.x + 4, lay_r.y + 4, lay_lbl, Color::WHITE, 2);
-        cx += 70;
+        let lw = font::measure_text_width(lay_lbl, 2);
+        font::draw_text(canvas, lay_r.x + (lay_r.w - lw) / 2, lay_r.y + 4, lay_lbl, Color::WHITE, 2);
+        cx += 72;
 
         // Live RAM readout
         let stats = format!("RAM {}M/{}M", self.mem_mb, self.mem_total_mb);
@@ -267,8 +267,7 @@ impl DesktopPanel {
             let hdr = Rect::new(lr.x + 2, lr.y + 2, lr.w - 4, 42);
             canvas.fill_gradient_v(hdr, Theme::XP_TITLE_ACTIVE_TOP, Theme::XP_TITLE_ACTIVE_MID);
             icons::draw_icon(canvas, hdr.x + 10, hdr.y + 9, 24, IconId::MyComputer);
-            font::draw_text(canvas, hdr.x + 43, hdr.y + 14, "PetraOS", Color::rgb(0, 28, 108), 2);
-            font::draw_text(canvas, hdr.x + 42, hdr.y + 13, "PetraOS", Color::WHITE, 2);
+            font::draw_text_shadow(canvas, hdr.x + 42, hdr.y + 13, "PetraOS", Color::WHITE, Color::rgb(0, 28, 108), 2, true);
 
             // Left white column (All Apps)
             let left_col = Rect::new(lr.x + 2, hdr.bottom(), 196, lr.h - 42 - 34);

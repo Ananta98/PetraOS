@@ -25,6 +25,23 @@ use crate::{
 
 pub use self::{job::*, lifecycle::*, thread::Thread, types::*};
 
+/// Installs the context-switch hook that keeps the running task's address space active.
+///
+/// OSTD leaves the last activated `VmSpace` in CR3 across a context switch. Without this
+/// hook a thread preempted (or blocked) between activating its address space and entering
+/// user mode would resume executing user code on another process's page table, corrupting
+/// memory and faulting at nonsensical addresses.
+pub fn init() {
+    ostd::task::inject_post_schedule_handler(activate_current_vmspace);
+}
+
+/// Activates the address space of the thread that was just switched to.
+fn activate_current_vmspace() {
+    if let Some(proc) = Thread::current_proc() {
+        proc.vmspace().activate();
+    }
+}
+
 /// Returns the currently running thread, if any.
 pub fn current_thread() -> Option<Arc<Thread>> {
     Thread::current()

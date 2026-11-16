@@ -76,6 +76,7 @@ fn kernel_init() {
     vm::init();
     fs::init();
     sched::init();
+    proc::init();
     kpi::init().unwrap();
     drivers::init().unwrap();
     modules::init_calls().unwrap();

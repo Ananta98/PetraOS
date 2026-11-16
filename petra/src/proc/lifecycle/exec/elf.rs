@@ -206,11 +206,11 @@ pub fn load_elf_with_bias(
             let bss_page_rem = ostd::mm::PAGE_SIZE - (bss_start & (ostd::mm::PAGE_SIZE - 1));
             let zero_len = (mem_sz - file_sz).min(bss_page_rem);
             if zero_len > 0 {
-                let mut writer = vmar
-                    .vm_space()
-                    .writer(bss_start, zero_len)
+                // `UserPtr` re-activates `vmar` if a context switch restored the
+                // caller's (old) address space in the meantime.
+                UserPtr::new(bss_start)
+                    .write_bytes(vmar, &vec![0u8; zero_len])
                     .map_err(|_| Errno::EIO)?;
-                let _ = writer.fill_zeros(zero_len);
             }
         }
 

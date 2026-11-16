@@ -104,7 +104,7 @@ impl PadApp {
         let t = Theme::XP_LUNA;
         let trimmed = line.trim_start();
         if trimmed.starts_with("//") || trimmed.starts_with('#') {
-            font::draw_text(canvas, x, y, line, Color::rgb(0, 112, 0), 2);
+            font::draw_text_mono(canvas, x, y, line, Color::rgb(0, 112, 0), 2);
             return;
         }
         let mut cx = x;
@@ -120,8 +120,8 @@ impl PadApp {
                     }
                 }
                 let seg = &line[start..end];
-                font::draw_text(canvas, cx, y, seg, Color::rgb(163, 21, 21), 2);
-                cx += font::measure_text_width(seg, 2);
+                font::draw_text_mono(canvas, cx, y, seg, Color::rgb(163, 21, 21), 2);
+                cx += font::measure_text_width_mono(seg, 2);
             } else if ch.is_ascii_alphanumeric() || ch == '_' {
                 let start = idx;
                 let mut end = idx + ch.len_utf8();
@@ -141,13 +141,13 @@ impl PadApp {
                 } else {
                     t.text_primary
                 };
-                font::draw_text(canvas, cx, y, word, col, 2);
-                cx += font::measure_text_width(word, 2);
+                font::draw_text_mono(canvas, cx, y, word, col, 2);
+                cx += font::measure_text_width_mono(word, 2);
             } else {
                 let mut tmp = [0u8; 4];
                 let s = ch.encode_utf8(&mut tmp);
-                font::draw_text(canvas, cx, y, s, t.text_secondary, 2);
-                cx += font::GLYPH_W * 2;
+                font::draw_text_mono(canvas, cx, y, s, t.text_secondary, 2);
+                cx += font::measure_text_width_mono(s, 2);
             }
         }
     }
@@ -192,11 +192,12 @@ impl Paintable for PadApp {
             let real_l = tab.scroll + vi;
             let ry = er.y + 6 + vi as i32 * row_h;
             let lnum = format!("{:>3}", real_l + 1);
-            font::draw_text(canvas, er.x + 6, ry, &lnum, t.text_secondary, 2);
+            font::draw_text_mono(canvas, er.x + 6, ry, &lnum, t.text_secondary, 2);
             Self::draw_highlighted_line(canvas, er.x + 54, ry, line);
 
             if !self.path_input.focused && real_l == tab.cur_line {
-                let cx = er.x + 54 + (tab.cur_col as i32) * font::GLYPH_W * 2;
+                let prefix: String = line.chars().take(tab.cur_col).collect();
+                let cx = er.x + 54 + font::measure_text_width_mono(&prefix, 2);
                 canvas.fill_rect(Rect::new(cx, ry, 2, 16), t.accent);
             }
         }
