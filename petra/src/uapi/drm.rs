@@ -207,6 +207,11 @@ pub const DRM_IOCTL_MODE_CURSOR: u32 = _iowr::<DrmModeCursor>(DRM_IOCTL_BASE, 0x
 pub const DRM_IOCTL_MODE_GETENCODER: u32 = _iowr::<DrmModeGetEncoder>(DRM_IOCTL_BASE, 0xA6);
 /// Query a connector.
 pub const DRM_IOCTL_MODE_GETCONNECTOR: u32 = _iowr::<DrmModeGetConnector>(DRM_IOCTL_BASE, 0xA7);
+/// Query a mode property definition.
+pub const DRM_IOCTL_MODE_GETPROPERTY: u32 = _iowr::<DrmModeGetProperty>(DRM_IOCTL_BASE, 0xAA);
+/// Set a connector property value.
+pub const DRM_IOCTL_MODE_SETPROPERTY: u32 =
+    _iowr::<DrmModeConnectorSetProperty>(DRM_IOCTL_BASE, 0xAB);
 /// Query framebuffer metadata.
 pub const DRM_IOCTL_MODE_GETFB: u32 = _iowr::<DrmModeFbCmd>(DRM_IOCTL_BASE, 0xAD);
 /// Register a framebuffer from a GEM handle (legacy single-plane form).
@@ -217,10 +222,18 @@ pub const DRM_IOCTL_MODE_RMFB: u32 = _iowr::<u32>(DRM_IOCTL_BASE, 0xAF);
 pub const DRM_IOCTL_MODE_PAGE_FLIP: u32 = _iowr::<DrmModeCrtcPageFlip>(DRM_IOCTL_BASE, 0xB0);
 /// Notify the driver of dirty framebuffer regions (flush hook).
 pub const DRM_IOCTL_MODE_DIRTYFB: u32 = _iowr::<DrmModeFbDirtyCmd>(DRM_IOCTL_BASE, 0xB1);
+/// Query plane resources.
+pub const DRM_IOCTL_MODE_GETPLANERESOURCES: u32 =
+    _iowr::<DrmModeGetPlaneRes>(DRM_IOCTL_BASE, 0xB5);
+/// Query a single plane's state and formats.
+pub const DRM_IOCTL_MODE_GETPLANE: u32 = _iowr::<DrmModeGetPlane>(DRM_IOCTL_BASE, 0xB6);
 /// Change which plane displays a framebuffer.
 pub const DRM_IOCTL_MODE_SETPLANE: u32 = _iowr::<DrmModeSetPlane>(DRM_IOCTL_BASE, 0xB7);
 /// Register a framebuffer from a GEM handle (multi-plane, fourcc form).
 pub const DRM_IOCTL_MODE_ADDFB2: u32 = _iowr::<DrmModeFbCmd2>(DRM_IOCTL_BASE, 0xB8);
+/// Query properties attached to a KMS object.
+pub const DRM_IOCTL_MODE_OBJ_GETPROPERTIES: u32 =
+    _iowr::<DrmModeObjGetProperties>(DRM_IOCTL_BASE, 0xB9);
 /// Set or move the hardware cursor on a CRTC with hotspot coordinates.
 pub const DRM_IOCTL_MODE_CURSOR2: u32 = _iowr::<DrmModeCursor2>(DRM_IOCTL_BASE, 0xBB);
 
@@ -727,4 +740,76 @@ pub struct DrmModeSetPlane {
     pub src_y: u32,
     pub src_h: u32,
     pub src_w: u32,
+}
+
+pub const DRM_PROP_NAME_LEN: usize = 32;
+pub const DRM_MODE_OBJECT_ANY: u32 = 0;
+pub const DRM_MODE_OBJECT_CONNECTOR: u32 = 0xc0c0_c0c0;
+pub const DRM_MODE_OBJECT_PLANE: u32 = 0xeeeeeeee;
+pub const DRM_MODE_PROP_IMMUTABLE: u32 = 1 << 2;
+pub const DRM_MODE_PROP_ENUM: u32 = 1 << 3;
+pub const DRM_PLANE_TYPE_PRIMARY: u64 = 1;
+
+/// `struct drm_mode_get_plane_res` — `DRM_IOCTL_MODE_GETPLANERESOURCES`.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, FromBytes, IntoBytes, KnownLayout, Immutable, Default)]
+pub struct DrmModeGetPlaneRes {
+    pub plane_id_ptr: u64,
+    pub count_planes: u32,
+    pub _pad: u32,
+}
+
+/// `struct drm_mode_get_plane` — `DRM_IOCTL_MODE_GETPLANE`.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, FromBytes, IntoBytes, KnownLayout, Immutable, Default)]
+pub struct DrmModeGetPlane {
+    pub plane_id: u32,
+    pub crtc_id: u32,
+    pub fb_id: u32,
+    pub possible_crtcs: u32,
+    pub gamma_size: u32,
+    pub count_format_types: u32,
+    pub format_type_ptr: u64,
+}
+
+/// `struct drm_mode_obj_get_properties` — `DRM_IOCTL_MODE_OBJ_GETPROPERTIES`.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, FromBytes, IntoBytes, KnownLayout, Immutable, Default)]
+pub struct DrmModeObjGetProperties {
+    pub props_ptr: u64,
+    pub prop_values_ptr: u64,
+    pub count_props: u32,
+    pub obj_id: u32,
+    pub obj_type: u32,
+    pub _pad: u32,
+}
+
+/// `struct drm_mode_get_property` — `DRM_IOCTL_MODE_GETPROPERTY`.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, FromBytes, IntoBytes, KnownLayout, Immutable, Default)]
+pub struct DrmModeGetProperty {
+    pub values_ptr: u64,
+    pub enum_blob_ptr: u64,
+    pub prop_id: u32,
+    pub flags: u32,
+    pub name: [u8; DRM_PROP_NAME_LEN],
+    pub count_values: u32,
+    pub count_enum_blobs: u32,
+}
+
+/// `struct drm_mode_property_enum` — element of `DrmModeGetProperty::enum_blob_ptr`.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, FromBytes, IntoBytes, KnownLayout, Immutable, Default)]
+pub struct DrmModePropertyEnum {
+    pub value: u64,
+    pub name: [u8; DRM_PROP_NAME_LEN],
+}
+
+/// `struct drm_mode_connector_set_property` — `DRM_IOCTL_MODE_SETPROPERTY`.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, FromBytes, IntoBytes, KnownLayout, Immutable, Default)]
+pub struct DrmModeConnectorSetProperty {
+    pub value: u64,
+    pub prop_id: u32,
+    pub connector_id: u32,
 }

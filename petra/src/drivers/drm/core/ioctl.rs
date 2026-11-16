@@ -72,7 +72,7 @@ pub(crate) fn copy_string_to_user(ptr: usize, len: usize, src: &[u8]) -> usize {
 /// (0xB2..0xB4); requests in the per-driver range (0x40..0x9F) and the later
 /// mode-setting range (0xA0..) delegate to the device's own ioctl handler.
 pub fn dispatch(file: &mut DrmFile, cmd: u32, arg: usize) -> Result<usize> {
-    match cmd {
+    let res = match cmd {
         uapi::drm::DRM_IOCTL_VERSION => ioctl_version(file, arg),
         uapi::drm::DRM_IOCTL_GET_CAP => ioctl_get_cap(arg),
         uapi::drm::DRM_IOCTL_SET_CLIENT_CAP => ioctl_set_client_cap(file, arg),
@@ -97,7 +97,11 @@ pub fn dispatch(file: &mut DrmFile, cmd: u32, arg: usize) -> Result<usize> {
                 device.driver_ioctl(file, cmd, arg)
             }
         }
+    };
+    if let Err(ref e) = res {
+        ostd::warn!("drm ioctl cmd={:#x} failed: {:?}", cmd, e);
     }
+    res
 }
 
 fn ioctl_version(file: &mut DrmFile, arg: usize) -> Result<usize> {
@@ -210,6 +214,19 @@ impl crate::fs::vfs::FileOps for DmaBufFileOps {
         crate::return_errno!(EINVAL, "DMA-BUF does not support write");
     }
 
+    fn seek(&self, curr_offset: u64, anchor: crate::fs::vfs::SeekAnchor) -> Result<u64> {
+        let size = self.object.size() as i128;
+        let next = match anchor {
+            crate::fs::vfs::SeekAnchor::Start(off) => off as i128,
+            crate::fs::vfs::SeekAnchor::Current(delta) => curr_offset as i128 + delta as i128,
+            crate::fs::vfs::SeekAnchor::End(delta) => size + delta as i128,
+        };
+        if next < 0 {
+            crate::return_errno!(EINVAL, "negative DMA-BUF seek offset");
+        }
+        Ok(next as u64)
+    }
+
     fn mmap(&self, _offset: u64, len: usize) -> Result<()> {
         if len > self.object.size() {
             crate::return_errno!(EINVAL, "mapping extends past buffer object");
@@ -236,7 +253,9 @@ impl crate::fs::vfs::FileOps for DmaBufFileOps {
     }
 }
 
-struct DmaBufNodeOps;
+struct DmaBufNodeOps {
+    size: usize,
+}
 
 impl crate::fs::vfs::NodeOps for DmaBufNodeOps {
     fn getattr(&self) -> Result<crate::fs::vfs::INodeAttr> {
@@ -244,6 +263,7 @@ impl crate::fs::vfs::NodeOps for DmaBufNodeOps {
             mode: crate::fs::vfs::Mode::FILE
                 | crate::fs::vfs::Mode::RUSR
                 | crate::fs::vfs::Mode::WUSR,
+            size: self.size,
             ..Default::default()
         })
     }
@@ -254,7 +274,9 @@ fn ioctl_prime_handle_to_fd(file: &mut DrmFile, arg: usize) -> Result<usize> {
     let object = file.handles.get(req.handle).ok_or(Errno::ENOENT)?;
     let proc = Thread::proc_or_esrch()?;
     let inode = Arc::new(crate::fs::vfs::INode::new(
-        alloc::boxed::Box::new(DmaBufNodeOps),
+        alloc::boxed::Box::new(DmaBufNodeOps {
+            size: object.size(),
+        }),
         crate::fs::vfs::Mode::FILE | crate::fs::vfs::Mode::RUSR | crate::fs::vfs::Mode::WUSR,
         0xd1a0,
     ));

@@ -5,6 +5,7 @@
 use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::sync::Arc;
+use core::sync::atomic::{AtomicU64, Ordering};
 use bitflags::bitflags;
 use spin::RwLock;
 
@@ -178,7 +179,11 @@ fn now_secs() -> u64 {
 /// A standalone file system node (vnode).
 ///
 /// Represents a file, directory, or special device in a generic way within the VFS.
+static NEXT_INODE_UID: AtomicU64 = AtomicU64::new(1);
+
 pub struct INode {
+    /// Globally unique VFS inode identifier (monotonically increasing, never reused).
+    pub uid: u64,
     /// Inode number (unique identifier within the filesystem).
     pub id: usize,
     /// Node-specific operations.
@@ -206,6 +211,7 @@ impl INode {
     pub fn new_with_attr(ops: Box<dyn NodeOps>, id: usize, attr: INodeAttr) -> Self {
         let now = now_secs();
         Self {
+            uid: NEXT_INODE_UID.fetch_add(1, Ordering::Relaxed),
             id,
             node_ops: ops,
             attr: RwLock::new(attr),
@@ -238,6 +244,7 @@ impl INode {
         let mut t = self.times.write();
         t.mtime = now;
         t.ctime = now;
+        crate::vm::backing::page_cache::invalidate_inode(self.uid);
     }
 
     /// Records a metadata change (`ctime`).
@@ -307,5 +314,11 @@ impl INode {
     /// Sets the size of the inode.
     pub fn set_size(&self, size: usize) {
         self.attr.write().size = size;
+    }
+}
+
+impl Drop for INode {
+    fn drop(&mut self) {
+        crate::vm::backing::page_cache::invalidate_inode(self.uid);
     }
 }

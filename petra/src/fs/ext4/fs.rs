@@ -13,6 +13,7 @@ use ::alloc::sync::Arc;
 use ::alloc::sync::Weak;
 use ::alloc::vec;
 use ::alloc::vec::Vec;
+use core::sync::atomic::{AtomicUsize, Ordering};
 use spin::{Mutex, RwLock};
 
 use crate::uapi::errno::{Errno, Result};
@@ -35,6 +36,25 @@ use super::superblock::{EXT4_VALID_FS, SuperBlock, rocompat};
 // ---------------------------------------------------------------------------
 // Filesystem instance
 // ---------------------------------------------------------------------------
+
+const EXT4_META_CACHE_CAP: usize = 1024;
+const EXT4_INODE_CACHE_CAP: usize = 2048;
+const EXT4_BLOCK_CACHE_CAP: usize = 2048;
+
+static EVICT_ROTOR: AtomicUsize = AtomicUsize::new(0);
+
+/// Evicts one pseudo-random/rotating entry from `map` so low-numbered
+/// system inodes/blocks (like root `/` and `libc`) are not always targeted.
+fn evict_one_rotating<K: Ord + Copy, V>(map: &mut BTreeMap<K, V>) {
+    let len = map.len();
+    if len == 0 {
+        return;
+    }
+    let idx = EVICT_ROTOR.fetch_add(1, Ordering::Relaxed) % len;
+    if let Some(key) = map.keys().nth(idx).copied() {
+        map.remove(&key);
+    }
+}
 
 /// The ext4 filesystem mount instance.
 pub struct Ext4Fs {
@@ -115,6 +135,7 @@ impl Ext4Fs {
             self_ref: Mutex::new(Weak::new()),
         });
         *fs.self_ref.lock() = Arc::downgrade(&fs);
+        crate::vm::reclaim::register(&fs);
         fs.mount_recovery()?;
         Ok(fs)
     }
@@ -173,10 +194,8 @@ impl Ext4Fs {
         read_fs_blocks(&*self.dev, self.block_size, self.dev_block_size, blk, buf)?;
         {
             let mut mcache = self.meta_cache.write();
-            if mcache.len() >= 8192 {
-                if let Some(first_key) = mcache.keys().next().copied() {
-                    mcache.remove(&first_key);
-                }
+            if mcache.len() >= EXT4_META_CACHE_CAP {
+                evict_one_rotating(&mut mcache);
             }
             mcache.insert(blk, Arc::new(buf.to_vec()));
         }
@@ -187,10 +206,8 @@ impl Ext4Fs {
         self.dirty_blocks.write().remove(&blk);
         {
             let mut mcache = self.meta_cache.write();
-            if mcache.len() >= 8192 && !mcache.contains_key(&blk) {
-                if let Some(first_key) = mcache.keys().next().copied() {
-                    mcache.remove(&first_key);
-                }
+            if mcache.len() >= EXT4_META_CACHE_CAP && !mcache.contains_key(&blk) {
+                evict_one_rotating(&mut mcache);
             }
             mcache.insert(blk, Arc::new(buf.to_vec()));
         }
@@ -201,10 +218,8 @@ impl Ext4Fs {
         let blk_arc = Arc::new(buf.to_vec());
         {
             let mut mcache = self.meta_cache.write();
-            if mcache.len() >= 8192 && !mcache.contains_key(&blk) {
-                if let Some(first_key) = mcache.keys().next().copied() {
-                    mcache.remove(&first_key);
-                }
+            if mcache.len() >= EXT4_META_CACHE_CAP && !mcache.contains_key(&blk) {
+                evict_one_rotating(&mut mcache);
             }
             mcache.insert(blk, Arc::clone(&blk_arc));
         }
@@ -257,10 +272,8 @@ impl Ext4Fs {
 
         {
             let mut cache = self.inode_cache.write();
-            if cache.len() >= 16384 {
-                if let Some(first_key) = cache.keys().next().copied() {
-                    cache.remove(&first_key);
-                }
+            if cache.len() >= EXT4_INODE_CACHE_CAP {
+                evict_one_rotating(&mut cache);
             }
             cache.insert(ino, Arc::new(raw.clone()));
         }
@@ -295,10 +308,8 @@ impl Ext4Fs {
 
         {
             let mut cache = self.inode_cache.write();
-            if cache.len() >= 16384 {
-                if let Some(first_key) = cache.keys().next().copied() {
-                    cache.remove(&first_key);
-                }
+            if cache.len() >= EXT4_INODE_CACHE_CAP {
+                evict_one_rotating(&mut cache);
             }
             cache.insert(ino, Arc::new(raw.clone()));
         }
@@ -450,10 +461,8 @@ impl Ext4Fs {
             Some(phys) => {
                 self.read_fs_block(phys, buf)?;
                 let mut bcache = self.block_cache.write();
-                if bcache.len() >= 16384 {
-                    if let Some(first_key) = bcache.keys().next().copied() {
-                        bcache.remove(&first_key);
-                    }
+                if bcache.len() >= EXT4_BLOCK_CACHE_CAP {
+                    evict_one_rotating(&mut bcache);
                 }
                 bcache.insert((ino, lblock), Arc::new(buf.to_vec()));
                 Ok(())
@@ -728,10 +737,8 @@ impl Ext4Fs {
                         buf[written..written + take].copy_from_slice(&blk[rel..rel + take]);
                         let blk_arc = Arc::new(blk);
                         let mut bcache = self.block_cache.write();
-                        if bcache.len() >= 16384 {
-                            if let Some(first_key) = bcache.keys().next().copied() {
-                                bcache.remove(&first_key);
-                            }
+                        if bcache.len() >= EXT4_BLOCK_CACHE_CAP {
+                            evict_one_rotating(&mut bcache);
                         }
                         bcache.insert((ino, lblock), blk_arc);
                         drop(bcache);
@@ -780,7 +787,7 @@ impl Ext4Fs {
                                     }
                                     let mut bcache = self.block_cache.write();
                                     for i in 0..run_len {
-                                        if bcache.len() >= 16384 {
+                                        if bcache.len() >= EXT4_BLOCK_CACHE_CAP {
                                             if let Some(first_key) = bcache.keys().next().copied() {
                                                 bcache.remove(&first_key);
                                             }
@@ -847,10 +854,8 @@ impl Ext4Fs {
             let blk_arc = Arc::new(blk);
             {
                 let mut bcache = self.block_cache.write();
-                if bcache.len() >= 16384 {
-                    if let Some(first_key) = bcache.keys().next().copied() {
-                        bcache.remove(&first_key);
-                    }
+                if bcache.len() >= EXT4_BLOCK_CACHE_CAP {
+                    evict_one_rotating(&mut bcache);
                 }
                 bcache.insert((ino, lblock), Arc::clone(&blk_arc));
             }
@@ -1178,10 +1183,8 @@ impl Ext4Fs {
 
             {
                 let mut bcache = self.block_cache.write();
-                if bcache.len() >= 16384 && !bcache.contains_key(&(ino, lblock)) {
-                    if let Some(first_key) = bcache.keys().next().copied() {
-                        bcache.remove(&first_key);
-                    }
+                if bcache.len() >= EXT4_BLOCK_CACHE_CAP && !bcache.contains_key(&(ino, lblock)) {
+                    evict_one_rotating(&mut bcache);
                 }
                 bcache.insert((ino, lblock), Arc::clone(&blk_arc));
             }
@@ -2362,5 +2365,37 @@ impl FileSystem for Ext4Fs {
 
     fn sync(&self) -> Result<()> {
         self.sync_all()
+    }
+}
+
+impl crate::vm::reclaim::ReclaimSource for Ext4Fs {
+    fn reclaim(&self, budget: usize) -> usize {
+        let mut freed = 0;
+
+        if freed < budget {
+            let mut bcache = self.block_cache.write();
+            while freed < budget && !bcache.is_empty() {
+                evict_one_rotating(&mut bcache);
+                freed += 1;
+            }
+        }
+
+        if freed < budget {
+            let mut mcache = self.meta_cache.write();
+            while freed < budget && !mcache.is_empty() {
+                evict_one_rotating(&mut mcache);
+                freed += 1;
+            }
+        }
+
+        if freed < budget {
+            let mut icache = self.inode_cache.write();
+            while freed < budget && !icache.is_empty() {
+                evict_one_rotating(&mut icache);
+                freed += 1;
+            }
+        }
+
+        freed
     }
 }

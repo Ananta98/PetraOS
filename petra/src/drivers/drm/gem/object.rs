@@ -114,6 +114,7 @@ impl GemObject {
         }
         self.segment
             .slice(&(page..page + PAGE_SIZE))
+            .into_iter()
             .next()
             .ok_or(Errno::EINVAL)
     }

@@ -15,9 +15,9 @@ const IOC_TYPESHIFT: u32 = IOC_NRSHIFT + IOC_NRBITS;
 const IOC_SIZESHIFT: u32 = IOC_TYPESHIFT + IOC_TYPEBITS;
 const IOC_DIRSHIFT: u32 = IOC_SIZESHIFT + IOC_SIZEBITS;
 /// `_IOC_READ`: the kernel writes the user-space buffer.
-pub const IOC_READ: u32 = 1;
+pub const IOC_READ: u32 = 2;
 /// `_IOC_WRITE`: the kernel reads the user-space buffer.
-pub const IOC_WRITE: u32 = 2;
+pub const IOC_WRITE: u32 = 1;
 
 /// `_IOC(dir, type, nr, size)`.
 pub const fn _ioc(dir: u32, ty: u32, nr: u32, size: usize) -> u32 {

@@ -315,41 +315,6 @@ pub fn write_output(data: &[u8]) {
     flush_shadow();
 }
 
-/// Runs a deterministic console rendering benchmark and logs metrics over serial.
-pub fn run_perf_benchmark() {
-    let c0 = crate::utils::perf::read_cycles();
-    let t0 = crate::utils::perf::now_ns();
-    write_output(b"\x1b[2J\x1b[H");
-    for i in 0..30u32 {
-        let line = alloc::format!(
-            "[PetraOS perf] line {:02}: 0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ\r\n",
-            i
-        );
-        write_output(line.as_bytes());
-    }
-    let (cycles, us) = crate::utils::perf::elapsed(c0, t0);
-    let fps = crate::utils::perf::fps_from_us(us);
-    ostd::info!(
-        "PERF_CONSOLE_BENCH[30lines+clear]: cycles={}, frame_time_us={} ({} ms), eff_fps={}",
-        cycles,
-        us,
-        us / 1000,
-        fps
-    );
-
-    // Measure a single-character update (incremental redraw)
-    let c1 = crate::utils::perf::read_cycles();
-    let t1 = crate::utils::perf::now_ns();
-    write_output(b"A");
-    let (char_cycles, char_us) = crate::utils::perf::elapsed(c1, t1);
-    ostd::info!(
-        "PERF_CONSOLE_CHAR: cycles={}, frame_time_us={}, eff_fps={}",
-        char_cycles,
-        char_us,
-        crate::utils::perf::fps_from_us(char_us)
-    );
-}
-
 /// Returns the current terminal window dimensions.
 pub fn get_winsize() -> winsize {
     let mut term_guard = TERMINAL.lock();

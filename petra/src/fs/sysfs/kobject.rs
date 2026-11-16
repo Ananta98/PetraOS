@@ -429,11 +429,20 @@ impl SysTree {
         let devices_dir = root_dir.add_dir("devices");
         let _ = devices_dir.add_dir("system");
         let virtual_dir = devices_dir.add_dir("virtual");
-        let _ = virtual_dir.add_dir("drm");
+        let virtual_drm_dir = virtual_dir.add_dir("drm");
+        let _ = virtual_drm_dir.add_symlink("subsystem", "../../../bus/platform");
+        let _ = virtual_drm_dir.add_static_attr(
+            "uevent",
+            b"DRIVER=virtio_gpu\nMODALIAS=platform:virtio_gpu\n",
+        );
+        let virtual_drm_sub = virtual_drm_dir.add_dir("drm");
+        let _ = virtual_drm_sub.add_dir("card0");
+        let _ = virtual_drm_sub.add_dir("renderD128");
         let _ = virtual_dir.add_dir("input");
 
         let bus_dir = root_dir.add_dir("bus");
         let _ = bus_dir.add_dir("pci");
+        let _ = bus_dir.add_dir("platform");
         let _ = bus_dir.add_dir("usb");
 
         let fs_dir = root_dir.add_dir("fs");

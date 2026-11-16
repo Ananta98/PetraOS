@@ -162,10 +162,10 @@ impl SysNode for SysDrmCardDirNode {
                 format!("MAJOR={DRM_MAJOR}\nMINOR={minor}\nDEVNAME=dri/card{minor}\nDEVTYPE=drm_minor\n")
                     .into_bytes()
             }))),
-            "subsystem" => Some(Arc::new(SysSymlinkNode::new("subsystem", "../../class/drm"))),
+            "subsystem" => Some(Arc::new(SysSymlinkNode::new("subsystem", "../../../class/drm"))),
             "device" => Some(Arc::new(SysSymlinkNode::new(
                 "device",
-                "../../devices/virtual/drm",
+                "../../../devices/virtual/drm",
             ))),
             _ => {
                 let kms = self.dev.kms()?;
@@ -330,10 +330,10 @@ impl SysNode for SysDrmRenderDirNode {
                 format!("MAJOR={DRM_MAJOR}\nMINOR={rminor}\nDEVNAME=dri/renderD{rminor}\nDEVTYPE=drm_minor\n")
                     .into_bytes()
             }))),
-            "subsystem" => Some(Arc::new(SysSymlinkNode::new("subsystem", "../../class/drm"))),
+            "subsystem" => Some(Arc::new(SysSymlinkNode::new("subsystem", "../../../class/drm"))),
             "device" => Some(Arc::new(SysSymlinkNode::new(
                 "device",
-                "../../devices/virtual/drm",
+                "../../../devices/virtual/drm",
             ))),
             _ => None,
         }

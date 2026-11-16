@@ -28,13 +28,18 @@ pub fn dispatch(kms: &KmsState, file: &mut DrmFile, cmd: u32, arg: usize) -> Res
         drm::DRM_IOCTL_MODE_CURSOR => mode_cursor(kms, file, arg),
         drm::DRM_IOCTL_MODE_GETENCODER => get_encoder(kms, arg),
         drm::DRM_IOCTL_MODE_GETCONNECTOR => get_connector(kms, arg),
+        drm::DRM_IOCTL_MODE_GETPROPERTY => get_property(arg),
+        drm::DRM_IOCTL_MODE_SETPROPERTY => set_property(kms, arg),
         drm::DRM_IOCTL_MODE_GETFB => get_fb(kms, file, arg),
         drm::DRM_IOCTL_MODE_ADDFB => add_fb(kms, file, arg),
         drm::DRM_IOCTL_MODE_RMFB => rm_fb(kms, arg),
         drm::DRM_IOCTL_MODE_PAGE_FLIP => page_flip(kms, file, arg),
         drm::DRM_IOCTL_MODE_DIRTYFB => dirty_fb(kms, arg),
+        drm::DRM_IOCTL_MODE_GETPLANERESOURCES => get_plane_resources(kms, arg),
+        drm::DRM_IOCTL_MODE_GETPLANE => get_plane(kms, arg),
         drm::DRM_IOCTL_MODE_SETPLANE => set_plane(kms, arg),
         drm::DRM_IOCTL_MODE_ADDFB2 => add_fb2(kms, file, arg),
+        drm::DRM_IOCTL_MODE_OBJ_GETPROPERTIES => obj_get_properties(kms, arg),
         drm::DRM_IOCTL_MODE_CURSOR2 => mode_cursor2(kms, file, arg),
         _ => crate::return_errno!(ENOTTY, "ioctl does not exist on this device"),
     }
@@ -544,4 +549,145 @@ fn apply_cursor(
     }
 
     Ok(0)
+}
+
+const PROP_PLANE_TYPE_ID: u32 = 1;
+const PROP_CONNECTOR_DPMS_ID: u32 = 2;
+const PLANE_FORMATS: [u32; 2] = [drm::DRM_FORMAT_XRGB8888, drm::DRM_FORMAT_ARGB8888];
+
+fn get_plane_resources(kms: &KmsState, arg: usize) -> Result<usize> {
+    let mut req = read_uapi::<drm::DrmModeGetPlaneRes>(arg)?;
+    let ids = kms.plane_ids();
+    if req.count_planes >= ids.len() as u32 {
+        write_user_ids(req.plane_id_ptr as usize, &ids)?;
+    }
+    req.count_planes = ids.len() as u32;
+    write_uapi(arg, &req)?;
+    Ok(0)
+}
+
+fn get_plane(kms: &KmsState, arg: usize) -> Result<usize> {
+    let mut req = read_uapi::<drm::DrmModeGetPlane>(arg)?;
+    let Some(pipeline) = kms.pipeline_of_plane(req.plane_id) else {
+        crate::return_errno!(ENOENT, "unknown plane id");
+    };
+    let (_, crtc_id, fb_id) = kms.plane_ids_of(pipeline);
+    req.crtc_id = crtc_id;
+    req.fb_id = fb_id;
+    req.possible_crtcs = 1u32.checked_shl(pipeline as u32).unwrap_or(0);
+    req.gamma_size = 0;
+    if req.count_format_types >= PLANE_FORMATS.len() as u32 {
+        write_user_ids(req.format_type_ptr as usize, &PLANE_FORMATS)?;
+    }
+    req.count_format_types = PLANE_FORMATS.len() as u32;
+    write_uapi(arg, &req)?;
+    Ok(0)
+}
+
+fn obj_get_properties(kms: &KmsState, arg: usize) -> Result<usize> {
+    let mut req = read_uapi::<drm::DrmModeObjGetProperties>(arg)?;
+    let is_plane = kms.pipeline_of_plane(req.obj_id).is_some()
+        && (req.obj_type == drm::DRM_MODE_OBJECT_PLANE || req.obj_type == drm::DRM_MODE_OBJECT_ANY);
+    let is_connector = kms.pipeline_of_connector(req.obj_id).is_some()
+        && (req.obj_type == drm::DRM_MODE_OBJECT_CONNECTOR
+            || req.obj_type == drm::DRM_MODE_OBJECT_ANY);
+
+    let (prop_id, prop_val) = if is_plane {
+        (PROP_PLANE_TYPE_ID, drm::DRM_PLANE_TYPE_PRIMARY)
+    } else if is_connector {
+        (PROP_CONNECTOR_DPMS_ID, 0u64)
+    } else {
+        req.count_props = 0;
+        write_uapi(arg, &req)?;
+        return Ok(0);
+    };
+
+    if req.count_props >= 1 {
+        write_user_ids(req.props_ptr as usize, &[prop_id])?;
+        write_user_bytes(req.prop_values_ptr as usize, prop_val.as_bytes())?;
+    }
+    req.count_props = 1;
+    write_uapi(arg, &req)?;
+    Ok(0)
+}
+
+fn get_property(arg: usize) -> Result<usize> {
+    let mut req = read_uapi::<drm::DrmModeGetProperty>(arg)?;
+    match req.prop_id {
+        PROP_PLANE_TYPE_ID => {
+            let enums = [
+                prop_enum(0, b"Overlay"),
+                prop_enum(1, b"Primary"),
+                prop_enum(2, b"Cursor"),
+            ];
+            let values: [u64; 3] = [0, 1, 2];
+            write_enum_property(
+                &mut req,
+                b"type",
+                drm::DRM_MODE_PROP_ENUM | drm::DRM_MODE_PROP_IMMUTABLE,
+                &values,
+                &enums,
+            )?;
+        }
+        PROP_CONNECTOR_DPMS_ID => {
+            let enums = [
+                prop_enum(0, b"On"),
+                prop_enum(1, b"Standby"),
+                prop_enum(2, b"Suspend"),
+                prop_enum(3, b"Off"),
+            ];
+            let values: [u64; 4] = [0, 1, 2, 3];
+            write_enum_property(
+                &mut req,
+                b"DPMS",
+                drm::DRM_MODE_PROP_ENUM,
+                &values,
+                &enums,
+            )?;
+        }
+        _ => crate::return_errno!(ENOENT, "unknown property id"),
+    }
+
+    write_uapi(arg, &req)?;
+    Ok(0)
+}
+
+fn write_enum_property(
+    req: &mut drm::DrmModeGetProperty,
+    prop_name: &[u8],
+    flags: u32,
+    values: &[u64],
+    enums: &[drm::DrmModePropertyEnum],
+) -> Result<()> {
+    if req.count_values >= values.len() as u32 {
+        write_user_bytes(req.values_ptr as usize, values.as_bytes())?;
+    }
+    if req.count_enum_blobs >= enums.len() as u32 {
+        write_user_bytes(req.enum_blob_ptr as usize, enums.as_bytes())?;
+    }
+    req.flags = flags;
+    req.name = [0; drm::DRM_PROP_NAME_LEN];
+    let len = prop_name.len().min(drm::DRM_PROP_NAME_LEN - 1);
+    req.name[..len].copy_from_slice(&prop_name[..len]);
+    req.count_values = values.len() as u32;
+    req.count_enum_blobs = enums.len() as u32;
+    Ok(())
+}
+
+fn set_property(kms: &KmsState, arg: usize) -> Result<usize> {
+    let req = read_uapi::<drm::DrmModeConnectorSetProperty>(arg)?;
+    if kms.pipeline_of_connector(req.connector_id).is_none() {
+        crate::return_errno!(ENOENT, "unknown connector id");
+    }
+    if req.prop_id != PROP_CONNECTOR_DPMS_ID || req.value > 3 {
+        crate::return_errno!(EINVAL, "unsupported connector property");
+    }
+    Ok(0)
+}
+
+fn prop_enum(value: u64, label: &[u8]) -> drm::DrmModePropertyEnum {
+    let mut name = [0u8; drm::DRM_PROP_NAME_LEN];
+    let len = label.len().min(drm::DRM_PROP_NAME_LEN - 1);
+    name[..len].copy_from_slice(&label[..len]);
+    drm::DrmModePropertyEnum { value, name }
 }

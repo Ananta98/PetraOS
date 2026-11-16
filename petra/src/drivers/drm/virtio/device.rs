@@ -379,65 +379,6 @@ impl VirtioGpu {
         let state = KmsState::new(Arc::clone(self), pipelines);
         Ok(Box::leak(Box::new(state)))
     }
-
-    /// Runs a quick DMA + GEM zero-copy benchmark on boot and logs metrics over serial.
-    fn run_perf_benchmark(&self) {
-        let Ok(obj) = GemObject::alloc(1280 * 800 * 4) else {
-            return;
-        };
-        let c_flush = crate::utils::perf::read_cycles();
-        let t_flush = crate::utils::perf::now_ns();
-        obj.flush_pages(0..obj.size());
-        let (flush_cycles, flush_us) = crate::utils::perf::elapsed(c_flush, t_flush);
-        ostd::info!(
-            "PERF_DRM_GEM: alloc_bytes={}, total_gem_bytes={}, flush_cycles={}, flush_us={}",
-            obj.size(),
-            crate::utils::perf::gem_bytes(),
-            flush_cycles,
-            flush_us
-        );
-
-        let fb = Framebuffer {
-            id: 0xFFFF_FFFE,
-            object: Arc::clone(&obj),
-            width: 1280,
-            height: 800,
-            pitch: 1280 * 4,
-            format: drm::DRM_FORMAT_XRGB8888,
-        };
-        if let Ok(geometry) = self.ensure_fb_resource(&fb) {
-            let c0 = crate::utils::perf::read_cycles();
-            let t0 = crate::utils::perf::now_ns();
-            let _ = self.transfer_and_flush(&geometry, geometry.full_rect());
-            let (cycles, us) = crate::utils::perf::elapsed(c0, t0);
-            ostd::info!(
-                "PERF_VIRTIO_GPU_DMA_FULL[1280x800]: cycles={}, frame_time_us={}, eff_fps={}",
-                cycles,
-                us,
-                crate::utils::perf::fps_from_us(us)
-            );
-
-            let c1 = crate::utils::perf::read_cycles();
-            let t1 = crate::utils::perf::now_ns();
-            let _ = self.transfer_and_flush(
-                &geometry,
-                Rect {
-                    x: 100,
-                    y: 100,
-                    width: 64,
-                    height: 64,
-                },
-            );
-            let (r_cycles, r_us) = crate::utils::perf::elapsed(c1, t1);
-            ostd::info!(
-                "PERF_VIRTIO_GPU_DMA_RECT[64x64]: cycles={}, frame_time_us={}, eff_fps={}",
-                r_cycles,
-                r_us,
-                crate::utils::perf::fps_from_us(r_us)
-            );
-            self.release_fb(&fb);
-        }
-    }
 }
 
 impl DisplayDriver for VirtioGpu {
@@ -644,7 +585,6 @@ impl VirtioDevice for VirtioGpuDevice {
             e
         })?;
         gpu.kms.call_once(|| kms);
-        gpu.run_perf_benchmark();
         let _card = register_drm_device(gpu);
         Ok(())
     }

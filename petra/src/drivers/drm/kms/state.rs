@@ -196,6 +196,19 @@ impl KmsState {
         self.states.iter().map(|s| s.connector_id).collect()
     }
 
+    /// Primary-plane ids, indexed by pipeline.
+    pub fn plane_ids(&self) -> Vec<u32> {
+        self.states.iter().map(|s| s.primary_plane_id).collect()
+    }
+
+    /// Returns `(plane_id, crtc_id, fb_id)` for `pipeline`.
+    pub fn plane_ids_of(&self, pipeline: usize) -> (u32, u32, u32) {
+        let state = &self.states[pipeline];
+        let fb_id = state.fb.lock().as_ref().map_or(0, |fb| fb.id);
+        let crtc_id = if fb_id != 0 { state.crtc_id } else { 0 };
+        (state.primary_plane_id, crtc_id, fb_id)
+    }
+
     /// Pipeline index owning connector id `id`, if known.
     pub fn pipeline_of_connector(&self, id: u32) -> Option<usize> {
         self.states.iter().position(|s| s.connector_id == id)
