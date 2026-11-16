@@ -59,17 +59,29 @@ impl SpaceClient {
         let c2s_name = format!("{}_c2s", prefix);
         let s2c_name = format!("{}_s2c", prefix);
 
-        let surface = ShmSurface::create(&surf_name, width, height)?;
-        let c2s_ring = ShmRing::create(&c2s_name)?;
-        let s2c_ring = ShmRing::create(&s2c_name)?;
+        let surface = ShmSurface::create(&surf_name, width, height).map_err(|e| {
+            eprintln!("SpaceClient({}): ShmSurface::create({}) failed: {}", title, surf_name, e);
+            e
+        })?;
+        let c2s_ring = ShmRing::create(&c2s_name).map_err(|e| {
+            eprintln!("SpaceClient({}): ShmRing::create({}) failed: {}", title, c2s_name, e);
+            e
+        })?;
+        let s2c_ring = ShmRing::create(&s2c_name).map_err(|e| {
+            eprintln!("SpaceClient({}): ShmRing::create({}) failed: {}", title, s2c_name, e);
+            e
+        })?;
 
         let sock_fd = unsafe { sys::socket(sys::AF_UNIX, sys::SOCK_STREAM | sys::SOCK_CLOEXEC, 0) };
         if sock_fd < 0 {
-            return Err(io::Error::last_os_error());
+            let err = io::Error::last_os_error();
+            eprintln!("SpaceClient({}): socket() failed: {}", title, err);
+            return Err(err);
         }
         let (addr, addr_len) = sys::make_sockaddr_un(COMPOSITOR_SOCKET)?;
         if unsafe { sys::connect(sock_fd, &addr, addr_len) } < 0 {
             let err = io::Error::last_os_error();
+            eprintln!("SpaceClient({}): connect({}) failed: {}", title, COMPOSITOR_SOCKET, err);
             unsafe { sys::close(sock_fd) };
             return Err(err);
         }

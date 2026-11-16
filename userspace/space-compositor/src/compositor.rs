@@ -52,15 +52,17 @@ impl<'a> Canvas for ScreenCanvas<'a> {
     }
 }
 
-const DESKTOP_SHORTCUTS: [(&str, &str, IconId); 4] = [
-    ("Files", "space-files", IconId::Files),
+const DESKTOP_SHORTCUTS: [(&str, &str, IconId); 6] = [
+    ("My Computer", "space-files", IconId::MyComputer),
+    ("My Documents", "space-files", IconId::Files),
     ("Terminal", "space-term", IconId::Terminal),
     ("Notepad", "space-pad", IconId::Notepad),
+    ("Calculator", "space-calc", IconId::Calc),
     ("Control Panel", "space-control", IconId::ControlPanel),
 ];
 
 fn shortcut_rect(idx: usize) -> Rect {
-    Rect::new(16, 16 + (idx as i32) * 86, 116, 76)
+    Rect::new(14, 14 + (idx as i32) * 82, 118, 74)
 }
 
 pub struct Compositor<R: RenderBackend, I: InputBackend> {
@@ -155,8 +157,14 @@ impl<R: RenderBackend, I: InputBackend> Compositor<R, I> {
                 self.handle_input(ev);
             }
 
+            if self.frame_tick % 15 == 0 {
+                self.poll_display_mode_request();
+            }
+
             if self.frame_tick % 60 == 0 {
                 self.panel.update_stats();
+                let sw = self.renderer.width() as i32;
+                let sh = self.renderer.height() as i32;
                 self.damage.add(self.panel.panel_rect(sw, sh));
             }
 
@@ -204,7 +212,11 @@ impl<R: RenderBackend, I: InputBackend> Compositor<R, I> {
             };
 
             let offset = (self.scene.nodes.len() as i32 % 6) * 32;
-            let rect = Rect::new(140 + offset, 40 + offset, pkt.width as i32, pkt.height as i32);
+            let sw = self.renderer.width() as i32;
+            let sh = self.renderer.height() as i32;
+            let base_x = ((sw - pkt.width as i32) / 2).max(148) + offset;
+            let base_y = ((sh - TASKBAR_H - pkt.height as i32) / 2).max(48) + offset;
+            let rect = Rect::new(base_x, base_y, pkt.width as i32, pkt.height as i32);
             let node = SurfaceNode {
                 id: 0,
                 _pid: pkt.pid,
@@ -221,14 +233,36 @@ impl<R: RenderBackend, I: InputBackend> Compositor<R, I> {
                 s2c_ring,
             };
             let id = self.scene.add_node(node);
-            let sw = self.renderer.width() as i32;
-            let sh = self.renderer.height() as i32;
             let wa = self.panel.work_area(sw, sh);
             self.scene.retile(wa);
             if let Some(n) = self.scene.find(id) {
                 self.damage.add(self.decorator.shadow_rect(n.rect));
             }
             self.damage.add(self.panel.panel_rect(sw, sh));
+        }
+    }
+
+    fn poll_display_mode_request(&mut self) {
+        let Ok(req) = std::fs::read_to_string("/run/space-display-mode") else {
+            return;
+        };
+        let _ = std::fs::remove_file("/run/space-display-mode");
+        let Some((ws, hs)) = req.trim().split_once('x') else {
+            return;
+        };
+        let (Ok(w), Ok(h)) = (ws.parse::<u32>(), hs.parse::<u32>()) else {
+            return;
+        };
+        if let Ok(true) = self.renderer.set_mode(w, h) {
+            self.wallpaper = crate::wallpaper::build_bliss_wallpaper(w, h);
+            let sw = w as i32;
+            let sh = h as i32;
+            self.cursor.x = self.cursor.x.clamp(0, sw - 1);
+            self.cursor.y = self.cursor.y.clamp(0, sh - 1);
+            self.prev_cursor = self.cursor;
+            self.scene.retile(self.panel.work_area(sw, sh));
+            self.damage.clear();
+            self.damage.add(Rect::new(0, 0, sw, sh));
         }
     }
 
@@ -657,15 +691,36 @@ impl<R: RenderBackend, I: InputBackend> Compositor<R, I> {
                 if !sr.intersects(clip) {
                     continue;
                 }
-                if self.selected_shortcut == Some(i) {
-                    canvas.fill_rect(sr, Color::argb(145, 49, 106, 197));
-                    canvas.draw_rect_outline(sr, 1, Color::rgb(120, 178, 248));
+                let selected = self.selected_shortcut == Some(i);
+                let icon_x = sr.x + (sr.w - 36) / 2;
+                let icon_y = sr.y + 6;
+                icons::draw_icon(&mut canvas, icon_x, icon_y, 36, icon);
+                if selected {
+                    canvas.fill_rounded_rect(
+                        Rect::new(icon_x, icon_y, 36, 36),
+                        4,
+                        Color::argb(65, 49, 106, 197),
+                    );
                 }
-                icons::draw_icon(&mut canvas, sr.x + (sr.w - 32) / 2, sr.y + 8, 32, icon);
                 let lw = font::measure_text_width(label, 2);
-                let lx = sr.x + (sr.w - lw) / 2;
+                let lx = (sr.x + (sr.w - lw) / 2).max(4);
                 let ly = sr.y + 46;
-                font::draw_text_shadow(&mut canvas, lx, ly, label, Color::WHITE, Color::argb(200, 0, 0, 0), 2, false);
+                if selected {
+                    let lbl_r = Rect::new(lx - 4, ly - 1, lw + 8, 18);
+                    canvas.fill_rounded_rect(lbl_r, 2, Color::rgb(0x31, 0x6A, 0xC5));
+                    font::draw_text(&mut canvas, lx, ly, label, Color::WHITE, 2);
+                } else {
+                    font::draw_text_shadow(
+                        &mut canvas,
+                        lx,
+                        ly,
+                        label,
+                        Color::WHITE,
+                        Color::argb(215, 0, 0, 0),
+                        2,
+                        false,
+                    );
+                }
             }
 
             // 2. Windows back-to-front

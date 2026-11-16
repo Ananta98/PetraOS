@@ -362,7 +362,7 @@ impl AppLogic for TermApp {
 fn main() {
     let w = (COLS as i32 * CELL_W + 16) as u32;
     let h = (ROWS as i32 * CELL_H + 16) as u32;
-    let mut client = SpaceClient::connect("Space Terminal", w, h).expect("connect failed");
     let mut app = TermApp::spawn().expect("pty spawn failed");
+    let mut client = SpaceClient::connect("Space Terminal", w, h).expect("connect failed");
     client.run(&mut app);
 }

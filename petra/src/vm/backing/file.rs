@@ -62,26 +62,11 @@ impl FileBacking {
             );
         }
 
-        if !self.writable_shared {
-            if let Some(cached) = page_cache::get(self.file.inode.uid, offset) {
-                return Ok(cached);
+        if let Some(cached) = page_cache::get(self.file.inode.uid, offset) {
+            if self.writable_shared {
+                self.pages.lock().entry(offset).or_insert_with(|| cached.clone());
             }
-            let frame = alloc_zeroed_frame()?;
-            let mut buf = [0u8; PAGE_SIZE];
-            let n = self.file.ops.fault_in(offset as u64, &mut buf).unwrap_or(0);
-            if n > 0 {
-                let mut writer = frame.writer();
-                let mut reader = ostd::mm::VmReader::from(&buf[..n]);
-                writer.write(&mut reader);
-            }
-            return Ok(page_cache::insert_or_get(self.file.inode.uid, offset, frame));
-        }
-
-        {
-            let pages = self.pages.lock();
-            if let Some(frame) = pages.get(&offset) {
-                return Ok(frame.clone());
-            }
+            return Ok(cached);
         }
 
         // Read outside the mutex so other threads are not blocked during disk I/O.
@@ -94,11 +79,10 @@ impl FileBacking {
             writer.write(&mut reader);
         }
 
-        let mut pages = self.pages.lock();
-        if let Some(existing) = pages.get(&offset) {
-            return Ok(existing.clone());
+        let frame = page_cache::insert_or_get(self.file.inode.uid, offset, frame);
+        if self.writable_shared {
+            self.pages.lock().entry(offset).or_insert_with(|| frame.clone());
         }
-        pages.insert(offset, frame.clone());
         Ok(frame)
     }
 }
