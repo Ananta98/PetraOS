@@ -1,0 +1,8 @@
+[package]
+name = "space-pad"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+space-core = { path = "../../space-core" }
+space-ui = { path = "../../space-ui" }

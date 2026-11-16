@@ -1,0 +1,8 @@
+[package]
+name = "space-hal"
+version = "0.1.0"
+edition = "2021"
+description = "Hardware Abstraction Layer for DRM/KMS rendering and raw evdev input"
+
+[dependencies]
+space-core = { path = "../space-core" }

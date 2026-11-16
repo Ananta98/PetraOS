@@ -1,0 +1,10 @@
+[package]
+name = "space-compositor"
+version = "0.1.0"
+edition = "2021"
+description = "Proprietary damage-tracked DRM/KMS compositor, window manager, and XFCE/KDE-inspired panel"
+
+[dependencies]
+space-core = { path = "../space-core" }
+space-hal = { path = "../space-hal" }
+space-ui = { path = "../space-ui" }

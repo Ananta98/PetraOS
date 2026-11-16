@@ -1,0 +1,7 @@
+[package]
+name = "space-core"
+version = "0.1.0"
+edition = "2021"
+description = "Core geometry, SIMD pixel operations, damage tracking, zero-copy SHM, and lock-free IPC for PetraSpace GUI"
+
+[dependencies]

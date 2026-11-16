@@ -1,0 +1,654 @@
+//! Proprietary damage-tracked compositing engine, evdev router, and IPC server.
+
+use crate::decorator::{BreezeXfceDecorator, HitPart, WindowDecorator};
+use crate::panel::{DesktopPanel, PanelAction, DOCK_H, TOP_PANEL_H};
+use crate::scene::{LayoutMode, SceneGraph, SurfaceNode};
+use space_core::ipc::{
+    HandshakePacket, IpcTransport, MsgKind, RingMsg, ShmRing, ShmSurface, COMPOSITOR_SOCKET,
+};
+use space_core::{sys, Canvas, Color, DamageRegion, Point, Rect};
+use space_hal::input::{BTN_LEFT, KEY_ESC, KEY_TAB};
+use space_hal::{InputBackend, InputEvent, RenderBackend};
+use std::ffi::CString;
+use std::os::raw::{c_int, c_void};
+use std::process::Command;
+use std::ptr;
+use std::sync::atomic::Ordering;
+
+enum DragState {
+    None,
+    Move { win_id: u32, offset_x: i32, offset_y: i32 },
+    Resize { win_id: u32, start_pos: Point, orig_rect: Rect },
+}
+
+struct ScreenCanvas<'a> {
+    width: u32,
+    height: u32,
+    stride: u32,
+    clip: Rect,
+    pixels: &'a mut [u32],
+}
+
+impl<'a> Canvas for ScreenCanvas<'a> {
+    fn width(&self) -> u32 {
+        self.width
+    }
+    fn height(&self) -> u32 {
+        self.height
+    }
+    fn stride_pixels(&self) -> u32 {
+        self.stride
+    }
+    fn bounds(&self) -> Rect {
+        self.clip
+    }
+    fn pixels_mut(&mut self) -> &mut [u32] {
+        self.pixels
+    }
+    fn pixels(&self) -> &[u32] {
+        self.pixels
+    }
+}
+
+pub struct Compositor<R: RenderBackend, I: InputBackend> {
+    renderer: R,
+    input: I,
+    scene: SceneGraph,
+    panel: DesktopPanel,
+    decorator: BreezeXfceDecorator,
+    damage: DamageRegion,
+    listen_fd: c_int,
+    cursor: Point,
+    prev_cursor: Point,
+    drag: DragState,
+    frame_tick: u64,
+    running: bool,
+}
+
+impl<R: RenderBackend, I: InputBackend> Compositor<R, I> {
+    pub fn new(renderer: R, input: I) -> std::io::Result<Self> {
+        let _ = std::fs::create_dir_all("/run");
+        if let Ok(c) = CString::new(COMPOSITOR_SOCKET) {
+            unsafe { sys::unlink(c.as_ptr()) };
+        }
+        let listen_fd = unsafe {
+            sys::socket(
+                sys::AF_UNIX,
+                sys::SOCK_STREAM | sys::SOCK_NONBLOCK | sys::SOCK_CLOEXEC,
+                0,
+            )
+        };
+        if listen_fd < 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        let (addr, addr_len) = sys::make_sockaddr_un(COMPOSITOR_SOCKET)?;
+        if unsafe { sys::bind(listen_fd, &addr, addr_len) } < 0 {
+            let err = std::io::Error::last_os_error();
+            unsafe { sys::close(listen_fd) };
+            return Err(err);
+        }
+        if unsafe { sys::listen(listen_fd, 32) } < 0 {
+            let err = std::io::Error::last_os_error();
+            unsafe { sys::close(listen_fd) };
+            return Err(err);
+        }
+
+        let w = renderer.width() as i32;
+        let h = renderer.height() as i32;
+        let mut damage = DamageRegion::new();
+        damage.add(Rect::new(0, 0, w, h));
+
+        let mut panel = DesktopPanel::new();
+        panel.update_stats();
+
+        Ok(Self {
+            renderer,
+            input,
+            scene: SceneGraph::new(),
+            panel,
+            decorator: BreezeXfceDecorator,
+            damage,
+            listen_fd,
+            cursor: Point::new(w / 2, h / 2),
+            prev_cursor: Point::new(w / 2, h / 2),
+            drag: DragState::None,
+            frame_tick: 0,
+            running: true,
+        })
+    }
+
+    pub fn spawn_app(&self, bin: &str) {
+        let _ = Command::new(bin).spawn();
+    }
+
+    pub fn run(&mut self) {
+        let mut events = Vec::with_capacity(64);
+        while self.running {
+            self.accept_clients();
+            self.poll_client_rings();
+
+            events.clear();
+            let sw = self.renderer.width() as i32;
+            let sh = self.renderer.height() as i32;
+            self.input.poll_events(sw, sh, &mut events);
+            for ev in events.drain(..) {
+                self.handle_input(ev);
+            }
+
+            if self.frame_tick % 60 == 0 {
+                self.panel.update_stats();
+                self.damage.add(Rect::new(0, 0, sw, TOP_PANEL_H));
+            }
+
+            if !self.damage.is_empty() {
+                self.compose_damaged();
+                let _ = self.renderer.present(self.damage.rects());
+                self.damage.clear();
+            }
+
+            self.frame_tick += 1;
+            std::thread::sleep(std::time::Duration::from_millis(8));
+        }
+    }
+
+    fn accept_clients(&mut self) {
+        loop {
+            let client_fd = unsafe { sys::accept(self.listen_fd, ptr::null_mut(), ptr::null_mut()) };
+            if client_fd < 0 {
+                break;
+            }
+            let mut pkt = HandshakePacket::new(0, 0, 0, "", "");
+            let pkt_bytes = unsafe {
+                std::slice::from_raw_parts_mut(
+                    &mut pkt as *mut HandshakePacket as *mut u8,
+                    std::mem::size_of::<HandshakePacket>(),
+                )
+            };
+            let n = unsafe { sys::read(client_fd, pkt_bytes.as_mut_ptr() as *mut c_void, pkt_bytes.len()) };
+            if n as usize != std::mem::size_of::<HandshakePacket>() || pkt.magic != HandshakePacket::MAGIC {
+                unsafe { sys::close(client_fd) };
+                continue;
+            }
+            let prefix = pkt.prefix_str();
+            let Ok(surface) = ShmSurface::open(&format!("{}_surf", prefix), pkt.width, pkt.height) else {
+                unsafe { sys::close(client_fd) };
+                continue;
+            };
+            let Ok(c2s_ring) = ShmRing::open(&format!("{}_c2s", prefix)) else {
+                unsafe { sys::close(client_fd) };
+                continue;
+            };
+            let Ok(s2c_ring) = ShmRing::open(&format!("{}_s2c", prefix)) else {
+                unsafe { sys::close(client_fd) };
+                continue;
+            };
+
+            let offset = (self.scene.nodes.len() as i32 % 6) * 32;
+            let rect = Rect::new(80 + offset, TOP_PANEL_H + 40 + offset, pkt.width as i32, pkt.height as i32);
+            let node = SurfaceNode {
+                id: 0,
+                _pid: pkt.pid,
+                sock_fd: client_fd,
+                title: pkt.title_str(),
+                rect,
+                saved_rect: rect,
+                workspace: self.scene.active_workspace,
+                minimized: false,
+                maximized: false,
+                focused: true,
+                surface,
+                c2s_ring,
+                s2c_ring,
+            };
+            let id = self.scene.add_node(node);
+            let sw = self.renderer.width() as i32;
+            let sh = self.renderer.height() as i32;
+            let wa = self.panel.work_area(sw, sh);
+            self.scene.retile(wa);
+            if let Some(n) = self.scene.find(id) {
+                self.damage.add(self.decorator.shadow_rect(n.rect));
+            }
+            self.damage.add(Rect::new(0, 0, sw, TOP_PANEL_H));
+        }
+    }
+
+    fn poll_client_rings(&mut self) {
+        let mut to_close = Vec::new();
+        let sw = self.renderer.width() as i32;
+        let sh = self.renderer.height() as i32;
+        let screen_bounds = Rect::new(0, 0, sw, sh);
+
+        for node in &self.scene.nodes {
+            while let Some(msg) = node.c2s_ring.try_pop() {
+                if msg.kind == MsgKind::CommitDamage as u32 {
+                    let local = Rect::new(msg.a, msg.b, msg.c, msg.d);
+                    let screen_dmg = Rect::new(
+                        node.rect.x + local.x,
+                        node.rect.y + local.y,
+                        local.w,
+                        local.h,
+                    );
+                    self.damage.add_clipped(screen_dmg, screen_bounds);
+                } else if msg.kind == MsgKind::CloseRequest as u32 {
+                    to_close.push(node.id);
+                }
+            }
+        }
+
+        for id in to_close {
+            self.close_window(id);
+        }
+    }
+
+    fn close_window(&mut self, id: u32) {
+        if let Some(node) = self.scene.remove_window(id) {
+            let _ = node.s2c_ring.try_push(RingMsg::new(MsgKind::CloseEvent, 0, 0, 0, 0));
+            unsafe { sys::close(node.sock_fd) };
+            self.damage.add(self.decorator.shadow_rect(node.rect));
+            let sw = self.renderer.width() as i32;
+            let sh = self.renderer.height() as i32;
+            self.scene.retile(self.panel.work_area(sw, sh));
+            self.damage.add(Rect::new(0, 0, sw, TOP_PANEL_H));
+        }
+    }
+
+    fn handle_input(&mut self, ev: InputEvent) {
+        let sw = self.renderer.width() as i32;
+        let sh = self.renderer.height() as i32;
+        match ev {
+            InputEvent::PointerMoveRel { dx, dy } => {
+                self.prev_cursor = self.cursor;
+                self.cursor.x = (self.cursor.x + dx).clamp(0, sw - 1);
+                self.cursor.y = (self.cursor.y + dy).clamp(0, sh - 1);
+                self.on_pointer_moved();
+            }
+            InputEvent::PointerMoveAbs { x, y } => {
+                self.prev_cursor = self.cursor;
+                if x >= 0 {
+                    self.cursor.x = x.clamp(0, sw - 1);
+                }
+                if y >= 0 {
+                    self.cursor.y = y.clamp(0, sh - 1);
+                }
+                self.on_pointer_moved();
+            }
+            InputEvent::PointerButton { button, pressed } => {
+                self.on_pointer_button(button, pressed);
+            }
+            InputEvent::PointerWheel { delta } => {
+                if let Some(id) = self.scene.focused_id() {
+                    if let Some(n) = self.scene.find(id) {
+                        let lx = self.cursor.x - n.rect.x;
+                        let ly = self.cursor.y - n.rect.y;
+                        let _ = n.s2c_ring.try_push(RingMsg::new(
+                            MsgKind::PointerEvent,
+                            lx,
+                            ly,
+                            0,
+                            delta,
+                        ));
+                    }
+                }
+            }
+            InputEvent::Key { code, pressed, ch, mods } => {
+                if pressed {
+                    // Global hardware shortcuts
+                    if mods.super_key {
+                        match code {
+                            28 => { self.spawn_app("space-term"); return; } // Super+Enter
+                            18 => { self.spawn_app("space-files"); return; } // Super+E
+                            16 => {
+                                if let Some(id) = self.scene.focused_id() {
+                                    self.close_window(id);
+                                }
+                                return;
+                            }
+                            20 => {
+                                self.toggle_layout();
+                                return;
+                            }
+                            2..=5 => {
+                                self.switch_workspace((code - 2) as u8);
+                                return;
+                            }
+                            _ => {}
+                        }
+                    }
+                    if mods.alt && code == KEY_TAB {
+                        self.cycle_focus();
+                        return;
+                    }
+                    if code == KEY_ESC && self.panel.launcher_open {
+                        self.panel.launcher_open = false;
+                        self.damage.add(self.panel.launcher_rect());
+                        self.damage.add(Rect::new(0, 0, sw, TOP_PANEL_H));
+                        return;
+                    }
+                }
+
+                if let Some(id) = self.scene.focused_id() {
+                    if let Some(n) = self.scene.find(id) {
+                        let _ = n.s2c_ring.try_push(RingMsg::new(
+                            MsgKind::KeyEvent,
+                            code as i32,
+                            pressed as i32,
+                            ch.map(|c| c as i32).unwrap_or(0),
+                            mods.to_bits(),
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    fn on_pointer_moved(&mut self) {
+        self.damage.add(Rect::new(self.prev_cursor.x, self.prev_cursor.y, 16, 20));
+        self.damage.add(Rect::new(self.cursor.x, self.cursor.y, 16, 20));
+
+        match self.drag {
+            DragState::Move { win_id, offset_x, offset_y } => {
+                if let Some(n) = self.scene.find_mut(win_id) {
+                    let old_sh = self.decorator.shadow_rect(n.rect);
+                    n.rect.x = self.cursor.x - offset_x;
+                    n.rect.y = (self.cursor.y - offset_y).max(TOP_PANEL_H + 28);
+                    let new_sh = self.decorator.shadow_rect(n.rect);
+                    self.damage.add(old_sh);
+                    self.damage.add(new_sh);
+                }
+            }
+            DragState::Resize { win_id, start_pos, orig_rect } => {
+                if let Some(n) = self.scene.find_mut(win_id) {
+                    let old_sh = self.decorator.shadow_rect(n.rect);
+                    n.rect.w = (orig_rect.w + (self.cursor.x - start_pos.x)).max(240);
+                    n.rect.h = (orig_rect.h + (self.cursor.y - start_pos.y)).max(160);
+                    let new_sh = self.decorator.shadow_rect(n.rect);
+                    self.damage.add(old_sh);
+                    self.damage.add(new_sh);
+                }
+            }
+            DragState::None => {
+                if let Some(id) = self.scene.focused_id() {
+                    if let Some(n) = self.scene.find(id) {
+                        if n.rect.contains(self.cursor) {
+                            let _ = n.s2c_ring.try_push(RingMsg::new(
+                                MsgKind::PointerEvent,
+                                self.cursor.x - n.rect.x,
+                                self.cursor.y - n.rect.y,
+                                0,
+                                0,
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn on_pointer_button(&mut self, button: u16, pressed: bool) {
+        let sw = self.renderer.width() as i32;
+        let sh = self.renderer.height() as i32;
+
+        if !pressed {
+            if !matches!(self.drag, DragState::None) {
+                self.drag = DragState::None;
+                return;
+            }
+            if let Some(id) = self.scene.focused_id() {
+                if let Some(n) = self.scene.find(id) {
+                    let btn_idx = (button - BTN_LEFT + 1) as i32;
+                    let _ = n.s2c_ring.try_push(RingMsg::new(
+                        MsgKind::PointerEvent,
+                        self.cursor.x - n.rect.x,
+                        self.cursor.y - n.rect.y,
+                        0x200 | btn_idx,
+                        0,
+                    ));
+                }
+            }
+            return;
+        }
+
+        // Check panel / dock / launcher first
+        match self.panel.handle_click(self.cursor, &self.scene, sw, sh) {
+            PanelAction::ToggleLauncher => {
+                self.panel.launcher_open = !self.panel.launcher_open;
+                self.damage.add(self.panel.launcher_rect());
+                self.damage.add(Rect::new(0, 0, sw, TOP_PANEL_H));
+                return;
+            }
+            PanelAction::SwitchWorkspace(ws) => {
+                self.switch_workspace(ws);
+                return;
+            }
+            PanelAction::ToggleLayout => {
+                self.toggle_layout();
+                return;
+            }
+            PanelAction::FocusWindow(id) => {
+                if let Some(n) = self.scene.find_mut(id) {
+                    n.minimized = false;
+                }
+                self.scene.focus_window(id);
+                self.damage.add(Rect::new(0, 0, sw, sh));
+                return;
+            }
+            PanelAction::LaunchApp(bin) => {
+                self.damage.add(self.panel.launcher_rect());
+                self.damage.add(Rect::new(0, 0, sw, TOP_PANEL_H));
+                self.spawn_app(bin);
+                return;
+            }
+            PanelAction::None => {}
+        }
+
+        if self.panel.launcher_open {
+            self.panel.launcher_open = false;
+            self.damage.add(self.panel.launcher_rect());
+        }
+
+        // Hit-test windows top-to-bottom
+        let ws = self.scene.active_workspace;
+        let mut hit = None;
+        for &id in self.scene.z_order.iter().rev() {
+            if let Some(n) = self.scene.find(id) {
+                if n.workspace == ws && !n.minimized {
+                    let part = self.decorator.hit_test(n.rect, self.cursor);
+                    if part != HitPart::None {
+                        hit = Some((id, part, n.rect));
+                        break;
+                    }
+                }
+            }
+        }
+
+        if let Some((id, part, rect)) = hit {
+            self.scene.focus_window(id);
+            self.damage.add(self.decorator.shadow_rect(rect));
+            self.damage.add(Rect::new(0, 0, sw, TOP_PANEL_H));
+
+            match part {
+                HitPart::CloseButton => self.close_window(id),
+                HitPart::MinimizeButton => {
+                    if let Some(n) = self.scene.find_mut(id) {
+                        n.minimized = true;
+                        self.damage.add(self.decorator.shadow_rect(n.rect));
+                        self.damage.add(Rect::new(0, 0, sw, TOP_PANEL_H));
+                    }
+                }
+                HitPart::MaximizeButton => {
+                    let wa = self.panel.work_area(sw, sh);
+                    if let Some(n) = self.scene.find_mut(id) {
+                        self.damage.add(self.decorator.shadow_rect(n.rect));
+                        if n.maximized {
+                            n.rect = n.saved_rect;
+                            n.maximized = false;
+                        } else {
+                            n.saved_rect = n.rect;
+                            n.rect = Rect::new(wa.x + 4, wa.y + 30, wa.w - 8, wa.h - 34);
+                            n.maximized = true;
+                        }
+                        self.damage.add(self.decorator.shadow_rect(n.rect));
+                    }
+                }
+                HitPart::TitleBar => {
+                    self.drag = DragState::Move {
+                        win_id: id,
+                        offset_x: self.cursor.x - rect.x,
+                        offset_y: self.cursor.y - rect.y,
+                    };
+                }
+                HitPart::ResizeCorner => {
+                    self.drag = DragState::Resize {
+                        win_id: id,
+                        start_pos: self.cursor,
+                        orig_rect: rect,
+                    };
+                }
+                HitPart::ClientArea => {
+                    if let Some(n) = self.scene.find(id) {
+                        let btn_idx = (button - BTN_LEFT + 1) as i32;
+                        let _ = n.s2c_ring.try_push(RingMsg::new(
+                            MsgKind::PointerEvent,
+                            self.cursor.x - n.rect.x,
+                            self.cursor.y - n.rect.y,
+                            0x100 | btn_idx,
+                            0,
+                        ));
+                    }
+                }
+                HitPart::None => {}
+            }
+        }
+    }
+
+    fn switch_workspace(&mut self, ws: u8) {
+        if ws < 4 && ws != self.scene.active_workspace {
+            self.scene.active_workspace = ws;
+            let sw = self.renderer.width() as i32;
+            let sh = self.renderer.height() as i32;
+            self.scene.retile(self.panel.work_area(sw, sh));
+            self.damage.add(Rect::new(0, 0, sw, sh));
+        }
+    }
+
+    fn toggle_layout(&mut self) {
+        self.scene.layout_mode = match self.scene.layout_mode {
+            LayoutMode::Floating => LayoutMode::Tiled,
+            LayoutMode::Tiled => LayoutMode::Floating,
+        };
+        let sw = self.renderer.width() as i32;
+        let sh = self.renderer.height() as i32;
+        self.scene.retile(self.panel.work_area(sw, sh));
+        self.damage.add(Rect::new(0, 0, sw, sh));
+    }
+
+    fn cycle_focus(&mut self) {
+        let ws = self.scene.active_workspace;
+        let ids: Vec<u32> = self
+            .scene
+            .z_order
+            .iter()
+            .copied()
+            .filter(|&id| {
+                self.scene
+                    .find(id)
+                    .map(|n| n.workspace == ws && !n.minimized)
+                    .unwrap_or(false)
+            })
+            .collect();
+        if ids.len() >= 2 {
+            self.scene.focus_window(ids[0]);
+            let sw = self.renderer.width() as i32;
+            let sh = self.renderer.height() as i32;
+            self.damage.add(Rect::new(0, 0, sw, sh));
+        }
+    }
+
+    fn compose_damaged(&mut self) {
+        let sw = self.renderer.width();
+        let sh = self.renderer.height();
+        let stride = self.renderer.stride_pixels();
+        let rects: Vec<Rect> = self.damage.rects().to_vec();
+        let ws = self.scene.active_workspace;
+        let z_order = self.scene.z_order.clone();
+
+        let screen_bounds = Rect::new(0, 0, sw as i32, sh as i32);
+        let top_panel_r = Rect::new(0, 0, sw as i32, TOP_PANEL_H);
+        let dock_r = self.panel.dock_rect(sw as i32, sh as i32);
+        let launcher_r = self.panel.launcher_rect();
+
+        let pixels = self.renderer.back_buffer_mut();
+        let mut canvas = ScreenCanvas {
+            width: sw,
+            height: sh,
+            stride,
+            clip: screen_bounds,
+            pixels,
+        };
+
+        for raw_clip in rects {
+            let clip = raw_clip.intersect(screen_bounds);
+            if clip.is_empty() {
+                continue;
+            }
+            canvas.clip = clip;
+
+            // 1. Desktop gradient/slate backdrop
+            canvas.fill_rect(clip, Color::rgb(18, 24, 34));
+            let accent_band = Rect::new(0, TOP_PANEL_H, sw as i32, sh as i32 - TOP_PANEL_H - DOCK_H)
+                .intersect(clip);
+            if !accent_band.is_empty() {
+                canvas.fill_rect(accent_band, Color::rgb(21, 29, 42));
+            }
+
+            // 2. Windows back-to-front
+            for &id in &z_order {
+                let Some(node) = self.scene.find(id) else {
+                    continue;
+                };
+                if node.workspace != ws || node.minimized {
+                    continue;
+                }
+                let sh_rect = self.decorator.shadow_rect(node.rect);
+                if !sh_rect.intersects(clip) {
+                    continue;
+                }
+                self.decorator
+                    .paint_frame(&mut canvas, node.rect, &node.title, node.focused, clip);
+
+                let surf_w = node.surface.header().width.load(Ordering::Acquire) as i32;
+                let surf_h = node.surface.header().height.load(Ordering::Acquire) as i32;
+                let src_rect = Rect::new(0, 0, surf_w.min(node.rect.w), surf_h.min(node.rect.h));
+                canvas.blit_from(
+                    node.surface.pixels(),
+                    surf_w as u32,
+                    src_rect,
+                    node.rect.x,
+                    node.rect.y,
+                    clip,
+                    false,
+                );
+            }
+
+            // 3. Panel, dock, and launcher (only when intersected by this damage rect)
+            let touches_panel = clip.intersects(top_panel_r)
+                || clip.intersects(dock_r)
+                || (self.panel.launcher_open && clip.intersects(launcher_r));
+            if touches_panel {
+                self.panel.paint(&mut canvas, &self.scene, sw as i32, sh as i32);
+            }
+
+            // 4. Crisp hardware-style arrow cursor
+            let cur_r = Rect::new(self.cursor.x, self.cursor.y, 12, 16);
+            if cur_r.intersects(clip) {
+                for row in 0..14i32 {
+                    let w = (row + 1).min(10 - (row - 8).max(0) * 2).max(1);
+                    canvas.fill_rect(Rect::new(self.cursor.x, self.cursor.y + row, w + 1, 1), Color::BLACK);
+                    if w > 1 {
+                        canvas.fill_rect(Rect::new(self.cursor.x + 1, self.cursor.y + row, w - 1, 1), Color::WHITE);
+                    }
+                }
+            }
+        }
+    }
+}

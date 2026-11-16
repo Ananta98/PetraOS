@@ -1,0 +1,8 @@
+[package]
+name = "space-ui"
+version = "0.1.0"
+edition = "2021"
+description = "Lightweight XFCE+KDE-inspired widget toolkit and zero-copy client SDK"
+
+[dependencies]
+space-core = { path = "../space-core" }
