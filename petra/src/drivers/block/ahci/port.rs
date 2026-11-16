@@ -6,11 +6,13 @@
 //! and ATA Read/Write operations via DMA.
 
 use alloc::string::String;
+use core::sync::atomic::{AtomicBool, Ordering};
 use spin::Mutex;
 
 use ostd::{
     io::IoMem,
     mm::{HasPaddr, VmIoOnce, VmReader, VmWriter, dma::DmaCoherent, io::util::HasVmReaderWriter},
+    sync::WaitQueue,
 };
 
 use super::{
@@ -51,9 +53,16 @@ pub struct AhciPort {
     pub rx_fis_dma: DmaCoherent,
     // Command Table for Slot 0: 256 bytes (64B CFIS + 16B ACMD + 48B RSV + 128B PRDT)
     pub cmd_table_dma: DmaCoherent,
+    /// Pre-allocated 64 KiB DMA bounce buffer to avoid per-I/O frame allocation.
+    pub dma_bounce: DmaCoherent,
     pub lock: Mutex<()>,
+    pub wait_queue: WaitQueue,
+    pub irq_enabled: AtomicBool,
     pub counters: BlockDeviceCounters,
 }
+
+const AHCI_BOUNCE_FRAMES: usize = 16;
+const PORT_IE_DEFAULT: u32 = (1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 30);
 
 impl AhciPort {
     /// Helper function to write arbitrary bytes into a VmWriter using a VmReader.
@@ -174,6 +183,8 @@ impl AhciPort {
         let rx_fis_dma = DmaCoherent::alloc(1, true).map_err(|_| Errno::ENOMEM)?;
         // Allocate 1 page for Command Table (Slot 0)
         let cmd_table_dma = DmaCoherent::alloc(1, true).map_err(|_| Errno::ENOMEM)?;
+        // Pre-allocate reusable 64 KiB DMA bounce buffer
+        let dma_bounce = DmaCoherent::alloc(AHCI_BOUNCE_FRAMES, true).map_err(|_| Errno::ENOMEM)?;
 
         let mut port = Self {
             port_no,
@@ -185,7 +196,10 @@ impl AhciPort {
             cmd_list_dma,
             rx_fis_dma,
             cmd_table_dma,
+            dma_bounce,
             lock: Mutex::new(()),
+            wait_queue: WaitQueue::new(),
+            irq_enabled: AtomicBool::new(false),
             counters: BlockDeviceCounters::new(),
         };
 
@@ -193,6 +207,27 @@ impl AhciPort {
         port.identify()?;
 
         Ok(port)
+    }
+
+    /// Enables AHCI port interrupts and marks this port IRQ-driven.
+    pub fn enable_irq(&self) {
+        let pending: u32 = self.mmio.read_once(self.port_base + PORT_IS).unwrap_or(0);
+        if pending != 0 {
+            let _ = self.mmio.write_once(self.port_base + PORT_IS, &pending);
+        }
+        let _ = self
+            .mmio
+            .write_once(self.port_base + PORT_IE, &PORT_IE_DEFAULT);
+        self.irq_enabled.store(true, Ordering::Release);
+    }
+
+    /// Top-half IRQ handler for this port: acknowledges `PORT_IS` and wakes waiters.
+    pub fn handle_irq(&self) {
+        let is: u32 = self.mmio.read_once(self.port_base + PORT_IS).unwrap_or(0);
+        if is != 0 {
+            let _ = self.mmio.write_once(self.port_base + PORT_IS, &is);
+        }
+        self.wait_queue.wake_all();
     }
 
     /// Stops port command engine (ST and FRE cleared).
@@ -444,7 +479,13 @@ impl AhciPort {
 
         let byte_count = sector_count as u32 * 512;
         let dma_frames = (byte_count as usize + ostd::mm::PAGE_SIZE - 1) / ostd::mm::PAGE_SIZE;
-        let dma_buf = DmaCoherent::alloc(dma_frames, true).map_err(|_| Errno::ENOMEM)?;
+        let owned_dma;
+        let dma_buf: &DmaCoherent = if dma_frames <= AHCI_BOUNCE_FRAMES {
+            &self.dma_bounce
+        } else {
+            owned_dma = DmaCoherent::alloc(dma_frames, true).map_err(|_| Errno::ENOMEM)?;
+            &owned_dma
+        };
 
         if is_write {
             if let Some(src) = write_buf {
@@ -517,7 +558,7 @@ impl AhciPort {
             .write_once(self.port_base + PORT_CI, &1u32)
             .map_err(|_| Errno::EIO)?;
 
-        // 5. Poll for completion
+        // 5. Wait for completion via bounded poll (safe under caller SpinLock/RwLock guards).
         let mut completed = false;
         let mut last_ci = 0u32;
         for _ in 0..5_000_000 {

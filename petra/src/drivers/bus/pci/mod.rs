@@ -17,6 +17,7 @@ pub mod config;
 pub mod device;
 pub mod driver;
 pub mod ids;
+pub mod msi;
 pub mod msix;
 pub mod scan;
 
@@ -34,6 +35,7 @@ pub use config::{
 };
 pub use device::PciDevice;
 pub use driver::{PCI_ANY_ID, PciDeviceId, pci_register_driver, pci_unregister_driver};
+pub use msi::MsiCapability;
 pub use msix::MsixCapability;
 pub use scan::scan_bus;
 

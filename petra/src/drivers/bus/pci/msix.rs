@@ -5,7 +5,12 @@
 //! Provides parsing and configuration methods for the standard PCI MSI-X capability
 //! (PCI-SIG Local Bus Specification 3.0).
 
+use ostd::io::IoMem;
+use ostd::mm::VmIoOnce;
+
+use super::bar::BarType;
 use super::device::PciDevice;
+use crate::uapi::errno::{Errno, Result};
 
 /// PCI MSI-X Capability structure.
 #[derive(Debug, Clone, Copy)]
@@ -83,5 +88,33 @@ impl MsixCapability {
             ctrl &= !(1 << 14);
         }
         dev.write_config_u16(self.cap_offset + 0x02, ctrl);
+    }
+
+    /// Maps the MSI-X table MMIO region for this capability.
+    pub fn map_table(&self, dev: &PciDevice) -> Result<IoMem> {
+        let bar = dev
+            .bars
+            .get(self.table_bir as usize)
+            .and_then(|b| *b)
+            .ok_or(Errno::ENODEV)?;
+        if !matches!(bar.bar_type, BarType::Memory32 | BarType::Memory64) {
+            return Err(Errno::EIO);
+        }
+        let start = bar.address as usize + self.table_offset as usize;
+        let len = (self.vector_count() as usize) * 16;
+        IoMem::acquire(start..start + len).map_err(|_| Errno::EIO)
+    }
+
+    /// Programs and unmasks MSI-X table entry `index` to deliver IDT `vector` on BSP LAPIC.
+    pub fn program_vector(&self, table: &IoMem, index: u16, vector: u8) -> Result<()> {
+        if index >= self.vector_count() {
+            return Err(Errno::EINVAL);
+        }
+        let base = (index as usize) * 16;
+        table.write_once(base + 0x00, &0xFEE0_0000u32).map_err(|_| Errno::EIO)?;
+        table.write_once(base + 0x04, &0u32).map_err(|_| Errno::EIO)?;
+        table.write_once(base + 0x08, &(vector as u32)).map_err(|_| Errno::EIO)?;
+        table.write_once(base + 0x0C, &0u32).map_err(|_| Errno::EIO)?;
+        Ok(())
     }
 }

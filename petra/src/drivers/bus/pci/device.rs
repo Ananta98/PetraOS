@@ -8,11 +8,12 @@ use super::{
     address::PciAddress,
     bar::PciBar,
     config::{
-        PCI_CAPABILITY_POINTER, PCI_CAP_ID_MSIX, PCI_COMMAND, PCI_COMMAND_BUS_MASTER,
+        PCI_CAPABILITY_POINTER, PCI_CAP_ID_MSI, PCI_CAP_ID_MSIX, PCI_COMMAND, PCI_COMMAND_BUS_MASTER,
         PCI_COMMAND_MEMORY_SPACE, PCI_STATUS, PCI_STATUS_CAP_LIST, PCI_SUBSYSTEM_ID,
         PCI_SUBSYSTEM_VENDOR_ID, pci_read_config_u8, pci_read_config_u16, pci_read_config_u32,
         pci_write_config_u8, pci_write_config_u16, pci_write_config_u32,
     },
+    msi::MsiCapability,
     msix::MsixCapability,
 };
 use crate::uapi::errno::{Errno, Result};
@@ -119,6 +120,12 @@ impl PciDevice {
             rounds += 1;
         }
         None
+    }
+
+    /// Probes and parses the PCI MSI capability if present on the device.
+    pub fn msi_capability(&self) -> Option<MsiCapability> {
+        let cap_offset = self.find_capability(PCI_CAP_ID_MSI)?;
+        Some(MsiCapability::parse(self, cap_offset))
     }
 
     /// Probes and parses the PCI MSI-X capability if present on the device.

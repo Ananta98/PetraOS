@@ -10,7 +10,7 @@ pub mod hba;
 pub mod port;
 
 use alloc::{format, sync::Arc, vec::Vec};
-use ostd::{io::IoMem, mm::VmIoOnce};
+use ostd::{io::IoMem, irq::IrqLine, mm::VmIoOnce, sync::SpinLock};
 
 use self::{
     hba::*,
@@ -29,7 +29,11 @@ use crate::{
 pub struct AhciController {
     pub mmio: IoMem,
     pub ports: Vec<Arc<AhciPort>>,
+    pub _irq_line: Option<IrqLine>,
 }
+
+/// Retains live controllers so their registered `IrqLine` callbacks remain active.
+static AHCI_CONTROLLERS: SpinLock<Vec<Arc<AhciController>>> = SpinLock::new(Vec::new());
 
 /// Initializes an AHCI controller discovered on the PCI bus.
 pub fn probe_controller(dev: &PciDevice) -> Result<Arc<AhciController>> {
@@ -115,13 +119,53 @@ pub fn probe_controller(dev: &PciDevice) -> Result<Arc<AhciController>> {
         }
     }
 
+    let mut irq_line = None;
+    if !ports.is_empty() {
+        if let Some(msi) = dev.msi_capability() {
+            if let Ok(mut line) = IrqLine::alloc() {
+                let irq_mmio = mmio.clone();
+                let irq_ports = ports.clone();
+                line.on_active(move |_trap_frame| {
+                    let is: u32 = irq_mmio.read_once(AHCI_IS).unwrap_or(0);
+                    if is != 0 {
+                        for port in &irq_ports {
+                            if (is & (1 << port.port_no)) != 0 {
+                                port.handle_irq();
+                            }
+                        }
+                        let _ = irq_mmio.write_once(AHCI_IS, &is);
+                    }
+                });
+                msi.enable_vector(dev, line.num());
+                for port in &ports {
+                    port.enable_irq();
+                }
+                let mut ghc: u32 = mmio.read_once(AHCI_GHC).unwrap_or(GHC_AE);
+                ghc |= GHC_IE;
+                let _ = mmio.write_once(AHCI_GHC, &ghc);
+                ostd::info!(
+                    "AHCI: Enabled MSI IRQ vector {} for {} port(s)",
+                    line.num(),
+                    ports.len()
+                );
+                irq_line = Some(line);
+            }
+        }
+    }
+
     ostd::info!(
         "AHCI: Controller at {} initialized ({} active SATA drive(s))",
         dev.address,
         ports.len()
     );
 
-    Ok(Arc::new(AhciController { mmio, ports }))
+    let controller = Arc::new(AhciController {
+        mmio,
+        ports,
+        _irq_line: irq_line,
+    });
+    AHCI_CONTROLLERS.lock().push(Arc::clone(&controller));
+    Ok(controller)
 }
 
 // ----------------------------------------------------------------------------

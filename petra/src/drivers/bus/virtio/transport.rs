@@ -13,6 +13,7 @@ use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::sync::atomic::{AtomicU64, Ordering};
 use ostd::io::IoMem;
+use ostd::irq::IrqLine;
 use ostd::mm::io::VmIoOnce;
 use spin::Mutex;
 
@@ -91,6 +92,10 @@ pub struct VirtioTransport {
     queues: Mutex<Vec<Arc<super::queue::VirtQueue>>>,
     /// The single attached device driver.
     driver: Mutex<Option<Arc<dyn VirtioDevice>>>,
+    /// Allocated MSI-X IRQ lines kept alive for the lifetime of the transport.
+    _irq_lines: Mutex<Vec<IrqLine>>,
+    /// Mapped MSI-X table BAR window if MSI-X is enabled.
+    _msix_table: Mutex<Option<IoMem>>,
 }
 
 impl VirtioTransport {
@@ -117,6 +122,8 @@ impl VirtioTransport {
             negotiated_features: AtomicU64::new(0),
             queues: Mutex::new(Vec::new()),
             driver: Mutex::new(None),
+            _irq_lines: Mutex::new(Vec::new()),
+            _msix_table: Mutex::new(None),
         }))
     }
 
@@ -255,7 +262,13 @@ impl VirtioTransport {
         self.set_status(status)?;
         status |= STATUS_DRIVER;
         self.set_status(status)?;
-        // Mask MSIX (this device is driven polled).
+        // Attempt to set up MSI-X interrupts; fall back to polled mode (0xFFFF) if unavailable.
+        let msix_setup = self.device.msix_capability().and_then(|msix| {
+            let table = msix.map_table(&self.device).ok()?;
+            msix.set_function_mask(&self.device, true);
+            msix.set_enabled(&self.device, true);
+            Some((msix, table))
+        });
         let _ = self.write16(CFG_MSIX_CONFIG, 0xFFFF);
 
         // Feature negotiation.
@@ -305,10 +318,30 @@ impl VirtioTransport {
             self.write32(CFG_QUEUE_AVAIL_HI, (avail >> 32) as u32)?;
             self.write32(CFG_QUEUE_USED, used as u32)?;
             self.write32(CFG_QUEUE_USED_HI, (used >> 32) as u32)?;
-            let _ = self.write16(CFG_QUEUE_MSIX_VECTOR, 0xFFFF);
+            let mut queue_vec = 0xFFFFu16;
+            if let Some((ref msix, ref table)) = msix_setup {
+                let target_vec = (index as u16).min(msix.vector_count().saturating_sub(1));
+                if let Ok(mut line) = IrqLine::alloc() {
+                    if msix.program_vector(table, target_vec, line.num()).is_ok() {
+                        let q_irq = Arc::clone(&queue);
+                        line.on_active(move |_trap_frame| {
+                            q_irq.handle_irq();
+                        });
+                        queue.enable_irq();
+                        queue_vec = target_vec;
+                        self._irq_lines.lock().push(line);
+                    }
+                }
+            }
+            let _ = self.write16(CFG_QUEUE_MSIX_VECTOR, queue_vec);
             self.write16(CFG_QUEUE_ENABLE, 1)?;
 
             self.queues.lock().push(queue);
+        }
+
+        if let Some((msix, table)) = msix_setup {
+            msix.set_function_mask(&self.device, false);
+            *self._msix_table.lock() = Some(table);
         }
 
         status |= STATUS_DRIVER_OK;
