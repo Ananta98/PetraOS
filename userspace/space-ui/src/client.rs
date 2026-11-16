@@ -176,7 +176,7 @@ impl SpaceClient {
                         height: h,
                         pixels: px,
                     };
-                    canvas.fill_rect(Rect::new(0, 0, w as i32, h as i32), Theme::BREEZE_DARK.bg_window);
+                    canvas.fill_rect(Rect::new(0, 0, w as i32, h as i32), Theme::XP_LUNA.bg_window);
                     app.paint(&mut canvas);
                 }
                 let full = Rect::new(0, 0, w as i32, h as i32);

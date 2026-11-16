@@ -1,6 +1,9 @@
 use space_core::font;
-use space_core::{Canvas, Color, Rect};
-use space_ui::{AppLogic, Button, EventListener, Lifecycle, Paintable, SpaceClient, Theme, UiEvent};
+use space_core::{Canvas, Rect};
+use space_ui::{
+    draw_panel_3d, AppLogic, Button, EventListener, Lifecycle, Paintable, SpaceClient, Theme,
+    UiEvent,
+};
 
 struct Parser<'a> {
     chars: &'a [u8],
@@ -209,9 +212,10 @@ impl Lifecycle for CalcApp {}
 
 impl Paintable for CalcApp {
     fn paint(&self, canvas: &mut dyn Canvas) {
-        let t = Theme::BREEZE_DARK;
+        let t = Theme::XP_LUNA;
         let disp = Rect::new(12, 12, 414, 124);
-        canvas.fill_rounded_rect(disp, 8, Color::rgb(18, 21, 27));
+        canvas.fill_rect(disp, t.bg_input);
+        draw_panel_3d(canvas, disp, true, &t);
         canvas.draw_rect_outline(disp, 1, t.border);
 
         font::draw_text(canvas, disp.x + 12, disp.y + 14, &self.expr, t.text_secondary, 2);
@@ -234,7 +238,8 @@ impl Paintable for CalcApp {
 
         // History sidebar
         let hist_r = Rect::new(438, 12, 230, 398);
-        canvas.fill_rounded_rect(hist_r, 8, t.bg_surface);
+        canvas.fill_rect(hist_r, t.bg_surface);
+        draw_panel_3d(canvas, hist_r, true, &t);
         canvas.draw_rect_outline(hist_r, 1, t.border);
         font::draw_text(canvas, hist_r.x + 10, hist_r.y + 10, "History", t.accent, 2);
         for (i, h) in self.history.iter().take(14).enumerate() {

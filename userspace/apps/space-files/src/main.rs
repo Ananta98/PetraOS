@@ -1,8 +1,8 @@
 use space_core::font;
-use space_core::{Canvas, Rect};
+use space_core::{Canvas, Color, Rect};
 use space_ui::{
-    list_item_at, AppLogic, Button, EventListener, Lifecycle, Paintable, SpaceClient, Theme,
-    UiEvent,
+    draw_panel_3d, list_item_at, AppLogic, Button, EventListener, Lifecycle, Paintable,
+    SpaceClient, Theme, UiEvent,
 };
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -106,17 +106,18 @@ impl FilesApp {
     }
 
     fn paint_pane(&self, canvas: &mut dyn Canvas, idx: usize, rect: Rect) {
-        let t = Theme::BREEZE_DARK;
+        let t = Theme::XP_LUNA;
         let pane = &self.panes[idx];
         let active = self.active_pane == idx;
-        canvas.fill_rounded_rect(rect, 6, t.bg_surface);
+        canvas.fill_rect(rect, t.bg_surface);
+        draw_panel_3d(canvas, rect, true, &t);
         canvas.draw_rect_outline(rect, 1, if active { t.accent } else { t.border });
 
         // Path header
-        let hdr = Rect::new(rect.x, rect.y, rect.w, 28);
-        canvas.fill_rect(hdr, t.bg_surface_alt);
+        let hdr = Rect::new(rect.x + 2, rect.y + 2, rect.w - 4, 26);
+        canvas.fill_rect(hdr, if active { t.accent_soft } else { t.bg_window });
         let path_str = pane.cwd.to_string_lossy();
-        font::draw_text(canvas, hdr.x + 8, hdr.y + 6, &path_str, t.accent, 2);
+        font::draw_text(canvas, hdr.x + 8, hdr.y + 5, &path_str, t.text_primary, 2);
 
         let list_r = Rect::new(rect.x + 4, rect.y + 32, rect.w - 8, rect.h - 36);
         let row_h = 24;
@@ -126,18 +127,27 @@ impl FilesApp {
             let real_idx = pane.scroll + vi;
             let ry = list_r.y + (vi as i32) * row_h;
             let rr = Rect::new(list_r.x, ry, list_r.w, row_h - 2);
-            if pane.selected == Some(real_idx) {
-                canvas.fill_rounded_rect(rr, 4, t.accent_soft);
+            let selected = pane.selected == Some(real_idx);
+            if selected {
+                canvas.fill_rect(rr, t.bg_active);
             }
             let tag = if ent.is_dir { "[D]" } else { "   " };
-            let col = if ent.is_dir { t.accent } else { t.text_primary };
-            font::draw_text(canvas, rr.x + 6, rr.y + 4, tag, col, 2);
+            let tag_col = if selected {
+                Color::WHITE
+            } else if ent.is_dir {
+                t.accent
+            } else {
+                t.text_primary
+            };
+            let name_col = if selected { Color::WHITE } else { t.text_primary };
+            let size_col = if selected { Color::WHITE } else { t.text_secondary };
+            font::draw_text(canvas, rr.x + 6, rr.y + 4, tag, tag_col, 2);
             let name_short: String = ent.name.chars().take(28).collect();
-            font::draw_text(canvas, rr.x + 48, rr.y + 4, &name_short, t.text_primary, 2);
+            font::draw_text(canvas, rr.x + 48, rr.y + 4, &name_short, name_col, 2);
             if !ent.is_dir {
                 let sz = format!("{} B", ent.size);
                 let sw = font::measure_text_width(&sz, 2);
-                font::draw_text(canvas, rr.right() - sw - 8, rr.y + 4, &sz, t.text_secondary, 2);
+                font::draw_text(canvas, rr.right() - sw - 8, rr.y + 4, &sz, size_col, 2);
             }
         }
     }
@@ -160,7 +170,7 @@ impl Lifecycle for FilesApp {}
 
 impl Paintable for FilesApp {
     fn paint(&self, canvas: &mut dyn Canvas) {
-        let t = Theme::BREEZE_DARK;
+        let t = Theme::XP_LUNA;
         self.btn_up.paint(canvas);
         self.btn_dual.paint(canvas);
         self.btn_mkdir.paint(canvas);

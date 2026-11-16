@@ -1,9 +1,9 @@
 use space_core::font;
 use space_core::void_pkg::{PackageInfo, RunitManager, ServiceInfo, XbpsClient};
-use space_core::{Canvas, Rect};
+use space_core::{Canvas, Color, Rect};
 use space_ui::{
-    draw_progress_bar, list_item_at, AppLogic, Button, EventListener, Lifecycle, Paintable,
-    SpaceClient, Theme, UiEvent,
+    draw_panel_3d, draw_progress_bar, list_item_at, AppLogic, Button, EventListener, Lifecycle,
+    Paintable, SpaceClient, Theme, UiEvent,
 };
 use std::fs;
 use std::process::Command;
@@ -122,7 +122,7 @@ impl Lifecycle for ControlApp {}
 
 impl Paintable for ControlApp {
     fn paint(&self, canvas: &mut dyn Canvas) {
-        let t = Theme::BREEZE_DARK;
+        let t = Theme::XP_LUNA;
         let mut b_disp = self.btn_disp.clone();
         b_disp.active = self.tab == ControlTab::Display;
         let mut b_aud = self.btn_audio.clone();
@@ -138,7 +138,8 @@ impl Paintable for ControlApp {
         b_xbp.paint(canvas);
 
         let body = Rect::new(8, 48, self.width as i32 - 16, self.height as i32 - 80);
-        canvas.fill_rounded_rect(body, 6, t.bg_surface);
+        canvas.fill_rect(body, t.bg_surface);
+        draw_panel_3d(canvas, body, true, &t);
         canvas.draw_rect_outline(body, 1, t.border);
 
         match self.tab {
@@ -168,11 +169,12 @@ impl Paintable for ControlApp {
                 let list_r = Rect::new(16, 94, body.w - 16, body.h - 54);
                 for (i, svc) in self.services.iter().take(14).enumerate() {
                     let rr = Rect::new(list_r.x, list_r.y + i as i32 * 24, list_r.w, 22);
-                    if self.sel_svc == Some(i) {
-                        canvas.fill_rounded_rect(rr, 4, t.accent_soft);
+                    let selected = self.sel_svc == Some(i);
+                    if selected {
+                        canvas.fill_rect(rr, t.bg_active);
                     }
                     let line = format!("{:<22} {}", svc.name, svc.status);
-                    font::draw_text(canvas, rr.x + 6, rr.y + 3, &line, t.text_primary, 2);
+                    font::draw_text(canvas, rr.x + 6, rr.y + 3, &line, if selected { Color::WHITE } else { t.text_primary }, 2);
                 }
             }
             ControlTab::Xbps => {

@@ -1,8 +1,8 @@
 use space_core::font;
-use space_core::{sys, Canvas, Rect};
+use space_core::{sys, Canvas, Color, Rect};
 use space_ui::{
-    draw_progress_bar, list_item_at, AppLogic, Button, EventListener, Lifecycle, Paintable,
-    SpaceClient, Theme, UiEvent,
+    draw_panel_3d, draw_progress_bar, list_item_at, AppLogic, Button, EventListener, Lifecycle,
+    Paintable, SpaceClient, Theme, UiEvent,
 };
 use std::fs;
 
@@ -159,7 +159,7 @@ impl Lifecycle for TasksApp {
 
 impl Paintable for TasksApp {
     fn paint(&self, canvas: &mut dyn Canvas) {
-        let t = Theme::BREEZE_DARK;
+        let t = Theme::XP_LUNA;
         let half_w = (self.width as i32 - 24) / 2;
         draw_progress_bar(
             canvas,
@@ -196,24 +196,26 @@ impl Paintable for TasksApp {
         self.btn_refresh.paint(canvas);
 
         let lr = self.list_rect();
-        canvas.fill_rounded_rect(lr, 6, t.bg_surface);
+        canvas.fill_rect(lr, t.bg_surface);
+        draw_panel_3d(canvas, lr, true, &t);
         canvas.draw_rect_outline(lr, 1, t.border);
 
-        let hdr = Rect::new(lr.x, lr.y, lr.w, 24);
-        canvas.fill_rect(hdr, t.bg_surface_alt);
+        let hdr = Rect::new(lr.x + 2, lr.y + 2, lr.w - 4, 24);
+        canvas.fill_rect(hdr, t.bg_window);
         font::draw_text(canvas, hdr.x + 8, hdr.y + 4, "PID     STATE  NAME                  RSS", t.accent, 2);
 
-        let rows_r = Rect::new(lr.x + 4, lr.y + 26, lr.w - 8, lr.h - 30);
+        let rows_r = Rect::new(lr.x + 4, lr.y + 28, lr.w - 8, lr.h - 32);
         let max_rows = (rows_r.h / 22).max(1) as usize;
         for (vi, p) in self.procs.iter().skip(self.scroll).take(max_rows).enumerate() {
             let real_idx = self.scroll + vi;
             let ry = rows_r.y + (vi as i32) * 22;
             let rr = Rect::new(rows_r.x, ry, rows_r.w, 20);
-            if self.selected == Some(real_idx) {
-                canvas.fill_rounded_rect(rr, 4, t.accent_soft);
+            let selected = self.selected == Some(real_idx);
+            if selected {
+                canvas.fill_rect(rr, t.bg_active);
             }
             let line = format!("{:<7} {:<6} {:<21} {} KB", p.pid, p.state, p.name.chars().take(20).collect::<String>(), p.rss_kb);
-            font::draw_text(canvas, rr.x + 6, rr.y + 2, &line, t.text_primary, 2);
+            font::draw_text(canvas, rr.x + 6, rr.y + 2, &line, if selected { Color::WHITE } else { t.text_primary }, 2);
         }
 
         font::draw_text(canvas, 10, self.height as i32 - 22, &self.status, t.text_secondary, 2);

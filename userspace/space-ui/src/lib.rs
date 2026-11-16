@@ -6,4 +6,4 @@ pub mod widgets;
 pub use client::{AppLogic, SpaceClient, SurfaceCanvas};
 pub use theme::Theme;
 pub use traits::{EventListener, Layoutable, Lifecycle, Paintable, UiEvent};
-pub use widgets::{draw_progress_bar, list_item_at, Button, TextInput};
+pub use widgets::{draw_panel_3d, draw_progress_bar, list_item_at, Button, TextInput};

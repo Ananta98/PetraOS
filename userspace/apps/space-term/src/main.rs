@@ -1,6 +1,6 @@
 use space_core::font;
 use space_core::{sys, Canvas, Color, Rect};
-use space_ui::{AppLogic, Lifecycle, Paintable, SpaceClient, UiEvent};
+use space_ui::{draw_panel_3d, AppLogic, Lifecycle, Paintable, SpaceClient, Theme, UiEvent};
 use std::ffi::CString;
 use std::os::raw::{c_char, c_int, c_void};
 use std::ptr;
@@ -298,7 +298,10 @@ impl Lifecycle for TermApp {
 
 impl Paintable for TermApp {
     fn paint(&self, canvas: &mut dyn Canvas) {
-        canvas.fill_rect(canvas.bounds(), Color::rgb(16, 19, 24));
+        let b = canvas.bounds();
+        let inner = Rect::new(b.x + 3, b.y + 3, (b.w - 6).max(1), (b.h - 6).max(1));
+        canvas.fill_rect(inner, Color::rgb(16, 19, 24));
+        draw_panel_3d(canvas, b, true, &Theme::XP_LUNA);
         let mut tmp = [0u8; 4];
         for r in 0..ROWS {
             for c in 0..COLS {

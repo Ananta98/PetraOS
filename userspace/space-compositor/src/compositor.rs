@@ -1,8 +1,10 @@
 //! Proprietary damage-tracked compositing engine, evdev router, and IPC server.
 
-use crate::decorator::{BreezeXfceDecorator, HitPart, WindowDecorator};
-use crate::panel::{DesktopPanel, PanelAction, DOCK_H, TOP_PANEL_H};
+use crate::decorator::{HitPart, WindowDecorator, XpLunaDecorator, BORDER_W, TITLEBAR_H};
+use crate::panel::{DesktopPanel, PanelAction, TASKBAR_H};
 use crate::scene::{LayoutMode, SceneGraph, SurfaceNode};
+use space_core::font;
+use space_core::icons::{self, IconId};
 use space_core::ipc::{
     HandshakePacket, IpcTransport, MsgKind, RingMsg, ShmRing, ShmSurface, COMPOSITOR_SOCKET,
 };
@@ -50,12 +52,67 @@ impl<'a> Canvas for ScreenCanvas<'a> {
     }
 }
 
+const DESKTOP_SHORTCUTS: [(&str, &str, IconId); 4] = [
+    ("Files", "space-files", IconId::Files),
+    ("Terminal", "space-term", IconId::Terminal),
+    ("Notepad", "space-pad", IconId::Notepad),
+    ("Control Panel", "space-control", IconId::ControlPanel),
+];
+
+fn shortcut_rect(idx: usize) -> Rect {
+    Rect::new(14, 16 + (idx as i32) * 76, 112, 66)
+}
+
+fn build_bliss_wallpaper(w: u32, h: u32) -> Vec<u32> {
+    let mut buf = vec![0xFF3A_6EA5; w as usize * h as usize];
+    let sky_top = Color::rgb(0x3A, 0x6E, 0xA5);
+    let sky_bot = Color::rgb(0x7E, 0xC0, 0xEE);
+    let hill_top = Color::rgb(0x68, 0xB3, 0x47);
+    let hill_mid = Color::rgb(0x56, 0x9E, 0x40);
+    let hill_bot = Color::rgb(0x4B, 0x8B, 0x3B);
+
+    let wf = w.max(1) as f32;
+    let hf = h.max(1) as f32;
+    for x in 0..w as usize {
+        let xf = x as f32;
+        let hy = (hf * 0.56
+            + (xf * 0.0045).sin() * (hf * 0.04)
+            + (xf * 0.011 + 1.2).cos() * (hf * 0.018)) as i32;
+        let hy2 = (hf * 0.72 + (xf * 0.006 + 2.5).sin() * (hf * 0.035)) as i32;
+        // Soft cloud band in upper sky
+        let cloud_y = (hf * 0.28 + (xf * 0.008).sin() * (hf * 0.03)) as i32;
+        let cloud_w = ((xf / wf - 0.55).abs() < 0.25) as i32;
+
+        for y in 0..h as usize {
+            let yi = y as i32;
+            let col = if yi < hy {
+                let base = Color::lerp(sky_top, sky_bot, yi, hy.max(1));
+                if cloud_w != 0 && (yi - cloud_y).abs() < 18 {
+                    let dist = (yi - cloud_y).abs();
+                    Color::lerp(Color::rgb(236, 246, 255), base, dist, 18)
+                } else {
+                    base
+                }
+            } else if yi < hy2 {
+                Color::lerp(hill_top, hill_mid, yi - hy, (hy2 - hy).max(1))
+            } else {
+                Color::lerp(hill_mid, hill_bot, yi - hy2, (h as i32 - hy2).max(1))
+            };
+            buf[y * w as usize + x] = col.0;
+        }
+    }
+    buf
+}
+
 pub struct Compositor<R: RenderBackend, I: InputBackend> {
     renderer: R,
     input: I,
     scene: SceneGraph,
     panel: DesktopPanel,
-    decorator: BreezeXfceDecorator,
+    decorator: XpLunaDecorator,
+    wallpaper: Vec<u32>,
+    selected_shortcut: Option<usize>,
+    last_shortcut_click: (Option<usize>, u64),
     damage: DamageRegion,
     listen_fd: c_int,
     cursor: Point,
@@ -100,13 +157,17 @@ impl<R: RenderBackend, I: InputBackend> Compositor<R, I> {
 
         let mut panel = DesktopPanel::new();
         panel.update_stats();
+        let wallpaper = build_bliss_wallpaper(renderer.width(), renderer.height());
 
         Ok(Self {
             renderer,
             input,
             scene: SceneGraph::new(),
             panel,
-            decorator: BreezeXfceDecorator,
+            decorator: XpLunaDecorator,
+            wallpaper,
+            selected_shortcut: None,
+            last_shortcut_click: (None, 0),
             damage,
             listen_fd,
             cursor: Point::new(w / 2, h / 2),
@@ -137,7 +198,7 @@ impl<R: RenderBackend, I: InputBackend> Compositor<R, I> {
 
             if self.frame_tick % 60 == 0 {
                 self.panel.update_stats();
-                self.damage.add(Rect::new(0, 0, sw, TOP_PANEL_H));
+                self.damage.add(self.panel.panel_rect(sw, sh));
             }
 
             if !self.damage.is_empty() {
@@ -184,7 +245,7 @@ impl<R: RenderBackend, I: InputBackend> Compositor<R, I> {
             };
 
             let offset = (self.scene.nodes.len() as i32 % 6) * 32;
-            let rect = Rect::new(80 + offset, TOP_PANEL_H + 40 + offset, pkt.width as i32, pkt.height as i32);
+            let rect = Rect::new(140 + offset, 40 + offset, pkt.width as i32, pkt.height as i32);
             let node = SurfaceNode {
                 id: 0,
                 _pid: pkt.pid,
@@ -208,7 +269,7 @@ impl<R: RenderBackend, I: InputBackend> Compositor<R, I> {
             if let Some(n) = self.scene.find(id) {
                 self.damage.add(self.decorator.shadow_rect(n.rect));
             }
-            self.damage.add(Rect::new(0, 0, sw, TOP_PANEL_H));
+            self.damage.add(self.panel.panel_rect(sw, sh));
         }
     }
 
@@ -248,7 +309,7 @@ impl<R: RenderBackend, I: InputBackend> Compositor<R, I> {
             let sw = self.renderer.width() as i32;
             let sh = self.renderer.height() as i32;
             self.scene.retile(self.panel.work_area(sw, sh));
-            self.damage.add(Rect::new(0, 0, sw, TOP_PANEL_H));
+            self.damage.add(self.panel.panel_rect(sw, sh));
         }
     }
 
@@ -320,8 +381,8 @@ impl<R: RenderBackend, I: InputBackend> Compositor<R, I> {
                     }
                     if code == KEY_ESC && self.panel.launcher_open {
                         self.panel.launcher_open = false;
-                        self.damage.add(self.panel.launcher_rect());
-                        self.damage.add(Rect::new(0, 0, sw, TOP_PANEL_H));
+                        self.damage.add(self.panel.launcher_rect(sh));
+                        self.damage.add(self.panel.panel_rect(sw, sh));
                         return;
                     }
                 }
@@ -345,12 +406,13 @@ impl<R: RenderBackend, I: InputBackend> Compositor<R, I> {
         self.damage.add(Rect::new(self.prev_cursor.x, self.prev_cursor.y, 16, 20));
         self.damage.add(Rect::new(self.cursor.x, self.cursor.y, 16, 20));
 
+        let sh = self.renderer.height() as i32;
         match self.drag {
             DragState::Move { win_id, offset_x, offset_y } => {
                 if let Some(n) = self.scene.find_mut(win_id) {
                     let old_sh = self.decorator.shadow_rect(n.rect);
                     n.rect.x = self.cursor.x - offset_x;
-                    n.rect.y = (self.cursor.y - offset_y).max(TOP_PANEL_H + 28);
+                    n.rect.y = (self.cursor.y - offset_y).clamp(TITLEBAR_H, (sh - TASKBAR_H - 8).max(TITLEBAR_H));
                     let new_sh = self.decorator.shadow_rect(n.rect);
                     self.damage.add(old_sh);
                     self.damage.add(new_sh);
@@ -408,12 +470,12 @@ impl<R: RenderBackend, I: InputBackend> Compositor<R, I> {
             return;
         }
 
-        // Check panel / dock / launcher first
+        // Check taskbar / start menu first
         match self.panel.handle_click(self.cursor, &self.scene, sw, sh) {
             PanelAction::ToggleLauncher => {
                 self.panel.launcher_open = !self.panel.launcher_open;
-                self.damage.add(self.panel.launcher_rect());
-                self.damage.add(Rect::new(0, 0, sw, TOP_PANEL_H));
+                self.damage.add(self.panel.launcher_rect(sh));
+                self.damage.add(self.panel.panel_rect(sw, sh));
                 return;
             }
             PanelAction::SwitchWorkspace(ws) => {
@@ -433,8 +495,8 @@ impl<R: RenderBackend, I: InputBackend> Compositor<R, I> {
                 return;
             }
             PanelAction::LaunchApp(bin) => {
-                self.damage.add(self.panel.launcher_rect());
-                self.damage.add(Rect::new(0, 0, sw, TOP_PANEL_H));
+                self.damage.add(self.panel.launcher_rect(sh));
+                self.damage.add(self.panel.panel_rect(sw, sh));
                 self.spawn_app(bin);
                 return;
             }
@@ -443,7 +505,8 @@ impl<R: RenderBackend, I: InputBackend> Compositor<R, I> {
 
         if self.panel.launcher_open {
             self.panel.launcher_open = false;
-            self.damage.add(self.panel.launcher_rect());
+            self.damage.add(self.panel.launcher_rect(sh));
+            self.damage.add(self.panel.panel_rect(sw, sh));
         }
 
         // Hit-test windows top-to-bottom
@@ -462,9 +525,12 @@ impl<R: RenderBackend, I: InputBackend> Compositor<R, I> {
         }
 
         if let Some((id, part, rect)) = hit {
+            if let Some(prev) = self.selected_shortcut.take() {
+                self.damage.add(shortcut_rect(prev));
+            }
             self.scene.focus_window(id);
             self.damage.add(self.decorator.shadow_rect(rect));
-            self.damage.add(Rect::new(0, 0, sw, TOP_PANEL_H));
+            self.damage.add(self.panel.panel_rect(sw, sh));
 
             match part {
                 HitPart::CloseButton => self.close_window(id),
@@ -472,7 +538,7 @@ impl<R: RenderBackend, I: InputBackend> Compositor<R, I> {
                     if let Some(n) = self.scene.find_mut(id) {
                         n.minimized = true;
                         self.damage.add(self.decorator.shadow_rect(n.rect));
-                        self.damage.add(Rect::new(0, 0, sw, TOP_PANEL_H));
+                        self.damage.add(self.panel.panel_rect(sw, sh));
                     }
                 }
                 HitPart::MaximizeButton => {
@@ -484,7 +550,12 @@ impl<R: RenderBackend, I: InputBackend> Compositor<R, I> {
                             n.maximized = false;
                         } else {
                             n.saved_rect = n.rect;
-                            n.rect = Rect::new(wa.x + 4, wa.y + 30, wa.w - 8, wa.h - 34);
+                            n.rect = Rect::new(
+                                wa.x + BORDER_W,
+                                wa.y + TITLEBAR_H,
+                                wa.w - BORDER_W * 2,
+                                wa.h - TITLEBAR_H - BORDER_W,
+                            );
                             n.maximized = true;
                         }
                         self.damage.add(self.decorator.shadow_rect(n.rect));
@@ -517,6 +588,28 @@ impl<R: RenderBackend, I: InputBackend> Compositor<R, I> {
                     }
                 }
                 HitPart::None => {}
+            }
+        } else {
+            let mut hit_shortcut = None;
+            for i in 0..DESKTOP_SHORTCUTS.len() {
+                if shortcut_rect(i).contains(self.cursor) {
+                    hit_shortcut = Some(i);
+                    break;
+                }
+            }
+            if let Some(prev) = self.selected_shortcut {
+                self.damage.add(shortcut_rect(prev));
+            }
+            self.selected_shortcut = hit_shortcut;
+            if let Some(idx) = hit_shortcut {
+                self.damage.add(shortcut_rect(idx));
+                let (last_idx, last_tick) = self.last_shortcut_click;
+                if last_idx == Some(idx) && self.frame_tick.saturating_sub(last_tick) <= 55 {
+                    self.spawn_app(DESKTOP_SHORTCUTS[idx].1);
+                    self.last_shortcut_click = (None, 0);
+                } else {
+                    self.last_shortcut_click = (Some(idx), self.frame_tick);
+                }
             }
         }
     }
@@ -573,9 +666,8 @@ impl<R: RenderBackend, I: InputBackend> Compositor<R, I> {
         let z_order = self.scene.z_order.clone();
 
         let screen_bounds = Rect::new(0, 0, sw as i32, sh as i32);
-        let top_panel_r = Rect::new(0, 0, sw as i32, TOP_PANEL_H);
-        let dock_r = self.panel.dock_rect(sw as i32, sh as i32);
-        let launcher_r = self.panel.launcher_rect();
+        let panel_r = self.panel.panel_rect(sw as i32, sh as i32);
+        let launcher_r = self.panel.launcher_rect(sh as i32);
 
         let pixels = self.renderer.back_buffer_mut();
         let mut canvas = ScreenCanvas {
@@ -593,12 +685,25 @@ impl<R: RenderBackend, I: InputBackend> Compositor<R, I> {
             }
             canvas.clip = clip;
 
-            // 1. Desktop gradient/slate backdrop
-            canvas.fill_rect(clip, Color::rgb(18, 24, 34));
-            let accent_band = Rect::new(0, TOP_PANEL_H, sw as i32, sh as i32 - TOP_PANEL_H - DOCK_H)
-                .intersect(clip);
-            if !accent_band.is_empty() {
-                canvas.fill_rect(accent_band, Color::rgb(21, 29, 42));
+            // 1. Bliss-inspired XP wallpaper (cached SIMD blit for zero-seam partial repaints)
+            canvas.blit_from(&self.wallpaper, sw, clip, clip.x, clip.y, clip, false);
+
+            // 1b. Clickable desktop shortcut icons on the left
+            for (i, &(label, _, icon)) in DESKTOP_SHORTCUTS.iter().enumerate() {
+                let sr = shortcut_rect(i);
+                if !sr.intersects(clip) {
+                    continue;
+                }
+                if self.selected_shortcut == Some(i) {
+                    canvas.fill_rect(sr, Color::argb(145, 49, 106, 197));
+                    canvas.draw_rect_outline(sr, 1, Color::rgb(120, 178, 248));
+                }
+                icons::draw_icon(&mut canvas, sr.x + (sr.w - 24) / 2, sr.y + 8, 24, icon);
+                let lw = font::measure_text_width(label, 2);
+                let lx = sr.x + (sr.w - lw) / 2;
+                let ly = sr.y + 40;
+                font::draw_text(&mut canvas, lx + 1, ly + 1, label, Color::argb(190, 0, 0, 0), 2);
+                font::draw_text(&mut canvas, lx, ly, label, Color::WHITE, 2);
             }
 
             // 2. Windows back-to-front
@@ -630,9 +735,8 @@ impl<R: RenderBackend, I: InputBackend> Compositor<R, I> {
                 );
             }
 
-            // 3. Panel, dock, and launcher (only when intersected by this damage rect)
-            let touches_panel = clip.intersects(top_panel_r)
-                || clip.intersects(dock_r)
+            // 3. Bottom taskbar & Start Menu (only when intersected by this damage rect)
+            let touches_panel = clip.intersects(panel_r)
                 || (self.panel.launcher_open && clip.intersects(launcher_r));
             if touches_panel {
                 self.panel.paint(&mut canvas, &self.scene, sw as i32, sh as i32);

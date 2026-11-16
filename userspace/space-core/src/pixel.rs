@@ -47,6 +47,27 @@ impl Color {
     pub const fn with_alpha(self, a: u8) -> Self {
         Self((self.0 & 0x00FF_FFFF) | ((a as u32) << 24))
     }
+
+    #[inline]
+    pub fn lerp(a: Self, b: Self, num: i32, den: i32) -> Self {
+        if den <= 0 || num <= 0 {
+            return a;
+        }
+        if num >= den {
+            return b;
+        }
+        let n = num as i64;
+        let d = den as i64;
+        let mix = |c0: u8, c1: u8| -> u8 {
+            (c0 as i64 + ((c1 as i64 - c0 as i64) * n) / d).clamp(0, 255) as u8
+        };
+        Self::argb(
+            mix(a.alpha(), b.alpha()),
+            mix(a.red(), b.red()),
+            mix(a.green(), b.green()),
+            mix(a.blue(), b.blue()),
+        )
+    }
 }
 
 /// Abstract 2D pixel target (Dependency Inversion for renderers and widgets).
@@ -138,6 +159,30 @@ pub trait Canvas {
                 } else {
                     simd::blend_solid_row(&mut buf[start..end], color.0);
                 }
+            }
+        }
+    }
+
+    fn fill_gradient_v(&mut self, rect: Rect, top: Color, bottom: Color) {
+        let clipped = rect.intersect(self.bounds());
+        if clipped.is_empty() || rect.h <= 0 {
+            return;
+        }
+        if rect.h == 1 || top == bottom {
+            self.fill_rect(clipped, top);
+            return;
+        }
+        let stride = self.stride_pixels() as usize;
+        let buf = self.pixels_mut();
+        let denom = (rect.h - 1).max(1);
+        for py in clipped.y..clipped.bottom() {
+            let col = Color::lerp(top, bottom, py - rect.y, denom);
+            let start = py as usize * stride + clipped.x as usize;
+            let end = start + clipped.w as usize;
+            if col.alpha() == 255 {
+                simd::fill_u32(&mut buf[start..end], col.0);
+            } else if col.alpha() > 0 {
+                simd::blend_solid_row(&mut buf[start..end], col.0);
             }
         }
     }

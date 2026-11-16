@@ -1,7 +1,8 @@
 use space_core::font;
 use space_core::{Canvas, Color, Rect};
 use space_ui::{
-    AppLogic, Button, EventListener, Lifecycle, Paintable, SpaceClient, TextInput, Theme, UiEvent,
+    draw_panel_3d, AppLogic, Button, EventListener, Lifecycle, Paintable, SpaceClient, TextInput,
+    Theme, UiEvent,
 };
 use std::fs;
 
@@ -100,10 +101,10 @@ impl PadApp {
     }
 
     fn draw_highlighted_line(canvas: &mut dyn Canvas, x: i32, y: i32, line: &str) {
-        let t = Theme::BREEZE_DARK;
+        let t = Theme::XP_LUNA;
         let trimmed = line.trim_start();
         if trimmed.starts_with("//") || trimmed.starts_with('#') {
-            font::draw_text(canvas, x, y, line, Color::rgb(112, 128, 144), 2);
+            font::draw_text(canvas, x, y, line, Color::rgb(0, 112, 0), 2);
             return;
         }
         let mut cx = x;
@@ -119,7 +120,7 @@ impl PadApp {
                     }
                 }
                 let seg = &line[start..end];
-                font::draw_text(canvas, cx, y, seg, Color::rgb(152, 195, 121), 2);
+                font::draw_text(canvas, cx, y, seg, Color::rgb(163, 21, 21), 2);
                 cx += font::measure_text_width(seg, 2);
             } else if ch.is_ascii_alphanumeric() || ch == '_' {
                 let start = idx;
@@ -136,7 +137,7 @@ impl PadApp {
                 let col = if Self::is_keyword(word) {
                     t.accent
                 } else if word.chars().all(|c| c.is_ascii_digit()) {
-                    Color::rgb(209, 154, 102)
+                    Color::rgb(128, 64, 0)
                 } else {
                     t.text_primary
                 };
@@ -156,7 +157,7 @@ impl Lifecycle for PadApp {}
 
 impl Paintable for PadApp {
     fn paint(&self, canvas: &mut dyn Canvas) {
-        let t = Theme::BREEZE_DARK;
+        let t = Theme::XP_LUNA;
         self.path_input.paint(canvas);
         self.btn_new.paint(canvas);
         self.btn_close.paint(canvas);
@@ -166,9 +167,11 @@ impl Paintable for PadApp {
         // Tab bar
         for (i, tab) in self.tabs.iter().enumerate() {
             let tr = Rect::new(8 + i as i32 * 136, 42, 130, 28);
-            let bg = if i == self.active_tab { t.accent_soft } else { t.bg_surface };
-            canvas.fill_rounded_rect(tr, 4, bg);
-            canvas.draw_rect_outline(tr, 1, if i == self.active_tab { t.accent } else { t.border });
+            let active = i == self.active_tab;
+            let bg = if active { t.bg_surface } else { t.bg_surface_alt };
+            canvas.fill_rect(tr, bg);
+            draw_panel_3d(canvas, tr, !active, &t);
+            canvas.draw_rect_outline(tr, 1, if active { t.accent } else { t.border });
             let lbl = if tab.modified {
                 format!("*{}", tab.title)
             } else {
@@ -178,7 +181,8 @@ impl Paintable for PadApp {
         }
 
         let er = self.editor_rect();
-        canvas.fill_rounded_rect(er, 6, Color::rgb(18, 21, 27));
+        canvas.fill_rect(er, t.bg_input);
+        draw_panel_3d(canvas, er, true, &t);
         canvas.draw_rect_outline(er, 1, t.border);
 
         let tab = &self.tabs[self.active_tab];

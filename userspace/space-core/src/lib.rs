@@ -1,5 +1,6 @@
 pub mod font;
 pub mod geometry;
+pub mod icons;
 pub mod ipc;
 pub mod pixel;
 pub mod simd;
@@ -48,5 +49,15 @@ mod tests {
         let mut surf = ShmSurface::create(&surf_name, 64, 64).expect("create surf");
         surf.pixels_mut()[0] = 0xFF11_2233;
         assert_eq!(surf.pixels()[0], 0xFF11_2233);
+    }
+
+    #[test]
+    fn icons_and_gradient_render_cleanly() {
+        let mut pb = PixelBuffer::new(64, 64, Color::BLACK);
+        pb.fill_gradient_v(Rect::new(0, 0, 64, 64), Color::rgb(0, 84, 227), Color::rgb(40, 142, 247));
+        assert_eq!(pb.pixels()[0], Color::rgb(0, 84, 227).0);
+        icons::draw_icon(&mut pb, 4, 4, 16, icons::IconId::StartFlag);
+        icons::draw_icon(&mut pb, 24, 4, 24, icons::IconId::Files);
+        icons::draw_window_glyph(&mut pb, Rect::new(4, 32, 20, 20), icons::WindowGlyph::Close, Color::WHITE);
     }
 }

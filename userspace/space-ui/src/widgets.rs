@@ -46,30 +46,76 @@ impl Layoutable for Button {
     }
 }
 
+/// Draws a classic 3D raised or sunken panel/bevel using the given theme.
+pub fn draw_panel_3d(canvas: &mut dyn Canvas, rect: Rect, sunken: bool, t: &Theme) {
+    if rect.w < 4 || rect.h < 4 {
+        return;
+    }
+    let (tl_outer, br_outer, tl_inner, br_inner) = if sunken {
+        (t.bevel_dark, t.bevel_light, t.bevel_shadow, t.bg_window)
+    } else {
+        (t.bevel_light, t.bevel_dark, t.bg_window, t.bevel_shadow)
+    };
+    // Outer 1px bevel
+    canvas.fill_rect(Rect::new(rect.x, rect.y, rect.w - 1, 1), tl_outer);
+    canvas.fill_rect(Rect::new(rect.x, rect.y, 1, rect.h - 1), tl_outer);
+    canvas.fill_rect(Rect::new(rect.x, rect.bottom() - 1, rect.w, 1), br_outer);
+    canvas.fill_rect(Rect::new(rect.right() - 1, rect.y, 1, rect.h), br_outer);
+    // Inner 1px bevel
+    canvas.fill_rect(Rect::new(rect.x + 1, rect.y + 1, rect.w - 3, 1), tl_inner);
+    canvas.fill_rect(Rect::new(rect.x + 1, rect.y + 1, 1, rect.h - 3), tl_inner);
+    canvas.fill_rect(Rect::new(rect.x + 1, rect.bottom() - 2, rect.w - 2, 1), br_inner);
+    canvas.fill_rect(Rect::new(rect.right() - 2, rect.y + 1, 1, rect.h - 2), br_inner);
+}
+
 impl Paintable for Button {
     fn paint(&self, canvas: &mut dyn Canvas) {
-        let t = Theme::BREEZE_DARK;
-        let bg = if self.pressed || self.active || self.accent {
-            t.accent
-        } else if self.hovered {
-            t.bg_hover
+        let t = Theme::XP_LUNA;
+        let sunken = self.pressed || self.active;
+        let inner = Rect::new(self.rect.x + 1, self.rect.y + 1, (self.rect.w - 2).max(1), (self.rect.h - 2).max(1));
+
+        if sunken {
+            let top = if self.active && !self.pressed {
+                Color::rgb(0xD8, 0xE4, 0xF8)
+            } else {
+                Color::rgb(0xD6, 0xD2, 0xC2)
+            };
+            let bot = Color::rgb(0xEC, 0xE9, 0xD8);
+            canvas.fill_gradient_v(inner, top, bot);
+            canvas.draw_rect_outline(self.rect, 1, Color::rgb(0x00, 0x3C, 0x74));
+            draw_panel_3d(canvas, inner, true, &t);
         } else {
-            t.bg_surface_alt
-        };
-        let fg = if self.pressed || self.active || self.accent {
-            t.text_on_accent
-        } else {
-            t.text_primary
-        };
-        canvas.fill_rounded_rect(self.rect, t.radius, bg);
-        canvas.draw_rect_outline(self.rect, 1, t.border);
+            let (top, bot) = if self.accent {
+                (Color::rgb(0xFF, 0xFF, 0xFF), Color::rgb(0xD6, 0xE4, 0xFA))
+            } else if self.hovered {
+                (Color::rgb(0xFF, 0xFA, 0xE6), Color::rgb(0xEE, 0xE6, 0xCC))
+            } else {
+                (Color::rgb(0xFF, 0xFF, 0xFF), Color::rgb(0xDC, 0xD8, 0xC8))
+            };
+            canvas.fill_gradient_v(inner, top, bot);
+            let outer_col = if self.hovered || self.accent {
+                Color::rgb(0x00, 0x3C, 0x74)
+            } else {
+                Color::rgb(0x7F, 0x9D, 0xB9)
+            };
+            canvas.draw_rect_outline(self.rect, 1, outer_col);
+            draw_panel_3d(canvas, inner, false, &t);
+            if self.hovered {
+                canvas.draw_rect_outline(
+                    Rect::new(self.rect.x + 1, self.rect.y + 1, self.rect.w - 2, self.rect.h - 2),
+                    1,
+                    t.warning,
+                );
+            }
+        }
 
         let scale = 2;
         let tw = font::measure_text_width(&self.label, scale);
         let th = font::GLYPH_H * scale;
-        let tx = self.rect.x + (self.rect.w - tw) / 2;
-        let ty = self.rect.y + (self.rect.h - th) / 2;
-        font::draw_text(canvas, tx.max(self.rect.x + 4), ty, &self.label, fg, scale);
+        let off = if sunken { 1 } else { 0 };
+        let tx = self.rect.x + (self.rect.w - tw) / 2 + off;
+        let ty = self.rect.y + (self.rect.h - th) / 2 + off;
+        font::draw_text(canvas, tx.max(self.rect.x + 4), ty, &self.label, t.text_primary, scale);
     }
 }
 
@@ -143,10 +189,14 @@ impl Layoutable for TextInput {
 
 impl Paintable for TextInput {
     fn paint(&self, canvas: &mut dyn Canvas) {
-        let t = Theme::BREEZE_DARK;
-        canvas.fill_rounded_rect(self.rect, 4, Color::rgb(20, 23, 29));
-        let border = if self.focused { t.accent } else { t.border };
-        canvas.draw_rect_outline(self.rect, 1, border);
+        let t = Theme::XP_LUNA;
+        canvas.fill_rect(self.rect, t.bg_input);
+        draw_panel_3d(canvas, self.rect, true, &t);
+        if self.focused {
+            canvas.draw_rect_outline(self.rect, 1, t.accent);
+        } else {
+            canvas.draw_rect_outline(self.rect, 1, t.border);
+        }
 
         let scale = 2;
         let ty = self.rect.y + (self.rect.h - font::GLYPH_H * scale) / 2;
@@ -156,7 +206,7 @@ impl Paintable for TextInput {
             font::draw_text(canvas, self.rect.x + 8, ty, &self.text, t.text_primary, scale);
             if self.focused {
                 let cx = self.rect.x + 8 + font::measure_text_width(&self.text, scale);
-                canvas.fill_rect(Rect::new(cx, ty - 1, 2, font::GLYPH_H * scale + 2), t.accent);
+                canvas.fill_rect(Rect::new(cx, ty - 1, 2, font::GLYPH_H * scale + 2), t.text_primary);
             }
         }
     }
@@ -194,16 +244,20 @@ impl EventListener for TextInput {
 
 /// Progress bar widget.
 pub fn draw_progress_bar(canvas: &mut dyn Canvas, rect: Rect, ratio: f32, label: &str, fill_color: Color) {
-    let t = Theme::BREEZE_DARK;
-    canvas.fill_rounded_rect(rect, 4, Color::rgb(20, 23, 29));
+    let t = Theme::XP_LUNA;
+    canvas.fill_rect(rect, t.bg_input);
+    draw_panel_3d(canvas, rect, true, &t);
     canvas.draw_rect_outline(rect, 1, t.border);
     let clamped = ratio.clamp(0.0, 1.0);
-    let fill_w = ((rect.w - 4) as f32 * clamped) as i32;
+    let fill_w = ((rect.w - 6) as f32 * clamped) as i32;
     if fill_w > 0 {
-        canvas.fill_rounded_rect(Rect::new(rect.x + 2, rect.y + 2, fill_w, rect.h - 4), 3, fill_color);
+        let fill_r = Rect::new(rect.x + 3, rect.y + 3, fill_w, rect.h - 6);
+        let top = Color::lerp(fill_color, Color::WHITE, 1, 3);
+        canvas.fill_gradient_v(fill_r, top, fill_color);
     }
     if !label.is_empty() {
         let ty = rect.y + (rect.h - font::GLYPH_H * 2) / 2;
+        font::draw_text(canvas, rect.x + 8, ty + 1, label, Color::argb(90, 255, 255, 255), 2);
         font::draw_text(canvas, rect.x + 8, ty, label, t.text_primary, 2);
     }
 }
