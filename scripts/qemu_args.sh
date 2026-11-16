@@ -47,7 +47,7 @@ case "$SCHEME" in
         if [ "$DISPLAY" = "none" ]; then
             QEMU_ARGS="$QEMU_ARGS -nographic -display none"
         elif [ "$DISPLAY" = "std" ]; then
-            QEMU_ARGS="$QEMU_ARGS -vga std -device virtio-gpu-pci,xres=${VIRTIO_GPU_XRES},yres=${VIRTIO_GPU_YRES}"
+            QEMU_ARGS="$QEMU_ARGS -vga none -device virtio-vga,id=vgpu0,xres=${VIRTIO_GPU_XRES},yres=${VIRTIO_GPU_YRES}"
         else
             QEMU_ARGS="$QEMU_ARGS -display $DISPLAY"
         fi

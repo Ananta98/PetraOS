@@ -38,11 +38,12 @@ STAGING="${BUILD_DIR}/staging"
 ROOTFS_STAGING="${BUILD_DIR}/rootfs_staging"
 INITRAMFS="${REPO_ROOT}/build/initramfs.cpio"
 
-PACKAGES="${PETRAOS_USERLAND_PACKAGES:-developer-tools hyprland}"
+PACKAGES="${PETRAOS_USERLAND_PACKAGES:-developer-tools}"
 PETRAOS_VERSION="${PETRAOS_VERSION:-0.1.0}"
-SUPPORT_DIR="${REPO_ROOT}/scripts/build-support"
 PREBUILD_DIR="${REPO_ROOT}/scripts/prebuild-package"
 BASE_FILES_DIR="${REPO_ROOT}/base-files"
+USERSPACE_DIR="${REPO_ROOT}/userspace"
+SPACE_TARGET="${SPACE_TARGET:-x86_64-unknown-linux-gnu}"
 
 FRESH=0
 PURGE_CACHE=0
@@ -138,9 +139,6 @@ done
 ln -sf bin/busybox "${STAGING}/sbin/mount" 2>/dev/null || true
 ln -sf ../bin/busybox "${STAGING}/sbin/mke2fs" 2>/dev/null || true
 
-# Install init orchestrator
-install -m0755 "${SUPPORT_DIR}/init" "${STAGING}/init"
-
 # Essential device nodes in initramfs
 mknod -m 666 "${STAGING}/dev/null" c 1 3 2>/dev/null || true
 mknod -m 666 "${STAGING}/dev/zero" c 1 5 2>/dev/null || true
@@ -150,8 +148,9 @@ mknod -m 660 "${STAGING}/dev/sda" b 8 0 2>/dev/null || true
 mknod -m 660 "${STAGING}/dev/sdb" b 8 16 2>/dev/null || true
 mknod -m 660 "${STAGING}/dev/vda" b 254 0 2>/dev/null || true
 
-# Install initramfs base-files skeleton
+# Install initramfs base-files skeleton (includes /init)
 cp -a "${BASE_FILES_DIR}/initramfs/." "${STAGING}/"
+chmod 0755 "${STAGING}/init"
 printf '%s\n' "${PETRAOS_VERSION}" > "${STAGING}/etc/petraos-release"
 
 # ----------------------------------------------------------------------------
@@ -174,11 +173,27 @@ for package in ${PACKAGES}; do
     "${layer_script}" --root "${ROOTFS_STAGING}"
 done
 
+if [ -f "${USERSPACE_DIR}/Cargo.toml" ] && command -v cargo >/dev/null 2>&1; then
+    echo "==> Building PetraSpace custom GUI stack (${SPACE_TARGET})..."
+    (
+        cd "${USERSPACE_DIR}"
+        export PATH="${HOME}/.cargo/bin:${PATH}"
+        cargo build --release --target "${SPACE_TARGET}"
+    )
+    mkdir -p "${ROOTFS_STAGING}/usr/bin"
+    for bin in space-compositor space-files space-tasks space-term space-calc space-pad space-control; do
+        if [ -x "${USERSPACE_DIR}/target/${SPACE_TARGET}/release/${bin}" ]; then
+            install -m0755 "${USERSPACE_DIR}/target/${SPACE_TARGET}/release/${bin}" \
+                "${ROOTFS_STAGING}/usr/bin/${bin}"
+        fi
+    done
+fi
+
 echo "==> Configuring full Void Linux rootfs"
 mkdir -p "${ROOTFS_STAGING}"/{dev/pts,dev/shm,proc,sys,tmp,run,root,mnt,media,var/log,var/run,var/tmp,sysroot}
 chmod 1777 "${ROOTFS_STAGING}/tmp" "${ROOTFS_STAGING}/var/tmp"
 chmod 0750 "${ROOTFS_STAGING}/root"
-install -m0755 "${SUPPORT_DIR}/init" "${ROOTFS_STAGING}/init"
+install -m0755 "${BASE_FILES_DIR}/initramfs/init" "${ROOTFS_STAGING}/init"
 
 # Ensure /usr/bin/python symlink points to python3 if python3 is present
 if [ -x "${ROOTFS_STAGING}/usr/bin/python3" ] && [ ! -e "${ROOTFS_STAGING}/usr/bin/python" ]; then
@@ -199,12 +214,8 @@ chmod 0600 "${ROOTFS_STAGING}/etc/shadow"
 chmod 0750 "${ROOTFS_STAGING}/root"
 mkdir -p "${ROOTFS_STAGING}/root/.config"
 chmod 0750 "${ROOTFS_STAGING}/root/.config"
-
-# Deploy PetraOS Quickshell UI from repository shell/ directory
-if [ -d "${REPO_ROOT}/shell" ]; then
-    echo "==> Staging PetraOS Quickshell UI into /usr/share/petra/shell"
-    mkdir -p "${ROOTFS_STAGING}/usr/share/petra/shell"
-    cp -a "${REPO_ROOT}/shell/." "${ROOTFS_STAGING}/usr/share/petra/shell/"
+if [ -f "${ROOTFS_STAGING}/etc/sv/space-gui/run" ]; then
+    chmod 0755 "${ROOTFS_STAGING}/etc/sv/space-gui/run"
 fi
 
 # Configure Void Linux runit services in /etc/runit/runsvdir/default

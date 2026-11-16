@@ -1,0 +1,6 @@
+#!/bin/sh
+exec 2>&1
+export PATH=/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin
+export HOME=/root
+export XDG_CONFIG_HOME=/root/.config
+exec /usr/bin/space-compositor

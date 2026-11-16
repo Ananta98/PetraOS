@@ -1,0 +1,104 @@
+#!/bin/sh
+# PetraOS kernel userspace init (PID 1).
+
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+export HOME=/root
+export USER=root
+export LOGNAME=root
+export TERM=linux
+export SHELL=/bin/bash
+export XDG_CONFIG_HOME=/root/.config
+export CHARSET=UTF-8
+export LANG=C.UTF-8
+export LC_ALL=C.UTF-8
+
+mount -t proc proc /proc 2>/dev/null || true
+mount -t sysfs sysfs /sys 2>/dev/null || true
+mount -t devtmpfs devtmpfs /dev 2>/dev/null || mount -t devfs devfs /dev 2>/dev/null || true
+mount -t tmpfs tmpfs /tmp 2>/dev/null || true
+mount -t tmpfs tmpfs /run 2>/dev/null || true
+mkdir -p /dev/pts /dev/shm /sysroot /mnt/rootfs 2>/dev/null || true
+mount -t devpts devpts /dev/pts 2>/dev/null || true
+mount -t tmpfs tmpfs /dev/shm 2>/dev/null || true
+
+[ -e /dev/sda ] || mknod -m 660 /dev/sda b 8 0 2>/dev/null || true
+[ -e /dev/vda ] || mknod -m 660 /dev/vda b 254 0 2>/dev/null || true
+
+ROOT_DEV=""
+for candidate in /dev/sda /dev/vda sda vda; do
+    if mount -t ext4 "$candidate" /sysroot 2>/dev/null; then
+        ROOT_DEV="$candidate"
+        break
+    fi
+done
+
+if [ -n "$ROOT_DEV" ]; then
+    ln -sfn /sysroot /mnt/rootfs 2>/dev/null || true
+
+    mount -t devtmpfs devtmpfs /sysroot/dev 2>/dev/null || mount -t devfs devfs /sysroot/dev 2>/dev/null || true
+    mount -t proc proc /sysroot/proc 2>/dev/null || true
+    mount -t sysfs sysfs /sysroot/sys 2>/dev/null || true
+    mount -t tmpfs tmpfs /sysroot/tmp 2>/dev/null || true
+    mount -t tmpfs tmpfs /sysroot/run 2>/dev/null || true
+    mkdir -p /sysroot/dev/pts /sysroot/dev/shm /sysroot/root/.config 2>/dev/null || true
+    mount -t devpts devpts /sysroot/dev/pts 2>/dev/null || true
+    mount -t tmpfs tmpfs /sysroot/dev/shm 2>/dev/null || true
+
+    [ -e /sysroot/dev/ptmx ] || ln -sf pts/ptmx /sysroot/dev/ptmx 2>/dev/null || true
+    [ -e /sysroot/dev/fd ] || ln -sf /proc/self/fd /sysroot/dev/fd 2>/dev/null || true
+    [ -e /sysroot/dev/stdin ] || ln -sf /proc/self/fd/0 /sysroot/dev/stdin 2>/dev/null || true
+    [ -e /sysroot/dev/stdout ] || ln -sf /proc/self/fd/1 /sysroot/dev/stdout 2>/dev/null || true
+    [ -e /sysroot/dev/stderr ] || ln -sf /proc/self/fd/2 /sysroot/dev/stderr 2>/dev/null || true
+    [ -e /sysroot/etc/mtab ] || ln -sf /proc/self/mounts /sysroot/etc/mtab 2>/dev/null || true
+
+    if [ ! -e /sysroot/etc/ld.so.cache ]; then
+        if [ -x /sysroot/sbin/ldconfig ] || [ -x /sysroot/usr/bin/ldconfig ]; then
+            chroot /sysroot ldconfig 2>/dev/null || true
+        fi
+    fi
+
+    # Unpack OSDK init_args ("sh", "-l")
+    if [ "$1" = "sh" ]; then
+        if [ "$2" = "-l" ]; then
+            shift 2
+        else
+            shift 1
+        fi
+    fi
+
+    if [ $# -gt 0 ] && [ "$1" != "sh" ]; then
+        exec chroot /sysroot "$@"
+    fi
+
+    if [ -d /sysroot/var/service ] && [ -x /sysroot/usr/bin/runsvdir ]; then
+        mkdir -p /sysroot/run/runit/runsvdir
+        chroot /sysroot /usr/bin/runsvdir -P /var/service &
+    fi
+
+    # Boot directly into PetraSpace GUI when requested
+    if [ "${PETRA_BOOT_GUI:-0}" = "1" ] || [ -e /sysroot/etc/petra/boot-gui ]; then
+        if [ -x /sysroot/usr/bin/space-compositor ]; then
+            exec chroot /sysroot /usr/bin/space-compositor
+        fi
+    fi
+
+    if [ -x /sysroot/usr/bin/bash ]; then
+        exec chroot /sysroot /usr/bin/bash -l
+    elif [ -x /sysroot/bin/bash ]; then
+        exec chroot /sysroot /bin/bash -l
+    else
+        exec chroot /sysroot /bin/sh -l
+    fi
+fi
+
+if [ $# -gt 0 ] && [ "$1" != "sh" ]; then
+    exec "$@"
+fi
+
+if [ -x /bin/bash ]; then
+    exec /bin/bash -l
+elif [ -x /usr/bin/bash ]; then
+    exec /usr/bin/bash -l
+else
+    exec /bin/sh -l
+fi
