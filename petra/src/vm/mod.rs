@@ -59,6 +59,7 @@ use ostd::{
 ///
 /// Called once during boot, before any task runs.
 pub fn init() {
+    backing::page_cache::init();
     inject_user_page_fault_handler(resolve_kernel_page_fault);
 }
 

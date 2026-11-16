@@ -240,6 +240,10 @@ impl Vmar {
 
     /// Releases every mapping and every page table entry.
     pub fn clear(&self) {
+        self.clear_inner(true);
+    }
+
+    fn clear_inner(&self, sync_tlb: bool) {
         let mut inner = self.inner.write();
         let vm_space = &self.vm_space;
 
@@ -258,7 +262,7 @@ impl Vmar {
             .cursor_mut(&guard, &full_range)
             .expect("the VM space covers the whole range");
         let num_unmapped = cursor.unmap(full_range.len());
-        if num_unmapped > 0 {
+        if num_unmapped > 0 && sync_tlb {
             cursor.flusher().sync_tlb_flush();
         }
 
@@ -270,7 +274,7 @@ impl Vmar {
 
 impl Drop for Vmar {
     fn drop(&mut self) {
-        self.clear();
+        self.clear_inner(false);
     }
 }
 

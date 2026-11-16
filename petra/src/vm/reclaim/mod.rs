@@ -99,6 +99,12 @@ pub fn reclaim_at_least(pages: usize) -> usize {
     freed
 }
 
+/// Wakes the background page reclaim daemon if it is sleeping.
+pub fn wake_reclaim_daemon() {
+    PAGE_RECLAIM_WAKEUP_FLAG.store(true, Ordering::Release);
+    PAGE_RECLAIM_WAIT_QUEUE.wake_one();
+}
+
 /// Spawns the background page reclaim daemon (`page_reclaim`).
 pub fn init_page_reclaim_daemon() {
     crate::proc::kthread::kproc_create(

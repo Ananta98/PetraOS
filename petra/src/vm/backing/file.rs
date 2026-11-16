@@ -9,10 +9,10 @@ use core::{
 };
 use ostd::{
     mm::{PAGE_SIZE, UFrame, io::util::HasVmReaderWriter},
-    sync::SpinLock,
+    sync::Mutex,
 };
 
-use super::{Backing, alloc_zeroed_frame};
+use super::{Backing, alloc_zeroed_frame, page_cache};
 use crate::{uapi::errno::Result, fs::File};
 
 /// A backing object for file-mapped virtual memory (`mmap(2)`).
@@ -25,7 +25,7 @@ pub struct FileBacking {
     size: usize,
     writable_shared: bool,
     /// Materialized frames keyed by their page-aligned offset in the file.
-    pages: SpinLock<BTreeMap<usize, UFrame>>,
+    pages: Mutex<BTreeMap<usize, UFrame>>,
 }
 
 impl FileBacking {
@@ -43,7 +43,7 @@ impl FileBacking {
             file,
             size,
             writable_shared,
-            pages: SpinLock::new(BTreeMap::new()),
+            pages: Mutex::new(BTreeMap::new()),
         })
     }
 
@@ -62,24 +62,42 @@ impl FileBacking {
             );
         }
 
-        let mut pages = self.pages.lock();
-        if let Some(frame) = pages.get(&offset) {
-            return Ok(frame.clone());
+        if !self.writable_shared {
+            if let Some(cached) = page_cache::get(self.file.inode.uid, offset) {
+                return Ok(cached);
+            }
+            let frame = alloc_zeroed_frame()?;
+            let mut buf = [0u8; PAGE_SIZE];
+            let n = self.file.ops.fault_in(offset as u64, &mut buf).unwrap_or(0);
+            if n > 0 {
+                let mut writer = frame.writer();
+                let mut reader = ostd::mm::VmReader::from(&buf[..n]);
+                writer.write(&mut reader);
+            }
+            return Ok(page_cache::insert_or_get(self.file.inode.uid, offset, frame));
         }
 
-        // Allocate a zeroed physical frame
-        let frame = alloc_zeroed_frame()?;
+        {
+            let pages = self.pages.lock();
+            if let Some(frame) = pages.get(&offset) {
+                return Ok(frame.clone());
+            }
+        }
 
-        // Read up to PAGE_SIZE bytes from the file at `offset`
+        // Read outside the mutex so other threads are not blocked during disk I/O.
+        let frame = alloc_zeroed_frame()?;
         let mut buf = [0u8; PAGE_SIZE];
         let n = self.file.ops.fault_in(offset as u64, &mut buf).unwrap_or(0);
-
         if n > 0 {
             let mut writer = frame.writer();
             let mut reader = ostd::mm::VmReader::from(&buf[..n]);
             writer.write(&mut reader);
         }
 
+        let mut pages = self.pages.lock();
+        if let Some(existing) = pages.get(&offset) {
+            return Ok(existing.clone());
+        }
         pages.insert(offset, frame.clone());
         Ok(frame)
     }
