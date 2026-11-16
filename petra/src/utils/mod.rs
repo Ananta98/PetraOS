@@ -2,6 +2,7 @@
  
 pub mod cpio;
 pub mod hashmap;
+pub mod perf;
 pub mod ring_buffer;
 pub mod userspace;
 

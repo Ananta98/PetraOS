@@ -299,14 +299,21 @@ pub fn sync_damage_to_scanout(
     let bpp_bytes = (fb.bpp() / 8).max(4) as usize;
     let copy_row_bytes = (end_x - start_x) as usize * bpp_bytes;
     let src_pitch = fb.pitch as usize;
-    let mut row_buf = vec![0u8; copy_row_bytes];
+    let mut stack_buf = [0u8; 8192];
+    let mut heap_buf;
+    let row_buf: &mut [u8] = if copy_row_bytes <= stack_buf.len() {
+        &mut stack_buf[..copy_row_bytes]
+    } else {
+        heap_buf = vec![0u8; copy_row_bytes];
+        &mut heap_buf[..]
+    };
 
     if let Some(ap) = aperture {
         for row in start_y..end_y {
             let byte_off = (row as usize) * src_pitch + (start_x as usize) * bpp_bytes;
-            fb.object.read_at(byte_off, &mut row_buf)?;
+            fb.object.read_at(byte_off, row_buf)?;
             let dst_off = dst_surf_offset.saturating_add(byte_off);
-            let _ = ap.write_bytes(dst_off, &row_buf);
+            let _ = ap.write_bytes(dst_off, row_buf);
         }
         return Ok(());
     }

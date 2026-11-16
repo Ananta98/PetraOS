@@ -43,6 +43,8 @@ use crate::uapi::errno::{Errno, Result};
 struct CommandStaging {
     request_dma: DmaCoherent,
     response_dma: DmaCoherent,
+    request2_dma: DmaCoherent,
+    response2_dma: DmaCoherent,
     cursor_dma: DmaCoherent,
 }
 
@@ -51,6 +53,8 @@ impl CommandStaging {
         Ok(Self {
             request_dma: DmaCoherent::alloc(1, true).map_err(|_| Errno::ENOMEM)?,
             response_dma: DmaCoherent::alloc(1, true).map_err(|_| Errno::ENOMEM)?,
+            request2_dma: DmaCoherent::alloc(1, true).map_err(|_| Errno::ENOMEM)?,
+            response2_dma: DmaCoherent::alloc(1, true).map_err(|_| Errno::ENOMEM)?,
             cursor_dma: DmaCoherent::alloc(1, true).map_err(|_| Errno::ENOMEM)?,
         })
     }
@@ -150,6 +154,62 @@ impl VirtioGpu {
     fn submit_control_nodata<T: IntoBytes + Immutable>(&self, request: &T) -> Result<()> {
         let hdr: CtrlHdr = self.submit_control(request)?;
         check_response_code(hdr.kind, RESP_OK_NODATA)
+    }
+
+    /// Submits two `RESP_OK_NODATA` control commands in a single VirtIO doorbell kick.
+    fn submit_control_pair_nodata<T1, T2>(&self, req1: &T1, req2: &T2) -> Result<()>
+    where
+        T1: IntoBytes + Immutable,
+        T2: IntoBytes + Immutable,
+    {
+        let r1 = req1.as_bytes();
+        let r2 = req2.as_bytes();
+        let resp_len = size_of::<CtrlHdr>();
+        if r1.len() > ostd::mm::PAGE_SIZE || r2.len() > ostd::mm::PAGE_SIZE {
+            crate::return_errno!(EINVAL, "virtio-gpu command exceeds DMA page size");
+        }
+
+        let staging = self.staging.lock();
+        staging
+            .request_dma
+            .writer()
+            .write(&mut VmReader::from(r1));
+        staging
+            .request2_dma
+            .writer()
+            .write(&mut VmReader::from(r2));
+
+        let chain1 = [
+            SubmitBuffer {
+                addr: staging.request_dma.daddr() as u64,
+                len: r1.len() as u32,
+                writable: false,
+            },
+            SubmitBuffer {
+                addr: staging.response_dma.daddr() as u64,
+                len: resp_len as u32,
+                writable: true,
+            },
+        ];
+        let chain2 = [
+            SubmitBuffer {
+                addr: staging.request2_dma.daddr() as u64,
+                len: r2.len() as u32,
+                writable: false,
+            },
+            SubmitBuffer {
+                addr: staging.response2_dma.daddr() as u64,
+                len: resp_len as u32,
+                writable: true,
+            },
+        ];
+
+        self.control_queue.submit_batch_wait(&[&chain1, &chain2])?;
+
+        let h1: CtrlHdr = staging.response_dma.read_val(0).map_err(|_| Errno::EIO)?;
+        check_response_code(h1.kind, RESP_OK_NODATA)?;
+        let h2: CtrlHdr = staging.response2_dma.read_val(0).map_err(|_| Errno::EIO)?;
+        check_response_code(h2.kind, RESP_OK_NODATA)
     }
 
     /// Submits a cursor command on the cursor queue (or falls back to the control
@@ -284,11 +344,12 @@ impl VirtioGpu {
     }
 
     /// Transfers `rect` of `geometry` from guest DMA memory to the host resource
-    /// and flushes the region to any bound scanouts.
+    /// and flushes the region to any bound scanouts in a single batched VirtIO kick.
     fn transfer_and_flush(&self, geometry: &ResourceGeometry, rect: Rect) -> Result<()> {
         let offset = self.pipeline.lock().transfer_offset_for(geometry, rect);
-        self.submit_control_nodata(&build_transfer_2d(geometry.resource_id, rect, offset))?;
-        self.submit_control_nodata(&build_flush(geometry.resource_id, rect))
+        let xfer = build_transfer_2d(geometry.resource_id, rect, offset);
+        let flush = build_flush(geometry.resource_id, rect);
+        self.submit_control_pair_nodata(&xfer, &flush)
     }
 
     /// Probes enabled scanouts and their EDID blobs to build the KMS state.
@@ -317,6 +378,65 @@ impl VirtioGpu {
 
         let state = KmsState::new(Arc::clone(self), pipelines);
         Ok(Box::leak(Box::new(state)))
+    }
+
+    /// Runs a quick DMA + GEM zero-copy benchmark on boot and logs metrics over serial.
+    fn run_perf_benchmark(&self) {
+        let Ok(obj) = GemObject::alloc(1280 * 800 * 4) else {
+            return;
+        };
+        let c_flush = crate::utils::perf::read_cycles();
+        let t_flush = crate::utils::perf::now_ns();
+        obj.flush_pages(0..obj.size());
+        let (flush_cycles, flush_us) = crate::utils::perf::elapsed(c_flush, t_flush);
+        ostd::info!(
+            "PERF_DRM_GEM: alloc_bytes={}, total_gem_bytes={}, flush_cycles={}, flush_us={}",
+            obj.size(),
+            crate::utils::perf::gem_bytes(),
+            flush_cycles,
+            flush_us
+        );
+
+        let fb = Framebuffer {
+            id: 0xFFFF_FFFE,
+            object: Arc::clone(&obj),
+            width: 1280,
+            height: 800,
+            pitch: 1280 * 4,
+            format: drm::DRM_FORMAT_XRGB8888,
+        };
+        if let Ok(geometry) = self.ensure_fb_resource(&fb) {
+            let c0 = crate::utils::perf::read_cycles();
+            let t0 = crate::utils::perf::now_ns();
+            let _ = self.transfer_and_flush(&geometry, geometry.full_rect());
+            let (cycles, us) = crate::utils::perf::elapsed(c0, t0);
+            ostd::info!(
+                "PERF_VIRTIO_GPU_DMA_FULL[1280x800]: cycles={}, frame_time_us={}, eff_fps={}",
+                cycles,
+                us,
+                crate::utils::perf::fps_from_us(us)
+            );
+
+            let c1 = crate::utils::perf::read_cycles();
+            let t1 = crate::utils::perf::now_ns();
+            let _ = self.transfer_and_flush(
+                &geometry,
+                Rect {
+                    x: 100,
+                    y: 100,
+                    width: 64,
+                    height: 64,
+                },
+            );
+            let (r_cycles, r_us) = crate::utils::perf::elapsed(c1, t1);
+            ostd::info!(
+                "PERF_VIRTIO_GPU_DMA_RECT[64x64]: cycles={}, frame_time_us={}, eff_fps={}",
+                r_cycles,
+                r_us,
+                crate::utils::perf::fps_from_us(r_us)
+            );
+            self.release_fb(&fb);
+        }
     }
 }
 
@@ -524,6 +644,7 @@ impl VirtioDevice for VirtioGpuDevice {
             e
         })?;
         gpu.kms.call_once(|| kms);
+        gpu.run_perf_benchmark();
         let _card = register_drm_device(gpu);
         Ok(())
     }

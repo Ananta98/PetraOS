@@ -2,47 +2,41 @@
 
 //! GEM buffer objects ([`GemObject`]).
 
-use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
 use core::ops::Range;
 use core::sync::atomic::{AtomicU32, Ordering};
-use ostd::{
-    mm::{
-        HasDaddr, HasPaddr, PAGE_SIZE, UFrame, VmReader, VmWriter, dma::DmaCoherent,
-        io::util::HasVmReaderWriter,
-    },
-    sync::SpinLock,
+use ostd::mm::{
+    FrameAllocOptions, HasDaddr, HasPaddr, PAGE_SIZE, UFrame, USegment, VmReader, VmWriter,
+    dma::{DmaStream, FromAndToDevice},
+    io::util::HasVmReaderWriter,
 };
 
 use crate::uapi::errno::{Errno, Result};
-use crate::vm::backing::alloc_zeroed_frame;
 
 /// Next object instance counter; objects get distinguishing allocation ids.
 static NEXT_ID: AtomicU32 = AtomicU32::new(1);
 
 /// A GEM buffer object.
 ///
-/// A GEM object owns a fixed-size, physically-contiguous, cache-coherent DMA
-/// region. It is the kernel-side unit of video memory that user space
-/// allocates, maps, attaches to scanout hardware and hands to the GPU drivers
-/// of [`crate::drivers::drm`].
-///
-/// One physical allocation exists per object; the same object may be
-/// referenced by many per-file handles and mappings through additional
-/// `Arc<GemObject>` clones.
+/// A GEM object owns a single, physically-contiguous, zero-copy DMA region
+/// (`USegment` mapped via `DmaStream`). User-space `mmap(2)` mappings map the
+/// exact same physical frames directly, eliminating duplicate page storage and
+/// CPU writeback copies on `DIRTYFB`.
 pub struct GemObject {
     /// Page-aligned size of the object in bytes.
     size: usize,
-    /// The DMA-coherent backing store, zeroed at allocation time.
-    dma: DmaCoherent,
-    /// Resident user-mapping frames keyed by page offset in the object.
-    ///
-    /// The cache is shared by every mapping of the object, so two `mmap(2)`s
-    /// of one object see the same frames; `flush_pages` copies it back into
-    /// the DMA region, which is what scanout hardware consumes.
-    pages: SpinLock<BTreeMap<usize, UFrame>>,
+    /// Physical frame segment shared directly with user-space mappings.
+    segment: USegment,
+    /// Streaming DMA mapping over `segment` for scanout/GPU hardware.
+    dma: DmaStream<FromAndToDevice>,
     /// Monotonic allocation-order identity of the object.
     pub id: u32,
+}
+
+impl Drop for GemObject {
+    fn drop(&mut self) {
+        crate::utils::perf::sub_gem_bytes(self.size);
+    }
 }
 
 impl GemObject {
@@ -54,11 +48,17 @@ impl GemObject {
         }
         let aligned = size.div_ceil(PAGE_SIZE) * PAGE_SIZE;
         let sz = aligned / PAGE_SIZE;
-        let dma = DmaCoherent::alloc(sz, true).map_err(|_| Errno::ENOMEM)?;
+        let raw_seg = FrameAllocOptions::new()
+            .zeroed(true)
+            .alloc_segment(sz)
+            .map_err(|_| Errno::ENOMEM)?;
+        let segment = USegment::from(raw_seg);
+        let dma = DmaStream::map(segment.clone(), true).map_err(|_| Errno::ENOMEM)?;
+        crate::utils::perf::add_gem_bytes(aligned);
         Ok(Arc::new(Self {
             size: aligned,
+            segment,
             dma,
-            pages: SpinLock::new(BTreeMap::new()),
             id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
         }))
     }
@@ -69,8 +69,7 @@ impl GemObject {
     }
 
     /// Returns the physical address of the object's first byte for
-    /// scanout/DMA programming. CPU access goes through the DMA reader/writer
-    /// or through a user-space mapping instead.
+    /// scanout/DMA programming.
     pub fn paddr(&self) -> usize {
         self.dma.paddr()
     }
@@ -82,7 +81,7 @@ impl GemObject {
 
     /// The object's DMA storage, for drivers that program device MMIO
     /// directly from it.
-    pub(crate) fn dma(&self) -> &DmaCoherent {
+    pub(crate) fn dma(&self) -> &DmaStream<FromAndToDevice> {
         &self.dma
     }
 
@@ -91,7 +90,7 @@ impl GemObject {
         if offset.checked_add(buf.len()).ok_or(Errno::EINVAL)? > self.size {
             crate::return_errno!(EINVAL, "writing past the end of the buffer");
         }
-        let mut writer = self.dma.writer();
+        let mut writer = self.dma.writer().map_err(|_| Errno::EIO)?;
         writer.skip(offset);
         writer.write(&mut VmReader::from(buf));
         Ok(())
@@ -102,47 +101,35 @@ impl GemObject {
         if offset.checked_add(buf.len()).ok_or(Errno::EINVAL)? > self.size {
             crate::return_errno!(EINVAL, "reading past the end of the buffer");
         }
-        let mut reader = self.dma.reader();
+        let mut reader = self.dma.reader().map_err(|_| Errno::EIO)?;
         reader.skip(offset);
         reader.read(&mut VmWriter::from(buf));
         Ok(())
     }
 
-    /// Resident mapping page for a page offset in the object, newly copied
-    /// from the DMA region (which is authoritative after boot) if missing.
+    /// Returns the zero-copy `UFrame` at `page` directly from the underlying DMA segment.
     pub(crate) fn cached_frame(&self, page: usize) -> Result<UFrame> {
         if page % PAGE_SIZE != 0 || page >= self.size {
             crate::return_errno!(EINVAL, "page offset out of the object");
         }
-
-        let mut pages = self.pages.lock();
-        if let Some(frame) = pages.get(&page) {
-            return Ok(frame.clone());
-        }
-
-        let frame = alloc_zeroed_frame()?;
-        let mut reader = self.dma.reader();
-        reader.skip(page);
-        reader.read(&mut frame.clone().writer());
-        pages.insert(page, frame.clone());
-        Ok(frame)
+        self.segment
+            .slice(&(page..page + PAGE_SIZE))
+            .next()
+            .ok_or(Errno::EINVAL)
     }
 
-    /// Copies every resident mapping page within `range` back into the DMA
-    /// region, the writeback half of user-space drawing.
+    /// Synchronizes `range` to the device for DMA (no CPU memcpy needed).
     pub(crate) fn flush_pages(&self, range: Range<usize>) {
-        let pages = self.pages.lock();
-        for (&page, frame) in pages.range(range) {
-            let mut writer = self.dma.writer();
-            writer.skip(page);
-            writer.write(&mut frame.clone().reader());
+        let start = range.start.min(self.size);
+        let end = range.end.min(self.size);
+        if start < end {
+            let _ = self.dma.sync_to_device(start..end);
         }
     }
 
-    /// Drops resident mapping pages, forcing them to be re-copied from the
-    /// DMA region on the next fault. Called on invalidating flushes.
+    /// Synchronizes the entire object from the device.
     pub(crate) fn invalidate_pages(&self) {
-        self.pages.lock().clear();
+        let _ = self.dma.sync_from_device(0..self.size);
     }
 }
 

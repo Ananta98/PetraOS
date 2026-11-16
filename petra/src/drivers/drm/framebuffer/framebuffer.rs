@@ -6,7 +6,7 @@
 //! Provides memory-mapped linear framebuffer access, offset calculations,
 //! hardware colormap emulation, and low-level blitting.
 
-use alloc::{vec, vec::Vec};
+use alloc::vec::Vec;
 use ostd::{
     boot::boot_info,
     io::IoMem,
@@ -210,10 +210,16 @@ impl FrameBuffer {
         self.io_mem.read_bytes(offset, buf).map_err(|_| Errno::EIO)
     }
 
-    /// Clears the framebuffer with black color.
+    /// Clears the framebuffer with black color without allocating a full-screen heap buffer.
     pub fn clear(&self) {
-        let frame = vec![0u8; self.io_mem.size()];
-        let _ = self.write_bytes_at(0, &frame);
+        const ZERO_CHUNK: [u8; 4096] = [0u8; 4096];
+        let total = self.io_mem.size().min(self.total_size);
+        let mut offset = 0;
+        while offset < total {
+            let chunk = (total - offset).min(ZERO_CHUNK.len());
+            let _ = self.write_bytes_at(offset, &ZERO_CHUNK[..chunk]);
+            offset += chunk;
+        }
     }
 
     /// Sets color map entries starting from the given index.

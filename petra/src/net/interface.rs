@@ -196,8 +196,8 @@ impl NetworkManager {
 
     /// Creates and adds a TCP socket, returning its handle.
     pub fn add_tcp_socket(&mut self) -> SocketHandle {
-        let rx_buffer = TcpSocketBuffer::new(alloc::vec![0u8; 1048576]);
-        let tx_buffer = TcpSocketBuffer::new(alloc::vec![0u8; 262144]);
+        let rx_buffer = TcpSocketBuffer::new(alloc::vec![0u8; 131072]);
+        let tx_buffer = TcpSocketBuffer::new(alloc::vec![0u8; 65536]);
         let tcp_socket = TcpSocket::new(rx_buffer, tx_buffer);
         self.get_sockets().add(tcp_socket)
     }
@@ -205,11 +205,11 @@ impl NetworkManager {
     /// Creates and adds a UDP socket, returning its handle.
     pub fn add_udp_socket(&mut self) -> SocketHandle {
         let rx_meta = alloc::vec![UdpPacketMetadata::EMPTY; 32];
-        let rx_payload = alloc::vec![0u8; 65536];
+        let rx_payload = alloc::vec![0u8; 16384];
         let rx_buffer = UdpPacketBuffer::new(rx_meta, rx_payload);
 
         let tx_meta = alloc::vec![UdpPacketMetadata::EMPTY; 32];
-        let tx_payload = alloc::vec![0u8; 65536];
+        let tx_payload = alloc::vec![0u8; 16384];
         let tx_buffer = UdpPacketBuffer::new(tx_meta, tx_payload);
 
         let udp_socket = UdpSocket::new(rx_buffer, tx_buffer);

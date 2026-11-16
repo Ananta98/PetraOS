@@ -9,7 +9,11 @@
 
 use alloc::sync::{Arc, Weak};
 use core::fmt::{self, Debug, Formatter};
+use core::sync::atomic::{AtomicBool, Ordering};
+use ostd::irq::InterruptLevel;
 use ostd::mm::{HasDaddr, VmIo, dma::DmaCoherent};
+use ostd::sync::WaitQueue;
+use ostd::task::Task;
 use spin::Mutex;
 
 use crate::drivers::bus::virtio::transport::VirtioTransport;
@@ -76,6 +80,8 @@ pub struct VirtQueue {
     /// The transport owning this queue (weak: it owns this queue).
     transport: Weak<VirtioTransport>,
     inner: Mutex<QueueInner>,
+    wait_queue: WaitQueue,
+    irq_enabled: AtomicBool,
 }
 
 impl VirtQueue {
@@ -116,6 +122,8 @@ impl VirtQueue {
                 last_avail: 0,
                 last_used: 0,
             }),
+            wait_queue: WaitQueue::new(),
+            irq_enabled: AtomicBool::new(false),
         }))
     }
 
@@ -256,26 +264,148 @@ impl VirtQueue {
         Ok(len)
     }
 
-    /// Polls the used ring for the chain started at `head` to be reaped.
-    fn wait_for_consumed(&self, head: u16, local_used: u16, chain_len: u16) -> Result<u32> {
+    /// Submits multiple descriptor chains in a single doorbell kick and waits
+    /// for all of them to be consumed by the device.
+    pub fn submit_batch_wait(&self, chains: &[&[SubmitBuffer]]) -> Result<()> {
+        if chains.is_empty() {
+            return Ok(());
+        }
+        let total_descs: usize = chains.iter().map(|c| c.len()).sum();
+        if total_descs == 0 || total_descs > self.size as usize {
+            crate::return_errno!(EINVAL, "batched submission does not fit the queue");
+        }
+        for chain in chains {
+            if chain.is_empty() {
+                crate::return_errno!(EINVAL, "empty chain in batched submission");
+            }
+        }
+
+        let chain_count = chains.len() as u16;
+        let total_u16 = total_descs as u16;
+        let local_used = {
+            let mut inner = self.inner.lock();
+            if inner.free_count < total_u16 {
+                crate::return_errno!(ENOMEM, "virtqueue descriptors exhausted");
+            }
+            let mut cursor = inner.free_head;
+            inner.free_head = (cursor + total_u16) % self.size;
+            inner.free_count -= total_u16;
+
+            for chain in chains {
+                let chain_head = cursor;
+                for (i, buffer) in chain.iter().enumerate() {
+                    let slot = (cursor + i as u16) % self.size;
+                    let next = if i + 1 < chain.len() {
+                        (cursor + i as u16 + 1) % self.size
+                    } else {
+                        0
+                    };
+                    let flags = if i + 1 < chain.len() {
+                        DESC_FLAG_NEXT
+                    } else {
+                        0
+                    } | if buffer.writable { DESC_FLAG_WRITE } else { 0 };
+                    let desc = Desc {
+                        addr: buffer.addr,
+                        len: buffer.len,
+                        flags,
+                        next,
+                    };
+                    self.desc_dma
+                        .write_val(slot as usize * Self::DESC_SIZE, &desc)
+                        .map_err(|_| Errno::EIO)?;
+                }
+                cursor = (cursor + chain.len() as u16) % self.size;
+
+                let avail_slot = (inner.last_avail % self.size) as usize;
+                self.avail_dma
+                    .write_val(4 + avail_slot * 2, &chain_head)
+                    .map_err(|_| Errno::EIO)?;
+                inner.last_avail = inner.last_avail.wrapping_add(1);
+            }
+
+            self.avail_dma
+                .write_val(2, &inner.last_avail)
+                .map_err(|_| Errno::EIO)?;
+            inner.last_used
+        };
+
+        // Single doorbell kick for the entire batch.
+        self.ring_bell()?;
+
+        let target_used = local_used.wrapping_add(chain_count);
+        if self.wait_until_used(|used_idx| used_idx == target_used)? {
+            let mut inner = self.inner.lock();
+            inner.last_used = target_used;
+            inner.free_count += total_u16;
+            return Ok(());
+        }
+        ostd::error!(
+            "virtio queue {}: submit_batch_wait timeout: target_used={}, local_used={}",
+            self.index,
+            target_used,
+            local_used
+        );
+        crate::return_errno!(ETIMEDOUT, "virtqueue batch never completed")
+    }
+
+    /// Marks this queue as IRQ-driven via MSI-X.
+    pub fn enable_irq(&self) {
+        self.irq_enabled.store(true, Ordering::Release);
+    }
+
+    /// Top-half IRQ handler for this virtqueue: wakes any waiting submitters.
+    pub fn handle_irq(&self) {
+        self.wait_queue.wake_all();
+    }
+
+    /// Waits until `predicate(used_idx)` returns `true`, sleeping on `WaitQueue` when
+    /// MSI-X IRQs are enabled in task context and falling back to bounded polling otherwise.
+    fn wait_until_used<F>(&self, predicate: F) -> Result<bool>
+    where
+        F: Fn(u16) -> bool,
+    {
+        if self.irq_enabled.load(Ordering::Acquire)
+            && InterruptLevel::current().is_task_context()
+            && Task::current().is_some()
+        {
+            self.wait_queue.wait_until(|| {
+                let used_idx: u16 = self.used_dma.read_val(2).ok()?;
+                if predicate(used_idx) {
+                    Some(true)
+                } else {
+                    None
+                }
+            });
+            return Ok(true);
+        }
+
         for _ in 0..SUBMIT_SPINS {
             core::hint::spin_loop();
             let used_idx: u16 = self.used_dma.read_val(2).map_err(|_| Errno::EIO)?;
-            if used_idx != local_used {
-                // A synchronous submit means only this chain was outstanding,
-                // so the first used element must be the awaited one.
-                let slot = (local_used % self.size) as usize;
-                let (id, len) = self.read_used_elem(slot)?;
-                if id != head {
-                    crate::return_errno!(EIO, "virtqueue completed out of order");
-                }
-                {
-                    let mut inner = self.inner.lock();
-                    inner.last_used = local_used.wrapping_add(1);
-                    inner.free_count += chain_len;
-                }
-                return Ok(len);
+            if predicate(used_idx) {
+                return Ok(true);
             }
+        }
+        Ok(false)
+    }
+
+    /// Waits for the chain started at `head` to be reaped.
+    fn wait_for_consumed(&self, head: u16, local_used: u16, chain_len: u16) -> Result<u32> {
+        if self.wait_until_used(|used_idx| used_idx != local_used)? {
+            // A synchronous submit means only this chain was outstanding,
+            // so the first used element must be the awaited one.
+            let slot = (local_used % self.size) as usize;
+            let (id, len) = self.read_used_elem(slot)?;
+            if id != head {
+                crate::return_errno!(EIO, "virtqueue completed out of order");
+            }
+            {
+                let mut inner = self.inner.lock();
+                inner.last_used = local_used.wrapping_add(1);
+                inner.free_count += chain_len;
+            }
+            return Ok(len);
         }
         let used_idx: u16 = self.used_dma.read_val(2).unwrap_or(9999);
         ostd::error!(

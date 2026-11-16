@@ -5,7 +5,8 @@
 //! Provides a standards-compliant VT100 / XTerm terminal emulator
 //! rendering directly to the physical linear framebuffer.
 
-use alloc::{boxed::Box, sync::Arc, vec, vec::Vec};
+use alloc::{boxed::Box, sync::Arc, vec::Vec};
+use core::sync::atomic::{AtomicU16, AtomicU32, AtomicU64, Ordering};
 use os_terminal::{DrawTarget, Rgb, Terminal};
 use spin::Mutex;
 
@@ -16,13 +17,72 @@ use crate::{
     uapi::termios::winsize,
 };
 
-/// RAM-backed double buffer avoiding per-pixel MMIO VM-exits to QEMU/hardware.
+/// Lock-free RAM-backed double buffer avoiding per-pixel MMIO VM-exits and
+/// per-pixel mutex contention, while tracking per-row dirty X-spans.
 pub struct ShadowFb {
-    data: Vec<u8>,
-    dirty_rows: Vec<u64>,
+    /// 32-bit pixel words in internal RAM (`width * height` for 32bpp, empty otherwise).
+    pixels32: Vec<AtomicU32>,
+    /// Fallback byte buffer for non-32bpp formats.
+    bytes_fallback: Mutex<Vec<u8>>,
+    dirty_rows: Vec<AtomicU64>,
+    dirty_min_x: Vec<AtomicU16>,
+    dirty_max_x: Vec<AtomicU16>,
 }
 
-static SHADOW_FB: Mutex<Option<Arc<Mutex<ShadowFb>>>> = Mutex::new(None);
+static SHADOW_FB: Mutex<Option<Arc<ShadowFb>>> = Mutex::new(None);
+
+impl ShadowFb {
+    fn new(width: usize, height: usize, total_size: usize, is_32bpp: bool) -> Self {
+        let dirty_len = height.div_ceil(64);
+        let pixels32 = if is_32bpp {
+            let mut v = Vec::with_capacity(width * height);
+            v.resize_with(width * height, || AtomicU32::new(0));
+            v
+        } else {
+            Vec::new()
+        };
+        let bytes_fallback = if is_32bpp {
+            Mutex::new(Vec::new())
+        } else {
+            Mutex::new(alloc::vec![0u8; total_size])
+        };
+        let mut dirty_rows = Vec::with_capacity(dirty_len);
+        dirty_rows.resize_with(dirty_len, || AtomicU64::new(0));
+        let mut dirty_min_x = Vec::with_capacity(height);
+        dirty_min_x.resize_with(height, || AtomicU16::new(u16::MAX));
+        let mut dirty_max_x = Vec::with_capacity(height);
+        dirty_max_x.resize_with(height, || AtomicU16::new(0));
+        Self {
+            pixels32,
+            bytes_fallback,
+            dirty_rows,
+            dirty_min_x,
+            dirty_max_x,
+        }
+    }
+
+    #[inline(always)]
+    fn mark_dirty(&self, x: usize, y: usize) {
+        let chunk = y / 64;
+        if let Some(mask) = self.dirty_rows.get(chunk) {
+            mask.fetch_or(1u64 << (y % 64), Ordering::Relaxed);
+        }
+        let x16 = x.min(u16::MAX as usize - 1) as u16;
+        if let Some(min_x) = self.dirty_min_x.get(y) {
+            let cur = min_x.load(Ordering::Relaxed);
+            if x16 < cur {
+                min_x.store(x16, Ordering::Relaxed);
+            }
+        }
+        let x_end = x16.saturating_add(1);
+        if let Some(max_x) = self.dirty_max_x.get(y) {
+            let cur = max_x.load(Ordering::Relaxed);
+            if x_end > cur {
+                max_x.store(x_end, Ordering::Relaxed);
+            }
+        }
+    }
+}
 
 /// Hardware display target integrating `FrameBuffer` with `os-terminal`'s `DrawTarget`.
 pub struct FramebufferDisplay {
@@ -31,11 +91,11 @@ pub struct FramebufferDisplay {
     line_size: usize,
     pixel_format: PixelFormat,
     bpp: usize,
-    shadow: Arc<Mutex<ShadowFb>>,
+    shadow: Arc<ShadowFb>,
 }
 
 impl FramebufferDisplay {
-    pub fn new(fb: Arc<FrameBuffer>, shadow: Arc<Mutex<ShadowFb>>) -> Self {
+    pub fn new(fb: Arc<FrameBuffer>, shadow: Arc<ShadowFb>) -> Self {
         let width = fb.width;
         let height = fb.height;
         let line_size = fb.line_size;
@@ -52,17 +112,25 @@ impl FramebufferDisplay {
     }
 
     #[inline(always)]
-    fn write_pixel_bytes<const N: usize>(&self, offset: usize, bytes: [u8; N], y: usize) {
-        let mut shadow = self.shadow.lock();
-        if offset + N > shadow.data.len() {
+    fn write_pixel_u32(&self, x: usize, y: usize, pixel: u32) {
+        let idx = y * self.width + x;
+        if let Some(slot) = self.shadow.pixels32.get(idx) {
+            if slot.load(Ordering::Relaxed) != pixel {
+                slot.store(pixel, Ordering::Relaxed);
+                self.shadow.mark_dirty(x, y);
+            }
+        }
+    }
+
+    #[inline(always)]
+    fn write_pixel_bytes<const N: usize>(&self, offset: usize, bytes: [u8; N], x: usize, y: usize) {
+        let mut fallback = self.shadow.bytes_fallback.lock();
+        if offset + N > fallback.len() {
             return;
         }
-        if shadow.data[offset..offset + N] != bytes {
-            shadow.data[offset..offset + N].copy_from_slice(&bytes);
-            let chunk = y / 64;
-            if let Some(mask) = shadow.dirty_rows.get_mut(chunk) {
-                *mask |= 1 << (y % 64);
-            }
+        if fallback[offset..offset + N] != bytes {
+            fallback[offset..offset + N].copy_from_slice(&bytes);
+            self.shadow.mark_dirty(x, y);
         }
     }
 }
@@ -77,25 +145,27 @@ impl DrawTarget for FramebufferDisplay {
         if x >= self.width || y >= self.height {
             return;
         }
-        let offset = x * self.bpp + y * self.line_size;
         match self.pixel_format {
             PixelFormat::BgrReserved => {
                 let pixel = (rgb.2 as u32) | ((rgb.1 as u32) << 8) | ((rgb.0 as u32) << 16);
-                self.write_pixel_bytes(offset, pixel.to_ne_bytes(), y);
+                self.write_pixel_u32(x, y, pixel);
             }
             PixelFormat::Rgb888 => {
-                self.write_pixel_bytes(offset, [rgb.0, rgb.1, rgb.2], y);
+                let offset = x * self.bpp + y * self.line_size;
+                self.write_pixel_bytes(offset, [rgb.0, rgb.1, rgb.2], x, y);
             }
             PixelFormat::Rgb565 => {
+                let offset = x * self.bpp + y * self.line_size;
                 let r = (rgb.0 >> 3) as u16;
                 let g = (rgb.1 >> 2) as u16;
                 let b = (rgb.2 >> 3) as u16;
-                self.write_pixel_bytes(offset, ((r << 11) | (g << 5) | b).to_ne_bytes(), y);
+                self.write_pixel_bytes(offset, ((r << 11) | (g << 5) | b).to_ne_bytes(), x, y);
             }
             PixelFormat::Grayscale8 => {
+                let offset = x * self.bpp + y * self.line_size;
                 let gray =
                     ((77 * rgb.0 as u16 + 150 * rgb.1 as u16 + 29 * rgb.2 as u16) >> 8) as u8;
-                self.write_pixel_bytes(offset, [gray], y);
+                self.write_pixel_bytes(offset, [gray], x, y);
             }
         }
     }
@@ -107,19 +177,21 @@ static TERMINAL: Mutex<Option<Terminal<FramebufferDisplay>>> = Mutex::new(None);
 fn ensure_terminal(term_guard: &mut Option<Terminal<FramebufferDisplay>>) {
     if term_guard.is_none() {
         if let Some(fb) = get_framebuffer() {
+            let c0 = crate::utils::perf::read_cycles();
+            let t0 = crate::utils::perf::now_ns();
             let total_size = fb.total_size;
-            let mut initial_data = vec![0u8; total_size];
-            let _ = fb.read_bytes(0, &mut initial_data);
+            let width = fb.width;
+            let height = fb.height;
+            let is_32bpp = matches!(fb.pixel_format, PixelFormat::BgrReserved);
 
-            let dirty_len = fb.height.div_ceil(64);
-            let shadow = Arc::new(Mutex::new(ShadowFb {
-                data: initial_data,
-                dirty_rows: vec![0u64; dirty_len],
-            }));
+            // FrameBuffer::probe() already cleared VRAM; zero in internal RAM instead of slow MMIO read.
+            let shadow = Arc::new(ShadowFb::new(width, height, total_size, is_32bpp));
             *SHADOW_FB.lock() = Some(Arc::clone(&shadow));
+            crate::utils::perf::set_shadow_fb_bytes(total_size);
 
             let display = FramebufferDisplay::new(fb, shadow);
             let mut terminal = Terminal::new(display, Box::new(ConsoleFont::new()));
+            terminal.set_color_cache_size(512);
             terminal.set_pty_writer(Box::new(|resp: &str| {
                 for b in resp.bytes() {
                     crate::drivers::char::tty::queue_input(b);
@@ -129,61 +201,102 @@ fn ensure_terminal(term_guard: &mut Option<Terminal<FramebufferDisplay>>) {
             terminal.process(b"\x1b[2 q");
             *term_guard = Some(terminal);
             flush_shadow();
+            let (cycles, us) = crate::utils::perf::elapsed(c0, t0);
+            ostd::info!(
+                "PERF_CONSOLE_INIT: cycles={}, frame_time_us={}, shadow_bytes={}",
+                cycles,
+                us,
+                total_size
+            );
         }
     }
 }
 
-/// Flushes dirty raster rows from RAM shadow buffer directly to physical framebuffer.
+/// Flushes only dirty X-spans from the internal RAM shadow buffer to the
+/// physical framebuffer in a single top-to-bottom pass (tear-free, no full-screen redraw).
 pub fn flush_shadow() {
     let shadow_guard = SHADOW_FB.lock();
-    let Some(shadow_arc) = shadow_guard.as_ref() else {
+    let Some(shadow) = shadow_guard.as_ref() else {
         return;
     };
-    let mut shadow = shadow_arc.lock();
     let Some(fb) = get_framebuffer() else {
         return;
     };
 
     let height = fb.height;
+    let width = fb.width;
     let line_size = fb.line_size;
+    let bpp = fb.pixel_format.nbytes();
     let total_size = fb.total_size;
 
-    let mut y = 0;
-    while y < height {
-        let chunk_idx = y / 64;
-        let Some(&mask) = shadow.dirty_rows.get(chunk_idx) else {
-            break;
-        };
-        if mask == 0 {
-            y = (chunk_idx + 1) * 64;
-            continue;
-        }
-        let bit = y % 64;
-        if (mask & (1 << bit)) == 0 {
-            y += 1;
-            continue;
-        }
+    if !shadow.pixels32.is_empty() {
+        let mut row_buf = [0u8; 8192];
+        for (chunk_idx, dirty_word) in shadow.dirty_rows.iter().enumerate() {
+            let mut mask = dirty_word.swap(0, Ordering::Relaxed);
+            while mask != 0 {
+                let bit = mask.trailing_zeros() as usize;
+                mask &= mask - 1;
+                let y = chunk_idx * 64 + bit;
+                if y >= height {
+                    break;
+                }
+                let min_x = shadow.dirty_min_x[y].swap(u16::MAX, Ordering::Relaxed) as usize;
+                let max_x = (shadow.dirty_max_x[y].swap(0, Ordering::Relaxed) as usize).min(width);
+                if min_x >= max_x {
+                    continue;
+                }
 
-        let start_y = y;
-        while y < height {
-            let c = y / 64;
-            let Some(&m) = shadow.dirty_rows.get(c) else {
-                break;
-            };
-            if (m & (1 << (y % 64))) == 0 {
+                let span_pixels = max_x - min_x;
+                let span_bytes = span_pixels * 4;
+                let row_pixel_base = y * width + min_x;
+                let fb_offset = y * line_size + min_x * 4;
+                if fb_offset + span_bytes > total_size {
+                    continue;
+                }
+
+                if span_bytes <= row_buf.len() {
+                    for (i, dst) in row_buf[..span_bytes].chunks_exact_mut(4).enumerate() {
+                        let px = shadow.pixels32[row_pixel_base + i].load(Ordering::Relaxed);
+                        dst.copy_from_slice(&px.to_ne_bytes());
+                    }
+                    let _ = fb.write_bytes_at(fb_offset, &row_buf[..span_bytes]);
+                } else {
+                    let mut tmp = alloc::vec![0u8; span_bytes];
+                    for (i, dst) in tmp.chunks_exact_mut(4).enumerate() {
+                        let px = shadow.pixels32[row_pixel_base + i].load(Ordering::Relaxed);
+                        dst.copy_from_slice(&px.to_ne_bytes());
+                    }
+                    let _ = fb.write_bytes_at(fb_offset, &tmp);
+                }
+            }
+        }
+        return;
+    }
+
+    let fallback = shadow.bytes_fallback.lock();
+    for (chunk_idx, dirty_word) in shadow.dirty_rows.iter().enumerate() {
+        let mut mask = dirty_word.swap(0, Ordering::Relaxed);
+        while mask != 0 {
+            let bit = mask.trailing_zeros() as usize;
+            mask &= mask - 1;
+            let y = chunk_idx * 64 + bit;
+            if y >= height {
                 break;
             }
-            y += 1;
-        }
-        let end_y = y;
-
-        let start = start_y * line_size;
-        let end = (end_y * line_size).min(shadow.data.len()).min(total_size);
-        if start < end {
-            let _ = fb.write_bytes_at(start, &shadow.data[start..end]);
+            let min_x = shadow.dirty_min_x[y].swap(u16::MAX, Ordering::Relaxed) as usize;
+            let max_x = (shadow.dirty_max_x[y].swap(0, Ordering::Relaxed) as usize).min(width);
+            if min_x >= max_x {
+                continue;
+            }
+            let start = y * line_size + min_x * bpp;
+            let end = (y * line_size + max_x * bpp)
+                .min(fallback.len())
+                .min(total_size);
+            if start < end {
+                let _ = fb.write_bytes_at(start, &fallback[start..end]);
+            }
         }
     }
-    shadow.dirty_rows.fill(0);
 }
 
 /// Initializes the framebuffer terminal if framebuffer is available.
@@ -200,6 +313,41 @@ pub fn write_output(data: &[u8]) {
         terminal.process(data);
     }
     flush_shadow();
+}
+
+/// Runs a deterministic console rendering benchmark and logs metrics over serial.
+pub fn run_perf_benchmark() {
+    let c0 = crate::utils::perf::read_cycles();
+    let t0 = crate::utils::perf::now_ns();
+    write_output(b"\x1b[2J\x1b[H");
+    for i in 0..30u32 {
+        let line = alloc::format!(
+            "[PetraOS perf] line {:02}: 0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ\r\n",
+            i
+        );
+        write_output(line.as_bytes());
+    }
+    let (cycles, us) = crate::utils::perf::elapsed(c0, t0);
+    let fps = crate::utils::perf::fps_from_us(us);
+    ostd::info!(
+        "PERF_CONSOLE_BENCH[30lines+clear]: cycles={}, frame_time_us={} ({} ms), eff_fps={}",
+        cycles,
+        us,
+        us / 1000,
+        fps
+    );
+
+    // Measure a single-character update (incremental redraw)
+    let c1 = crate::utils::perf::read_cycles();
+    let t1 = crate::utils::perf::now_ns();
+    write_output(b"A");
+    let (char_cycles, char_us) = crate::utils::perf::elapsed(c1, t1);
+    ostd::info!(
+        "PERF_CONSOLE_CHAR: cycles={}, frame_time_us={}, eff_fps={}",
+        char_cycles,
+        char_us,
+        crate::utils::perf::fps_from_us(char_us)
+    );
 }
 
 /// Returns the current terminal window dimensions.
