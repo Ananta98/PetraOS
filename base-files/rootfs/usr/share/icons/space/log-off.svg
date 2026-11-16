@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="48" height="48" viewBox="0 0 48 48" version="1.1" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="amberBg" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffd859"/>
+      <stop offset="50%" stop-color="#f59e0b"/>
+      <stop offset="100%" stop-color="#b45309"/>
+    </linearGradient>
+    <linearGradient id="gloss" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.65"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0.0"/>
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="40" height="40" rx="8" ry="8" fill="url(#amberBg)" stroke="#ffffff" stroke-width="2.5"/>
+  <rect x="6.5" y="6.5" width="35" height="17" rx="6" ry="6" fill="url(#gloss)"/>
+  <!-- Key glyph -->
+  <circle cx="19" cy="24" r="6.5" fill="none" stroke="#ffffff" stroke-width="3.6"/>
+  <path d="M 25,24 L 36,24 L 36,29 M 31,24 L 31,28" fill="none" stroke="#ffffff" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

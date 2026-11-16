@@ -87,7 +87,8 @@ impl FontEngine {
                 outlined.draw(|gx, gy, cov| {
                     let idx = (gy as i32 * w + gx as i32) as usize;
                     if idx < alpha.len() {
-                        alpha[idx] = (cov.clamp(0.0, 1.0) * 255.0) as u8;
+                        let boosted = cov.clamp(0.0, 1.0).powf(0.8);
+                        alpha[idx] = (boosted * 255.0).round() as u8;
                     }
                 });
                 CachedGlyph {
@@ -185,8 +186,14 @@ fn draw_text_face<C: Canvas + ?Sized>(
         return;
     }
     let scale = scale.max(1);
-    let cw = canvas.width() as i32;
-    let ch = canvas.height() as i32;
+    let bounds = canvas.bounds();
+    let x_min = bounds.x.max(0);
+    let y_min = bounds.y.max(0);
+    let x_max = bounds.right().min(canvas.width() as i32);
+    let y_max = bounds.bottom().min(canvas.height() as i32);
+    if x_min >= x_max || y_min >= y_max {
+        return;
+    }
     let stride = canvas.stride_pixels() as i32;
     let fg_a = color.alpha() as u32;
     let fg_r = color.red() as u32;
@@ -212,14 +219,14 @@ fn draw_text_face<C: Canvas + ?Sized>(
             let pixels = canvas.pixels_mut();
             for row in 0..gh {
                 let dy = gy0 + row;
-                if dy < 0 || dy >= ch {
+                if dy < y_min || dy >= y_max {
                     continue;
                 }
                 let row_off = (dy * stride) as usize;
                 let g_off = (row * gw) as usize;
                 for col in 0..gw {
                     let dx = gx0 + col;
-                    if dx < 0 || dx >= cw {
+                    if dx < x_min || dx >= x_max {
                         continue;
                     }
                     let cov = g.alpha[g_off + col as usize] as u32;

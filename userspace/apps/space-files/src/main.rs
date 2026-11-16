@@ -1,4 +1,5 @@
 use space_core::font;
+use space_core::icons::{self, IconId};
 use space_core::{Canvas, Color, Rect};
 use space_ui::{
     draw_panel_3d, list_item_at, AppLogic, Button, EventListener, Lifecycle, Paintable,
@@ -131,23 +132,16 @@ impl FilesApp {
             if selected {
                 canvas.fill_rect(rr, t.bg_active);
             }
-            let tag = if ent.is_dir { "[D]" } else { "   " };
-            let tag_col = if selected {
-                Color::WHITE
-            } else if ent.is_dir {
-                t.accent
-            } else {
-                t.text_primary
-            };
+            let icon_id = if ent.is_dir { IconId::Files } else { IconId::Notepad };
+            icons::draw_icon(canvas, rr.x + 6, rr.y + 2, 18, icon_id);
             let name_col = if selected { Color::WHITE } else { t.text_primary };
             let size_col = if selected { Color::WHITE } else { t.text_secondary };
-            font::draw_text(canvas, rr.x + 6, rr.y + 4, tag, tag_col, 2);
-            let name_short: String = ent.name.chars().take(28).collect();
-            font::draw_text(canvas, rr.x + 48, rr.y + 4, &name_short, name_col, 2);
+            let name_short: String = ent.name.chars().take(32).collect();
+            font::draw_text(canvas, rr.x + 30, rr.y + 3, &name_short, name_col, 2);
             if !ent.is_dir {
                 let sz = format!("{} B", ent.size);
                 let sw = font::measure_text_width(&sz, 2);
-                font::draw_text(canvas, rr.right() - sw - 8, rr.y + 4, &sz, size_col, 2);
+                font::draw_text(canvas, rr.right() - sw - 8, rr.y + 3, &sz, size_col, 2);
             }
         }
     }

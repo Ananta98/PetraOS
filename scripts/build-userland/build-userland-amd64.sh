@@ -157,6 +157,7 @@ printf '%s\n' "${PETRAOS_VERSION}" > "${STAGING}/etc/petraos-release"
 # 3. Assemble Full Persistent Rootfs (ROOTFS_STAGING) for ext4.img
 # ----------------------------------------------------------------------------
 echo "==> Extracting full Void Linux userspace into ${ROOTFS_STAGING}"
+chmod -R u+w "${ROOTFS_STAGING}" 2>/dev/null || true
 rm -rf "${ROOTFS_STAGING}"
 mkdir -p "${ROOTFS_STAGING}"
 tar -xf "${CACHE_DIR}/${VOID_TAR_NAME}" -C "${ROOTFS_STAGING}"

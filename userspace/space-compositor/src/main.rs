@@ -31,5 +31,9 @@ fn main() {
         }
     };
 
+    if std::env::var("SPACE_NO_AUTOSTART").is_err() {
+        comp.spawn_app("space-control");
+    }
+
     comp.run();
 }

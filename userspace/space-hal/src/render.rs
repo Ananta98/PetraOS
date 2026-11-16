@@ -13,6 +13,9 @@ pub trait RenderBackend {
     fn stride_pixels(&self) -> u32;
     fn back_buffer_mut(&mut self) -> &mut [u32];
     fn present(&mut self, damage: &[Rect]) -> io::Result<()>;
+    fn set_mode(&mut self, _width: u32, _height: u32) -> io::Result<bool> {
+        Ok(false)
+    }
 }
 
 struct DumbBuffer {
@@ -30,6 +33,7 @@ pub struct DrmKmsBackend {
     crtc_id: u32,
     connector_id: u32,
     mode: DrmModeModeInfo,
+    available_modes: Vec<DrmModeModeInfo>,
     buffers: [DumbBuffer; 2],
     front_idx: usize,
     shadow: Vec<u32>,
@@ -78,6 +82,7 @@ impl DrmKmsBackend {
         let mut chosen_conn = 0u32;
         let mut chosen_enc = 0u32;
         let mut chosen_mode = DrmModeModeInfo::default();
+        let mut available_modes = Vec::new();
 
         for &conn_id in connectors.iter().take(res.count_connectors as usize) {
             let mut conn = DrmModeGetConnector {
@@ -102,15 +107,8 @@ impl DrmKmsBackend {
             if chosen_enc == 0 && !conn_encs.is_empty() {
                 chosen_enc = conn_encs[0];
             }
-            chosen_mode = modes
-                .iter()
-                .copied()
-                .max_by_key(|m| {
-                    let pref = u32::from((m.ty & (1 << 3)) != 0);
-                    let area = u32::from(m.hdisplay) * u32::from(m.vdisplay);
-                    (pref, area)
-                })
-                .unwrap_or(modes[0]);
+            chosen_mode = Self::select_initial_mode(&modes);
+            available_modes = modes;
             break;
         }
 
@@ -157,17 +155,51 @@ impl DrmKmsBackend {
             return Err(err);
         }
 
+        let _ = std::fs::write("/run/space-active-mode", format!("{}x{}\n", w, h));
+
         Ok(Self {
             fd,
             crtc_id: chosen_crtc,
             connector_id: chosen_conn,
             mode: chosen_mode,
+            available_modes,
             buffers: [buf0, buf1],
             front_idx: 0,
             shadow: vec![0xFF14_1820; stride_px as usize * h as usize],
             prev_damage: Vec::new(),
             stride_px,
         })
+    }
+
+    fn select_initial_mode(modes: &[DrmModeModeInfo]) -> DrmModeModeInfo {
+        // 1. Honor explicit SPACE_RES="WxH" environment override if set
+        if let Ok(spec) = std::env::var("SPACE_RES") {
+            if let Some((ws, hs)) = spec.trim().split_once('x') {
+                if let (Ok(tw), Ok(th)) = (ws.parse::<u16>(), hs.parse::<u16>()) {
+                    if let Some(&m) = modes.iter().find(|m| m.hdisplay == tw && m.vdisplay == th) {
+                        return m;
+                    }
+                }
+            }
+        }
+        // 2. Prefer a high-res mode marked DRM_MODE_TYPE_PREFERRED (> 800x600)
+        if let Some(&pref) = modes
+            .iter()
+            .find(|m| (m.ty & DRM_MODE_TYPE_PREFERRED) != 0 && (m.hdisplay > 800 || m.vdisplay > 600))
+        {
+            return pref;
+        }
+        // 3. Prefer 1440x900 or 1280x800 if available, otherwise largest mode
+        for (tw, th) in [(1440u16, 900u16), (1280, 800), (1600, 900), (1920, 1080)] {
+            if let Some(&m) = modes.iter().find(|m| m.hdisplay == tw && m.vdisplay == th) {
+                return m;
+            }
+        }
+        modes
+            .iter()
+            .copied()
+            .max_by_key(|m| u32::from(m.hdisplay) * u32::from(m.vdisplay))
+            .unwrap_or(modes[0])
     }
 
     fn create_dumb(fd: c_int, width: u32, height: u32) -> io::Result<DumbBuffer> {
@@ -343,6 +375,60 @@ impl RenderBackend for DrmKmsBackend {
         self.prev_damage.clear();
         self.prev_damage.extend_from_slice(damage);
         Ok(())
+    }
+
+    fn set_mode(&mut self, width: u32, height: u32) -> io::Result<bool> {
+        if self.width() == width && self.height() == height {
+            return Ok(false);
+        }
+        let target_mode = self
+            .available_modes
+            .iter()
+            .copied()
+            .find(|m| m.hdisplay as u32 == width && m.vdisplay as u32 == height);
+        let Some(new_mode) = target_mode else {
+            return Ok(false);
+        };
+
+        let buf0 = Self::create_dumb(self.fd, width, height)?;
+        let buf1 = match Self::create_dumb(self.fd, width, height) {
+            Ok(b) => b,
+            Err(e) => {
+                Self::destroy_dumb(self.fd, &buf0);
+                return Err(e);
+            }
+        };
+
+        let mut crtc = DrmModeCrtc {
+            set_connectors_ptr: &self.connector_id as *const u32 as u64,
+            count_connectors: 1,
+            crtc_id: self.crtc_id,
+            fb_id: buf0.fb_id,
+            x: 0,
+            y: 0,
+            gamma_size: 0,
+            mode_valid: 1,
+            mode: new_mode,
+        };
+        if unsafe { space_core::sys::ioctl(self.fd, DRM_IOCTL_MODE_SETCRTC, &mut crtc) } < 0 {
+            let err = io::Error::last_os_error();
+            Self::destroy_dumb(self.fd, &buf0);
+            Self::destroy_dumb(self.fd, &buf1);
+            return Err(err);
+        }
+
+        let old0 = std::mem::replace(&mut self.buffers[0], buf0);
+        let old1 = std::mem::replace(&mut self.buffers[1], buf1);
+        Self::destroy_dumb(self.fd, &old0);
+        Self::destroy_dumb(self.fd, &old1);
+
+        self.mode = new_mode;
+        self.front_idx = 0;
+        self.stride_px = self.buffers[0].pitch / 4;
+        self.shadow = vec![0xFF14_1820; self.stride_px as usize * height as usize];
+        self.prev_damage.clear();
+        let _ = std::fs::write("/run/space-active-mode", format!("{}x{}\n", width, height));
+        Ok(true)
     }
 }
 

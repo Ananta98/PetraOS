@@ -149,14 +149,9 @@ fn get_crtc(kms: &KmsState, arg: usize) -> Result<usize> {
     req.y = 0;
     req.gamma_size = 0;
     req.mode_valid = if req.fb_id != 0 { 1 } else { 0 };
-    req.mode = drm_mode(kms.pipeline_modes(pipeline));
+    req.mode = kms.active_mode(pipeline);
     write_uapi(arg, &req)?;
     Ok(0)
-}
-
-/// The first (current) mode of a pipeline, defaulting to an empty one.
-fn drm_mode(modes: &[drm::DrmModeModeInfo]) -> drm::DrmModeModeInfo {
-    modes.first().copied().unwrap_or_default()
 }
 
 fn set_crtc(kms: &KmsState, arg: usize) -> Result<usize> {
@@ -182,7 +177,7 @@ fn set_crtc(kms: &KmsState, arg: usize) -> Result<usize> {
     let mode = if req.mode_valid == 1 {
         req.mode
     } else {
-        drm_mode(kms.pipeline_modes(pipeline))
+        kms.active_mode(pipeline)
     };
     validate_scanout(&fb, &mode)?;
     kms.set_scanout(pipeline, fb, &mode)?;
@@ -365,7 +360,7 @@ fn page_flip(kms: &KmsState, file: &mut DrmFile, arg: usize) -> Result<usize> {
         crate::return_errno!(EINVAL, "unknown CRTC id");
     };
 
-    let mode = drm_mode(kms.pipeline_modes(pipeline));
+    let mode = kms.active_mode(pipeline);
     if req.fb_id == 0 {
         kms.disable(pipeline)?;
     } else {
@@ -400,7 +395,7 @@ fn set_plane(kms: &KmsState, arg: usize) -> Result<usize> {
     let Some(pipeline) = kms.pipeline_of_plane(req.plane_id) else {
         crate::return_errno!(EINVAL, "unknown plane id");
     };
-    let mode = drm_mode(kms.pipeline_modes(pipeline));
+    let mode = kms.active_mode(pipeline);
 
     if req.fb_id == 0 {
         kms.disable(pipeline)?;

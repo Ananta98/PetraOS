@@ -5,9 +5,9 @@ use space_core::icons::{self, IconId, WindowGlyph};
 use space_core::{Canvas, Color, Point, Rect};
 use space_ui::Theme;
 
-pub const TITLEBAR_H: i32 = 28;
-pub const BORDER_W: i32 = 3;
-pub const SHADOW_SIZE: i32 = 5;
+pub const TITLEBAR_H: i32 = 30;
+pub const BORDER_W: i32 = 4;
+pub const SHADOW_SIZE: i32 = 6;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HitPart {
@@ -32,23 +32,27 @@ pub struct XpLunaDecorator;
 
 impl XpLunaDecorator {
     fn button_rects(outer: Rect) -> (Rect, Rect, Rect) {
-        let by = outer.y + 4;
-        let bs = 20;
-        let close = Rect::new(outer.right() - 25, by, bs, bs);
-        let max = Rect::new(outer.right() - 47, by, bs, bs);
-        let min = Rect::new(outer.right() - 69, by, bs, bs);
+        let by = outer.y + 5;
+        let bs = 21;
+        let close = Rect::new(outer.right() - 26, by, bs, bs);
+        let max = Rect::new(outer.right() - 49, by, bs, bs);
+        let min = Rect::new(outer.right() - 72, by, bs, bs);
         (min, max, close)
     }
 
     fn draw_xp_button(canvas: &mut dyn Canvas, r: Rect, bg: Color, dark_sh: Color, glyph: WindowGlyph) {
-        let top_hi = Color::lerp(bg, Color::WHITE, 1, 3);
-        let bot_lo = Color::lerp(bg, dark_sh, 1, 4);
-        canvas.fill_gradient_v(r, top_hi, bot_lo);
-        // 3D raised bevel
-        canvas.fill_rect(Rect::new(r.x, r.y, r.w, 1), Color::WHITE);
-        canvas.fill_rect(Rect::new(r.x, r.y, 1, r.h), Color::WHITE);
-        canvas.fill_rect(Rect::new(r.x, r.bottom() - 1, r.w, 1), dark_sh);
-        canvas.fill_rect(Rect::new(r.right() - 1, r.y, 1, r.h), dark_sh);
+        let top_hi = Color::lerp(bg, Color::WHITE, 2, 5);
+        let bot_lo = Color::lerp(bg, dark_sh, 2, 5);
+        let inner = Rect::new(r.x + 1, r.y + 1, r.w - 2, r.h - 2);
+        canvas.fill_gradient_v(inner, top_hi, bot_lo);
+        // Classic XP white rounded-square button border
+        canvas.fill_rect(Rect::new(r.x + 1, r.y, r.w - 2, 1), Color::WHITE);
+        canvas.fill_rect(Rect::new(r.x + 1, r.bottom() - 1, r.w - 2, 1), Color::WHITE);
+        canvas.fill_rect(Rect::new(r.x, r.y + 1, 1, r.h - 2), Color::WHITE);
+        canvas.fill_rect(Rect::new(r.right() - 1, r.y + 1, 1, r.h - 2), Color::WHITE);
+        // Subtle inner bottom-right shadow
+        canvas.fill_rect(Rect::new(r.x + 1, r.bottom() - 2, r.w - 2, 1), dark_sh);
+        canvas.fill_rect(Rect::new(r.right() - 2, r.y + 1, 1, r.h - 2), dark_sh);
         icons::draw_window_glyph(canvas, r, glyph, Color::WHITE);
     }
 }
@@ -175,11 +179,11 @@ impl WindowDecorator for XpLunaDecorator {
             canvas.fill_rect(client_vis, Theme::XP_LUNA.bg_window);
         }
 
-        // 16x16 app icon on the left
-        icons::draw_icon(canvas, outer.x + 6, outer.y + 6, 16, IconId::from_title(title));
+        // 18x18 app icon on the left
+        icons::draw_icon(canvas, outer.x + 7, outer.y + 6, 18, IconId::from_title(title));
 
         // Bold white title text with subtle drop shadow
-        let max_title_chars = ((outer.w - 104).max(12) / (font::GLYPH_W * 2)) as usize;
+        let max_title_chars = ((outer.w - 110).max(12) / 8) as usize;
         let clipped_title: String = title.chars().take(max_title_chars).collect();
         let text_col = if focused {
             Color::WHITE
@@ -191,8 +195,7 @@ impl WindowDecorator for XpLunaDecorator {
         } else {
             Color::rgb(72, 92, 138)
         };
-        font::draw_text(canvas, outer.x + 27, outer.y + 8, &clipped_title, sh_col, 2);
-        font::draw_text(canvas, outer.x + 26, outer.y + 7, &clipped_title, text_col, 2);
+        font::draw_text_shadow(canvas, outer.x + 30, outer.y + 7, &clipped_title, text_col, sh_col, 2, true);
 
         // Raised Min / Max / Close buttons
         let (min_r, max_r, close_r) = Self::button_rects(outer);

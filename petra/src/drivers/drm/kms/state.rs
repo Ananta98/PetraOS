@@ -134,6 +134,8 @@ struct PipelineState {
     primary_plane_id: u32,
     /// The displayed framebuffer, `None` while disabled.
     fb: SpinLock<Option<Arc<Framebuffer>>>,
+    /// The active display mode programmed via `SETCRTC`.
+    mode: SpinLock<Option<drm::DrmModeModeInfo>>,
 }
 
 /// The complete KMS object tables of one DRM device.
@@ -160,6 +162,7 @@ impl KmsState {
                 connector_id: next_id.fetch_add(1, Ordering::Relaxed),
                 primary_plane_id: next_id.fetch_add(1, Ordering::Relaxed),
                 fb: SpinLock::new(None),
+                mode: SpinLock::new(None),
             })
             .collect();
         Arc::new(Self {
@@ -255,6 +258,14 @@ impl KmsState {
         self.states[pipeline].fb.lock().clone()
     }
 
+    /// The active display mode on `pipeline`, falling back to its first mode.
+    pub fn active_mode(&self, pipeline: usize) -> drm::DrmModeModeInfo {
+        self.states[pipeline]
+            .mode
+            .lock()
+            .unwrap_or_else(|| self.pipeline_modes(pipeline).first().copied().unwrap_or_default())
+    }
+
     /// Displays `fb` on `pipeline` with `mode` and remembers it.
     pub fn set_scanout(
         &self,
@@ -265,6 +276,7 @@ impl KmsState {
         fb.object.flush_pages(0..fb.object.size());
         self.driver.set_scanout(pipeline, &fb, mode)?;
         *self.states[pipeline].fb.lock() = Some(fb);
+        *self.states[pipeline].mode.lock() = Some(*mode);
         Ok(())
     }
 

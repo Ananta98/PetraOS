@@ -39,18 +39,25 @@ pub const DEFAULT_REFRESH_MHZ: u32 = 60_000;
 const MAX_REFRESH_MHZ: u32 = 1_000_000;
 
 /// Standard virtual display resolutions offered alongside the native scanout size.
-pub const STANDARD_VIRTUAL_SIZES: [(u32, u32); 10] = [
+pub const STANDARD_VIRTUAL_SIZES: [(u32, u32); 12] = [
     (3840, 2160),
     (2560, 1440),
     (1920, 1200),
     (1920, 1080),
     (1680, 1050),
     (1600, 900),
+    (1440, 900),
+    (1366, 768),
     (1280, 1024),
+    (1280, 800),
     (1280, 720),
     (1024, 768),
-    (800, 600),
 ];
+
+/// Default preferred virtual desktop geometry when firmware/VGA boot leaves the
+/// scanout in a tiny legacy mode (`<= 800x600`).
+const DEFAULT_DESKTOP_WIDTH: u32 = 1440;
+const DEFAULT_DESKTOP_HEIGHT: u32 = 900;
 
 /// Builds the complete list of [`drm::DrmModeModeInfo`] entries for a scanout
 /// whose host-reported preferred geometry is `width x height`.
@@ -67,22 +74,41 @@ pub fn build_scanout_modes(
         if edid_refresh > 0 {
             refresh_mhz = edid_refresh;
         }
-        for mode in edid_detailed_modes(bytes) {
+        for mut mode in edid_detailed_modes(bytes) {
+            // If UEFI/GRUB VGA mode resized the initial host window to <= 800x600,
+            // do not lock the preferred flag onto the tiny legacy VGA mode.
+            if mode.hdisplay <= 800 && mode.vdisplay <= 600 {
+                mode.type_ &= !drm::DRM_MODE_TYPE_PREFERRED;
+            }
             push_unique_mode(&mut modes, mode);
         }
     }
 
-    let has_preferred_native = modes.iter().any(|mode| {
-        mode.type_ & drm::DRM_MODE_TYPE_PREFERRED != 0
-            && u32::from(mode.hdisplay) == width
-            && u32::from(mode.vdisplay) == height
-    });
+    let is_legacy_vga = width <= 800 && height <= 600;
+    let has_preferred = modes
+        .iter()
+        .any(|mode| mode.type_ & drm::DRM_MODE_TYPE_PREFERRED != 0);
 
-    let native_mode = synthetic_mode(width, height, refresh_mhz, !has_preferred_native);
+    if is_legacy_vga && !has_preferred {
+        let desktop_pref = synthetic_mode(
+            DEFAULT_DESKTOP_WIDTH,
+            DEFAULT_DESKTOP_HEIGHT,
+            refresh_mhz,
+            true,
+        );
+        push_unique_mode(&mut modes, desktop_pref);
+    }
+
+    let has_preferred_after = modes
+        .iter()
+        .any(|mode| mode.type_ & drm::DRM_MODE_TYPE_PREFERRED != 0);
+    let native_mode = synthetic_mode(width, height, refresh_mhz, !has_preferred_after);
     push_unique_mode(&mut modes, native_mode);
 
+    let max_virtual_w = width.max(1920);
+    let max_virtual_h = height.max(1080);
     for (std_width, std_height) in STANDARD_VIRTUAL_SIZES {
-        if std_width <= width && std_height <= height {
+        if std_width <= max_virtual_w && std_height <= max_virtual_h {
             let fallback = synthetic_mode(std_width, std_height, DEFAULT_REFRESH_MHZ, false);
             push_unique_mode(&mut modes, fallback);
         }
