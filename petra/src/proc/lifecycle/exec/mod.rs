@@ -8,7 +8,7 @@ pub mod stack;
 
 pub use self::{
     elf::{
-        DEFAULT_INTERP_LOAD_BIAS, DEFAULT_PIE_LOAD_BIAS, ElfLoadInfo, load_elf, load_elf_with_bias,
+        DEFAULT_INTERP_LOAD_BIAS, DEFAULT_PIE_LOAD_BIAS, ElfLoadInfo, load_elf, load_elf_from_file_with_bias, load_elf_with_bias,
     },
     shebang::{MAX_SHEBANG_LINE_LEN, MAX_SHEBANG_RECURSION, SHEBANG_MAGIC, Shebang},
     stack::{
@@ -160,6 +160,137 @@ pub fn read_executable_file(dirfd: i32, path: &str, flags: i32) -> Result<(Vec<u
     }
 }
 
+/// Source of an executable image: either a VFS [`File`] (demand-paged) or raw initramfs bytes.
+pub enum ExecSource {
+    File(Arc<crate::fs::File>),
+    Bytes(Vec<u8>),
+}
+
+/// Opens an executable file without eagerly reading its entire contents into RAM.
+pub fn open_executable_source(
+    dirfd: i32,
+    path: &str,
+    flags: i32,
+) -> Result<(ExecSource, String)> {
+    let root = match Thread::current_proc() {
+        Some(proc) => proc.root().or_else(|_| crate::fs::root())?,
+        None => crate::fs::root()?,
+    };
+    let start = if path.starts_with('/') {
+        root.clone()
+    } else if dirfd == AT_FDCWD {
+        if let Some(proc) = Thread::current_proc() {
+            proc.cwd().unwrap_or_else(|_| root.clone())
+        } else {
+            root.clone()
+        }
+    } else {
+        let proc = Thread::proc_or_esrch()?;
+        let dir_file = proc.file(dirfd)?;
+        let node = dir_file.path_node.clone().ok_or(Errno::ENOTDIR)?;
+        let inode = node.dentry.get_inode().ok_or(Errno::ENOENT)?;
+        if !inode.is_dir() {
+            return Err(Errno::ENOTDIR);
+        }
+        node
+    };
+
+    let mut lookup_flags = crate::fs::LookupFlags::empty();
+    if (flags & AT_SYMLINK_NOFOLLOW) != 0 {
+        lookup_flags |= crate::fs::LookupFlags::NO_FOLLOW;
+    }
+
+    match crate::fs::lookup(root, start, path, lookup_flags) {
+        Ok(path_node) => {
+            let inode = path_node.dentry.get_inode().ok_or(Errno::ENOENT)?;
+            if inode.is_dir() {
+                return Err(Errno::EACCES);
+            }
+            let attr = inode
+                .node_ops
+                .getattr()
+                .unwrap_or_else(|_| *inode.attr.read());
+            if let Some(proc) = Thread::current_proc() {
+                crate::fs::check_permission(&attr, &proc.cred(), crate::fs::AccessFlags::EXEC)?;
+            }
+            let file_ops = inode.node_ops.open(crate::fs::OpenFlags::READ)?;
+            let file = Arc::new(crate::fs::File::new(
+                file_ops,
+                inode,
+                crate::fs::OpenFlags::READ,
+                true,
+            ));
+            let canon = path_node.abs_path();
+            Ok((ExecSource::File(file), canon))
+        }
+        Err(err) => {
+            if err != Errno::ENOENT {
+                return Err(err);
+            }
+            if let Some(data) = crate::fs::read_file_from_initramfs(path) {
+                return Ok((ExecSource::Bytes(Vec::from(data)), String::from(path)));
+            }
+            let trimmed = path.trim_start_matches('/');
+            if let Some(data) = crate::fs::read_file_from_initramfs(trimmed) {
+                return Ok((ExecSource::Bytes(Vec::from(data)), String::from(path)));
+            }
+            Err(Errno::ENOENT)
+        }
+    }
+}
+
+/// Loads an ELF [`ExecSource`] and its `PT_INTERP` dynamic linker using demand paging when possible.
+pub fn load_and_setup_source(
+    source: &ExecSource,
+    argv: &[&str],
+    envp: &[&str],
+    exec_path: &str,
+    cred: &Ucred,
+) -> Result<(Arc<Vmar>, usize, usize)> {
+    let vmar = Vmar::new();
+
+    let exec_info = match source {
+        ExecSource::File(file) => load_elf_from_file_with_bias(&vmar, file, DEFAULT_PIE_LOAD_BIAS)?,
+        ExecSource::Bytes(data) => load_elf_with_bias(&vmar, data, DEFAULT_PIE_LOAD_BIAS)?,
+    };
+
+    let (interp_base, exec_entry_point) = if let Some(interp_path) = &exec_info.interp_path {
+        let (interp_src, _) = open_executable_source(AT_FDCWD, interp_path, 0)?;
+        let interp_info = match &interp_src {
+            ExecSource::File(file) => {
+                load_elf_from_file_with_bias(&vmar, file, DEFAULT_INTERP_LOAD_BIAS)?
+            }
+            ExecSource::Bytes(data) => load_elf_with_bias(&vmar, data, DEFAULT_INTERP_LOAD_BIAS)?,
+        };
+        (interp_info.load_bias, interp_info.entry_point)
+    } else {
+        (0, exec_info.entry_point)
+    };
+
+    vmar.init_brk(exec_info.brk_init);
+
+    let vdso_base = vmar.map_vdso().unwrap_or_else(|err| {
+        ostd::warn!("vDSO: failed to map into address space: {:?}", err);
+        0
+    });
+
+    let sp = setup_user_stack_full(
+        &vmar,
+        argv,
+        envp,
+        exec_path,
+        exec_info.entry_point,
+        exec_info.phdr_addr,
+        exec_info.phent_size,
+        exec_info.phnum,
+        interp_base,
+        vdso_base,
+        cred,
+    )?;
+
+    Ok((vmar, exec_entry_point, sp))
+}
+
 /// Reads an executable or interpreter binary by path.
 pub fn read_binary_data(path: &str) -> Result<Vec<u8>> {
     let (data, _) = read_executable_file(AT_FDCWD, path, 0)?;
@@ -270,11 +401,20 @@ fn execve_depth(
     }
 
     let proc = td.proc().ok_or(Errno::ESRCH)?;
-    let (elf_data, canonical_path) = read_executable_file(dirfd, path, flags)?;
+    let (source, canonical_path) = open_executable_source(dirfd, path, flags)?;
 
-    // Check if the binary is a Shebang script
-    if Shebang::is_shebang(&elf_data) {
-        let shebang = Shebang::parse(&elf_data)?.ok_or(Errno::ENOEXEC)?;
+    // Read only the first 512 bytes to check for a #! shebang script
+    let mut head_buf = [0u8; 512];
+    let head_slice: &[u8] = match &source {
+        ExecSource::File(file) => {
+            let n = file.ops.fault_in(0, &mut head_buf).unwrap_or(0);
+            &head_buf[..n]
+        }
+        ExecSource::Bytes(data) => &data[..data.len().min(512)],
+    };
+
+    if Shebang::is_shebang(head_slice) {
+        let shebang = Shebang::parse(head_slice)?.ok_or(Errno::ENOEXEC)?;
         let new_argv = shebang.build_argv(path, argv);
         return execve_depth(
             td,
@@ -289,9 +429,9 @@ fn execve_depth(
     }
 
     let cred = proc.cred();
-    // Load ELF, interpreter, and build new address space
+    // Load ELF, interpreter, and build new address space using demand-paged FileBacking
     let (new_vmar, entry_point, sp) =
-        load_and_setup_full(&elf_data, argv, envp, &canonical_path, &cred)?;
+        load_and_setup_source(&source, argv, envp, &canonical_path, &cred)?;
 
     // FIX Bug 3: Terminate all sibling threads prior to address space swap
     let siblings: Vec<Arc<Thread>> = {

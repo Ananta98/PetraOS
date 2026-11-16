@@ -79,8 +79,6 @@ fn kernel_init() {
     kpi::init().unwrap();
     drivers::init().unwrap();
     modules::init_calls().unwrap();
-    drivers::char::tty::vt::terminal::run_perf_benchmark();
-    utils::perf::log_memory_summary("boot");
     vm::reclaim::init_page_reclaim_daemon();
     net::init_net_daemon();
     if let Err(err) = proc::init::spawn_init_process() {

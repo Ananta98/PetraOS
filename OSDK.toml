@@ -1,5 +1,5 @@
 [boot]
-method = "qemu-direct"
+method = "grub-rescue-iso"
 
 [grub]
 boot_protocol = "linux"

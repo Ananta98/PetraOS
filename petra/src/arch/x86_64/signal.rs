@@ -187,7 +187,7 @@ impl MContext {
         gregs[GReg::Rcx as usize] = regs.rcx as u64;
         gregs[GReg::Rsp as usize] = regs.rsp as u64;
         gregs[GReg::Rip as usize] = regs.rip as u64;
-        gregs[GReg::Efl as usize] = (regs.rflags & !(X86_EFLAGS_DF | X86_EFLAGS_TF)) as u64;
+        gregs[GReg::Efl as usize] = (ctx.rflags() & !(X86_EFLAGS_DF | X86_EFLAGS_TF)) as u64;
         gregs[GReg::CsGsFs as usize] = CSGSFS as u64;
 
         Self {
@@ -715,7 +715,7 @@ impl Restore {
         regs.r14 = self.r14 as usize;
         regs.r15 = self.r15 as usize;
         regs.rip = self.rip as usize;
-        regs.rflags = self.rflags as usize;
+        ctx.set_rflags(self.rflags as usize);
     }
 }
 
@@ -781,7 +781,7 @@ impl Redirect {
         regs.rdx = self.rdx;
         // Leave the trap flag clear: a single-step into a handler would stop
         // again on the handler's own first instruction.
-        regs.rflags &= !(1 << 8);
+        ctx.set_rflags(ctx.rflags() & !(1 << 8));
     }
 }
 

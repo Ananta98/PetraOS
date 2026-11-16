@@ -428,9 +428,9 @@ checksum = "b6d2cec3eae94f9f509c767b45932f1ada8350c4bdb85af2fcab4a3c14807981"
 
 [[package]]
 name = "linux-boot-params"
-version = "0.18.1"
+version = "0.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "825baec9510046fc618ec5b484914f420caf8a12bd99ad57f4260b7716d0a6bb"
+checksum = "ec98c9607699076badfdd1780eb0398e26c6c6809fb670545565c416835c7f88"
 
 [[package]]
 name = "lock_api"
@@ -487,7 +487,7 @@ dependencies = [
  "bitflags 2.13.2",
  "log",
  "multiboot2-common",
- "ptr_meta 0.3.2",
+ "ptr_meta",
  "thiserror",
  "uefi-raw 0.12.0",
 ]
@@ -498,7 +498,7 @@ version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6892f2795001adb0f6e4c124de90b68f9edc4bf52b8d81b14dac45cb361f1cca"
 dependencies = [
- "ptr_meta 0.3.2",
+ "ptr_meta",
  "thiserror",
 ]
 
@@ -543,9 +543,9 @@ dependencies = [
 
 [[package]]
 name = "ostd"
-version = "0.18.1"
+version = "0.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fc4be80e7273b7a27b7a69ba2be5d50e11df12e8709f9ad120364d9a02088fba"
+checksum = "a8f8fdb1551f65080f45f135a80ac838112cd53a5d384fc8331e9fe9e233b7cc"
 dependencies = [
  "acpi",
  "align_ext",
@@ -579,9 +579,9 @@ dependencies = [
 
 [[package]]
 name = "ostd-macros"
-version = "0.18.1"
+version = "0.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c8bb645ff791594debccf063bf226d1095cca3caa8a642412c4ea6c48cfa629c"
+checksum = "3c5a430937cc2964307f2bd08eb129f4919b554251feffcee5180c8d647e9e46"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -613,9 +613,9 @@ dependencies = [
 
 [[package]]
 name = "ostd-test"
-version = "0.18.1"
+version = "0.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4c24f5f5500615d8205a677aae3deff083cfbed629b8b49f20764403052e73c0"
+checksum = "377fed3716bdab7adc5d5273fcafde55b33c012d9a154549255c0912b0dfcbf9"
 
 [[package]]
 name = "owned_ttf_parser"
@@ -693,31 +693,11 @@ dependencies = [
 
 [[package]]
 name = "ptr_meta"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bcada80daa06c42ed5f48c9a043865edea5dc44cbf9ac009fda3b89526e28607"
-dependencies = [
- "ptr_meta_derive 0.2.0",
-]
-
-[[package]]
-name = "ptr_meta"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "743da816b98c921cdbe8628ef7381b76f25ecf4da599fc80aca90eae7ef70cc0"
 dependencies = [
- "ptr_meta_derive 0.3.2",
-]
-
-[[package]]
-name = "ptr_meta_derive"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bca9224df2e20e7c5548aeb5f110a0f3b77ef05f8585139b7148b59056168ed2"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 1.0.109",
+ "ptr_meta_derive",
 ]
 
 [[package]]
@@ -964,15 +944,15 @@ checksum = "55937e1799185b12863d447f42597ed69d9928686b8d88a1df17376a097d8369"
 
 [[package]]
 name = "tdx-guest"
-version = "0.4.0"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c35264485a8a3c1e254d6a31c9bda6d7776aafba9515c3db604d51c564e5e629"
+checksum = "8cb17ba1fb79f628dd53828b65c26bf785c85893ff9d547bed72c3e7a74aed2c"
 dependencies = [
  "bitflags 1.3.2",
  "iced-x86",
  "log",
  "raw-cpuid",
- "uefi-raw 0.8.0",
+ "uefi-raw 0.14.0",
  "x86_64",
 ]
 
@@ -1007,20 +987,19 @@ dependencies = [
 
 [[package]]
 name = "uefi-raw"
-version = "0.8.0"
+version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b463030b802e1265a3800fab24df95d3229c202c2e408832a206f05b4d1496ca"
+checksum = "8aff2f4f2b556a36a201d335a1e0a57754967a96857b1f47a52d5a23825cac84"
 dependencies = [
  "bitflags 2.13.2",
- "ptr_meta 0.2.0",
  "uguid",
 ]
 
 [[package]]
 name = "uefi-raw"
-version = "0.12.0"
+version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8aff2f4f2b556a36a201d335a1e0a57754967a96857b1f47a52d5a23825cac84"
+checksum = "f3775e5934877acaef4b00f254f252df1e2266903c31e51455c117f4f2824eda"
 dependencies = [
  "bitflags 2.13.2",
  "uguid",

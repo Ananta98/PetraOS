@@ -596,7 +596,42 @@ impl Thread {
                     Some(info) => match vmar.handle_page_fault(&info) {
                         Ok(()) => None,
                         Err(err) => {
-                            ostd::error!("Fatal user page fault at {:#x}: {err:?}", raw_pf.addr);
+                            let (rip, rsp) = self
+                                .inner
+                                .lock()
+                                .user_ctx
+                                .as_ref()
+                                .map(|c| (c.instruction_pointer(), c.stack_pointer()))
+                                .unwrap_or((0, 0));
+                            ostd::error!(
+                                "Fatal user page fault at {:#x} (RIP={:#x} RSP={:#x}): {err:?}",
+                                raw_pf.addr,
+                                rip,
+                                rsp
+                            );
+                            if let Some(m) = vmar.mappings_in(rip..rip.saturating_add(1)).iter().next() {
+                                ostd::error!(
+                                    "  RIP mapping: {:#x}-{:#x} (len={:#x}, off={:#x}, rel={:#x})",
+                                    m.start(),
+                                    m.end(),
+                                    m.end() - m.start(),
+                                    m.backing_offset(),
+                                    rip - m.start() + m.backing_offset()
+                                );
+                            }
+                            if let Ok(ret) = crate::utils::userspace::UserPtr::new(rsp).read_val::<usize>(&vmar) {
+                                ostd::error!("  [RSP] caller={:#x}", ret);
+                                if let Some(m) = vmar.mappings_in(ret..ret.saturating_add(1)).iter().next() {
+                                    ostd::error!(
+                                        "  caller mapping: {:#x}-{:#x} (len={:#x}, off={:#x}, rel={:#x})",
+                                        m.start(),
+                                        m.end(),
+                                        m.end() - m.start(),
+                                        m.backing_offset(),
+                                        ret - m.start() + m.backing_offset()
+                                    );
+                                }
+                            }
                             let code = if err == crate::uapi::errno::Errno::EFAULT {
                                 code::SEGV_MAPERR
                             } else {
