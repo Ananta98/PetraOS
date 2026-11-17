@@ -165,6 +165,7 @@ impl<R: RenderBackend, I: InputBackend> Compositor<R, I> {
             }
 
             if self.frame_tick % 60 == 0 {
+                while unsafe { sys::waitpid(-1, ptr::null_mut(), sys::WNOHANG) } > 0 {}
                 self.panel.update_stats();
                 let sw = self.renderer.width() as i32;
                 let sh = self.renderer.height() as i32;
@@ -188,6 +189,7 @@ impl<R: RenderBackend, I: InputBackend> Compositor<R, I> {
             if client_fd < 0 {
                 break;
             }
+            let _ = sys::set_cloexec(client_fd);
             let mut pkt = HandshakePacket::new(0, 0, 0, "", "");
             let pkt_bytes = unsafe {
                 std::slice::from_raw_parts_mut(

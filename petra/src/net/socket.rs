@@ -137,6 +137,8 @@ pub struct KernelSocket {
     pub remote_addr: Mutex<Option<SocketAddress>>,
     pub peer_cred: Mutex<Option<crate::uapi::cred::PeerCred>>,
     pub passcred: Mutex<bool>,
+    /// Filesystem/abstract path registered by `bind()` on this socket (never set on accepted sockets).
+    bound_unix_path: Mutex<Option<String>>,
 }
 
 fn sleep_socket_waiter() {
@@ -185,6 +187,7 @@ impl KernelSocket {
             remote_addr: Mutex::new(None),
             peer_cred: Mutex::new(None),
             passcred: Mutex::new(false),
+            bound_unix_path: Mutex::new(None),
         }))
     }
 
@@ -203,6 +206,7 @@ impl KernelSocket {
             remote_addr: Mutex::new(None),
             peer_cred: Mutex::new(None),
             passcred: Mutex::new(false),
+            bound_unix_path: Mutex::new(None),
         }))
     }
 
@@ -225,6 +229,7 @@ impl KernelSocket {
             remote_addr: Mutex::new(None),
             peer_cred: Mutex::new(None),
             passcred: Mutex::new(false),
+            bound_unix_path: Mutex::new(None),
         }))
     }
 
@@ -260,6 +265,7 @@ impl KernelSocket {
             remote_addr: Mutex::new(None),
             peer_cred: Mutex::new(current_cred),
             passcred: Mutex::new(false),
+            bound_unix_path: Mutex::new(None),
         });
 
         let sock_b = Arc::new(Self {
@@ -274,6 +280,7 @@ impl KernelSocket {
             remote_addr: Mutex::new(None),
             peer_cred: Mutex::new(current_cred),
             passcred: Mutex::new(false),
+            bound_unix_path: Mutex::new(None),
         });
 
         Ok((sock_a, sock_b))
@@ -294,6 +301,7 @@ impl KernelSocket {
             remote_addr: Mutex::new(None),
             peer_cred: Mutex::new(None),
             passcred: Mutex::new(false),
+            bound_unix_path: Mutex::new(None),
         }))
     }
 
@@ -311,6 +319,7 @@ impl KernelSocket {
             remote_addr: Mutex::new(self.remote_addr.lock().clone()),
             peer_cred: Mutex::new(*self.peer_cred.lock()),
             passcred: Mutex::new(*self.passcred.lock()),
+            bound_unix_path: Mutex::new(None),
         }
     }
 
@@ -360,6 +369,7 @@ impl KernelSocket {
                 if !path.is_empty() {
                     let registered_sock = Arc::new(self.clone_socket_ref());
                     crate::net::unix::bind_unix_socket(path, registered_sock)?;
+                    *self.bound_unix_path.lock() = Some(path.clone());
                 }
                 *self.local_addr.lock() = Some(SocketAddress::Unix(path.clone()));
                 Ok(())
@@ -518,6 +528,7 @@ impl KernelSocket {
                             ),
                             peer_cred: Mutex::new(client_cred),
                             passcred: Mutex::new(*self.passcred.lock()),
+                            bound_unix_path: Mutex::new(None),
                         });
                         *self.kind.lock() = SocketKind::Unix(client_end);
                         *self.remote_addr.lock() = Some(SocketAddress::Unix(path.clone()));
@@ -579,6 +590,7 @@ impl KernelSocket {
                             remote_addr: Mutex::new(Some(SocketAddress::Inet(remote))),
                             peer_cred: Mutex::new(None),
                             passcred: Mutex::new(false),
+                            bound_unix_path: Mutex::new(None),
                         });
 
                         *self.kind.lock() = SocketKind::Tcp(new_listen_handle);
@@ -1304,8 +1316,8 @@ impl KernelSocket {
 
     /// Closes the socket and removes it from the global socket set.
     pub fn close(&self) {
-        if let Some(SocketAddress::Unix(ref path)) = *self.local_addr.lock() {
-            crate::net::unix::unbind_unix_socket(path);
+        if let Some(path) = self.bound_unix_path.lock().take() {
+            crate::net::unix::unbind_unix_socket(&path, &self.kind);
         }
 
         // Take the kind out for smoltcp sockets so a second close() (explicit

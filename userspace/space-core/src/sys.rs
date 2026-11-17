@@ -17,8 +17,10 @@ pub const PROT_WRITE: c_int = 2;
 pub const MAP_SHARED: c_int = 1;
 pub const MAP_FAILED: *mut c_void = !0usize as *mut c_void;
 
+pub const F_SETFD: c_int = 2;
 pub const F_GETFL: c_int = 3;
 pub const F_SETFL: c_int = 4;
+pub const FD_CLOEXEC: c_int = 1;
 
 pub const AF_UNIX: c_int = 1;
 pub const SOCK_STREAM: c_int = 1;
@@ -109,6 +111,13 @@ pub fn set_nonblocking(fd: c_int) -> io::Result<()> {
         return Err(io::Error::last_os_error());
     }
     if unsafe { fcntl(fd, F_SETFL, flags | O_NONBLOCK) } < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+pub fn set_cloexec(fd: c_int) -> io::Result<()> {
+    if unsafe { fcntl(fd, F_SETFD, FD_CLOEXEC) } < 0 {
         return Err(io::Error::last_os_error());
     }
     Ok(())

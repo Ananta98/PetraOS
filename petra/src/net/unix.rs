@@ -15,7 +15,7 @@ use ostd::sync::WaitQueue;
 use spin::Mutex;
 
 use crate::{
-    net::socket::KernelSocket,
+    net::socket::{KernelSocket, SocketKind},
     uapi::errno::{Errno, Result},
     utils::hashmap::HashMap,
 };
@@ -87,10 +87,19 @@ pub fn bind_unix_socket(path: &str, socket: Arc<KernelSocket>) -> Result<()> {
     Ok(())
 }
 
-/// Unbinds a UNIX domain socket from the global registry.
-pub fn unbind_unix_socket(path: &str) {
-    let mut reg = UNIX_REGISTRY.lock();
-    reg.remove(path);
+/// Unbinds a UNIX domain socket from the global registry if the registered entry
+/// shares the same underlying `kind` state, preventing accepted connection sockets
+/// from removing their listener's registry entry on close.
+pub fn unbind_unix_socket(path: &str, kind: &Arc<Mutex<SocketKind>>) {
+    let removed = {
+        let mut reg = UNIX_REGISTRY.lock();
+        if reg.get(path).is_some_and(|sock| Arc::ptr_eq(&sock.kind, kind)) {
+            reg.remove(path)
+        } else {
+            None
+        }
+    };
+    drop(removed);
 }
 
 /// Looks up an active UNIX domain socket by path.
@@ -239,6 +248,44 @@ mod tests {
         assert_eq!(&buf[..n_pair], b"pair_seq");
         p1.close();
         p2.close();
+    }
+
+    #[ktest]
+    fn unix_listener_survives_accepted_connection_close() {
+        let sock_path = "/tmp/test_listener_reopen_ktest.sock";
+
+        let server = KernelSocket::new_unix(SOCK_STREAM).expect("server socket");
+        server
+            .bind(SocketAddress::Unix(sock_path.into()))
+            .expect("server bind");
+        server.listen(8).expect("server listen");
+
+        let client1 = KernelSocket::new_unix(SOCK_STREAM).expect("client1");
+        client1
+            .connect(SocketAddress::Unix(sock_path.into()))
+            .expect("client1 connect");
+        let (conn1, _) = server.accept().expect("accept1");
+
+        // Closing an accepted connection must not unbind the listener path.
+        conn1.close();
+        client1.close();
+        assert!(lookup_unix_socket(sock_path).is_some());
+
+        let client2 = KernelSocket::new_unix(SOCK_STREAM).expect("client2");
+        client2
+            .connect(SocketAddress::Unix(sock_path.into()))
+            .expect("client2 connect");
+        let (conn2, _) = server.accept().expect("accept2");
+
+        assert_eq!(client2.send(b"reopened", 0).expect("client2 send"), 8);
+        let mut buf = [0u8; 16];
+        let n = conn2.recv(&mut buf, 0).expect("conn2 recv");
+        assert_eq!(&buf[..n], b"reopened");
+
+        conn2.close();
+        client2.close();
+        server.close();
+        assert!(lookup_unix_socket(sock_path).is_none());
     }
 }
 
