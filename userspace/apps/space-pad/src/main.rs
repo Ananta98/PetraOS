@@ -101,7 +101,7 @@ impl PadApp {
     }
 
     fn draw_highlighted_line(canvas: &mut dyn Canvas, x: i32, y: i32, line: &str) {
-        let t = Theme::XP_LUNA;
+        let t = Theme::PETRA_SLATE;
         let trimmed = line.trim_start();
         if trimmed.starts_with("//") || trimmed.starts_with('#') {
             font::draw_text_mono(canvas, x, y, line, Color::rgb(0, 112, 0), 2);
@@ -157,7 +157,7 @@ impl Lifecycle for PadApp {}
 
 impl Paintable for PadApp {
     fn paint(&self, canvas: &mut dyn Canvas) {
-        let t = Theme::XP_LUNA;
+        let t = Theme::PETRA_SLATE;
         self.path_input.paint(canvas);
         self.btn_new.paint(canvas);
         self.btn_close.paint(canvas);

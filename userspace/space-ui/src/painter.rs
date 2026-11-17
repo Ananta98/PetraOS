@@ -1,7 +1,5 @@
-//! Centralized UI primitive painter (SerenityOS `LibGfx::StylePainter` pattern).
-//!
-//! All widgets and window chrome share these theme-aware drawing primitives so
-//! XP Luna and Breeze Dark bevels, sunken fields, and highlights stay consistent.
+//! Centralized UI primitive painter (SerenityOS `LibGfx::StylePainter` architecture,
+//! styled in PetraOS's crisp ReactOS-inspired Petra Slate aesthetic).
 
 use crate::theme::Theme;
 use crate::traits::WidgetState;
@@ -19,30 +17,26 @@ impl<'a> StylePainter<'a> {
         Self { theme }
     }
 
-    /// Paints a classic 3D raised or sunken bevel inside `rect`.
+    /// Paints a subtle crisp frame (raised or inset) without heavy Win2000 double-bevels.
     pub fn paint_panel_3d(&self, canvas: &mut dyn Canvas, rect: Rect, sunken: bool) {
         if rect.w < 4 || rect.h < 4 {
             return;
         }
         let t = self.theme;
-        let (tl_outer, br_outer, tl_inner, br_inner) = if sunken {
-            (t.bevel_dark, t.bevel_light, t.bevel_shadow, t.bg_window)
+        let (tl, br) = if sunken {
+            (t.bevel_shadow, t.bevel_light)
         } else {
-            (t.bevel_light, t.bevel_dark, t.bg_window, t.bevel_shadow)
+            (t.bevel_light, t.bevel_shadow)
         };
 
-        canvas.fill_rect(Rect::new(rect.x, rect.y, rect.w, 1), tl_outer);
-        canvas.fill_rect(Rect::new(rect.x, rect.y, 1, rect.h), tl_outer);
-        canvas.fill_rect(Rect::new(rect.x, rect.y + rect.h - 1, rect.w, 1), br_outer);
-        canvas.fill_rect(Rect::new(rect.x + rect.w - 1, rect.y, 1, rect.h), br_outer);
-
-        canvas.fill_rect(Rect::new(rect.x + 1, rect.y + 1, rect.w - 2, 1), tl_inner);
-        canvas.fill_rect(Rect::new(rect.x + 1, rect.y + 1, 1, rect.h - 2), tl_inner);
-        canvas.fill_rect(Rect::new(rect.x + 1, rect.y + rect.h - 2, rect.w - 2, 1), br_inner);
-        canvas.fill_rect(Rect::new(rect.x + rect.w - 2, rect.y + 1, 1, rect.h - 2), br_inner);
+        canvas.draw_rect_outline(rect, 1, t.border);
+        canvas.fill_rect(Rect::new(rect.x + 1, rect.y + 1, rect.w - 2, 1), tl);
+        canvas.fill_rect(Rect::new(rect.x + 1, rect.y + 1, 1, rect.h - 2), tl);
+        canvas.fill_rect(Rect::new(rect.x + 1, rect.y + rect.h - 2, rect.w - 2, 1), br);
+        canvas.fill_rect(Rect::new(rect.x + rect.w - 2, rect.y + 1, 1, rect.h - 2), br);
     }
 
-    /// Paints a rounded or beveled button background and border according to `state`.
+    /// Paints a crisp modern-classic button background and 1px border according to `state`.
     pub fn paint_button_frame(
         &self,
         canvas: &mut dyn Canvas,
@@ -53,7 +47,7 @@ impl<'a> StylePainter<'a> {
         let t = self.theme;
         let r = t.radius.min(rect.w / 2).min(rect.h / 2);
         let (top_c, bot_c, border_c) = if state == WidgetState::Disabled {
-            (t.bg_window, t.bg_surface, t.border)
+            (t.bg_window, t.bg_surface_alt, t.border)
         } else if accent {
             match state {
                 WidgetState::Pressed => (
@@ -74,39 +68,41 @@ impl<'a> StylePainter<'a> {
             }
         } else {
             match state {
-                WidgetState::Pressed => (t.bg_active, t.bg_surface, t.bevel_dark),
-                WidgetState::Hovered => (t.bevel_light, t.bg_hover, Color::rgb(230, 151, 0)),
+                WidgetState::Pressed => (t.accent_soft, Color::lerp(t.accent_soft, t.accent, 1, 4), t.accent),
+                WidgetState::Hovered => (t.bevel_light, t.bg_hover, t.accent),
                 WidgetState::Focused => (t.bg_surface, t.bg_surface_alt, t.accent),
-                _ => (t.bg_surface, t.bg_surface_alt, t.border),
+                _ => (t.bg_surface, Color::lerp(t.bg_window, t.bevel_shadow, 1, 4), t.border),
             }
         };
 
-        if t.is_xp {
-            canvas.fill_rounded_rect(rect, r, bot_c);
-            let inner = Rect::new(rect.x + 1, rect.y + 1, (rect.w - 2).max(0), (rect.h - 2).max(0));
+        canvas.fill_rounded_rect(rect, r, bot_c);
+        if t.subtle_gradients && rect.w > 2 && rect.h > 2 {
+            let inner = Rect::new(rect.x + 1, rect.y + 1, rect.w - 2, rect.h - 2);
             canvas.fill_gradient_v(inner, top_c, bot_c);
             canvas.draw_rect_outline(rect, 1, border_c);
-            if state == WidgetState::Hovered && !accent {
-                canvas.draw_rect_outline(inner, 1, Color::rgb(255, 208, 108));
-            } else if state == WidgetState::Focused {
+            if state == WidgetState::Normal && !accent {
+                canvas.fill_rect(Rect::new(inner.x, inner.y, inner.w, 1), t.bevel_light);
+            } else if state == WidgetState::Hovered || state == WidgetState::Focused {
                 canvas.draw_rect_outline(inner, 1, t.accent_soft);
             }
         } else {
-            canvas.fill_rounded_rect(rect, r, bot_c);
             canvas.draw_rect_outline(rect, 1, border_c);
         }
     }
 
-    /// Paints a sunken input/list container background with crisp border and optional focus ring.
+    /// Paints a sunken input/list container background with crisp 1px border and focus ring.
     pub fn paint_sunken_field(&self, canvas: &mut dyn Canvas, rect: Rect, focused: bool) {
         let t = self.theme;
         canvas.fill_rect(rect, t.bg_input);
-        self.paint_panel_3d(canvas, rect, true);
+        if rect.w > 2 && rect.h > 2 {
+            canvas.fill_rect(Rect::new(rect.x + 1, rect.y + 1, rect.w - 2, 1), t.bevel_shadow);
+            canvas.fill_rect(Rect::new(rect.x + 1, rect.y + 1, 1, rect.h - 2), t.bevel_shadow);
+        }
         let border = if focused { t.accent } else { t.border };
         canvas.draw_rect_outline(rect, 1, border);
     }
 
-    /// Paints a raised toolbar/header/statusbar strip.
+    /// Paints a clean toolbar/menubar/statusbar strip with subtle top highlight and bottom rule.
     pub fn paint_raised_bar(&self, canvas: &mut dyn Canvas, rect: Rect) {
         let t = self.theme;
         canvas.fill_gradient_v(rect, t.bg_surface, t.bg_window);
@@ -114,7 +110,7 @@ impl<'a> StylePainter<'a> {
         canvas.fill_rect(Rect::new(rect.x, rect.y + rect.h - 1, rect.w, 1), t.bevel_shadow);
     }
 
-    /// Paints a vertical or horizontal 3D divider line.
+    /// Paints a vertical or horizontal subtle 1px-etched divider line.
     pub fn paint_divider(&self, canvas: &mut dyn Canvas, rect: Rect, vertical: bool) {
         let t = self.theme;
         if vertical {
@@ -130,7 +126,7 @@ impl<'a> StylePainter<'a> {
     pub fn paint_row_bg(&self, canvas: &mut dyn Canvas, rect: Rect, row_idx: usize, selected: bool) {
         let t = self.theme;
         let bg = if selected {
-            t.accent
+            t.bg_active
         } else if row_idx % 2 == 1 {
             t.bg_surface_alt
         } else {
@@ -142,12 +138,10 @@ impl<'a> StylePainter<'a> {
     /// Paints a progress bar inside `rect`.
     pub fn paint_progress_bar(&self, canvas: &mut dyn Canvas, rect: Rect, ratio: f32, label: &str, fill: Color) {
         let t = self.theme;
-        canvas.fill_rect(rect, t.bg_input);
-        self.paint_panel_3d(canvas, rect, true);
-        canvas.draw_rect_outline(rect, 1, t.border);
-        let fill_w = ((rect.w - 6).max(0) as f32 * ratio.clamp(0.0, 1.0)) as i32;
+        self.paint_sunken_field(canvas, rect, false);
+        let fill_w = ((rect.w - 4).max(0) as f32 * ratio.clamp(0.0, 1.0)) as i32;
         if fill_w > 0 {
-            let fill_r = Rect::new(rect.x + 3, rect.y + 3, fill_w, (rect.h - 6).max(0));
+            let fill_r = Rect::new(rect.x + 2, rect.y + 2, fill_w, (rect.h - 4).max(0));
             canvas.fill_gradient_v(fill_r, Color::lerp(fill, Color::WHITE, 1, 3), fill);
         }
         if !label.is_empty() {

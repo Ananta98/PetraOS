@@ -75,22 +75,23 @@ impl WindowSwitcher {
         if !self.active || self.entries.is_empty() {
             return;
         }
-        let t = Theme::XP_LUNA;
+        let t = Theme::PETRA_SLATE;
         let full = self.overlay_rect(sw, sh);
         let r = Rect::new(full.x, full.y, full.w - 4, full.h - 4);
-        canvas.fill_rect(Rect::new(r.x + 4, r.y + 4, r.w, r.h), Color::argb(90, 0, 0, 0));
-        canvas.fill_rounded_rect(r, 8, t.bg_window);
+        canvas.fill_rect(Rect::new(r.x + 4, r.y + 4, r.w, r.h), Color::argb(80, 0, 0, 0));
+        canvas.fill_rounded_rect(r, 4, t.bg_window);
         StylePainter::new(&t).paint_panel_3d(canvas, r, false);
-        canvas.draw_rect_outline(r, 1, Color::rgb(0, 60, 165));
+        canvas.draw_rect_outline(r, 1, t.accent);
 
         let mut x = r.x + 14;
         for (i, (_, title)) in self.entries.iter().enumerate() {
             let card = Rect::new(x, r.y + 14, 112, 84);
             if i == self.selected {
-                canvas.fill_rounded_rect(card, 6, t.accent);
-                canvas.draw_rect_outline(card, 1, Color::rgb(255, 208, 108));
+                canvas.fill_rounded_rect(card, 3, t.accent);
+                canvas.draw_rect_outline(card, 1, Theme::TITLE_ACTIVE_HI);
             } else {
-                canvas.fill_rounded_rect(card, 6, t.bg_surface);
+                canvas.fill_rounded_rect(card, 3, t.bg_surface);
+                canvas.draw_rect_outline(card, 1, t.border);
             }
             let icon = IconId::from_title(title);
             icons::draw_icon(canvas, card.x + (card.w - 32) / 2, card.y + 12, 32, icon);

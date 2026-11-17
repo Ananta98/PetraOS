@@ -39,7 +39,7 @@ impl Layoutable for StatusBar {
 
 impl Paintable for StatusBar {
     fn paint(&self, canvas: &mut dyn Canvas) {
-        self.paint_with(canvas, &Theme::XP_LUNA);
+        self.paint_with(canvas, &Theme::PETRA_SLATE);
     }
 
     fn paint_with(&self, canvas: &mut dyn Canvas, t: &Theme) {
@@ -56,7 +56,7 @@ impl Paintable for StatusBar {
         for (i, seg) in self.segments.iter().enumerate() {
             let sx = self.rect.x + 4 + (i as i32) * seg_w;
             let sr = Rect::new(sx, self.rect.y + 3, (seg_w - 4).max(8), self.rect.h - 6);
-            painter.paint_panel_3d(canvas, sr, true);
+            canvas.draw_rect_outline(sr, 1, t.bevel_shadow);
             font::draw_text_clipped(canvas, sr, sr.x + 6, ty, seg, t.text_primary, 2);
         }
     }

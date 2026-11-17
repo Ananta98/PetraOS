@@ -1,4 +1,4 @@
-//! Classic Windows XP (Luna Blue) bottom taskbar, system tray, and two-column Start Menu.
+//! Petra Slate bottom taskbar, system tray, and OS launcher menu.
 
 use crate::scene::{LayoutMode, SceneGraph};
 use space_core::font;
@@ -7,11 +7,12 @@ use space_core::{Canvas, Color, Point, Rect};
 use space_ui::Theme;
 
 pub const TASKBAR_H: i32 = 34;
-const MENU_W: i32 = 392;
-const MENU_H: i32 = 420;
-const MENU_HDR_H: i32 = 54;
-const MENU_FTR_H: i32 = 38;
-const LEFT_COL_W: i32 = 198;
+const MENU_W: i32 = 388;
+const MENU_H: i32 = 388;
+const MENU_HDR_H: i32 = 48;
+const MENU_FTR_H: i32 = 36;
+const LEFT_COL_W: i32 = 200;
+const LAUNCHER_BTN_W: i32 = 96;
 
 #[derive(Debug, Clone, Copy)]
 pub struct AppEntry {
@@ -23,22 +24,28 @@ pub struct AppEntry {
 
 pub const PINNED_APPS: [AppEntry; 2] = [
     AppEntry {
-        name: "Terminal",
-        subtitle: "Command Prompt",
-        binary: "space-term",
-        icon: IconId::Terminal,
+        name: "Applications",
+        subtitle: "Install & Manage Software",
+        binary: "space-apps",
+        icon: IconId::AppManager,
     },
     AppEntry {
-        name: "File Explorer",
-        subtitle: "Browse Dual-Pane Files",
+        name: "Files",
+        subtitle: "Dual-Pane File Explorer",
         binary: "space-files",
         icon: IconId::Files,
     },
 ];
 
-pub const BUILTIN_APPS: [AppEntry; 4] = [
+pub const BUILTIN_APPS: [AppEntry; 5] = [
     AppEntry {
-        name: "Notepad",
+        name: "Terminal",
+        subtitle: "",
+        binary: "space-term",
+        icon: IconId::Terminal,
+    },
+    AppEntry {
+        name: "Text Editor",
         subtitle: "",
         binary: "space-pad",
         icon: IconId::Notepad,
@@ -65,17 +72,16 @@ pub const BUILTIN_APPS: [AppEntry; 4] = [
 
 const QUICK_LAUNCH: [(&str, IconId); 4] = [
     ("space-files", IconId::Files),
+    ("space-apps", IconId::AppManager),
     ("space-term", IconId::Terminal),
-    ("space-pad", IconId::Notepad),
     ("space-control", IconId::ControlPanel),
 ];
 
-const START_PLACES: [(&str, &str, IconId, bool); 6] = [
-    ("My Documents", "space-files", IconId::Files, true),
-    ("My Computer", "space-files", IconId::MyComputer, true),
+const SYSTEM_PLACES: [(&str, &str, IconId, bool); 5] = [
+    ("Computer", "space-files", IconId::MyComputer, true),
+    ("Applications", "space-apps", IconId::AppManager, true),
     ("Control Panel", "space-control", IconId::ControlPanel, false),
-    ("Task Manager", "space-tasks", IconId::Tasks, false),
-    ("Calculator", "space-calc", IconId::Calc, false),
+    ("System Monitor", "space-tasks", IconId::Tasks, false),
     ("Run Command...", "space-term", IconId::Terminal, false),
 ];
 
@@ -133,7 +139,7 @@ impl DesktopPanel {
 
     #[inline]
     pub fn launcher_rect(&self, screen_h: i32) -> Rect {
-        Rect::new(0, (screen_h - TASKBAR_H - MENU_H).max(0), MENU_W, MENU_H)
+        Rect::new(4, (screen_h - TASKBAR_H - MENU_H - 2).max(0), MENU_W, MENU_H)
     }
 
     fn tray_width(&self) -> i32 {
@@ -142,86 +148,96 @@ impl DesktopPanel {
         88 + 64 + sw + 34
     }
 
-    fn start_button_rect(&self, screen_h: i32) -> Rect {
-        Rect::new(0, screen_h - TASKBAR_H, 106, TASKBAR_H)
+    fn launcher_button_rect(&self, screen_h: i32) -> Rect {
+        Rect::new(4, screen_h - TASKBAR_H + 3, LAUNCHER_BTN_W, TASKBAR_H - 6)
+    }
+
+    fn quick_launch_start_x(&self) -> i32 {
+        4 + LAUNCHER_BTN_W + 8
     }
 
     pub fn paint(&self, canvas: &mut dyn Canvas, scene: &SceneGraph, screen_w: i32, screen_h: i32) {
         let tb_y = screen_h - TASKBAR_H;
 
-        // 1. Taskbar Luna Blue Glossy Gradient
-        canvas.fill_rect(Rect::new(0, tb_y, screen_w, 1), Color::rgb(0x16, 0x45, 0xAE));
-        canvas.fill_rect(Rect::new(0, tb_y + 1, screen_w, 2), Theme::XP_TASKBAR_TOP_HI);
+        // 1. Clean ReactOS-inspired Slate-Cobalt Taskbar
+        canvas.fill_rect(Rect::new(0, tb_y, screen_w, 1), Theme::PANEL_BORDER);
+        canvas.fill_rect(Rect::new(0, tb_y + 1, screen_w, 1), Theme::PANEL_TOP_HI);
         canvas.fill_gradient_v(
-            Rect::new(0, tb_y + 3, screen_w, TASKBAR_H - 3),
-            Theme::XP_TASKBAR_BLUE,
-            Theme::XP_TASKBAR_BOT,
+            Rect::new(0, tb_y + 2, screen_w, TASKBAR_H - 2),
+            Theme::PANEL_TOP,
+            Theme::PANEL_BOT,
         );
 
-        // 2. Glossy Green Rounded Windows XP Start Button
-        let start_r = self.start_button_rect(screen_h);
-        let (st_top, st_bot) = if self.launcher_open {
-            (Color::rgb(0x26, 0x72, 0x26), Color::rgb(0x3C, 0x9E, 0x3C))
+        // 2. Original PetraOS Launcher Button (no Windows flag / no "start")
+        let btn_r = self.launcher_button_rect(screen_h);
+        let (btn_top, btn_bot) = if self.launcher_open {
+            (Color::rgb(0x16, 0x38, 0x66), Color::rgb(0x24, 0x52, 0x90))
         } else {
-            (Color::rgb(0x46, 0xB0, 0x46), Color::rgb(0x28, 0x7E, 0x28))
+            (Color::rgb(0x3D, 0x76, 0xBF), Color::rgb(0x23, 0x52, 0x8F))
         };
-        for row in 0..TASKBAR_H {
-            let dy = (row - TASKBAR_H / 2).abs();
-            let curve = (dy * dy) / 28;
-            let w = (start_r.w - curve).max(0);
-            let col = if row <= 2 {
-                Color::rgb(0x82, 0xDC, 0x82)
-            } else {
-                Color::lerp(st_top, st_bot, row - 2, TASKBAR_H - 3)
-            };
-            canvas.fill_rect(Rect::new(0, tb_y + row, w, 1), col);
-            if w > 1 {
-                canvas.fill_rect(Rect::new(w - 2, tb_y + row, 1, 1), Color::rgb(0x5A, 0xC4, 0x5A));
-                canvas.fill_rect(Rect::new(w - 1, tb_y + row, 1, 1), Color::rgb(0x17, 0x52, 0x17));
-            }
+        canvas.fill_rounded_rect(btn_r, 3, btn_bot);
+        canvas.fill_gradient_v(
+            Rect::new(btn_r.x + 1, btn_r.y + 1, btn_r.w - 2, btn_r.h - 2),
+            btn_top,
+            btn_bot,
+        );
+        canvas.draw_rect_outline(btn_r, 1, Theme::PANEL_BORDER);
+        if !self.launcher_open {
+            canvas.fill_rect(
+                Rect::new(btn_r.x + 1, btn_r.y + 1, btn_r.w - 2, 1),
+                Color::rgb(0x73, 0xA6, 0xE6),
+            );
         }
-        icons::draw_icon(canvas, 10, tb_y + 6, 22, IconId::StartFlag);
+        icons::draw_icon(canvas, btn_r.x + 7, btn_r.y + 4, 20, IconId::PetraLogo);
         font::draw_text_shadow(
             canvas,
-            37,
-            tb_y + 8,
-            "start",
+            btn_r.x + 32,
+            btn_r.y + 6,
+            "Petra",
             Color::WHITE,
-            Color::rgb(16, 62, 16),
+            Color::rgb(0x0D, 0x22, 0x44),
             2,
             true,
         );
 
         // 3. Quick Launch Icons (20x20)
+        let ql_x = self.quick_launch_start_x();
         for (i, &(_, icon)) in QUICK_LAUNCH.iter().enumerate() {
-            let qx = 112 + (i as i32) * 28;
+            let qx = ql_x + (i as i32) * 28;
             icons::draw_icon(canvas, qx + 2, tb_y + 7, 20, icon);
         }
-        let div_x = 112 + QUICK_LAUNCH.len() as i32 * 28 + 4;
-        canvas.fill_rect(Rect::new(div_x, tb_y + 6, 1, TASKBAR_H - 12), Color::rgb(0x14, 0x3D, 0x94));
-        canvas.fill_rect(Rect::new(div_x + 1, tb_y + 6, 1, TASKBAR_H - 12), Color::rgb(0x52, 0x94, 0xF4));
+        let div_x = ql_x + QUICK_LAUNCH.len() as i32 * 28 + 4;
+        canvas.fill_rect(Rect::new(div_x, tb_y + 6, 1, TASKBAR_H - 12), Theme::PANEL_BORDER);
+        canvas.fill_rect(Rect::new(div_x + 1, tb_y + 6, 1, TASKBAR_H - 12), Theme::PANEL_TOP_HI);
 
         // 4. System Tray on Right
         let tray_w = self.tray_width();
         let tray_x = (screen_w - tray_w).max(div_x + 20);
-        let tray_r = Rect::new(tray_x, tb_y, screen_w - tray_x, TASKBAR_H);
-        canvas.fill_rect(Rect::new(tray_r.x, tb_y, tray_r.w, 2), Color::rgb(0x5C, 0xB6, 0xFF));
-        canvas.fill_gradient_v(
-            Rect::new(tray_r.x, tb_y + 2, tray_r.w, TASKBAR_H - 2),
-            Theme::XP_TRAY_BLUE,
-            Color::rgb(0x0B, 0x6F, 0xCC),
-        );
-        canvas.fill_rect(Rect::new(tray_r.x, tb_y, 1, TASKBAR_H), Color::rgb(0x09, 0x55, 0xA8));
-        canvas.fill_rect(Rect::new(tray_r.x + 1, tb_y + 2, 1, TASKBAR_H - 2), Color::rgb(0x46, 0xA8, 0xFA));
+        let tray_r = Rect::new(tray_x, tb_y + 2, screen_w - tray_x, TASKBAR_H - 2);
+        canvas.fill_gradient_v(tray_r, Theme::TRAY_TOP, Theme::TRAY_BOT);
+        canvas.fill_rect(Rect::new(tray_r.x, tb_y + 1, 1, TASKBAR_H - 1), Theme::PANEL_BORDER);
+        canvas.fill_rect(Rect::new(tray_r.x + 1, tb_y + 2, 1, TASKBAR_H - 2), Theme::PANEL_TOP_HI);
 
         // Workspace switcher (1 2 3 4)
         let mut cx = tray_x + 8;
         for ws in 0..4u8 {
             let wr = Rect::new(cx, tb_y + 6, 20, 22);
             let active = scene.active_workspace == ws;
-            let bg = if active { Color::rgb(0x08, 0x4C, 0x9E) } else { Color::rgb(0x24, 0x94, 0xF2) };
+            let bg = if active {
+                Color::rgb(0x36, 0x71, 0xB8)
+            } else {
+                Color::rgb(0x1E, 0x44, 0x76)
+            };
             canvas.fill_rect(wr, bg);
-            canvas.draw_rect_outline(wr, 1, if active { Color::WHITE } else { Color::rgb(0x0A, 0x5E, 0xB8) });
+            canvas.draw_rect_outline(
+                wr,
+                1,
+                if active {
+                    Color::rgb(0x88, 0xBE, 0xF5)
+                } else {
+                    Theme::PANEL_BORDER
+                },
+            );
             let lbl = format!("{}", ws + 1);
             let lw = font::measure_text_width(&lbl, 2);
             font::draw_text(canvas, wr.x + (wr.w - lw) / 2, wr.y + 3, &lbl, Color::WHITE, 2);
@@ -234,15 +250,15 @@ impl DesktopPanel {
             LayoutMode::Floating => "Float",
             LayoutMode::Tiled => "Tile",
         };
-        canvas.fill_rect(lay_r, Color::rgb(0x16, 0x72, 0xD2));
-        canvas.draw_rect_outline(lay_r, 1, Color::rgb(0x74, 0xC0, 0xFF));
+        canvas.fill_rect(lay_r, Color::rgb(0x1E, 0x44, 0x76));
+        canvas.draw_rect_outline(lay_r, 1, Color::rgb(0x4F, 0x84, 0xC6));
         let lw = font::measure_text_width(lay_lbl, 2);
         font::draw_text(canvas, lay_r.x + (lay_r.w - lw) / 2, lay_r.y + 3, lay_lbl, Color::WHITE, 2);
         cx += 66;
 
         // Live RAM readout
         let stats = format!("{}M / {}M", self.mem_mb, self.mem_total_mb);
-        font::draw_text(canvas, cx, tb_y + 9, &stats, Color::WHITE, 2);
+        font::draw_text(canvas, cx, tb_y + 9, &stats, Color::rgb(0xE8, 0xF1, 0xFA), 2);
 
         // 5. Running Window Task Buttons
         let active_nodes: Vec<_> = scene
@@ -261,13 +277,19 @@ impl DesktopPanel {
                 let br = Rect::new(tx, tb_y + 4, btn_w, TASKBAR_H - 8);
                 let active = node.focused && !node.minimized;
                 if active {
-                    canvas.fill_gradient_v(br, Color::rgb(0x16, 0x3D, 0x98), Color::rgb(0x1E, 0x4E, 0xC0));
-                    canvas.draw_rect_outline(br, 1, Color::rgb(0x0D, 0x2A, 0x70));
-                    canvas.fill_rect(Rect::new(br.x + 1, br.bottom() - 2, br.w - 2, 1), Color::rgb(0x4E, 0x86, 0xEA));
+                    canvas.fill_gradient_v(br, Color::rgb(0x16, 0x35, 0x61), Color::rgb(0x1E, 0x46, 0x7E));
+                    canvas.draw_rect_outline(br, 1, Theme::PANEL_BORDER);
+                    canvas.fill_rect(
+                        Rect::new(br.x + 1, br.bottom() - 2, br.w - 2, 1),
+                        Color::rgb(0x6C, 0xAD, 0xF5),
+                    );
                 } else {
-                    canvas.fill_gradient_v(br, Color::rgb(0x4C, 0x92, 0xF8), Color::rgb(0x2C, 0x6C, 0xDE));
-                    canvas.draw_rect_outline(br, 1, Color::rgb(0x18, 0x48, 0xA8));
-                    canvas.fill_rect(Rect::new(br.x + 1, br.y + 1, br.w - 2, 1), Color::rgb(0x7C, 0xB8, 0xFF));
+                    canvas.fill_gradient_v(br, Color::rgb(0x38, 0x6F, 0xB4), Color::rgb(0x27, 0x56, 0x94));
+                    canvas.draw_rect_outline(br, 1, Theme::PANEL_BORDER);
+                    canvas.fill_rect(
+                        Rect::new(br.x + 1, br.y + 1, br.w - 2, 1),
+                        Color::rgb(0x5E, 0x95, 0xD6),
+                    );
                 }
                 icons::draw_icon(canvas, br.x + 6, br.y + 4, 18, IconId::from_title(&node.title));
                 let max_chars = ((btn_w - 32).max(12) / 8) as usize;
@@ -277,135 +299,111 @@ impl DesktopPanel {
             }
         }
 
-        // 6. Authentic Two-Column Windows XP Luna Start Menu
+        // 6. PetraOS Categorized Launcher Menu (ReactOS + SerenityOS structure)
         if self.launcher_open {
             let lr = self.launcher_rect(screen_h);
-            let t = Theme::XP_LUNA;
+            let t = Theme::PETRA_SLATE;
 
-            // Drop shadow behind Start Menu
+            // Drop shadow
             canvas.fill_rect(
                 Rect::new(lr.x + 4, lr.y + 4, lr.w, lr.h),
-                Color::argb(85, 0, 0, 0),
+                Color::argb(75, 0, 0, 0),
             );
+            canvas.fill_rect(lr, t.bg_window);
+            canvas.draw_rect_outline(lr, 1, Theme::TITLE_ACTIVE_BORDER);
 
-            // Outer frame
-            canvas.fill_rect(lr, Theme::XP_TITLE_ACTIVE_BORDER);
+            // Top Slate-Cobalt Header Strip with PetraOS Logo
+            let hdr = Rect::new(lr.x + 1, lr.y + 1, lr.w - 2, MENU_HDR_H);
+            canvas.fill_gradient_v(hdr, Theme::TITLE_ACTIVE_TOP, Theme::TITLE_ACTIVE_BOT);
+            canvas.fill_rect(Rect::new(hdr.x, hdr.y, hdr.w, 1), Theme::TITLE_ACTIVE_HI);
+            canvas.fill_rect(Rect::new(hdr.x, hdr.bottom() - 1, hdr.w, 1), Theme::TITLE_ACTIVE_BORDER);
 
-            // Top glossy blue header bar with user avatar frame & orange highlight separator
-            let hdr = Rect::new(lr.x + 2, lr.y + 2, lr.w - 4, MENU_HDR_H);
-            canvas.fill_gradient_v(
-                Rect::new(hdr.x, hdr.y, hdr.w, 16),
-                Color::rgb(0x52, 0x9C, 0xFF),
-                Color::rgb(0x16, 0x5E, 0xDB),
-            );
-            canvas.fill_gradient_v(
-                Rect::new(hdr.x, hdr.y + 16, hdr.w, hdr.h - 18),
-                Color::rgb(0x16, 0x5E, 0xDB),
-                Color::rgb(0x2A, 0x76, 0xEC),
-            );
-            // Iconic XP orange-gold accent strip below the Start Menu header
-            canvas.fill_rect(
-                Rect::new(hdr.x, hdr.bottom() - 2, hdr.w, 2),
-                Color::rgb(0xF6, 0x96, 0x28),
-            );
-
-            // Framed 40x40 user avatar badge on the left
-            let av = Rect::new(hdr.x + 8, hdr.y + 6, 40, 40);
-            canvas.fill_rounded_rect(av, 4, Color::WHITE);
-            let av_in = Rect::new(av.x + 2, av.y + 2, av.w - 4, av.h - 4);
-            canvas.fill_gradient_v(av_in, Color::rgb(0x74, 0xC2, 0xFA), Color::rgb(0x52, 0xA8, 0x3E));
-            icons::draw_icon(canvas, av_in.x + 2, av_in.y + 2, 32, IconId::MyComputer);
+            icons::draw_icon(canvas, hdr.x + 10, hdr.y + 8, 32, IconId::PetraLogo);
             font::draw_text_shadow(
                 canvas,
-                hdr.x + 56,
-                hdr.y + 17,
-                "PetraOS User",
+                hdr.x + 50,
+                hdr.y + 9,
+                "PetraOS",
                 Color::WHITE,
-                Color::rgb(0, 28, 108),
+                Color::rgb(0x10, 0x26, 0x4C),
                 2,
                 true,
             );
+            font::draw_text(
+                canvas,
+                hdr.x + 50,
+                hdr.y + 27,
+                "PetraSpace Desktop",
+                Color::rgb(0xC8, 0xDF, 0xFA),
+                1,
+            );
 
-            let body_h = lr.h - MENU_HDR_H - MENU_FTR_H - 4;
+            let body_h = lr.h - MENU_HDR_H - MENU_FTR_H - 2;
 
-            // Left white column (Pinned Apps + All Programs)
-            let left_col = Rect::new(lr.x + 2, hdr.bottom(), LEFT_COL_W, body_h);
+            // Left white column: Applications
+            let left_col = Rect::new(lr.x + 1, hdr.bottom(), LEFT_COL_W, body_h);
             canvas.fill_rect(left_col, Color::WHITE);
 
             let mut ly = left_col.y + 8;
             for app in PINNED_APPS.iter() {
-                icons::draw_icon(canvas, left_col.x + 10, ly + 2, 32, app.icon);
-                font::draw_text_bold(canvas, left_col.x + 48, ly + 2, app.name, t.text_primary, 2);
-                font::draw_text(canvas, left_col.x + 48, ly + 19, app.subtitle, t.text_secondary, 1);
+                icons::draw_icon(canvas, left_col.x + 10, ly + 4, 28, app.icon);
+                font::draw_text_bold(canvas, left_col.x + 46, ly + 2, app.name, t.text_primary, 2);
+                font::draw_text(canvas, left_col.x + 46, ly + 19, app.subtitle, t.text_secondary, 1);
                 ly += 42;
             }
 
-            // Etched horizontal separator
-            canvas.fill_rect(Rect::new(left_col.x + 10, ly + 2, left_col.w - 20, 1), Color::rgb(0xD6, 0xD3, 0xC6));
+            canvas.fill_rect(Rect::new(left_col.x + 10, ly + 2, left_col.w - 20, 1), t.bevel_shadow);
             ly += 10;
 
             for app in BUILTIN_APPS.iter() {
-                icons::draw_icon(canvas, left_col.x + 12, ly + 3, 24, app.icon);
-                font::draw_text(canvas, left_col.x + 44, ly + 7, app.name, t.text_primary, 2);
+                icons::draw_icon(canvas, left_col.x + 12, ly + 4, 22, app.icon);
+                font::draw_text(canvas, left_col.x + 42, ly + 7, app.name, t.text_primary, 2);
                 ly += 34;
             }
 
-            // Bottom "All Programs ▶" bar in left column
-            let all_y = left_col.bottom() - 34;
-            canvas.fill_rect(Rect::new(left_col.x + 10, all_y - 4, left_col.w - 20, 1), Color::rgb(0xD6, 0xD3, 0xC6));
-            font::draw_text_bold(canvas, left_col.x + 38, all_y + 6, "All Programs", t.text_primary, 2);
-            // Green XP arrow triangle
-            let ax = left_col.right() - 28;
-            let ay = all_y + 7;
-            for r in 0..13i32 {
-                let half = (6 - (r - 6).abs()).max(0);
-                canvas.fill_rect(Rect::new(ax, ay + r, half + 2, 1), Color::rgb(0x38, 0x9E, 0x34));
-            }
-
-            // Right light-blue column (#D3E5FA) for System Places
+            // Right cool-slate column: System Places
             let right_col = Rect::new(
                 left_col.right(),
                 hdr.bottom(),
-                lr.right() - 2 - left_col.right(),
+                lr.right() - 1 - left_col.right(),
                 body_h,
             );
-            canvas.fill_rect(right_col, t.accent_soft);
-            canvas.fill_rect(Rect::new(right_col.x, right_col.y, 1, right_col.h), Color::rgb(0x95, 0xBD, 0xEE));
+            canvas.fill_rect(right_col, Color::rgb(0xEC, 0xF1, 0xF7));
+            canvas.fill_rect(Rect::new(right_col.x, right_col.y, 1, right_col.h), t.bevel_shadow);
 
             let mut ry = right_col.y + 8;
-            for (idx, &(label, _, icon, is_bold)) in START_PLACES.iter().enumerate() {
+            for (idx, &(label, _, icon, is_bold)) in SYSTEM_PLACES.iter().enumerate() {
                 if idx == 2 {
-                    canvas.fill_rect(Rect::new(right_col.x + 10, ry + 2, right_col.w - 20, 1), Color::rgb(0xA6, 0xC6, 0xEE));
-                    canvas.fill_rect(Rect::new(right_col.x + 10, ry + 3, right_col.w - 20, 1), Color::rgb(0xEA, 0xF3, 0xFF));
+                    canvas.fill_rect(Rect::new(right_col.x + 10, ry + 2, right_col.w - 20, 1), t.bevel_shadow);
+                    canvas.fill_rect(Rect::new(right_col.x + 10, ry + 3, right_col.w - 20, 1), Color::WHITE);
                     ry += 10;
                 }
-                icons::draw_icon(canvas, right_col.x + 10, ry + 3, 22, icon);
-                let text_col = Color::rgb(0x0A, 0x24, 0x6A);
+                icons::draw_icon(canvas, right_col.x + 10, ry + 4, 20, icon);
                 if is_bold {
-                    font::draw_text_bold(canvas, right_col.x + 38, ry + 6, label, text_col, 2);
+                    font::draw_text_bold(canvas, right_col.x + 36, ry + 6, label, t.text_primary, 2);
                 } else {
-                    font::draw_text(canvas, right_col.x + 38, ry + 6, label, text_col, 2);
+                    font::draw_text(canvas, right_col.x + 36, ry + 6, label, t.text_primary, 2);
                 }
                 ry += 34;
             }
 
-            // Bottom royal-blue footer bar with Log Off & Turn Off buttons
-            let ftr = Rect::new(lr.x + 2, left_col.bottom(), lr.w - 4, MENU_FTR_H);
-            canvas.fill_rect(Rect::new(ftr.x, ftr.y, ftr.w, 1), Color::rgb(0x3D, 0x80, 0xF0));
+            // Clean neutral footer strip
+            let ftr = Rect::new(lr.x + 1, left_col.bottom(), lr.w - 2, MENU_FTR_H);
+            canvas.fill_rect(Rect::new(ftr.x, ftr.y, ftr.w, 1), t.bevel_shadow);
             canvas.fill_gradient_v(
                 Rect::new(ftr.x, ftr.y + 1, ftr.w, ftr.h - 1),
-                Color::rgb(0x28, 0x66, 0xE2),
-                Color::rgb(0x12, 0x3D, 0x9C),
+                Color::rgb(0xEA, 0xEE, 0xF4),
+                Color::rgb(0xDC, 0xE2, 0xEB),
             );
+            font::draw_text(canvas, ftr.x + 12, ftr.y + 11, "Petra Slate", t.text_secondary, 1);
 
-            // Log off & Turn off badges on right side of footer
-            let logoff_x = ftr.right() - 188;
-            icons::draw_icon(canvas, logoff_x, ftr.y + 8, 22, IconId::LogOff);
-            font::draw_text(canvas, logoff_x + 26, ftr.y + 11, "Log off", Color::WHITE, 2);
+            let logoff_x = ftr.right() - 180;
+            icons::draw_icon(canvas, logoff_x, ftr.y + 7, 20, IconId::LogOff);
+            font::draw_text(canvas, logoff_x + 24, ftr.y + 10, "Log off", t.text_primary, 2);
 
-            let turnoff_x = ftr.right() - 96;
-            icons::draw_icon(canvas, turnoff_x, ftr.y + 8, 22, IconId::TurnOff);
-            font::draw_text(canvas, turnoff_x + 26, ftr.y + 11, "Turn off", Color::WHITE, 2);
+            let turnoff_x = ftr.right() - 94;
+            icons::draw_icon(canvas, turnoff_x, ftr.y + 7, 20, IconId::TurnOff);
+            font::draw_text(canvas, turnoff_x + 24, ftr.y + 10, "Shut down", t.text_primary, 2);
         }
     }
 
@@ -419,8 +417,8 @@ impl DesktopPanel {
         if self.launcher_open {
             let lr = self.launcher_rect(screen_h);
             if lr.contains(pos) {
-                let left_col_x = lr.x + 2;
-                let body_y = lr.y + 2 + MENU_HDR_H;
+                let left_col_x = lr.x + 1;
+                let body_y = lr.y + 1 + MENU_HDR_H;
 
                 let mut ly = body_y + 8;
                 for app in PINNED_APPS.iter() {
@@ -442,9 +440,9 @@ impl DesktopPanel {
                 }
 
                 let right_col_x = left_col_x + LEFT_COL_W;
-                let right_col_w = lr.right() - 2 - right_col_x;
+                let right_col_w = lr.right() - 1 - right_col_x;
                 let mut ry = body_y + 8;
-                for (idx, &(_, bin, _, _)) in START_PLACES.iter().enumerate() {
+                for (idx, &(_, bin, _, _)) in SYSTEM_PLACES.iter().enumerate() {
                     if idx == 2 {
                         ry += 10;
                     }
@@ -462,17 +460,18 @@ impl DesktopPanel {
         // Bottom taskbar
         let tb_y = screen_h - TASKBAR_H;
         if pos.y >= tb_y && pos.y < screen_h {
-            if self.start_button_rect(screen_h).contains(pos) {
+            if self.launcher_button_rect(screen_h).contains(pos) {
                 return PanelAction::ToggleLauncher;
             }
+            let ql_x = self.quick_launch_start_x();
             for (i, &(bin, _)) in QUICK_LAUNCH.iter().enumerate() {
-                let qr = Rect::new(112 + (i as i32) * 28, tb_y + 5, 24, 24);
+                let qr = Rect::new(ql_x + (i as i32) * 28, tb_y + 5, 24, 24);
                 if qr.contains(pos) {
                     return PanelAction::LaunchApp(bin);
                 }
             }
 
-            let div_x = 112 + QUICK_LAUNCH.len() as i32 * 28 + 4;
+            let div_x = ql_x + QUICK_LAUNCH.len() as i32 * 28 + 4;
             let tray_w = self.tray_width();
             let tray_x = (screen_w - tray_w).max(div_x + 20);
             if pos.x >= tray_x {

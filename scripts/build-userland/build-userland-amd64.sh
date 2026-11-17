@@ -182,7 +182,7 @@ if [ -f "${USERSPACE_DIR}/Cargo.toml" ] && command -v cargo >/dev/null 2>&1; the
         cargo build --release --target "${SPACE_TARGET}"
     )
     mkdir -p "${ROOTFS_STAGING}/usr/bin"
-    for bin in space-compositor space-files space-tasks space-term space-calc space-pad space-control; do
+    for bin in space-compositor space-files space-tasks space-term space-calc space-pad space-control space-apps; do
         if [ -x "${USERSPACE_DIR}/target/${SPACE_TARGET}/release/${bin}" ]; then
             install -m0755 "${USERSPACE_DIR}/target/${SPACE_TARGET}/release/${bin}" \
                 "${ROOTFS_STAGING}/usr/bin/${bin}"

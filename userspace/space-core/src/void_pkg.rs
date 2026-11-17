@@ -1,5 +1,6 @@
-//! Void Linux native userspace integration: XBPS package lifecycle & runit service control.
+//! PetraOS userspace package & service management helpers.
 
+use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
@@ -9,6 +10,7 @@ pub struct PackageInfo {
     pub name: String,
     pub version: String,
     pub description: String,
+    pub installed: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -18,10 +20,28 @@ pub struct ServiceInfo {
     pub status: String,
 }
 
-/// Wrapper around Void Linux `xbps-*` CLI tools.
-pub struct XbpsClient;
+/// Software catalog & installation manager for Applications Manager.
+pub struct PackageManager;
 
-impl XbpsClient {
+impl PackageManager {
+    fn parse_pkg_line(line: &str, installed: bool) -> Option<PackageInfo> {
+        let mut parts = line.split_whitespace();
+        let state = parts.next()?;
+        let pkg_ver = parts.next()?;
+        let desc = parts.collect::<Vec<_>>().join(" ");
+        let (name, version) = match pkg_ver.rsplit_once('-') {
+            Some((n, v)) => (n.to_string(), v.to_string()),
+            None => (pkg_ver.to_string(), String::new()),
+        };
+        let is_installed = installed || state.starts_with("[*]") || state == "ii";
+        Some(PackageInfo {
+            name,
+            version,
+            description: desc,
+            installed: is_installed,
+        })
+    }
+
     pub fn list_installed() -> Vec<PackageInfo> {
         let Ok(out) = Command::new("xbps-query").arg("-l").output() else {
             return Vec::new();
@@ -30,25 +50,31 @@ impl XbpsClient {
             return Vec::new();
         }
         let text = String::from_utf8_lossy(&out.stdout);
-        let mut pkgs = Vec::new();
-        for line in text.lines() {
-            // Format: "ii pkgname-1.2.3_1  Short description"
-            let mut parts = line.split_whitespace();
-            let _state = parts.next();
-            if let Some(pkg_ver) = parts.next() {
-                let desc = parts.collect::<Vec<_>>().join(" ");
-                let (name, version) = match pkg_ver.rsplit_once('-') {
-                    Some((n, v)) => (n.to_string(), v.to_string()),
-                    None => (pkg_ver.to_string(), String::new()),
-                };
-                pkgs.push(PackageInfo {
-                    name,
-                    version,
-                    description: desc,
-                });
+        text.lines()
+            .filter_map(|line| Self::parse_pkg_line(line, true))
+            .collect()
+    }
+
+    /// Lists installed packages merged with any locally cached repository catalog.
+    pub fn list_catalog() -> Vec<PackageInfo> {
+        let installed = Self::list_installed();
+        let installed_names: HashSet<String> = installed.iter().map(|p| p.name.clone()).collect();
+        let mut catalog = installed;
+
+        if let Ok(out) = Command::new("xbps-query").args(["-Rs", ""]).output() {
+            if out.status.success() {
+                let text = String::from_utf8_lossy(&out.stdout);
+                for line in text.lines().take(512) {
+                    if let Some(pkg) = Self::parse_pkg_line(line, false) {
+                        if !installed_names.contains(&pkg.name) {
+                            catalog.push(pkg);
+                        }
+                    }
+                }
             }
         }
-        pkgs
+        catalog.sort_by(|a, b| a.name.cmp(&b.name));
+        catalog
     }
 
     pub fn install(pkg: &str) -> Result<String, String> {
@@ -76,7 +102,7 @@ impl XbpsClient {
     }
 }
 
-/// Wrapper around Void Linux `runit` (`/etc/sv`, `/var/service`, `sv`).
+/// Wrapper around `runit` (`/etc/sv`, `/var/service`, `sv`).
 pub struct RunitManager;
 
 impl RunitManager {

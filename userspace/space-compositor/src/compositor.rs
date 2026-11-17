@@ -1,6 +1,6 @@
 //! Proprietary damage-tracked compositing engine, evdev router, and IPC server.
 
-use crate::decorator::{HitPart, WindowDecorator, XpLunaDecorator, BORDER_W, TITLEBAR_H};
+use crate::decorator::{HitPart, PetraDecorator, WindowDecorator, BORDER_W, TITLEBAR_H};
 use crate::panel::{DesktopPanel, PanelAction, TASKBAR_H};
 use crate::scene::{LayoutMode, SceneGraph, SurfaceNode};
 use crate::switcher::WindowSwitcher;
@@ -54,10 +54,10 @@ impl<'a> Canvas for ScreenCanvas<'a> {
 }
 
 const DESKTOP_SHORTCUTS: [(&str, &str, IconId); 6] = [
-    ("My Computer", "space-files", IconId::MyComputer),
-    ("My Documents", "space-files", IconId::Files),
+    ("Computer", "space-files", IconId::MyComputer),
+    ("Applications", "space-apps", IconId::AppManager),
     ("Terminal", "space-term", IconId::Terminal),
-    ("Notepad", "space-pad", IconId::Notepad),
+    ("Text Editor", "space-pad", IconId::Notepad),
     ("Calculator", "space-calc", IconId::Calc),
     ("Control Panel", "space-control", IconId::ControlPanel),
 ];
@@ -71,7 +71,7 @@ pub struct Compositor<R: RenderBackend, I: InputBackend> {
     input: I,
     scene: SceneGraph,
     panel: DesktopPanel,
-    decorator: XpLunaDecorator,
+    decorator: PetraDecorator,
     wallpaper: Vec<u32>,
     selected_shortcut: Option<usize>,
     switcher: WindowSwitcher,
@@ -120,14 +120,14 @@ impl<R: RenderBackend, I: InputBackend> Compositor<R, I> {
 
         let mut panel = DesktopPanel::new();
         panel.update_stats();
-        let wallpaper = crate::wallpaper::build_bliss_wallpaper(renderer.width(), renderer.height());
+        let wallpaper = crate::wallpaper::build_petra_wallpaper(renderer.width(), renderer.height());
 
         Ok(Self {
             renderer,
             input,
             scene: SceneGraph::new(),
             panel,
-            decorator: XpLunaDecorator,
+            decorator: PetraDecorator,
             wallpaper,
             selected_shortcut: None,
             switcher: WindowSwitcher::new(),
@@ -259,7 +259,7 @@ impl<R: RenderBackend, I: InputBackend> Compositor<R, I> {
             return;
         };
         if let Ok(true) = self.renderer.set_mode(w, h) {
-            self.wallpaper = crate::wallpaper::build_bliss_wallpaper(w, h);
+            self.wallpaper = crate::wallpaper::build_petra_wallpaper(w, h);
             let sw = w as i32;
             let sh = h as i32;
             self.cursor.x = self.cursor.x.clamp(0, sw - 1);
@@ -737,7 +737,7 @@ impl<R: RenderBackend, I: InputBackend> Compositor<R, I> {
             }
             canvas.clip = clip;
 
-            // 1. Bliss-inspired XP wallpaper (cached SIMD blit for zero-seam partial repaints)
+            // 1. Petra Slate wallpaper (cached SIMD blit for zero-seam partial repaints)
             canvas.blit_from(&self.wallpaper, sw, clip, clip.x, clip.y, clip, false);
 
             // 1b. Clickable desktop shortcut icons on the left
@@ -753,8 +753,8 @@ impl<R: RenderBackend, I: InputBackend> Compositor<R, I> {
                 if selected {
                     canvas.fill_rounded_rect(
                         Rect::new(icon_x, icon_y, 36, 36),
-                        4,
-                        Color::argb(65, 49, 106, 197),
+                        2,
+                        Color::argb(65, 35, 95, 168),
                     );
                 }
                 let lw = font::measure_text_width(label, 2);
@@ -762,7 +762,7 @@ impl<R: RenderBackend, I: InputBackend> Compositor<R, I> {
                 let ly = sr.y + 46;
                 if selected {
                     let lbl_r = Rect::new(lx - 4, ly - 1, lw + 8, 18);
-                    canvas.fill_rounded_rect(lbl_r, 2, Color::rgb(0x31, 0x6A, 0xC5));
+                    canvas.fill_rounded_rect(lbl_r, 2, Color::rgb(0x23, 0x5F, 0xA8));
                     font::draw_text(&mut canvas, lx, ly, label, Color::WHITE, 2);
                 } else {
                     font::draw_text_shadow(
@@ -818,7 +818,7 @@ impl<R: RenderBackend, I: InputBackend> Compositor<R, I> {
                 self.switcher.paint(&mut canvas, sw as i32, sh as i32);
             }
 
-            // 4. Crisp Windows XP-style arrow cursor (12x19) with drop shadow
+            // 4. Crisp arrow cursor (12x19) with drop shadow
             let cur_r = Rect::new(self.cursor.x, self.cursor.y, 14, 21);
             if cur_r.intersects(clip) {
                 const CURSOR_ROWS: [&str; 19] = [

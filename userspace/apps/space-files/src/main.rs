@@ -107,7 +107,7 @@ impl FilesApp {
     }
 
     fn paint_pane(&self, canvas: &mut dyn Canvas, idx: usize, rect: Rect) {
-        let t = Theme::XP_LUNA;
+        let t = Theme::PETRA_SLATE;
         let pane = &self.panes[idx];
         let active = self.active_pane == idx;
         canvas.fill_rect(rect, t.bg_surface);
@@ -164,7 +164,7 @@ impl Lifecycle for FilesApp {}
 
 impl Paintable for FilesApp {
     fn paint(&self, canvas: &mut dyn Canvas) {
-        let t = Theme::XP_LUNA;
+        let t = Theme::PETRA_SLATE;
         self.btn_up.paint(canvas);
         self.btn_dual.paint(canvas);
         self.btn_mkdir.paint(canvas);

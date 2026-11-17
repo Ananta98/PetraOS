@@ -12,7 +12,8 @@ use crate::pixel::{Canvas, Color};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum IconId {
-    StartFlag,
+    PetraLogo,
+    AppManager,
     Files,
     Terminal,
     Tasks,
@@ -28,7 +29,9 @@ impl IconId {
     /// Infers an icon from a window title or binary name.
     pub fn from_title(title: &str) -> Self {
         let lower = title.to_ascii_lowercase();
-        if lower.contains("file") || lower.contains("document") {
+        if lower.contains("application") || lower.contains("package") || lower.contains("software") {
+            Self::AppManager
+        } else if lower.contains("file") || lower.contains("document") {
             Self::Files
         } else if lower.contains("term") || lower.contains("cmd") || lower.contains("prompt") {
             Self::Terminal
@@ -47,7 +50,8 @@ impl IconId {
 
     fn filename(self) -> &'static str {
         match self {
-            Self::StartFlag => "start-flag.svg",
+            Self::PetraLogo => "petra-logo.svg",
+            Self::AppManager => "app-manager.svg",
             Self::Files => "files.svg",
             Self::Terminal => "terminal.svg",
             Self::Tasks => "tasks.svg",
@@ -62,7 +66,8 @@ impl IconId {
 
     fn embedded_svg(self) -> &'static [u8] {
         match self {
-            Self::StartFlag => include_bytes!("../../../base-files/rootfs/usr/share/icons/space/start-flag.svg"),
+            Self::PetraLogo => include_bytes!("../../../base-files/rootfs/usr/share/icons/space/petra-logo.svg"),
+            Self::AppManager => include_bytes!("../../../base-files/rootfs/usr/share/icons/space/app-manager.svg"),
             Self::Files => include_bytes!("../../../base-files/rootfs/usr/share/icons/space/files.svg"),
             Self::Terminal => include_bytes!("../../../base-files/rootfs/usr/share/icons/space/terminal.svg"),
             Self::Tasks => include_bytes!("../../../base-files/rootfs/usr/share/icons/space/tasks.svg"),

@@ -63,7 +63,7 @@ impl Layoutable for Button {
 
 impl Paintable for Button {
     fn paint(&self, canvas: &mut dyn Canvas) {
-        self.paint_with(canvas, &Theme::XP_LUNA);
+        self.paint_with(canvas, &Theme::PETRA_SLATE);
     }
 
     fn paint_with(&self, canvas: &mut dyn Canvas, t: &Theme) {
@@ -127,7 +127,7 @@ pub fn draw_panel_3d(canvas: &mut dyn Canvas, rect: Rect, sunken: bool, t: &Them
 
 /// Progress bar widget.
 pub fn draw_progress_bar(canvas: &mut dyn Canvas, rect: Rect, ratio: f32, label: &str, fill_color: Color) {
-    let t = Theme::XP_LUNA;
+    let t = Theme::PETRA_SLATE;
     StylePainter::new(&t).paint_progress_bar(canvas, rect, ratio, label, fill_color);
 }
 

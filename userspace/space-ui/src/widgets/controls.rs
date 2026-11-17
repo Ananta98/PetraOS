@@ -42,11 +42,11 @@ impl Layoutable for CheckBox {
 
 impl Paintable for CheckBox {
     fn paint(&self, canvas: &mut dyn Canvas) {
-        let t = Theme::XP_LUNA;
+        let t = Theme::PETRA_SLATE;
         let box_r = Rect::new(self.rect.x, self.rect.y + (self.rect.h - 16) / 2, 16, 16);
         StylePainter::new(&t).paint_sunken_field(canvas, box_r, false);
         if self.checked {
-            let check_col = Color::rgb(33, 161, 33);
+            let check_col = t.accent;
             canvas.fill_rect(Rect::new(box_r.x + 4, box_r.y + 8, 3, 4), check_col);
             canvas.fill_rect(Rect::new(box_r.x + 7, box_r.y + 6, 3, 6), check_col);
             canvas.fill_rect(Rect::new(box_r.x + 10, box_r.y + 4, 3, 5), check_col);
@@ -119,11 +119,11 @@ impl Layoutable for TabWidget {
 
 impl Paintable for TabWidget {
     fn paint(&self, canvas: &mut dyn Canvas) {
-        let t = Theme::XP_LUNA;
+        let t = Theme::PETRA_SLATE;
         let painter = StylePainter::new(&t);
         canvas.fill_rect(
             Rect::new(self.rect.x, self.rect.y + self.rect.h - 1, self.rect.w, 1),
-            t.bevel_light,
+            t.border,
         );
         for (i, title) in self.tabs.iter().enumerate() {
             let tr = self.tab_rect(i);
@@ -131,12 +131,12 @@ impl Paintable for TabWidget {
                 break;
             }
             let active = i == self.active;
-            let bg = if active { t.bg_window } else { t.bg_surface_alt };
-            canvas.fill_rounded_rect(tr, 4, bg);
+            let bg = if active { t.bg_surface } else { t.bg_surface_alt };
+            canvas.fill_rounded_rect(tr, 2, bg);
             canvas.draw_rect_outline(tr, 1, t.border);
             if active {
-                canvas.fill_rect(Rect::new(tr.x + 1, tr.y, tr.w - 2, 3), Color::rgb(230, 151, 0));
-                canvas.fill_rect(Rect::new(tr.x + 1, tr.y + tr.h - 1, tr.w - 2, 1), t.bg_window);
+                canvas.fill_rect(Rect::new(tr.x + 1, tr.y, tr.w - 2, 2), t.accent);
+                canvas.fill_rect(Rect::new(tr.x + 1, tr.y + tr.h - 1, tr.w - 2, 1), t.bg_surface);
             }
             let tw = font::measure_text_width(title, 2);
             let tx = tr.x + (tr.w - tw) / 2;
@@ -209,7 +209,7 @@ impl Layoutable for Splitter {
 
 impl Paintable for Splitter {
     fn paint(&self, canvas: &mut dyn Canvas) {
-        let t = Theme::XP_LUNA;
+        let t = Theme::PETRA_SLATE;
         let sx = self.split_x() - 2;
         StylePainter::new(&t).paint_divider(canvas, Rect::new(sx, self.rect.y, 4, self.rect.h), true);
     }
@@ -278,7 +278,7 @@ impl Layoutable for ProgressBar {
 
 impl Paintable for ProgressBar {
     fn paint(&self, canvas: &mut dyn Canvas) {
-        self.paint_with(canvas, &Theme::XP_LUNA);
+        self.paint_with(canvas, &Theme::PETRA_SLATE);
     }
 
     fn paint_with(&self, canvas: &mut dyn Canvas, t: &Theme) {

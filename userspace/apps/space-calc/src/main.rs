@@ -212,7 +212,7 @@ impl Lifecycle for CalcApp {}
 
 impl Paintable for CalcApp {
     fn paint(&self, canvas: &mut dyn Canvas) {
-        let t = Theme::XP_LUNA;
+        let t = Theme::PETRA_SLATE;
         let disp = Rect::new(12, 12, 414, 124);
         canvas.fill_rect(disp, t.bg_input);
         draw_panel_3d(canvas, disp, true, &t);

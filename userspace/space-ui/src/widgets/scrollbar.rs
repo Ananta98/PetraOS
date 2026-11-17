@@ -93,7 +93,7 @@ impl Layoutable for ScrollBar {
 
 impl Paintable for ScrollBar {
     fn paint(&self, canvas: &mut dyn Canvas) {
-        self.paint_with(canvas, &Theme::XP_LUNA);
+        self.paint_with(canvas, &Theme::PETRA_SLATE);
     }
 
     fn paint_with(&self, canvas: &mut dyn Canvas, t: &Theme) {
@@ -101,7 +101,7 @@ impl Paintable for ScrollBar {
         canvas.draw_rect_outline(self.rect, 1, t.border);
 
         let thumb = self.thumb_rect();
-        canvas.fill_gradient_v(thumb, t.bg_surface, t.bg_active);
+        canvas.fill_gradient_v(thumb, t.bg_surface, t.bevel_shadow);
         StylePainter::new(t).paint_panel_3d(canvas, thumb, false);
     }
 }

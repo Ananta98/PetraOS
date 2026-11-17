@@ -71,7 +71,7 @@ impl Layoutable for ToolBar {
 
 impl Paintable for ToolBar {
     fn paint(&self, canvas: &mut dyn Canvas) {
-        self.paint_with(canvas, &Theme::XP_LUNA);
+        self.paint_with(canvas, &Theme::PETRA_SLATE);
     }
 
     fn paint_with(&self, canvas: &mut dyn Canvas, t: &Theme) {

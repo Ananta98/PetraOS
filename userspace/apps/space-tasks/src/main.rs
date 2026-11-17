@@ -65,7 +65,7 @@ impl TasksApp {
             tick: 0,
             cpu_bar: ProgressBar::new(Rect::new(0, 0, 0, 0), 0.0, "CPU: 0.0%"),
             mem_bar: ProgressBar::new(Rect::new(0, 0, 0, 0), 0.0, "RAM: 0 / 0 MB")
-                .with_fill(Theme::XP_LUNA.success),
+                .with_fill(Theme::PETRA_SLATE.success),
             toolbar,
             table,
             statusbar,

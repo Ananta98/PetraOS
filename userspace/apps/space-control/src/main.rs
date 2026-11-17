@@ -1,6 +1,6 @@
 use space_core::font;
 use space_core::icons::{self, IconId};
-use space_core::void_pkg::{PackageInfo, RunitManager, ServiceInfo, XbpsClient};
+use space_core::void_pkg::{RunitManager, ServiceInfo};
 use space_core::{Canvas, Color, Rect};
 use space_ui::{
     draw_panel_3d, draw_progress_bar, list_item_at, AppLogic, Button, EventListener, Lifecycle,
@@ -14,7 +14,7 @@ enum ControlTab {
     Display,
     Audio,
     Runit,
-    Xbps,
+    System,
 }
 
 const RES_MODES: [&str; 5] = [
@@ -32,7 +32,8 @@ struct ControlApp {
     btn_disp: Button,
     btn_audio: Button,
     btn_runit: Button,
-    btn_xbps: Button,
+    btn_system: Button,
+    btn_open_apps: Button,
     // Display
     drm_info: Vec<String>,
     active_res: String,
@@ -49,9 +50,6 @@ struct ControlApp {
     btn_svc_up: Button,
     btn_svc_down: Button,
     btn_svc_restart: Button,
-    // XBPS
-    packages: Vec<PackageInfo>,
-    pkg_scroll: usize,
     status: String,
 }
 
@@ -64,7 +62,8 @@ impl ControlApp {
             btn_disp: Button::new(Rect::new(18, 92, 168, 30), "Display & Screen"),
             btn_audio: Button::new(Rect::new(18, 128, 168, 30), "Sound & Audio"),
             btn_runit: Button::new(Rect::new(18, 164, 168, 30), "System Services"),
-            btn_xbps: Button::new(Rect::new(18, 200, 168, 30), "Software (XBPS)"),
+            btn_system: Button::new(Rect::new(18, 200, 168, 30), "System & Theme"),
+            btn_open_apps: Button::new(Rect::new(224, 240, 210, 32), "Open Applications Manager"),
             drm_info: Vec::new(),
             active_res: String::from("1440x900"),
             res_buttons: [
@@ -84,13 +83,10 @@ impl ControlApp {
             btn_svc_up: Button::new(Rect::new(224, 118, 88, 28), "Start"),
             btn_svc_down: Button::new(Rect::new(320, 118, 88, 28), "Stop"),
             btn_svc_restart: Button::new(Rect::new(416, 118, 108, 28), "Restart"),
-            packages: Vec::new(),
-            pkg_scroll: 0,
-            status: String::from("Control Panel - PetraOS Luna Edition"),
+            status: String::from("Control Panel - PetraOS Petra Slate"),
         };
         app.refresh_drm();
         app.refresh_services();
-        app.refresh_packages();
         app
     }
 
@@ -126,10 +122,6 @@ impl ControlApp {
         self.services = RunitManager::list_services();
     }
 
-    fn refresh_packages(&mut self) {
-        self.packages = XbpsClient::list_installed();
-    }
-
     fn apply_volume(&mut self) {
         let val = if self.muted { 0 } else { self.volume };
         let _ = fs::write("/run/space-audio-vol", format!("{}\n", val));
@@ -148,18 +140,18 @@ impl Lifecycle for ControlApp {}
 
 impl Paintable for ControlApp {
     fn paint(&self, canvas: &mut dyn Canvas) {
-        let t = Theme::XP_LUNA;
+        let t = Theme::PETRA_SLATE;
         let w = self.width as i32;
         let h = self.height as i32;
 
-        // 1. Classic XP Menu Bar & Address Bar
+        // 1. Clean Menu Bar & Address Bar
         let menu_r = Rect::new(0, 0, w, 24);
         canvas.fill_rect(menu_r, t.bg_window);
         font::draw_text(
             canvas,
             10,
             4,
-            "File    Edit    View    Favorites    Tools    Help",
+            "File    Edit    View    Tools    Help",
             t.text_primary,
             2,
         );
@@ -167,27 +159,27 @@ impl Paintable for ControlApp {
 
         let addr_bar = Rect::new(0, 25, w, 28);
         canvas.fill_rect(addr_bar, t.bg_window);
-        font::draw_text(canvas, 10, 31, "Address", t.text_secondary, 2);
-        let addr_well = Rect::new(72, 28, w - 82, 22);
+        font::draw_text(canvas, 10, 31, "Location", t.text_secondary, 2);
+        let addr_well = Rect::new(78, 28, w - 88, 22);
         canvas.fill_rect(addr_well, Color::WHITE);
         canvas.draw_rect_outline(addr_well, 1, t.border);
         icons::draw_icon(canvas, addr_well.x + 4, addr_well.y + 3, 16, IconId::ControlPanel);
         font::draw_text(canvas, addr_well.x + 24, addr_well.y + 3, "Control Panel", t.text_primary, 2);
         canvas.fill_rect(Rect::new(0, 53, w, 1), t.bevel_shadow);
 
-        // 2. Left XP Explorer Task Pane (Blue Gradient Sidebar)
+        // 2. Left Slate-Cobalt Task Sidebar
         let side_r = Rect::new(8, 60, 188, h - 88);
-        canvas.fill_gradient_v(side_r, Color::rgb(0x7B, 0xA2, 0xE7), Color::rgb(0x63, 0x75, 0xD6));
-        canvas.draw_rect_outline(side_r, 1, Color::rgb(0x4E, 0x64, 0xC4));
+        canvas.fill_gradient_v(side_r, Color::rgb(0xE1, 0xEA, 0xF5), Color::rgb(0xCE, 0xDB, 0xEC));
+        canvas.draw_rect_outline(side_r, 1, t.border);
 
         // Task Box Header ("Control Panel")
         let card_hdr = Rect::new(side_r.x + 6, side_r.y + 6, side_r.w - 12, 22);
-        canvas.fill_gradient_v(card_hdr, Color::WHITE, Color::rgb(0xD6, 0xE3, 0xF7));
-        font::draw_text_bold(canvas, card_hdr.x + 8, card_hdr.y + 3, "Control Panel", Color::rgb(0x21, 0x5D, 0xC6), 2);
+        canvas.fill_gradient_v(card_hdr, Theme::TITLE_ACTIVE_TOP, Theme::TITLE_ACTIVE_BOT);
+        font::draw_text_bold(canvas, card_hdr.x + 8, card_hdr.y + 3, "Control Panel", Color::WHITE, 2);
 
         let card_body = Rect::new(side_r.x + 6, card_hdr.bottom(), side_r.w - 12, 152);
-        canvas.fill_rect(card_body, Color::rgb(0xD6, 0xDF, 0xF7));
-        canvas.draw_rect_outline(card_body, 1, Color::WHITE);
+        canvas.fill_rect(card_body, t.bg_surface);
+        canvas.draw_rect_outline(card_body, 1, t.border);
 
         let mut b_disp = self.btn_disp.clone();
         b_disp.active = self.tab == ControlTab::Display;
@@ -195,39 +187,38 @@ impl Paintable for ControlApp {
         b_aud.active = self.tab == ControlTab::Audio;
         let mut b_run = self.btn_runit.clone();
         b_run.active = self.tab == ControlTab::Runit;
-        let mut b_xbp = self.btn_xbps.clone();
-        b_xbp.active = self.tab == ControlTab::Xbps;
+        let mut b_sys = self.btn_system.clone();
+        b_sys.active = self.tab == ControlTab::System;
 
         b_disp.paint(canvas);
         b_aud.paint(canvas);
         b_run.paint(canvas);
-        b_xbp.paint(canvas);
+        b_sys.paint(canvas);
 
         // Second sidebar card ("System Details")
         let info_hdr = Rect::new(side_r.x + 6, card_body.bottom() + 10, side_r.w - 12, 22);
-        canvas.fill_gradient_v(info_hdr, Color::WHITE, Color::rgb(0xD6, 0xE3, 0xF7));
-        font::draw_text_bold(canvas, info_hdr.x + 8, info_hdr.y + 3, "System Details", Color::rgb(0x21, 0x5D, 0xC6), 2);
+        canvas.fill_gradient_v(info_hdr, Theme::TITLE_ACTIVE_TOP, Theme::TITLE_ACTIVE_BOT);
+        font::draw_text_bold(canvas, info_hdr.x + 8, info_hdr.y + 3, "System Details", Color::WHITE, 2);
         let info_body = Rect::new(side_r.x + 6, info_hdr.bottom(), side_r.w - 12, (side_r.bottom() - info_hdr.bottom() - 6).max(36));
-        canvas.fill_rect(info_body, Color::rgb(0xD6, 0xDF, 0xF7));
-        canvas.draw_rect_outline(info_body, 1, Color::WHITE);
-        font::draw_text(canvas, info_body.x + 8, info_body.y + 8, "PetraOS x86_64", Color::rgb(0x1E, 0x3E, 0x8C), 2);
-        font::draw_text(canvas, info_body.x + 8, info_body.y + 28, "Theme: XP Luna Blue", Color::rgb(0x1E, 0x3E, 0x8C), 1);
-        font::draw_text(canvas, info_body.x + 8, info_body.y + 44, &format!("Screen: {}", self.active_res), Color::rgb(0x1E, 0x3E, 0x8C), 1);
+        canvas.fill_rect(info_body, t.bg_surface);
+        canvas.draw_rect_outline(info_body, 1, t.border);
+        font::draw_text(canvas, info_body.x + 8, info_body.y + 8, "PetraOS x86_64", t.text_primary, 2);
+        font::draw_text(canvas, info_body.x + 8, info_body.y + 28, "Theme: Petra Slate", t.text_secondary, 1);
+        font::draw_text(canvas, info_body.x + 8, info_body.y + 44, &format!("Screen: {}", self.active_res), t.text_secondary, 1);
 
-        // 3. Right Main XP Category View Area
+        // 3. Right Main Category View Area
         let body = Rect::new(204, 60, w - 212, h - 88);
         canvas.fill_rect(body, t.bg_surface);
         draw_panel_3d(canvas, body, true, &t);
-        canvas.draw_rect_outline(body, 1, t.border);
 
-        // Top XP Royal Periwinkle Banner inside Main Panel
+        // Top Slate-Cobalt Banner inside Main Panel
         let banner = Rect::new(body.x + 2, body.y + 2, body.w - 4, 48);
-        canvas.fill_gradient_v(banner, Color::rgb(0x5A, 0x72, 0xD6), Color::rgb(0x6B, 0x82, 0xE0));
+        canvas.fill_gradient_v(banner, Theme::TITLE_ACTIVE_TOP, Theme::TITLE_ACTIVE_BOT);
         let (title_str, icon_id) = match self.tab {
-            ControlTab::Display => ("Pick a Display Resolution & DRM Mode", IconId::MyComputer),
-            ControlTab::Audio => ("Adjust Master Audio Volume", IconId::ControlPanel),
-            ControlTab::Runit => ("Manage Runit System Services", IconId::Tasks),
-            ControlTab::Xbps => ("Installed Void Linux XBPS Packages", IconId::Files),
+            ControlTab::Display => ("Display Resolution & KMS Mode", IconId::MyComputer),
+            ControlTab::Audio => ("Master Audio Volume", IconId::ControlPanel),
+            ControlTab::Runit => ("System Services", IconId::Tasks),
+            ControlTab::System => ("PetraOS System & Appearance", IconId::PetraLogo),
         };
         icons::draw_icon(canvas, banner.x + 12, banner.y + 8, 32, icon_id);
         font::draw_text_shadow(
@@ -236,7 +227,7 @@ impl Paintable for ControlApp {
             banner.y + 15,
             title_str,
             Color::WHITE,
-            Color::rgb(0x24, 0x34, 0x82),
+            Color::rgb(0x10, 0x26, 0x4C),
             2,
             true,
         );
@@ -303,23 +294,12 @@ impl Paintable for ControlApp {
                     );
                 }
             }
-            ControlTab::Xbps => {
-                font::draw_text_bold(
-                    canvas,
-                    224,
-                    118,
-                    &format!("Installed XBPS Packages: {}", self.packages.len()),
-                    t.accent,
-                    2,
-                );
-                for (i, pkg) in self.packages.iter().skip(self.pkg_scroll).take(13).enumerate() {
-                    let line = format!(
-                        "{:<24} {}",
-                        pkg.name.chars().take(23).collect::<String>(),
-                        pkg.version
-                    );
-                    font::draw_text_mono(canvas, 224, 146 + i as i32 * 22, &line, t.text_primary, 2);
-                }
+            ControlTab::System => {
+                font::draw_text_bold(canvas, 224, 124, "PetraOS Desktop Environment", t.accent, 2);
+                font::draw_text(canvas, 224, 152, "Kernel: PetraOS (OSTD / Rust)", t.text_primary, 2);
+                font::draw_text(canvas, 224, 174, "Shell: PetraSpace Compositor", t.text_primary, 2);
+                font::draw_text(canvas, 224, 196, "Active Theme: Petra Slate", t.text_primary, 2);
+                self.btn_open_apps.paint(canvas);
             }
         }
 
@@ -334,7 +314,7 @@ impl AppLogic for ControlApp {
         dirty |= self.btn_disp.on_event(event);
         dirty |= self.btn_audio.on_event(event);
         dirty |= self.btn_runit.on_event(event);
-        dirty |= self.btn_xbps.on_event(event);
+        dirty |= self.btn_system.on_event(event);
 
         if self.btn_disp.take_click() {
             self.tab = ControlTab::Display;
@@ -350,9 +330,8 @@ impl AppLogic for ControlApp {
             self.refresh_services();
             return true;
         }
-        if self.btn_xbps.take_click() {
-            self.tab = ControlTab::Xbps;
-            self.refresh_packages();
+        if self.btn_system.take_click() {
+            self.tab = ControlTab::System;
             return true;
         }
 
@@ -422,13 +401,11 @@ impl AppLogic for ControlApp {
                     }
                 }
             }
-            ControlTab::Xbps => {
-                if let UiEvent::Wheel { delta, .. } = event {
-                    if delta > 0 {
-                        self.pkg_scroll = self.pkg_scroll.saturating_sub(3);
-                    } else if delta < 0 && self.pkg_scroll + 1 < self.packages.len() {
-                        self.pkg_scroll += 3;
-                    }
+            ControlTab::System => {
+                dirty |= self.btn_open_apps.on_event(event);
+                if self.btn_open_apps.take_click() {
+                    let _ = Command::new("space-apps").spawn();
+                    self.status = "Launched Applications Manager".to_string();
                     return true;
                 }
             }

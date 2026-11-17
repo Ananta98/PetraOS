@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="48" height="48" viewBox="0 0 48 48" version="1.1" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="petraFaceTop" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#8fe0ff"/>
+      <stop offset="100%" stop-color="#3b8ee8"/>
+    </linearGradient>
+    <linearGradient id="petraFaceLeft" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#4ba0f5"/>
+      <stop offset="100%" stop-color="#1d54a2"/>
+    </linearGradient>
+    <linearGradient id="petraFaceRight" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#225db5"/>
+      <stop offset="100%" stop-color="#11336b"/>
+    </linearGradient>
+    <linearGradient id="petraRing" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.9"/>
+      <stop offset="50%" stop-color="#7fd6ff" stop-opacity="0.95"/>
+      <stop offset="100%" stop-color="#3b8ee8" stop-opacity="0.8"/>
+    </linearGradient>
+  </defs>
+  <!-- Subtle hexagonal stone/crystal monolith -->
+  <polygon points="24,4 42,14 24,24 6,14" fill="url(#petraFaceTop)" stroke="#102c5c" stroke-width="1.2" stroke-linejoin="round"/>
+  <polygon points="6,14 24,24 24,44 6,34" fill="url(#petraFaceLeft)" stroke="#102c5c" stroke-width="1.2" stroke-linejoin="round"/>
+  <polygon points="42,14 42,34 24,44 24,24" fill="url(#petraFaceRight)" stroke="#102c5c" stroke-width="1.2" stroke-linejoin="round"/>
+  <!-- Crisp stylized P monolith core -->
+  <path d="M 18,16 L 26,16 C 30.5,16 33,18.5 33,22.2 C 33,26 30.5,28.5 26,28.5 L 22,28.5 L 22,36 L 18,36 Z M 22,19.5 L 22,25 L 25.5,25 C 27.8,25 29,24 29,22.2 C 29,20.5 27.8,19.5 25.5,19.5 Z"
+        fill="#ffffff" fill-opacity="0.96"/>
+  <!-- Diagonal orbital accent -->
+  <ellipse cx="24" cy="24" rx="20" ry="7.5" transform="rotate(-24 24 24)"
+           fill="none" stroke="url(#petraRing)" stroke-width="2.1"/>
+</svg>

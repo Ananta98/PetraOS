@@ -110,7 +110,7 @@ impl SpaceClient {
             s2c_ring,
             width,
             height,
-            theme: Theme::XP_LUNA,
+            theme: Theme::PETRA_SLATE,
             running: true,
             dirty: true,
         })
@@ -190,7 +190,7 @@ impl SpaceClient {
                         height: h,
                         pixels: px,
                     };
-                    canvas.fill_rect(Rect::new(0, 0, w as i32, h as i32), Theme::XP_LUNA.bg_window);
+                    canvas.fill_rect(Rect::new(0, 0, w as i32, h as i32), Theme::PETRA_SLATE.bg_window);
                     app.paint(&mut canvas);
                 }
                 let full = Rect::new(0, 0, w as i32, h as i32);

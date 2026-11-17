@@ -135,11 +135,10 @@ impl MenuBar {
         let Some(menu) = self.menus.get(idx) else {
             return;
         };
-        let t = Theme::XP_LUNA;
+        let t = Theme::PETRA_SLATE;
         let dr = self.dropdown_rect(idx);
         canvas.fill_rect(Rect::new(dr.x + 2, dr.y + 2, dr.w, dr.h), Color::argb(65, 0, 0, 0));
         canvas.fill_rect(dr, t.bg_input);
-        StylePainter::new(&t).paint_panel_3d(canvas, dr, false);
         canvas.draw_rect_outline(dr, 1, t.border);
 
         let mut y = dr.y + 4;
@@ -178,7 +177,7 @@ impl Layoutable for MenuBar {
 
 impl Paintable for MenuBar {
     fn paint(&self, canvas: &mut dyn Canvas) {
-        let t = Theme::XP_LUNA;
+        let t = Theme::PETRA_SLATE;
         StylePainter::new(&t).paint_raised_bar(canvas, self.rect);
         for (i, menu) in self.menus.iter().enumerate() {
             let hr = self.header_rect(i);
