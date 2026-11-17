@@ -25,7 +25,15 @@ pub trait WindowDecorator {
     fn outer_rect(&self, client_rect: Rect) -> Rect;
     fn shadow_rect(&self, client_rect: Rect) -> Rect;
     fn hit_test(&self, client_rect: Rect, pos: Point) -> HitPart;
-    fn paint_frame(&self, canvas: &mut dyn Canvas, client_rect: Rect, title: &str, focused: bool, clip: Rect);
+    fn paint_frame(
+        &self,
+        canvas: &mut dyn Canvas,
+        client_rect: Rect,
+        title: &str,
+        focused: bool,
+        maximized: bool,
+        clip: Rect,
+    );
 }
 
 /// Crisp ReactOS-inspired modern-classic window frame for Petra Slate.
@@ -104,7 +112,15 @@ impl WindowDecorator for PetraDecorator {
         HitPart::None
     }
 
-    fn paint_frame(&self, canvas: &mut dyn Canvas, client_rect: Rect, title: &str, focused: bool, clip: Rect) {
+    fn paint_frame(
+        &self,
+        canvas: &mut dyn Canvas,
+        client_rect: Rect,
+        title: &str,
+        focused: bool,
+        maximized: bool,
+        clip: Rect,
+    ) {
         let outer = self.outer_rect(client_rect);
         let t = Theme::PETRA_SLATE;
 
@@ -157,7 +173,7 @@ impl WindowDecorator for PetraDecorator {
         }
 
         // 16x16 app icon on the left
-        icons::draw_icon(canvas, outer.x + 7, outer.y + 6, 16, IconId::from_title(title));
+        icons::draw_icon(canvas, outer.x + 7, outer.y + 6, 16, &IconId::from_title(title));
 
         // Clean title text
         let max_title_chars = ((outer.w - 104).max(12) / 8) as usize;
@@ -204,7 +220,8 @@ impl WindowDecorator for PetraDecorator {
             Self::draw_title_button(canvas, min_r, btn_top, btn_bot, btn_border, glyph_col, WindowGlyph::Minimize);
         }
         if !max_r.intersect(clip).is_empty() {
-            Self::draw_title_button(canvas, max_r, btn_top, btn_bot, btn_border, glyph_col, WindowGlyph::Maximize);
+            let max_glyph = if maximized { WindowGlyph::Restore } else { WindowGlyph::Maximize };
+            Self::draw_title_button(canvas, max_r, btn_top, btn_bot, btn_border, glyph_col, max_glyph);
         }
         if !close_r.intersect(clip).is_empty() {
             let (cl_top, cl_bot, cl_border, cl_glyph) = if focused {

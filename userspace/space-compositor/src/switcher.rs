@@ -94,7 +94,7 @@ impl WindowSwitcher {
                 canvas.draw_rect_outline(card, 1, t.border);
             }
             let icon = IconId::from_title(title);
-            icons::draw_icon(canvas, card.x + (card.w - 32) / 2, card.y + 12, 32, icon);
+            icons::draw_icon(canvas, card.x + (card.w - 32) / 2, card.y + 12, 32, &icon);
             let short: String = title.chars().take(12).collect();
             let lw = font::measure_text_width(&short, 1);
             let fg = if i == self.selected { t.text_on_accent } else { t.text_primary };

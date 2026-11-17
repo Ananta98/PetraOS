@@ -284,12 +284,13 @@ impl NetDevice for E1000Device {
         let pkt_len = desc.length as usize;
         let copy_len = pkt_len.min(buf.len());
 
-        // Read packet from RX buffer
-        let buf_offset = cur * RX_BUFFER_SIZE;
-        let mut buf_reader = rings.rx_buf_dma.reader();
-        buf_reader.skip(buf_offset);
-        let mut writer = ostd::mm::VmWriter::from(&mut buf[..copy_len]);
-        buf_reader.read(&mut writer);
+        if copy_len > 0 {
+            let payload_offset = cur * RX_BUFFER_SIZE;
+            let mut buf_reader = rings.rx_buf_dma.reader();
+            buf_reader.skip(payload_offset);
+            let mut writer = ostd::mm::VmWriter::from(&mut buf[..copy_len]);
+            buf_reader.read(&mut writer);
+        }
 
         // Reset descriptor status
         let mut desc_writer = rings.rx_dma.writer();

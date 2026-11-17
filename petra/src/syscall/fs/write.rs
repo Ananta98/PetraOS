@@ -73,13 +73,17 @@ fn do_writev(
                 Some(_) => file.pwrite(cur_offset, &kbuf[..to_copy])?,
                 None => file.write(&kbuf[..to_copy])?,
             };
-            if nwritten == 0 || nwritten < to_copy {
+            if nwritten == 0 {
                 proc.account_write(total_written);
                 return Ok(total_written);
             }
             total_written += nwritten;
             iov_written += nwritten;
             cur_offset += nwritten as u64;
+            if nwritten < to_copy {
+                proc.account_write(total_written);
+                return Ok(total_written);
+            }
         }
     }
 

@@ -56,8 +56,9 @@ mod tests {
         let mut pb = PixelBuffer::new(64, 64, Color::BLACK);
         pb.fill_gradient_v(Rect::new(0, 0, 64, 64), Color::rgb(0, 84, 227), Color::rgb(40, 142, 247));
         assert_eq!(pb.pixels()[0], Color::rgb(0, 84, 227).0);
-        icons::draw_icon(&mut pb, 4, 4, 16, icons::IconId::PetraLogo);
-        icons::draw_icon(&mut pb, 24, 4, 24, icons::IconId::AppManager);
+        icons::draw_icon(&mut pb, 4, 4, 16, &icons::IconId::new("petra-logo"));
+        icons::draw_icon(&mut pb, 24, 4, 24, &icons::IconId::new("app-manager"));
+        assert!(!icons::IconId::list_available().is_empty());
         icons::draw_window_glyph(&mut pb, Rect::new(4, 32, 20, 20), icons::WindowGlyph::Close, Color::WHITE);
     }
 }

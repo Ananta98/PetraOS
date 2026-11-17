@@ -197,7 +197,9 @@ pub fn sys_ppoll(
         if sec < 0 || !(0..1_000_000_000).contains(&nsec) {
             return Err(Errno::EINVAL);
         }
-        (sec.saturating_mul(1000)).saturating_add(nsec / 1_000_000) as i32
+        (sec.saturating_mul(1000))
+            .saturating_add((nsec as u64).div_ceil(1_000_000) as i64)
+            .min(i32::MAX as i64) as i32
     };
 
     if sigmask_ptr != 0 {
@@ -420,7 +422,9 @@ pub fn sys_select(
         if sec < 0 || usec < 0 {
             return Err(Errno::EINVAL);
         }
-        (sec.saturating_mul(1000)).saturating_add(usec / 1000) as i32
+        (sec.saturating_mul(1000))
+            .saturating_add((usec as u64).div_ceil(1000) as i64)
+            .min(i32::MAX as i64) as i32
     };
 
     do_select(nfds, readfds_ptr, writefds_ptr, exceptfds_ptr, timeout_ms)
@@ -448,7 +452,9 @@ pub fn sys_pselect6(
         if sec < 0 || !(0..1_000_000_000).contains(&nsec) {
             return Err(Errno::EINVAL);
         }
-        (sec.saturating_mul(1000)).saturating_add(nsec / 1_000_000) as i32
+        (sec.saturating_mul(1000))
+            .saturating_add((nsec as u64).div_ceil(1_000_000) as i64)
+            .min(i32::MAX as i64) as i32
     };
 
     if sigmask_ptr != 0 {

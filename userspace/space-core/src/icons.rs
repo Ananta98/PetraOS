@@ -1,83 +1,102 @@
-//! Vector SVG icon renderer for PetraSpace GUI using `resvg` + `tiny-skia`.
+//! Dynamic vector SVG icon renderer for PetraSpace GUI using `resvg` + `tiny-skia`.
 //!
-//! Icons are loaded from `/usr/share/icons/space/*.svg` (with compile-time
-//! fallback bytes from the rootfs tree) and cached per `(IconId, size)`.
+//! Icons are resolved dynamically by name from `/usr/share/icons/space/<name>.svg`
+//! (with workspace fallback for host unit tests) and cached per `(name, size)`.
 
+use std::borrow::Cow;
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
 use crate::geometry::Rect;
 use crate::pixel::{Canvas, Color};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum IconId {
-    PetraLogo,
-    AppManager,
-    Files,
-    Terminal,
-    Tasks,
-    Notepad,
-    Calc,
-    ControlPanel,
-    MyComputer,
-    LogOff,
-    TurnOff,
-}
+/// Dynamic icon identifier backed by an icon name or path (never hardcoded to a fixed enum).
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct IconId(pub Cow<'static, str>);
 
 impl IconId {
-    /// Infers an icon from a window title or binary name.
+    /// Creates a compile-time constant `IconId` from a static icon name.
+    pub const fn new(name: &'static str) -> Self {
+        Self(Cow::Borrowed(name))
+    }
+
+    /// Creates a runtime `IconId` from an owned or dynamic icon name/path.
+    pub fn from_name(name: impl Into<String>) -> Self {
+        Self(Cow::Owned(name.into()))
+    }
+
+    /// Returns the icon name or path string.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// Resolves an icon dynamically from a window title or binary name.
     pub fn from_title(title: &str) -> Self {
         let lower = title.to_ascii_lowercase();
+        let slug: String = lower
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+            .collect();
+        let trimmed = slug.trim_matches('-');
+        if !trimmed.is_empty() && find_icon_file(trimmed).is_some() {
+            return Self::from_name(trimmed.to_string());
+        }
+
         if lower.contains("application") || lower.contains("package") || lower.contains("software") {
-            Self::AppManager
-        } else if lower.contains("file") || lower.contains("document") {
-            Self::Files
+            Self::new("app-manager")
+        } else if lower.contains("file") || lower.contains("document") || lower.contains("explorer") {
+            Self::new("files")
         } else if lower.contains("term") || lower.contains("cmd") || lower.contains("prompt") {
-            Self::Terminal
-        } else if lower.contains("task") {
-            Self::Tasks
-        } else if lower.contains("pad") || lower.contains("note") {
-            Self::Notepad
+            Self::new("terminal")
+        } else if lower.contains("task") || lower.contains("monitor") {
+            Self::new("tasks")
+        } else if lower.contains("pad") || lower.contains("note") || lower.contains("editor") {
+            Self::new("notepad")
         } else if lower.contains("calc") {
-            Self::Calc
-        } else if lower.contains("control") || lower.contains("setting") {
-            Self::ControlPanel
+            Self::new("calc")
+        } else if lower.contains("control") || lower.contains("setting") || lower.contains("properties") {
+            Self::new("control-panel")
         } else {
-            Self::MyComputer
+            Self::new("my-computer")
         }
     }
 
-    fn filename(self) -> &'static str {
-        match self {
-            Self::PetraLogo => "petra-logo.svg",
-            Self::AppManager => "app-manager.svg",
-            Self::Files => "files.svg",
-            Self::Terminal => "terminal.svg",
-            Self::Tasks => "tasks.svg",
-            Self::Notepad => "notepad.svg",
-            Self::Calc => "calc.svg",
-            Self::ControlPanel => "control-panel.svg",
-            Self::MyComputer => "my-computer.svg",
-            Self::LogOff => "log-off.svg",
-            Self::TurnOff => "turn-off.svg",
+    /// Discovers all available icon names in the active icon theme directory.
+    pub fn list_available() -> Vec<Self> {
+        let mut out = Vec::new();
+        for dir in icon_search_dirs() {
+            if let Ok(rd) = std::fs::read_dir(&dir) {
+                for ent in rd.flatten() {
+                    let path = ent.path();
+                    if path.extension().and_then(|e| e.to_str()) == Some("svg") {
+                        if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                            let id = Self::from_name(stem.to_string());
+                            if !out.contains(&id) {
+                                out.push(id);
+                            }
+                        }
+                    }
+                }
+                if !out.is_empty() {
+                    break;
+                }
+            }
         }
+        out.sort_by(|a, b| a.as_str().cmp(b.as_str()));
+        out
     }
+}
 
-    fn embedded_svg(self) -> &'static [u8] {
-        match self {
-            Self::PetraLogo => include_bytes!("../../../base-files/rootfs/usr/share/icons/space/petra-logo.svg"),
-            Self::AppManager => include_bytes!("../../../base-files/rootfs/usr/share/icons/space/app-manager.svg"),
-            Self::Files => include_bytes!("../../../base-files/rootfs/usr/share/icons/space/files.svg"),
-            Self::Terminal => include_bytes!("../../../base-files/rootfs/usr/share/icons/space/terminal.svg"),
-            Self::Tasks => include_bytes!("../../../base-files/rootfs/usr/share/icons/space/tasks.svg"),
-            Self::Notepad => include_bytes!("../../../base-files/rootfs/usr/share/icons/space/notepad.svg"),
-            Self::Calc => include_bytes!("../../../base-files/rootfs/usr/share/icons/space/calc.svg"),
-            Self::ControlPanel => include_bytes!("../../../base-files/rootfs/usr/share/icons/space/control-panel.svg"),
-            Self::MyComputer => include_bytes!("../../../base-files/rootfs/usr/share/icons/space/my-computer.svg"),
-            Self::LogOff => include_bytes!("../../../base-files/rootfs/usr/share/icons/space/log-off.svg"),
-            Self::TurnOff => include_bytes!("../../../base-files/rootfs/usr/share/icons/space/turn-off.svg"),
-        }
+impl From<&'static str> for IconId {
+    fn from(s: &'static str) -> Self {
+        Self::new(s)
+    }
+}
+
+impl From<String> for IconId {
+    fn from(s: String) -> Self {
+        Self::from_name(s)
     }
 }
 
@@ -89,24 +108,56 @@ pub enum WindowGlyph {
     Close,
 }
 
-static ICON_CACHE: OnceLock<Mutex<HashMap<(IconId, i32), Vec<u32>>>> = OnceLock::new();
+static ICON_CACHE: OnceLock<Mutex<HashMap<(String, i32), Vec<u32>>>> = OnceLock::new();
 
-fn load_svg_bytes(id: IconId) -> Vec<u8> {
-    let fname = id.filename();
-    let sys_path = format!("/usr/share/icons/space/{}", fname);
-    if let Ok(bytes) = std::fs::read(&sys_path) {
-        return bytes;
+fn icon_search_dirs() -> Vec<PathBuf> {
+    let mut dirs = Vec::with_capacity(4);
+    if let Ok(custom) = std::env::var("SPACE_ICON_DIR") {
+        if !custom.is_empty() {
+            dirs.push(PathBuf::from(custom));
+        }
     }
-    let repo_path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../base-files/rootfs/usr/share/icons/space")
-        .join(fname);
-    if let Ok(bytes) = std::fs::read(repo_path) {
-        return bytes;
-    }
-    id.embedded_svg().to_vec()
+    dirs.push(PathBuf::from("/usr/share/icons/space"));
+    dirs.push(PathBuf::from("/usr/share/icons"));
+    dirs.push(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../base-files/rootfs/usr/share/icons/space"));
+    dirs
 }
 
-fn rasterize_svg(id: IconId, target: i32) -> Vec<u32> {
+fn find_icon_file(name: &str) -> Option<PathBuf> {
+    if name.starts_with('/') {
+        let p = PathBuf::from(name);
+        if p.is_file() {
+            return Some(p);
+        }
+    }
+    let stem = name.strip_suffix(".svg").unwrap_or(name);
+    let fname = format!("{}.svg", stem);
+    for dir in icon_search_dirs() {
+        let candidate = dir.join(&fname);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+fn load_svg_bytes(id: &IconId) -> Vec<u8> {
+    if let Some(path) = find_icon_file(id.as_str()) {
+        if let Ok(bytes) = std::fs::read(&path) {
+            return bytes;
+        }
+    }
+    // Generic fallback vector icon so unknown runtime icon names still render cleanly.
+    br##"<svg width="48" height="48" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+      <rect x="6" y="6" width="36" height="36" rx="5" fill="#d8e3f2" stroke="#235fa8" stroke-width="2.5"/>
+      <rect x="12" y="14" width="24" height="6" rx="2" fill="#235fa8"/>
+      <rect x="12" y="24" width="18" height="4" rx="1.5" fill="#566170"/>
+      <rect x="12" y="31" width="12" height="4" rx="1.5" fill="#566170"/>
+    </svg>"##
+        .to_vec()
+}
+
+fn rasterize_svg(id: &IconId, target: i32) -> Vec<u32> {
     let svg_bytes = load_svg_bytes(id);
     let opt = resvg::usvg::Options::default();
     if let Ok(tree) = resvg::usvg::Tree::from_data(&svg_bytes, &opt) {
@@ -144,12 +195,13 @@ fn rasterize_svg(id: IconId, target: i32) -> Vec<u32> {
 }
 
 /// Draws a cached vector SVG icon scaled to `size x size`, clipped to `canvas.bounds()`.
-pub fn draw_icon(canvas: &mut dyn Canvas, x: i32, y: i32, size: i32, id: IconId) {
+pub fn draw_icon(canvas: &mut dyn Canvas, x: i32, y: i32, size: i32, id: &IconId) {
     let target = size.clamp(8, 128);
     let cache = ICON_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     let mut guard = cache.lock().unwrap();
+    let key = (id.as_str().to_string(), target);
     let pixels = guard
-        .entry((id, target))
+        .entry(key)
         .or_insert_with(|| rasterize_svg(id, target));
     let clip = canvas.bounds();
     canvas.blit_from(
@@ -163,7 +215,7 @@ pub fn draw_icon(canvas: &mut dyn Canvas, x: i32, y: i32, size: i32, id: IconId)
     );
 }
 
-/// Draws crisp Windows XP window control glyphs (`_`, `□`, `×`) centered inside `rect`.
+/// Draws crisp window control glyphs (`_`, `□`, `⧉`, `×`) centered inside `rect`.
 pub fn draw_window_glyph(canvas: &mut dyn Canvas, rect: Rect, glyph: WindowGlyph, color: Color) {
     let cx = rect.x + rect.w / 2;
     let cy = rect.y + rect.h / 2;

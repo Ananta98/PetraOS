@@ -358,6 +358,71 @@ impl ShmSurface {
         hdr.damage_h.store(rect.h.max(0) as u32, Ordering::Relaxed);
         hdr.seq.fetch_add(1, Ordering::Release);
     }
+
+    /// Resizes the shared surface (client-side owner), growing the backing shm file if needed.
+    pub fn resize(&mut self, width: u32, height: u32) -> io::Result<()> {
+        let w = width.max(1);
+        let h = height.max(1);
+        let hdr_size = std::mem::size_of::<SurfaceHeader>();
+        let needed = hdr_size + w as usize * h as usize * 4;
+        if needed > self.map_size {
+            if unsafe { sys::ftruncate(self.fd, needed as i64) } < 0 {
+                return Err(io::Error::last_os_error());
+            }
+            let new_ptr = unsafe {
+                sys::mmap(
+                    ptr::null_mut(),
+                    needed,
+                    sys::PROT_READ | sys::PROT_WRITE,
+                    sys::MAP_SHARED,
+                    self.fd,
+                    0,
+                )
+            };
+            if new_ptr == sys::MAP_FAILED {
+                return Err(io::Error::last_os_error());
+            }
+            unsafe {
+                sys::munmap(self.ptr as *mut c_void, self.map_size);
+            }
+            self.ptr = new_ptr as *mut u8;
+            self.map_size = needed;
+        }
+        let hdr = self.header();
+        hdr.width.store(w, Ordering::Release);
+        hdr.height.store(h, Ordering::Release);
+        hdr.stride.store(w, Ordering::Release);
+        Ok(())
+    }
+
+    /// Ensures the compositor's mapping covers the current header dimensions after a client resize.
+    pub fn ensure_mapped_size(&mut self) -> io::Result<()> {
+        let hdr = self.header();
+        let w = hdr.width.load(Ordering::Acquire) as usize;
+        let h = hdr.height.load(Ordering::Acquire) as usize;
+        let needed = std::mem::size_of::<SurfaceHeader>() + w * h * 4;
+        if needed > self.map_size {
+            let new_ptr = unsafe {
+                sys::mmap(
+                    ptr::null_mut(),
+                    needed,
+                    sys::PROT_READ | sys::PROT_WRITE,
+                    sys::MAP_SHARED,
+                    self.fd,
+                    0,
+                )
+            };
+            if new_ptr == sys::MAP_FAILED {
+                return Err(io::Error::last_os_error());
+            }
+            unsafe {
+                sys::munmap(self.ptr as *mut c_void, self.map_size);
+            }
+            self.ptr = new_ptr as *mut u8;
+            self.map_size = needed;
+        }
+        Ok(())
+    }
 }
 
 impl Drop for ShmSurface {

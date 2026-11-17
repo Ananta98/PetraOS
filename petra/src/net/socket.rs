@@ -141,7 +141,7 @@ pub struct KernelSocket {
     bound_unix_path: Mutex<Option<String>>,
 }
 
-fn sleep_socket_waiter() {
+fn sleep_socket_waiter() -> Result<()> {
     let (waiter, _) = Waiter::new_pair();
     let waker = waiter.waker();
     let ktimer = crate::kpi::time::arm(
@@ -167,8 +167,9 @@ fn sleep_socket_waiter() {
             None
         }
     };
-    let _ = waiter.wait_until_or_cancelled(cond, cancel);
+    let res = waiter.wait_until_or_cancelled(cond, cancel);
     ktimer.cancel();
+    res.map(|_| ())
 }
 
 impl KernelSocket {
@@ -428,7 +429,23 @@ impl KernelSocket {
 
                 ostd::info!("connect: TCP connecting to {:?}", endpoint);
                 let mut net = NET_MANAGER.lock();
-                net.connect_tcp(handle, endpoint, local_port)?;
+                let mut already_connecting = false;
+                if let Some(socket) = net.try_get_socket_mut::<TcpSocket>(handle) {
+                    match socket.state() {
+                        TcpState::Established => return Err(Errno::EISCONN),
+                        TcpState::SynSent | TcpState::SynReceived => {
+                            net.poll();
+                            if *self.nonblocking.lock() {
+                                return Err(Errno::EINPROGRESS);
+                            }
+                            already_connecting = true;
+                        }
+                        _ => {}
+                    }
+                }
+                if !already_connecting {
+                    net.connect_tcp(handle, endpoint, local_port)?;
+                }
                 net.poll();
                 *self.remote_endpoint.lock() = Some(endpoint);
                 *self.remote_addr.lock() = Some(SocketAddress::Inet(endpoint));
@@ -711,7 +728,9 @@ impl KernelSocket {
                     .try_get_socket_mut::<TcpSocket>(handle)
                     .ok_or(Errno::EBADF)?;
 
-                if !socket.is_active() && socket.state() == TcpState::Closed {
+                if !socket.may_send()
+                    && !matches!(socket.state(), TcpState::SynSent | TcpState::SynReceived)
+                {
                     return Err(Errno::EPIPE);
                 }
 
@@ -726,7 +745,7 @@ impl KernelSocket {
                 }
 
                 drop(net);
-                sleep_socket_waiter();
+                sleep_socket_waiter()?;
             },
             SocketKind::Udp(handle) => {
                 let remote = self.remote_endpoint.lock().ok_or(Errno::EDESTADDRREQ)?;
@@ -853,9 +872,15 @@ impl KernelSocket {
                     .ok_or(Errno::EBADF)?;
 
                 if socket.can_recv() {
-                    let n = socket.recv_slice(buf).map_err(|_| Errno::EIO)?;
-                    net.poll();
-                    crate::fs::poll::notify();
+                    let is_peek = (flags & 0x02) != 0;
+                    let n = if is_peek {
+                        socket.peek_slice(buf).map_err(|_| Errno::EIO)?
+                    } else {
+                        let n = socket.recv_slice(buf).map_err(|_| Errno::EIO)?;
+                        net.poll();
+                        crate::fs::poll::notify();
+                        n
+                    };
                     return Ok(n);
                 }
 
@@ -875,7 +900,7 @@ impl KernelSocket {
                 }
 
                 drop(net);
-                sleep_socket_waiter();
+                sleep_socket_waiter()?;
             },
             SocketKind::Udp(handle) => loop {
                 let mut net = NET_MANAGER.lock();
@@ -907,7 +932,7 @@ impl KernelSocket {
                 }
 
                 drop(net);
-                sleep_socket_waiter();
+                sleep_socket_waiter()?;
             },
             SocketKind::Unix(ref end) => {
                 if buf.is_empty() {
@@ -1106,7 +1131,7 @@ impl KernelSocket {
                 }
 
                 drop(net);
-                sleep_socket_waiter();
+                sleep_socket_waiter()?;
             },
             SocketKind::UnixDgram(ref dgram) => loop {
                 let mut rx = dgram.rx_queue.lock();
@@ -1336,7 +1361,11 @@ impl KernelSocket {
             SocketKind::Tcp(handle) => {
                 let mut net = NET_MANAGER.lock();
                 if let Some(socket) = net.try_get_socket_mut::<TcpSocket>(handle) {
-                    socket.abort();
+                    if socket.is_open() {
+                        socket.close();
+                    } else {
+                        socket.abort();
+                    }
                     net.poll();
                     net.remove_socket(handle);
                 }

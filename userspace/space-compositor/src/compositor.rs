@@ -54,12 +54,12 @@ impl<'a> Canvas for ScreenCanvas<'a> {
 }
 
 const DESKTOP_SHORTCUTS: [(&str, &str, IconId); 6] = [
-    ("Computer", "space-files", IconId::MyComputer),
-    ("Applications", "space-apps", IconId::AppManager),
-    ("Terminal", "space-term", IconId::Terminal),
-    ("Text Editor", "space-pad", IconId::Notepad),
-    ("Calculator", "space-calc", IconId::Calc),
-    ("Control Panel", "space-control", IconId::ControlPanel),
+    ("Computer", "space-files", IconId::new("my-computer")),
+    ("Applications", "space-apps", IconId::new("app-manager")),
+    ("Terminal", "space-term", IconId::new("terminal")),
+    ("Text Editor", "space-pad", IconId::new("notepad")),
+    ("Calculator", "space-calc", IconId::new("calc")),
+    ("Control Panel", "space-control", IconId::new("control-panel")),
 ];
 
 fn shortcut_rect(idx: usize) -> Rect {
@@ -144,6 +144,25 @@ impl<R: RenderBackend, I: InputBackend> Compositor<R, I> {
 
     pub fn spawn_app(&self, bin: &str) {
         let _ = Command::new(bin).spawn();
+    }
+
+    fn send_resize(node: &SurfaceNode) {
+        let _ = node.s2c_ring.try_push(RingMsg::new(
+            MsgKind::ResizeEvent,
+            node.rect.w.max(1),
+            node.rect.h.max(1),
+            0,
+            0,
+        ));
+    }
+
+    fn notify_workspace_resizes(&self) {
+        let ws = self.scene.active_workspace;
+        for n in &self.scene.nodes {
+            if n.workspace == ws && !n.minimized {
+                Self::send_resize(n);
+            }
+        }
     }
 
     pub fn run(&mut self) {
@@ -240,6 +259,9 @@ impl<R: RenderBackend, I: InputBackend> Compositor<R, I> {
             let id = self.scene.add_node(node);
             let wa = self.panel.work_area(sw, sh);
             self.scene.retile(wa);
+            if self.scene.layout_mode == LayoutMode::Tiled {
+                self.notify_workspace_resizes();
+            }
             if let Some(n) = self.scene.find(id) {
                 self.damage.add(self.decorator.shadow_rect(n.rect));
             }
@@ -248,6 +270,29 @@ impl<R: RenderBackend, I: InputBackend> Compositor<R, I> {
     }
 
     fn poll_display_mode_request(&mut self) {
+        if let Ok(wp) = std::fs::read_to_string("/run/space-wallpaper") {
+            let _ = std::fs::remove_file("/run/space-wallpaper");
+            let preset = crate::wallpaper::WallpaperPreset::from_name(&wp);
+            let sw = self.renderer.width();
+            let sh = self.renderer.height();
+            self.wallpaper = crate::wallpaper::build_wallpaper(sw, sh, preset);
+            self.damage.add(Rect::new(0, 0, sw as i32, sh as i32));
+        }
+
+        if let Ok(lay) = std::fs::read_to_string("/run/space-layout") {
+            let _ = std::fs::remove_file("/run/space-layout");
+            let target = match lay.trim().to_ascii_lowercase().as_str() {
+                "tile" | "tiled" => Some(LayoutMode::Tiled),
+                "float" | "floating" => Some(LayoutMode::Floating),
+                _ => None,
+            };
+            if let Some(mode) = target {
+                if self.scene.layout_mode != mode {
+                    self.toggle_layout();
+                }
+            }
+        }
+
         let Ok(req) = std::fs::read_to_string("/run/space-display-mode") else {
             return;
         };
@@ -265,7 +310,22 @@ impl<R: RenderBackend, I: InputBackend> Compositor<R, I> {
             self.cursor.x = self.cursor.x.clamp(0, sw - 1);
             self.cursor.y = self.cursor.y.clamp(0, sh - 1);
             self.prev_cursor = self.cursor;
-            self.scene.retile(self.panel.work_area(sw, sh));
+            let wa = self.panel.work_area(sw, sh);
+            for n in &mut self.scene.nodes {
+                if n.maximized {
+                    n.rect = Rect::new(
+                        wa.x + BORDER_W,
+                        wa.y + TITLEBAR_H,
+                        wa.w - BORDER_W * 2,
+                        wa.h - TITLEBAR_H - BORDER_W,
+                    );
+                    Self::send_resize(n);
+                }
+            }
+            self.scene.retile(wa);
+            if self.scene.layout_mode == LayoutMode::Tiled {
+                self.notify_workspace_resizes();
+            }
             self.damage.clear();
             self.damage.add(Rect::new(0, 0, sw, sh));
         }
@@ -438,8 +498,14 @@ impl<R: RenderBackend, I: InputBackend> Compositor<R, I> {
             DragState::Resize { win_id, start_pos, orig_rect } => {
                 if let Some(n) = self.scene.find_mut(win_id) {
                     let old_sh = self.decorator.shadow_rect(n.rect);
-                    n.rect.w = (orig_rect.w + (self.cursor.x - start_pos.x)).max(240);
-                    n.rect.h = (orig_rect.h + (self.cursor.y - start_pos.y)).max(160);
+                    let new_w = (orig_rect.w + (self.cursor.x - start_pos.x)).max(240);
+                    let new_h = (orig_rect.h + (self.cursor.y - start_pos.y)).max(160);
+                    if new_w != n.rect.w || new_h != n.rect.h {
+                        n.rect.w = new_w;
+                        n.rect.h = new_h;
+                        n.maximized = false;
+                        Self::send_resize(n);
+                    }
                     let new_sh = self.decorator.shadow_rect(n.rect);
                     self.damage.add(old_sh);
                     self.damage.add(new_sh);
@@ -499,9 +565,13 @@ impl<R: RenderBackend, I: InputBackend> Compositor<R, I> {
                         if let Some(node) = self.scene.find_mut(win_id) {
                             self.damage.add(self.decorator.shadow_rect(node.rect));
                             node.rect = sr;
-
+                            Self::send_resize(node);
                             self.damage.add(self.decorator.shadow_rect(sr));
                         }
+                    }
+                } else if let DragState::Resize { win_id, .. } = self.drag {
+                    if let Some(node) = self.scene.find(win_id) {
+                        Self::send_resize(node);
                     }
                 }
                 self.drag = DragState::None;
@@ -539,10 +609,37 @@ impl<R: RenderBackend, I: InputBackend> Compositor<R, I> {
                 return;
             }
             PanelAction::FocusWindow(id) => {
-                if let Some(n) = self.scene.find_mut(id) {
-                    n.minimized = false;
+                let mut should_minimize = false;
+                if let Some(n) = self.scene.find(id) {
+                    if n.focused && !n.minimized {
+                        should_minimize = true;
+                    }
                 }
-                self.scene.focus_window(id);
+                if should_minimize {
+                    if let Some(n) = self.scene.find_mut(id) {
+                        n.minimized = true;
+                    }
+                } else {
+                    if let Some(n) = self.scene.find_mut(id) {
+                        n.minimized = false;
+                    }
+                    self.scene.focus_window(id);
+                }
+                self.damage.add(Rect::new(0, 0, sw, sh));
+                return;
+            }
+            PanelAction::ShowDesktop => {
+                let ws = self.scene.active_workspace;
+                let any_visible = self
+                    .scene
+                    .nodes
+                    .iter()
+                    .any(|n| n.workspace == ws && !n.minimized);
+                for n in &mut self.scene.nodes {
+                    if n.workspace == ws {
+                        n.minimized = any_visible;
+                    }
+                }
                 self.damage.add(Rect::new(0, 0, sw, sh));
                 return;
             }
@@ -610,6 +707,7 @@ impl<R: RenderBackend, I: InputBackend> Compositor<R, I> {
                             );
                             n.maximized = true;
                         }
+                        Self::send_resize(n);
                         self.damage.add(self.decorator.shadow_rect(n.rect));
                     }
                 }
@@ -684,6 +782,9 @@ impl<R: RenderBackend, I: InputBackend> Compositor<R, I> {
         let sw = self.renderer.width() as i32;
         let sh = self.renderer.height() as i32;
         self.scene.retile(self.panel.work_area(sw, sh));
+        if self.scene.layout_mode == LayoutMode::Tiled {
+            self.notify_workspace_resizes();
+        }
         self.damage.add(Rect::new(0, 0, sw, sh));
     }
 
@@ -741,7 +842,7 @@ impl<R: RenderBackend, I: InputBackend> Compositor<R, I> {
             canvas.blit_from(&self.wallpaper, sw, clip, clip.x, clip.y, clip, false);
 
             // 1b. Clickable desktop shortcut icons on the left
-            for (i, &(label, _, icon)) in DESKTOP_SHORTCUTS.iter().enumerate() {
+            for (i, &(label, _, ref icon)) in DESKTOP_SHORTCUTS.iter().enumerate() {
                 let sr = shortcut_rect(i);
                 if !sr.intersects(clip) {
                     continue;
@@ -780,7 +881,7 @@ impl<R: RenderBackend, I: InputBackend> Compositor<R, I> {
 
             // 2. Windows back-to-front
             for &id in &z_order {
-                let Some(node) = self.scene.find(id) else {
+                let Some(node) = self.scene.find_mut(id) else {
                     continue;
                 };
                 if node.workspace != ws || node.minimized {
@@ -790,8 +891,15 @@ impl<R: RenderBackend, I: InputBackend> Compositor<R, I> {
                 if !sh_rect.intersects(clip) {
                     continue;
                 }
-                self.decorator
-                    .paint_frame(&mut canvas, node.rect, &node.title, node.focused, clip);
+                let _ = node.surface.ensure_mapped_size();
+                self.decorator.paint_frame(
+                    &mut canvas,
+                    node.rect,
+                    &node.title,
+                    node.focused,
+                    node.maximized,
+                    clip,
+                );
 
                 let surf_w = node.surface.header().width.load(Ordering::Acquire) as i32;
                 let surf_h = node.surface.header().height.load(Ordering::Acquire) as i32;

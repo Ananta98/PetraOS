@@ -126,6 +126,7 @@ impl SpaceClient {
     pub fn run<A: AppLogic>(&mut self, app: &mut A) {
         app.on_init();
         while self.running {
+            let mut pending_resize: Option<(u32, u32)> = None;
             while let Some(msg) = self.s2c_ring.try_pop() {
                 if msg.kind == MsgKind::CloseEvent as u32 {
                     self.running = false;
@@ -167,15 +168,26 @@ impl SpaceClient {
                 } else if msg.kind == MsgKind::FocusEvent as u32 {
                     self.dirty |= app.handle_event(UiEvent::Focus(msg.a != 0));
                 } else if msg.kind == MsgKind::ResizeEvent as u32 {
-                    self.dirty |= app.handle_event(UiEvent::Resize {
-                        width: msg.a.max(1) as u32,
-                        height: msg.b.max(1) as u32,
-                    });
+                    pending_resize = Some((msg.a.max(1) as u32, msg.b.max(1) as u32));
                 }
             }
 
             if !self.running {
                 break;
+            }
+
+            if let Some((rw, rh)) = pending_resize {
+                if rw != self.width || rh != self.height {
+                    if self.surface.resize(rw, rh).is_ok() {
+                        self.width = rw;
+                        self.height = rh;
+                    }
+                }
+                self.dirty |= app.handle_event(UiEvent::Resize {
+                    width: self.width,
+                    height: self.height,
+                });
+                self.dirty = true;
             }
 
             self.dirty |= app.on_tick();

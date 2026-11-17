@@ -352,7 +352,7 @@ impl Paintable for AppsManager {
             self.details_rect.x + 10,
             self.details_rect.y + 12,
             32,
-            IconId::AppManager,
+            &IconId::new("app-manager"),
         );
         if let Some(pkg) = self.selected_package() {
             let hdr = format!("{}  ({})", pkg.name, pkg.version);
