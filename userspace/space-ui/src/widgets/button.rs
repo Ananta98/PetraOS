@@ -4,6 +4,7 @@ use crate::painter::StylePainter;
 use crate::theme::Theme;
 use crate::traits::{EventListener, Layoutable, Paintable, UiEvent, WidgetState};
 use space_core::font;
+use space_core::icons::{self, IconId};
 use space_core::{Canvas, Color, Point, Rect};
 
 /// Clickable button widget with hover, pressed, and accent states.
@@ -11,6 +12,7 @@ use space_core::{Canvas, Color, Point, Rect};
 pub struct Button {
     pub rect: Rect,
     pub label: String,
+    pub icon: Option<IconId>,
     pub hovered: bool,
     pub pressed: bool,
     pub active: bool,
@@ -24,6 +26,7 @@ impl Button {
         Self {
             rect,
             label: label.into(),
+            icon: None,
             hovered: false,
             pressed: false,
             active: false,
@@ -31,6 +34,11 @@ impl Button {
             accent: false,
             disabled: false,
         }
+    }
+
+    pub fn with_icon(mut self, icon: impl Into<IconId>) -> Self {
+        self.icon = Some(icon.into());
+        self
     }
 
     pub fn take_click(&mut self) -> bool {
@@ -71,10 +79,8 @@ impl Paintable for Button {
         painter.paint_button_frame(canvas, self.rect, self.state(), self.accent);
 
         let scale = if self.rect.h >= 34 { 2 } else { 1 };
-        let tw = font::measure_text_width(&self.label, scale);
         let th = font::GLYPH_H * scale;
-        let tx = self.rect.x + (self.rect.w - tw) / 2;
-        let ty = self.rect.y + (self.rect.h - th) / 2 + i32::from(self.pressed);
+        let push = i32::from(self.pressed || self.active);
         let fg = if self.disabled {
             t.text_secondary
         } else if self.accent {
@@ -82,7 +88,28 @@ impl Paintable for Button {
         } else {
             t.text_primary
         };
-        font::draw_text_clipped(canvas, self.rect, tx.max(self.rect.x + 4), ty, &self.label, fg, scale);
+
+        if let Some(ref icon) = self.icon {
+            let icon_sz = (self.rect.h - 10).clamp(12, 18);
+            let iy = self.rect.y + (self.rect.h - icon_sz) / 2 + push;
+            if self.label.is_empty() {
+                let ix = self.rect.x + (self.rect.w - icon_sz) / 2;
+                icons::draw_icon(canvas, ix, iy, icon_sz, icon);
+            } else {
+                let gap = 5;
+                let tw = font::measure_text_width(&self.label, scale);
+                let content_w = icon_sz + gap + tw;
+                let sx = (self.rect.x + (self.rect.w - content_w) / 2).max(self.rect.x + 5);
+                let ty = self.rect.y + (self.rect.h - th) / 2 + push;
+                icons::draw_icon(canvas, sx, iy, icon_sz, icon);
+                font::draw_text_clipped(canvas, self.rect, sx + icon_sz + gap, ty, &self.label, fg, scale);
+            }
+        } else {
+            let tw = font::measure_text_width(&self.label, scale);
+            let tx = self.rect.x + (self.rect.w - tw) / 2;
+            let ty = self.rect.y + (self.rect.h - th) / 2 + push;
+            font::draw_text_clipped(canvas, self.rect, tx.max(self.rect.x + 4), ty, &self.label, fg, scale);
+        }
     }
 }
 

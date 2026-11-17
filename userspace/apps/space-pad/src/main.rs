@@ -73,18 +73,32 @@ impl PadApp {
             "    println!(\"Hello PetraOS!\");".to_string(),
             "}".to_string(),
         ];
-        Self {
+        let mut app = Self {
             width,
             height,
             tabs: vec![first],
             active_tab: 0,
             path_input: TextInput::new(Rect::new(8, 8, 320, 28), "/path/to/file"),
-            btn_new: Button::new(Rect::new(336, 8, 80, 28), "+ Tab"),
-            btn_close: Button::new(Rect::new(424, 8, 88, 28), "Close"),
-            btn_open: Button::new(Rect::new(520, 8, 76, 28), "Open"),
-            btn_save: Button::new(Rect::new(604, 8, 76, 28), "Save"),
+            btn_new: Button::new(Rect::new(336, 8, 82, 28), "+ Tab").with_icon("file-new"),
+            btn_close: Button::new(Rect::new(424, 8, 84, 28), "Close").with_icon("close"),
+            btn_open: Button::new(Rect::new(514, 8, 80, 28), "Open").with_icon("open"),
+            btn_save: Button::new(Rect::new(600, 8, 80, 28), "Save").with_icon("save"),
             status: String::from("Ready"),
-        }
+        };
+        app.relayout();
+        app
+    }
+
+    fn relayout(&mut self) {
+        let w = self.width as i32;
+        let btns_w = 82 + 84 + 80 + 80 + 18;
+        let path_w = (w - 16 - btns_w - 8).max(140);
+        self.path_input.rect = Rect::new(8, 8, path_w, 28);
+        let bx = 8 + path_w + 8;
+        self.btn_new.rect = Rect::new(bx, 8, 82, 28);
+        self.btn_close.rect = Rect::new(bx + 88, 8, 84, 28);
+        self.btn_open.rect = Rect::new(bx + 178, 8, 80, 28);
+        self.btn_save.rect = Rect::new(bx + 264, 8, 80, 28);
     }
 
     fn editor_rect(&self) -> Rect {
@@ -208,6 +222,12 @@ impl Paintable for PadApp {
 
 impl AppLogic for PadApp {
     fn handle_event(&mut self, event: UiEvent) -> bool {
+        if let UiEvent::Resize { width, height } = event {
+            self.width = width;
+            self.height = height;
+            self.relayout();
+            return true;
+        }
         let mut dirty = false;
         dirty |= self.path_input.on_event(event);
         dirty |= self.btn_new.on_event(event);

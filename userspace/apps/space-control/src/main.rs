@@ -171,19 +171,19 @@ impl ControlApp {
         let toolbar = ToolBar::new(
             Rect::new(0, 0, 0, 0),
             vec![
-                ToolButton::new("sec_home", "Home"),
-                ToolButton::new("sec_display", "Display"),
-                ToolButton::new("sec_system", "System"),
-                ToolButton::new("sec_audio", "Audio"),
-                ToolButton::new("sec_network", "Network"),
-                ToolButton::new("sec_services", "Services"),
-                ToolButton::new("refresh", "Refresh"),
+                ToolButton::new("sec_home", "Home").with_icon("home"),
+                ToolButton::new("sec_display", "Display").with_icon("display"),
+                ToolButton::new("sec_system", "System").with_icon("my-computer"),
+                ToolButton::new("sec_audio", "Audio").with_icon("audio"),
+                ToolButton::new("sec_network", "Network").with_icon("network"),
+                ToolButton::new("sec_services", "Services").with_icon("services"),
+                ToolButton::new("refresh", "Refresh").with_icon("refresh"),
             ],
         );
 
         let nav_buttons = ControlSection::NAV
             .iter()
-            .map(|&(sec, lbl, _)| (Button::new(Rect::new(0, 0, 0, 0), lbl), sec))
+            .map(|&(sec, lbl, ic)| (Button::new(Rect::new(0, 0, 0, 0), lbl).with_icon(ic), sec))
             .collect();
 
         let home_cards = vec![
@@ -215,10 +215,10 @@ impl ControlApp {
             active_res: String::from("1440x900"),
             pending_res: String::from("1440x900"),
             res_buttons: Vec::new(),
-            btn_apply_res: Button::new(Rect::new(0, 0, 120, 28), "Apply"),
+            btn_apply_res: Button::new(Rect::new(0, 0, 120, 28), "Apply").with_icon("apply"),
             appearance_dark: false,
-            btn_theme_light: Button::new(Rect::new(0, 0, 150, 28), "Petra Slate (Light)"),
-            btn_theme_dark: Button::new(Rect::new(0, 0, 150, 28), "Petra Basalt (Dark)"),
+            btn_theme_light: Button::new(Rect::new(0, 0, 160, 28), "Petra Slate (Light)").with_icon("theme"),
+            btn_theme_dark: Button::new(Rect::new(0, 0, 160, 28), "Petra Basalt (Dark)").with_icon("theme"),
             active_wallpaper: String::from("petra-slate"),
             wp_buttons: Vec::new(),
 
@@ -233,9 +233,9 @@ impl ControlApp {
             mem_avail: String::new(),
             uptime_str: String::new(),
             hostname_input: TextInput::new(Rect::new(0, 0, 240, 26), "petraos"),
-            btn_save_host: Button::new(Rect::new(0, 0, 110, 26), "Save Hostname"),
+            btn_save_host: Button::new(Rect::new(0, 0, 130, 26), "Save Hostname").with_icon("save"),
             hw_items: Vec::new(),
-            btn_open_apps: Button::new(Rect::new(0, 0, 200, 28), "Applications Manager"),
+            btn_open_apps: Button::new(Rect::new(0, 0, 210, 28), "Applications Manager").with_icon("app-manager"),
 
             volume: 75,
             muted: false,
@@ -243,7 +243,7 @@ impl ControlApp {
             btn_vol_m5: Button::new(Rect::new(0, 0, 62, 28), "-5%"),
             btn_vol_p5: Button::new(Rect::new(0, 0, 62, 28), "+5%"),
             btn_vol_p10: Button::new(Rect::new(0, 0, 68, 28), "+10%"),
-            btn_mute: Button::new(Rect::new(0, 0, 88, 28), "Mute"),
+            btn_mute: Button::new(Rect::new(0, 0, 94, 28), "Mute").with_icon("audio"),
             preset_vol_btns: [25, 50, 75, 100]
                 .iter()
                 .map(|&v| (Button::new(Rect::new(0, 0, 68, 26), format!("{}%", v)), v))
@@ -252,26 +252,26 @@ impl ControlApp {
 
             net_ifaces: Vec::new(),
             dns_input: TextInput::new(Rect::new(0, 0, 240, 26), "1.1.1.1"),
-            btn_save_dns: Button::new(Rect::new(0, 0, 100, 26), "Save DNS"),
-            btn_net_test: Button::new(Rect::new(0, 0, 140, 28), "Check Network"),
+            btn_save_dns: Button::new(Rect::new(0, 0, 114, 26), "Save DNS").with_icon("save"),
+            btn_net_test: Button::new(Rect::new(0, 0, 146, 28), "Check Network").with_icon("network"),
             net_test_result: String::from("Ready"),
 
-            btn_refresh_time: Button::new(Rect::new(0, 0, 120, 28), "Refresh Clock"),
+            btn_refresh_time: Button::new(Rect::new(0, 0, 136, 28), "Refresh Clock").with_icon("clock"),
 
             services: Vec::new(),
             sel_svc: None,
             svc_scroll: 0,
-            btn_svc_up: Button::new(Rect::new(0, 0, 76, 26), "Start"),
-            btn_svc_down: Button::new(Rect::new(0, 0, 76, 26), "Stop"),
-            btn_svc_restart: Button::new(Rect::new(0, 0, 86, 26), "Restart"),
-            btn_svc_enable: Button::new(Rect::new(0, 0, 82, 26), "Enable"),
-            btn_svc_disable: Button::new(Rect::new(0, 0, 84, 26), "Disable"),
+            btn_svc_up: Button::new(Rect::new(0, 0, 82, 26), "Start").with_icon("play"),
+            btn_svc_down: Button::new(Rect::new(0, 0, 82, 26), "Stop").with_icon("stop"),
+            btn_svc_restart: Button::new(Rect::new(0, 0, 94, 26), "Restart").with_icon("refresh"),
+            btn_svc_enable: Button::new(Rect::new(0, 0, 88, 26), "Enable").with_icon("apply"),
+            btn_svc_disable: Button::new(Rect::new(0, 0, 90, 26), "Disable").with_icon("close"),
 
-            btn_layout_float: Button::new(Rect::new(0, 0, 150, 30), "Floating Windows"),
-            btn_layout_tile: Button::new(Rect::new(0, 0, 150, 30), "Tiled Master-Stack"),
-            btn_launch_term: Button::new(Rect::new(0, 0, 160, 28), "Open Terminal"),
-            btn_launch_files: Button::new(Rect::new(0, 0, 160, 28), "Open File Explorer"),
-            btn_launch_tasks: Button::new(Rect::new(0, 0, 160, 28), "Open Task Manager"),
+            btn_layout_float: Button::new(Rect::new(0, 0, 168, 30), "Floating Windows").with_icon("show-desktop"),
+            btn_layout_tile: Button::new(Rect::new(0, 0, 178, 30), "Tiled Master-Stack").with_icon("view-list"),
+            btn_launch_term: Button::new(Rect::new(0, 0, 168, 28), "Open Terminal").with_icon("terminal"),
+            btn_launch_files: Button::new(Rect::new(0, 0, 178, 28), "Open File Explorer").with_icon("files"),
+            btn_launch_tasks: Button::new(Rect::new(0, 0, 178, 28), "Open Task Manager").with_icon("tasks"),
         };
         app.btn_apply_res.accent = true;
         app.btn_save_host.accent = true;
@@ -310,8 +310,8 @@ impl ControlApp {
             btn.set_bounds(Rect::new(px + col * 116, py + 148 + row * 34, 108, 28));
         }
         self.btn_apply_res.set_bounds(Rect::new(body.right() - 136, body.bottom() - 40, 120, 28));
-        self.btn_theme_light.set_bounds(Rect::new(px, py + 150, 160, 28));
-        self.btn_theme_dark.set_bounds(Rect::new(px + 172, py + 150, 160, 28));
+        self.btn_theme_light.set_bounds(Rect::new(px, py + 150, 172, 28));
+        self.btn_theme_dark.set_bounds(Rect::new(px + 182, py + 150, 172, 28));
         for (i, (btn, _)) in self.wp_buttons.iter_mut().enumerate() {
             let col = (i % 2) as i32;
             let row = (i / 2) as i32;
@@ -321,40 +321,40 @@ impl ControlApp {
         // System
         self.sys_tabs.set_bounds(Rect::new(body.x + 8, body.y + 54, body.w - 16, 26));
         self.hostname_input.set_bounds(Rect::new(px, py + 46, 240, 26));
-        self.btn_save_host.set_bounds(Rect::new(px + 250, py + 46, 120, 26));
-        self.btn_open_apps.set_bounds(Rect::new(px, body.bottom() - 42, 200, 28));
+        self.btn_save_host.set_bounds(Rect::new(px + 250, py + 46, 130, 26));
+        self.btn_open_apps.set_bounds(Rect::new(px, body.bottom() - 42, 210, 28));
 
         // Audio
         self.btn_vol_m10.set_bounds(Rect::new(px, py + 76, 68, 28));
         self.btn_vol_m5.set_bounds(Rect::new(px + 74, py + 76, 62, 28));
         self.btn_vol_p5.set_bounds(Rect::new(px + 142, py + 76, 62, 28));
         self.btn_vol_p10.set_bounds(Rect::new(px + 210, py + 76, 68, 28));
-        self.btn_mute.set_bounds(Rect::new(px + 286, py + 76, 90, 28));
+        self.btn_mute.set_bounds(Rect::new(px + 286, py + 76, 94, 28));
         for (i, (btn, _)) in self.preset_vol_btns.iter_mut().enumerate() {
             btn.set_bounds(Rect::new(px + i as i32 * 74, py + 120, 66, 26));
         }
 
         // Network
         self.dns_input.set_bounds(Rect::new(px, body.bottom() - 88, 240, 26));
-        self.btn_save_dns.set_bounds(Rect::new(px + 250, body.bottom() - 88, 110, 26));
-        self.btn_net_test.set_bounds(Rect::new(px, body.bottom() - 48, 140, 28));
+        self.btn_save_dns.set_bounds(Rect::new(px + 250, body.bottom() - 88, 114, 26));
+        self.btn_net_test.set_bounds(Rect::new(px, body.bottom() - 48, 146, 28));
 
         // Date & Time
-        self.btn_refresh_time.set_bounds(Rect::new(px, py + 124, 130, 28));
+        self.btn_refresh_time.set_bounds(Rect::new(px, py + 124, 136, 28));
 
         // Services
-        self.btn_svc_up.set_bounds(Rect::new(px, body.y + 62, 74, 26));
-        self.btn_svc_down.set_bounds(Rect::new(px + 80, body.y + 62, 74, 26));
-        self.btn_svc_restart.set_bounds(Rect::new(px + 160, body.y + 62, 84, 26));
-        self.btn_svc_enable.set_bounds(Rect::new(px + 250, body.y + 62, 78, 26));
-        self.btn_svc_disable.set_bounds(Rect::new(px + 334, body.y + 62, 80, 26));
+        self.btn_svc_up.set_bounds(Rect::new(px, body.y + 62, 82, 26));
+        self.btn_svc_down.set_bounds(Rect::new(px + 88, body.y + 62, 82, 26));
+        self.btn_svc_restart.set_bounds(Rect::new(px + 176, body.y + 62, 94, 26));
+        self.btn_svc_enable.set_bounds(Rect::new(px + 276, body.y + 62, 88, 26));
+        self.btn_svc_disable.set_bounds(Rect::new(px + 370, body.y + 62, 90, 26));
 
         // Desktop
-        self.btn_layout_float.set_bounds(Rect::new(px, py + 32, 160, 30));
-        self.btn_layout_tile.set_bounds(Rect::new(px + 170, py + 32, 170, 30));
-        self.btn_launch_term.set_bounds(Rect::new(px, py + 108, 160, 28));
-        self.btn_launch_files.set_bounds(Rect::new(px + 170, py + 108, 170, 28));
-        self.btn_launch_tasks.set_bounds(Rect::new(px, py + 144, 160, 28));
+        self.btn_layout_float.set_bounds(Rect::new(px, py + 32, 168, 30));
+        self.btn_layout_tile.set_bounds(Rect::new(px + 178, py + 32, 178, 30));
+        self.btn_launch_term.set_bounds(Rect::new(px, py + 108, 168, 28));
+        self.btn_launch_files.set_bounds(Rect::new(px + 178, py + 108, 178, 28));
+        self.btn_launch_tasks.set_bounds(Rect::new(px, py + 144, 168, 28));
     }
 
     fn refresh_all(&mut self) {
@@ -415,12 +415,12 @@ impl ControlApp {
             .drm_modes
             .iter()
             .take(6)
-            .map(|m| (Button::new(Rect::new(0, 0, 108, 28), m.clone()), m.clone()))
+            .map(|m| (Button::new(Rect::new(0, 0, 108, 28), m.clone()).with_icon("display"), m.clone()))
             .collect();
 
         self.wp_buttons = WALLPAPERS
             .iter()
-            .map(|&(lbl, id)| (Button::new(Rect::new(0, 0, 164, 30), lbl), id))
+            .map(|&(lbl, id)| (Button::new(Rect::new(0, 0, 164, 30), lbl).with_icon("theme"), id))
             .collect();
         self.relayout();
     }

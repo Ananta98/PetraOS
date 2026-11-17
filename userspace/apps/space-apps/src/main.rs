@@ -42,6 +42,17 @@ impl AppCategory {
         }
     }
 
+    fn icon(self) -> &'static str {
+        match self {
+            Self::All => "app-manager",
+            Self::Installed => "apply",
+            Self::Available => "install",
+            Self::Utilities => "notepad",
+            Self::Development => "terminal",
+            Self::System => "services",
+        }
+    }
+
     fn matches(self, pkg: &PackageInfo) -> bool {
         let lower_name = pkg.name.to_ascii_lowercase();
         let lower_desc = pkg.description.to_ascii_lowercase();
@@ -127,15 +138,15 @@ impl AppsManager {
         let toolbar = ToolBar::new(
             Rect::new(0, 0, 0, 0),
             vec![
-                ToolButton::new("install", "Install"),
-                ToolButton::new("remove", "Uninstall"),
-                ToolButton::new("refresh", "Refresh"),
+                ToolButton::new("install", "Install").with_icon("install"),
+                ToolButton::new("remove", "Uninstall").with_icon("uninstall"),
+                ToolButton::new("refresh", "Refresh").with_icon("refresh"),
             ],
         );
         let search = TextInput::new(Rect::new(0, 0, 0, 0), "Filter applications...");
         let cat_buttons = AppCategory::ALL
             .iter()
-            .map(|c| Button::new(Rect::new(0, 0, 0, 0), c.label()))
+            .map(|c| Button::new(Rect::new(0, 0, 0, 0), c.label()).with_icon(c.icon()))
             .collect();
         let table = TableView::new(
             Rect::new(0, 0, 0, 0),

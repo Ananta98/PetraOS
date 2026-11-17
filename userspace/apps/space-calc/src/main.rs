@@ -273,8 +273,8 @@ impl CalcApp {
             history: Vec::new(),
             mem_buttons: Vec::new(),
             buttons: Vec::new(),
-            btn_mode_toggle: Button::new(Rect::new(8, 6, 28, 28), "="),
-            btn_hist_toggle: Button::new(Rect::new(width as i32 - 38, 6, 30, 28), "H"),
+            btn_mode_toggle: Button::new(Rect::new(8, 6, 30, 28), "").with_icon("view-list"),
+            btn_hist_toggle: Button::new(Rect::new(width as i32 - 38, 6, 30, 28), "").with_icon("clock"),
         };
         app.rebuild_layout();
         app
@@ -283,8 +283,8 @@ impl CalcApp {
     fn rebuild_layout(&mut self) {
         let w = self.width as i32;
         let h = self.height as i32;
-        self.btn_mode_toggle = Button::new(Rect::new(8, 6, 30, 28), "=");
-        self.btn_hist_toggle = Button::new(Rect::new(w - 38, 6, 30, 28), "H");
+        self.btn_mode_toggle = Button::new(Rect::new(8, 6, 30, 28), "").with_icon("view-list");
+        self.btn_hist_toggle = Button::new(Rect::new(w - 38, 6, 30, 28), "").with_icon("clock");
 
         let mem_y = 132;
         let mem_labels = ["MC", "MR", "M+", "M-", "MS", "M"];

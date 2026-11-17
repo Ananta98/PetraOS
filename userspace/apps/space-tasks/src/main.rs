@@ -36,11 +36,11 @@ impl TasksApp {
         let toolbar = ToolBar::new(
             Rect::new(0, 0, 0, 0),
             vec![
-                ToolButton::new("term", "SIGTERM"),
-                ToolButton::new("kill", "SIGKILL"),
-                ToolButton::new("stop", "SIGSTOP"),
-                ToolButton::new("cont", "SIGCONT"),
-                ToolButton::new("refresh", "Refresh"),
+                ToolButton::new("term", "SIGTERM").with_icon("stop"),
+                ToolButton::new("kill", "SIGKILL").with_icon("delete"),
+                ToolButton::new("stop", "SIGSTOP").with_icon("pause"),
+                ToolButton::new("cont", "SIGCONT").with_icon("play"),
+                ToolButton::new("refresh", "Refresh").with_icon("refresh"),
             ],
         );
         let table = TableView::new(

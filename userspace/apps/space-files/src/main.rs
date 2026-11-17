@@ -201,17 +201,19 @@ impl FilesApp {
         let toolbar = ToolBar::new(
             Rect::new(0, 0, 0, 0),
             vec![
-                ToolButton::new("back", "Back"),
-                ToolButton::new("forward", "Fwd"),
-                ToolButton::new("up", "Up"),
-                ToolButton::new("toggle_folders", "Folders"),
-                ToolButton::new("cut", "Cut"),
-                ToolButton::new("copy", "Copy"),
-                ToolButton::new("paste", "Paste"),
-                ToolButton::new("delete", "Delete"),
-                ToolButton::new("mkdir", "New Dir"),
-                ToolButton::new("toggle_view", "View"),
-                ToolButton::new("refresh", "Refresh"),
+                ToolButton::new("back", "Back").with_icon("nav-back").icon_only(),
+                ToolButton::new("forward", "Fwd").with_icon("nav-forward").icon_only(),
+                ToolButton::new("up", "Up").with_icon("nav-up").icon_only(),
+                ToolButton::new("toggle_folders", "Folders")
+                    .with_icon("folder-tree")
+                    .with_active(true),
+                ToolButton::new("cut", "Cut").with_icon("cut"),
+                ToolButton::new("copy", "Copy").with_icon("copy"),
+                ToolButton::new("paste", "Paste").with_icon("paste"),
+                ToolButton::new("delete", "Delete").with_icon("delete"),
+                ToolButton::new("mkdir", "New Dir").with_icon("folder-new"),
+                ToolButton::new("toggle_view", "View").with_icon("view-list"),
+                ToolButton::new("refresh", "Refresh").with_icon("refresh"),
             ],
         );
 
@@ -228,7 +230,7 @@ impl FilesApp {
             menubar,
             toolbar,
             address,
-            btn_go: Button::new(Rect::new(0, 0, 44, 24), "Go"),
+            btn_go: Button::new(Rect::new(0, 0, 56, 24), "Go").with_icon("go"),
             show_folders: true,
             view_mode: ViewMode::Icons,
             splitter: Splitter::new(Rect::new(0, 0, 0, 0), 0.25),
@@ -279,8 +281,8 @@ impl FilesApp {
         self.menubar.set_bounds(Rect::new(0, 0, w, 24));
         self.toolbar.set_bounds(Rect::new(0, 24, w, 32));
         // Address bar: y=56..86
-        self.address.set_bounds(Rect::new(72, 59, (w - 128).max(100), 24));
-        self.btn_go.set_bounds(Rect::new(w - 50, 59, 42, 24));
+        self.address.set_bounds(Rect::new(72, 59, (w - 140).max(100), 24));
+        self.btn_go.set_bounds(Rect::new(w - 64, 59, 56, 24));
         // Drive bar: y=86..110
         // Main split area: y=112..h-78
         let main_h = (h - 112 - 78).max(120);
@@ -292,6 +294,23 @@ impl FilesApp {
 
     fn update_status(&mut self) {
         let count = self.tab().entries.len();
+        let can_back = !self.tab().back.is_empty();
+        let can_fwd = !self.tab().forward.is_empty();
+        let can_up = self.tab().cwd.parent().is_some();
+        let show_folders = self.show_folders;
+        let has_sel = self.tab().selected.is_some();
+        let has_clip = self.clipboard.is_some();
+        for btn in &mut self.toolbar.buttons {
+            match btn.id {
+                "back" => btn.enabled = can_back,
+                "forward" => btn.enabled = can_fwd,
+                "up" => btn.enabled = can_up,
+                "toggle_folders" => btn.active = show_folders,
+                "cut" | "copy" | "delete" => btn.enabled = has_sel,
+                "paste" => btn.enabled = has_clip,
+                _ => {}
+            }
+        }
         let cwd_str = self.tab().cwd.to_string_lossy().into_owned();
         self.address.text = cwd_str.clone();
         self.statusbar.set_text(0, format!("{} items", count));
