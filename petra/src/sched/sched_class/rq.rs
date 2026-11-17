@@ -311,7 +311,7 @@ impl RunQueue {
                         self.rt.enqueue(current, false);
                     }
                 } else {
-                    self.eevdf.insert(current, false);
+                    self.eevdf.insert(current, true);
                 }
             }
         }

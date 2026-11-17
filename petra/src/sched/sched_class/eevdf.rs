@@ -200,7 +200,7 @@ pub struct EevdfRunQueue {
     /// Sum of weights of queued and current fair tasks.
     sum_weight: u64,
     /// Weighted offset sum: `sum((vruntime - min_vruntime) * weight)`.
-    sum_offset_weighted: u64,
+    sum_offset_weighted: u128,
     /// Smallest virtual runtime among active tasks, monotonically increasing.
     min_vruntime: u64,
 }
@@ -232,8 +232,9 @@ impl EevdfRunQueue {
         if self.sum_weight == 0 {
             return self.min_vruntime;
         }
-        self.min_vruntime
-            .saturating_add(self.sum_offset_weighted / self.sum_weight)
+        let avg_offset =
+            u64::try_from(self.sum_offset_weighted / self.sum_weight as u128).unwrap_or(u64::MAX);
+        self.min_vruntime.saturating_add(avg_offset)
     }
 
     /// Returns the monotonic smallest virtual runtime.
@@ -270,10 +271,10 @@ impl EevdfRunQueue {
         let after = current.entity.fair.vruntime();
         let delta_vruntime = after.saturating_sub(before);
 
-        let weight = current.entity.fair.weight() as u64;
+        let weight = current.entity.fair.weight() as u128;
         self.sum_offset_weighted = self
             .sum_offset_weighted
-            .saturating_add(delta_vruntime.saturating_mul(weight));
+            .saturating_add((delta_vruntime as u128).saturating_mul(weight));
 
         if before == self.min_vruntime {
             self.advance_min_vruntime();
@@ -285,24 +286,22 @@ impl EevdfRunQueue {
         let lag = if is_new { 0 } else { entry.entity.fair.lag() };
 
         // Scale lag by change in total weight: Linux EEVDF formulation
-        let weight = entry.entity.fair.weight() as i64;
-        let total = self.sum_weight as i64;
+        let weight = entry.entity.fair.weight() as i128;
+        let total = self.sum_weight as i128;
         let scaled_lag = if total == 0 || weight == 0 {
-            lag
+            lag as i128
         } else {
-            ((lag as i128 * (total as i128 + weight as i128)) / total as i128) as i64
+            (lag as i128 * (total + weight)) / total
         };
 
         let base_vruntime = self.avg_vruntime();
-        let vruntime =
-            ((base_vruntime as i128 - scaled_lag as i128).max(self.min_vruntime as i128)) as u64;
+        let vruntime = (base_vruntime as i128 - scaled_lag)
+            .clamp(self.min_vruntime as i128, u64::MAX as i128) as u64;
 
         if self.sum_weight == 0 {
             self.min_vruntime = self.min_vruntime.max(vruntime);
-            entry.entity.fair.set_vruntime(vruntime);
-        } else {
-            entry.entity.fair.set_vruntime(vruntime);
         }
+        entry.entity.fair.set_vruntime(vruntime);
 
         entry.entity.fair.set_placed();
         self.insert(entry, false);
@@ -319,9 +318,7 @@ impl EevdfRunQueue {
         if !counted {
             self.sum_weight = self.sum_weight.saturating_add(weight);
             self.sum_offset_weighted = self.sum_offset_weighted.saturating_add(
-                vruntime
-                    .saturating_sub(self.min_vruntime)
-                    .saturating_mul(weight),
+                (vruntime.saturating_sub(self.min_vruntime) as u128).saturating_mul(weight as u128),
             );
         }
     }
@@ -335,8 +332,8 @@ impl EevdfRunQueue {
             .map(|(k, _)| *k)?;
 
         let entry = self.queued.remove(&key)?;
-        self.unaccount(&entry.entity.fair);
         self.remember_lag(&entry.entity.fair);
+        self.unaccount(&entry.entity.fair);
         Some(entry)
     }
 
@@ -365,21 +362,31 @@ impl EevdfRunQueue {
     }
 
     /// Removes an enqueued entry by key when picked for execution.
+    ///
+    /// The picked task transitions to `current` and remains accounted in the
+    /// runqueue's `sum_weight` and `sum_offset_weighted`.
     pub fn extract(&mut self, entry: &SchedEntry) -> SchedEntry {
         let key = EevdfRunKey::of(entry, false);
-        let extracted = self
+        if let Some(extracted) = self.queued.remove(&key) {
+            return extracted;
+        }
+        // Fallback by task pointer in case nice/weight changed while queued.
+        let fallback_key = self
             .queued
-            .remove(&key)
+            .iter()
+            .find(|(_, e)| Arc::as_ptr(&e.task) == Arc::as_ptr(&entry.task))
+            .map(|(k, _)| *k)
             .expect("picked task must be in runqueue");
-        self.unaccount(&extracted.entity.fair);
-        extracted
+        self.queued
+            .remove(&fallback_key)
+            .expect("picked task must be in runqueue")
     }
 
     /// Records bounded lag: `clamp(avg_vruntime - vruntime, -2 * request, 2 * request)`.
     pub fn remember_lag(&self, entity: &EevdfEntity) {
-        let lag = self.avg_vruntime() as i64 - entity.vruntime() as i64;
-        let limit = 2 * entity.request() as i64;
-        entity.set_lag(lag.clamp(-limit, limit));
+        let lag = self.avg_vruntime() as i128 - entity.vruntime() as i128;
+        let limit = (2i128 * entity.request() as i128).min(i64::MAX as i128);
+        entity.set_lag(lag.clamp(-limit, limit) as i64);
     }
 
     /// Unaccounts an entity from the running sums.
@@ -389,7 +396,7 @@ impl EevdfRunQueue {
         self.sum_weight = self.sum_weight.saturating_sub(weight);
         self.sum_offset_weighted = self
             .sum_offset_weighted
-            .saturating_sub(vruntime.saturating_mul(weight));
+            .saturating_sub((vruntime as u128).saturating_mul(weight as u128));
         if vruntime == 0 {
             self.advance_min_vruntime();
         }
@@ -410,7 +417,7 @@ impl EevdfRunQueue {
         self.min_vruntime = smallest;
         self.sum_offset_weighted = self
             .sum_offset_weighted
-            .saturating_sub(advance.saturating_mul(self.sum_weight));
+            .saturating_sub((advance as u128).saturating_mul(self.sum_weight as u128));
     }
 }
 
@@ -527,5 +534,73 @@ mod tests {
         assert_eq!(rq.nr_running(), 0);
         assert_eq!(rq.min_vruntime(), 0);
         assert_eq!(rq.avg_vruntime(), 0);
+    }
+
+    #[ktest]
+    fn test_eevdf_remember_lag_large_vruntime() {
+        let rq = EevdfRunQueue::new();
+        let entity = EevdfEntity::new(0, BASE_SLICE_NS);
+        let limit = 2 * entity.request() as i64;
+
+        // Entity vruntime above i64::MAX with avg_vruntime at 0
+        entity.set_vruntime(u64::MAX);
+        rq.remember_lag(&entity);
+        assert_eq!(entity.lag(), -limit);
+
+        // Entity vruntime at (i64::MAX as u64) + 1_000_000
+        entity.set_vruntime((i64::MAX as u64).saturating_add(1_000_000));
+        rq.remember_lag(&entity);
+        assert_eq!(entity.lag(), -limit);
+    }
+
+    #[ktest]
+    fn test_eevdf_accounting_across_switches() {
+        use crate::sched::sched_class::SchedEntity;
+        use ostd::task::TaskOptions;
+
+        let make_entry = |seq| {
+            let task = Arc::new(TaskOptions::new(|| {}).build().expect("build task"));
+            let entity = SchedEntity::new_fair(0, BASE_SLICE_NS, seq);
+            SchedEntry::new(task, entity, 0)
+        };
+
+        let mut rq = EevdfRunQueue::new();
+        let a = make_entry(1);
+        let b = make_entry(2);
+
+        rq.place(a.clone(), true);
+        rq.place(b.clone(), true);
+        assert_eq!(rq.sum_weight, 2 * NICE_0_LOAD as u64);
+        assert_eq!(rq.sum_offset_weighted, 0);
+
+        // Simulate 100 context switch / sleep-wake cycles without blowup
+        let picked = rq.best().cloned().expect("best task");
+        let mut curr = rq.extract(&picked);
+        rq.set_current(Some(curr.clone()));
+        assert_eq!(rq.sum_weight, 2 * NICE_0_LOAD as u64);
+
+        for _ in 0..100 {
+            rq.charge_current(1_000_000);
+            let next_queued = rq.best().cloned().expect("next task");
+            let next = rq.extract(&next_queued);
+            rq.insert(curr, true);
+            curr = next;
+            rq.set_current(Some(curr.clone()));
+            assert_eq!(rq.sum_weight, 2 * NICE_0_LOAD as u64);
+        }
+
+        // avg_vruntime should stay bounded by total real time run (~100 ms)
+        assert!(rq.avg_vruntime() <= 200_000_000);
+
+        // Dequeue current, then remaining queued task
+        rq.set_current(None);
+        rq.remember_lag(&curr.entity.fair);
+        rq.unaccount(&curr.entity.fair);
+        assert_eq!(rq.sum_weight, NICE_0_LOAD as u64);
+
+        let last = rq.best().cloned().expect("last task");
+        rq.dequeue(&last.task).expect("dequeue last");
+        assert_eq!(rq.sum_weight, 0);
+        assert_eq!(rq.sum_offset_weighted, 0);
     }
 }
