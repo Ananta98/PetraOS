@@ -47,6 +47,7 @@ pub struct SpaceClient {
     s2c_ring: ShmRing,
     pub width: u32,
     pub height: u32,
+    pub theme: Theme,
     running: bool,
     dirty: bool,
 }
@@ -109,6 +110,7 @@ impl SpaceClient {
             s2c_ring,
             width,
             height,
+            theme: Theme::XP_LUNA,
             running: true,
             dirty: true,
         })

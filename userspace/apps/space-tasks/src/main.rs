@@ -1,8 +1,8 @@
-use space_core::font;
-use space_core::{sys, Canvas, Color, Rect};
+use space_core::{sys, Canvas, Rect};
 use space_ui::{
-    draw_panel_3d, draw_progress_bar, list_item_at, AppLogic, Button, EventListener, Lifecycle,
-    Paintable, SpaceClient, Theme, UiEvent,
+    AppLogic, BoxLayout, EventListener, Insets, Layoutable, Lifecycle, Paintable, ProgressBar,
+    SizePolicy, SpaceClient, StatusBar, TableColumn, TableView, Theme, ToolBar, ToolButton,
+    UiEvent,
 };
 use std::fs;
 
@@ -23,19 +23,36 @@ struct TasksApp {
     mem_used_mb: u64,
     mem_total_mb: u64,
     procs: Vec<ProcEntry>,
-    selected: Option<usize>,
-    scroll: usize,
     tick: u64,
-    status: String,
-    btn_term: Button,
-    btn_kill: Button,
-    btn_stop: Button,
-    btn_cont: Button,
-    btn_refresh: Button,
+    cpu_bar: ProgressBar,
+    mem_bar: ProgressBar,
+    toolbar: ToolBar,
+    table: TableView,
+    statusbar: StatusBar,
 }
 
 impl TasksApp {
     fn new(width: u32, height: u32) -> Self {
+        let toolbar = ToolBar::new(
+            Rect::new(0, 0, 0, 0),
+            vec![
+                ToolButton::new("term", "SIGTERM"),
+                ToolButton::new("kill", "SIGKILL"),
+                ToolButton::new("stop", "SIGSTOP"),
+                ToolButton::new("cont", "SIGCONT"),
+                ToolButton::new("refresh", "Refresh"),
+            ],
+        );
+        let table = TableView::new(
+            Rect::new(0, 0, 0, 0),
+            vec![
+                TableColumn::new("PID", 76),
+                TableColumn::new("State", 64),
+                TableColumn::new("Process", 220),
+                TableColumn::new("RSS", 110),
+            ],
+        );
+        let statusbar = StatusBar::new(Rect::new(0, 0, 0, 0));
         let mut app = Self {
             width,
             height,
@@ -45,22 +62,41 @@ impl TasksApp {
             mem_used_mb: 0,
             mem_total_mb: 0,
             procs: Vec::new(),
-            selected: None,
-            scroll: 0,
             tick: 0,
-            status: String::from("Monitoring /proc"),
-            btn_term: Button::new(Rect::new(8, 86, 108, 28), "SIGTERM"),
-            btn_kill: Button::new(Rect::new(124, 86, 108, 28), "SIGKILL"),
-            btn_stop: Button::new(Rect::new(240, 86, 108, 28), "SIGSTOP"),
-            btn_cont: Button::new(Rect::new(356, 86, 108, 28), "SIGCONT"),
-            btn_refresh: Button::new(Rect::new(472, 86, 100, 28), "Refresh"),
+            cpu_bar: ProgressBar::new(Rect::new(0, 0, 0, 0), 0.0, "CPU: 0.0%"),
+            mem_bar: ProgressBar::new(Rect::new(0, 0, 0, 0), 0.0, "RAM: 0 / 0 MB")
+                .with_fill(Theme::XP_LUNA.success),
+            toolbar,
+            table,
+            statusbar,
         };
+        app.relayout();
         app.sample_proc();
         app
     }
 
+    fn relayout(&mut self) {
+        let root = Rect::new(0, 0, self.width as i32, self.height as i32);
+        let outer = BoxLayout::vbox(6, Insets::all(8));
+        let slots = outer.compute(
+            root,
+            &[
+                SizePolicy::Fixed(32), // CPU/RAM bars
+                SizePolicy::Fixed(34), // ToolBar
+                SizePolicy::Expand,    // TableView
+                SizePolicy::Fixed(26), // StatusBar
+            ],
+        );
+        let bar_slots = BoxLayout::hbox(8, Insets::ZERO)
+            .compute(slots[0], &[SizePolicy::Expand, SizePolicy::Expand]);
+        self.cpu_bar.set_bounds(bar_slots[0]);
+        self.mem_bar.set_bounds(bar_slots[1]);
+        self.toolbar.set_bounds(slots[1]);
+        self.table.set_bounds(slots[2]);
+        self.statusbar.set_bounds(slots[3]);
+    }
+
     fn sample_proc(&mut self) {
-        // CPU from /proc/stat
         if let Ok(stat) = fs::read_to_string("/proc/stat") {
             if let Some(line) = stat.lines().next() {
                 let vals: Vec<u64> = line
@@ -74,7 +110,7 @@ impl TasksApp {
                     if self.prev_total > 0 && total > self.prev_total {
                         let dt = total - self.prev_total;
                         let di = idle.saturating_sub(self.prev_idle);
-                        self.cpu_pct = ((dt - di) as f32 / dt as f32) * 100.0;
+                        self.cpu_pct = ((dt.saturating_sub(di)) as f32 * 100.0) / dt as f32;
                     }
                     self.prev_total = total;
                     self.prev_idle = idle;
@@ -82,66 +118,92 @@ impl TasksApp {
             }
         }
 
-        // RAM from /proc/meminfo
         if let Ok(mem) = fs::read_to_string("/proc/meminfo") {
-            let mut total = 0u64;
-            let mut avail = 0u64;
+            let mut total_kb = 0u64;
+            let mut avail_kb = 0u64;
             for line in mem.lines() {
-                if let Some(r) = line.strip_prefix("MemTotal:") {
-                    total = r.split_whitespace().next().and_then(|s| s.parse().ok()).unwrap_or(0);
-                } else if let Some(r) = line.strip_prefix("MemAvailable:") {
-                    avail = r.split_whitespace().next().and_then(|s| s.parse().ok()).unwrap_or(0);
+                if let Some(rest) = line.strip_prefix("MemTotal:") {
+                    total_kb = rest.split_whitespace().next().and_then(|s| s.parse().ok()).unwrap_or(0);
+                } else if let Some(rest) = line.strip_prefix("MemAvailable:") {
+                    avail_kb = rest.split_whitespace().next().and_then(|s| s.parse().ok()).unwrap_or(0);
                 }
             }
-            self.mem_total_mb = total / 1024;
-            self.mem_used_mb = total.saturating_sub(avail) / 1024;
+            self.mem_total_mb = total_kb / 1024;
+            self.mem_used_mb = total_kb.saturating_sub(avail_kb) / 1024;
         }
 
-        // Processes
+        let prev_pid = self.table.selected.and_then(|i| self.procs.get(i)).map(|p| p.pid);
         self.procs.clear();
         if let Ok(rd) = fs::read_dir("/proc") {
             for ent in rd.flatten() {
-                let Ok(pid) = ent.file_name().to_string_lossy().parse::<i32>() else {
-                    continue;
-                };
-                let name = fs::read_to_string(format!("/proc/{}/comm", pid))
-                    .map(|s| s.trim().to_string())
-                    .unwrap_or_else(|_| "?".to_string());
-                let mut state = String::from("?");
-                let mut rss_kb = 0u64;
-                if let Ok(status) = fs::read_to_string(format!("/proc/{}/status", pid)) {
-                    for line in status.lines() {
-                        if let Some(r) = line.strip_prefix("State:") {
-                            state = r.trim().chars().next().map(|c| c.to_string()).unwrap_or(state);
-                        } else if let Some(r) = line.strip_prefix("VmRSS:") {
-                            rss_kb = r.split_whitespace().next().and_then(|s| s.parse().ok()).unwrap_or(0);
+                let fname = ent.file_name();
+                let s = fname.to_string_lossy();
+                if let Ok(pid) = s.parse::<i32>() {
+                    let stat_path = format!("/proc/{}/stat", pid);
+                    let name = fs::read_to_string(format!("/proc/{}/comm", pid))
+                        .map(|c| c.trim().to_string())
+                        .unwrap_or_else(|_| String::from("proc"));
+                    let mut state = String::from("R");
+                    if let Ok(st) = fs::read_to_string(stat_path) {
+                        if let Some(rp) = st.rfind(')') {
+                            if let Some(ch) = st[rp + 1..].split_whitespace().next() {
+                                state = ch.to_string();
+                            }
                         }
                     }
+                    let mut rss_kb = 0u64;
+                    if let Ok(status) = fs::read_to_string(format!("/proc/{}/status", pid)) {
+                        for line in status.lines() {
+                            if let Some(rest) = line.strip_prefix("VmRSS:") {
+                                rss_kb = rest.split_whitespace().next().and_then(|v| v.parse().ok()).unwrap_or(0);
+                            }
+                        }
+                    }
+                    self.procs.push(ProcEntry { pid, name, state, rss_kb });
                 }
-                self.procs.push(ProcEntry {
-                    pid,
-                    name,
-                    state,
-                    rss_kb,
-                });
             }
         }
-        self.procs.sort_by(|a, b| b.rss_kb.cmp(&a.rss_kb).then_with(|| a.pid.cmp(&b.pid)));
-    }
+        self.procs.sort_by_key(|p| p.pid);
 
-    fn list_rect(&self) -> Rect {
-        Rect::new(8, 124, self.width as i32 - 16, self.height as i32 - 154)
+        let rows: Vec<Vec<String>> = self
+            .procs
+            .iter()
+            .map(|p| {
+                vec![
+                    p.pid.to_string(),
+                    p.state.clone(),
+                    p.name.clone(),
+                    format!("{} KB", p.rss_kb),
+                ]
+            })
+            .collect();
+        self.table.set_rows(rows);
+        self.table.selected = prev_pid.and_then(|pid| self.procs.iter().position(|p| p.pid == pid));
+        self.cpu_bar.ratio = self.cpu_pct / 100.0;
+        self.cpu_bar.label = format!("CPU: {:.1}%", self.cpu_pct);
+        self.mem_bar.ratio = if self.mem_total_mb > 0 {
+            self.mem_used_mb as f32 / self.mem_total_mb as f32
+        } else {
+            0.0
+        };
+        self.mem_bar.label = format!("RAM: {} / {} MB", self.mem_used_mb, self.mem_total_mb);
+        self.statusbar.set_text(0, format!("Processes: {}", self.procs.len()));
+        self.statusbar
+            .set_text(1, format!("RAM: {} / {} MB", self.mem_used_mb, self.mem_total_mb));
     }
 
     fn send_sig(&mut self, sig: i32, label: &str) {
-        if let Some(sel) = self.selected {
-            if let Some(p) = self.procs.get(sel) {
-                match sys::send_signal(p.pid, sig) {
-                    Ok(_) => self.status = format!("Sent {} to PID {} ({})", label, p.pid, p.name),
-                    Err(e) => self.status = format!("Signal error: {}", e),
-                }
-                self.sample_proc();
+        if let Some(p) = self.table.selected.and_then(|i| self.procs.get(i)) {
+            let pid = p.pid;
+            let rc = unsafe { sys::kill(pid, sig) };
+            if rc == 0 {
+                self.statusbar.set_text(0, format!("Sent {} to PID {}", label, pid));
+            } else {
+                self.statusbar.set_text(0, format!("kill({}, {}) failed", pid, label));
             }
+            self.sample_proc();
+        } else {
+            self.statusbar.set_text(0, "Select a process first");
         }
     }
 }
@@ -159,124 +221,46 @@ impl Lifecycle for TasksApp {
 
 impl Paintable for TasksApp {
     fn paint(&self, canvas: &mut dyn Canvas) {
-        let t = Theme::XP_LUNA;
-        let half_w = (self.width as i32 - 24) / 2;
-        draw_progress_bar(
-            canvas,
-            Rect::new(8, 12, half_w, 28),
-            self.cpu_pct / 100.0,
-            &format!("CPU: {:.1}%", self.cpu_pct),
-            t.accent,
-        );
-        let mem_ratio = if self.mem_total_mb > 0 {
-            self.mem_used_mb as f32 / self.mem_total_mb as f32
-        } else {
-            0.0
-        };
-        draw_progress_bar(
-            canvas,
-            Rect::new(16 + half_w, 12, half_w, 28),
-            mem_ratio,
-            &format!("RAM: {} / {} MB", self.mem_used_mb, self.mem_total_mb),
-            t.success,
-        );
-        font::draw_text(
-            canvas,
-            10,
-            52,
-            &format!("Processes: {}", self.procs.len()),
-            t.text_secondary,
-            2,
-        );
-
-        self.btn_term.paint(canvas);
-        self.btn_kill.paint(canvas);
-        self.btn_stop.paint(canvas);
-        self.btn_cont.paint(canvas);
-        self.btn_refresh.paint(canvas);
-
-        let lr = self.list_rect();
-        canvas.fill_rect(lr, t.bg_surface);
-        draw_panel_3d(canvas, lr, true, &t);
-        canvas.draw_rect_outline(lr, 1, t.border);
-
-        let hdr = Rect::new(lr.x + 2, lr.y + 2, lr.w - 4, 24);
-        canvas.fill_rect(hdr, t.bg_window);
-        font::draw_text(canvas, hdr.x + 8, hdr.y + 4, "PID     STATE  NAME                  RSS", t.accent, 2);
-
-        let rows_r = Rect::new(lr.x + 4, lr.y + 28, lr.w - 8, lr.h - 32);
-        let max_rows = (rows_r.h / 22).max(1) as usize;
-        for (vi, p) in self.procs.iter().skip(self.scroll).take(max_rows).enumerate() {
-            let real_idx = self.scroll + vi;
-            let ry = rows_r.y + (vi as i32) * 22;
-            let rr = Rect::new(rows_r.x, ry, rows_r.w, 20);
-            let selected = self.selected == Some(real_idx);
-            if selected {
-                canvas.fill_rect(rr, t.bg_active);
-            }
-            let line = format!("{:<7} {:<6} {:<21} {} KB", p.pid, p.state, p.name.chars().take(20).collect::<String>(), p.rss_kb);
-            font::draw_text(canvas, rr.x + 6, rr.y + 2, &line, if selected { Color::WHITE } else { t.text_primary }, 2);
-        }
-
-        font::draw_text(canvas, 10, self.height as i32 - 22, &self.status, t.text_secondary, 2);
+        self.cpu_bar.paint(canvas);
+        self.mem_bar.paint(canvas);
+        self.toolbar.paint(canvas);
+        self.table.paint(canvas);
+        self.statusbar.paint(canvas);
     }
 }
 
 impl AppLogic for TasksApp {
     fn handle_event(&mut self, event: UiEvent) -> bool {
+        if let UiEvent::Resize { width, height } = event {
+            self.width = width;
+            self.height = height;
+            self.relayout();
+            return true;
+        }
         let mut dirty = false;
-        dirty |= self.btn_term.on_event(event);
-        dirty |= self.btn_kill.on_event(event);
-        dirty |= self.btn_stop.on_event(event);
-        dirty |= self.btn_cont.on_event(event);
-        dirty |= self.btn_refresh.on_event(event);
+        dirty |= self.toolbar.on_event(event);
+        dirty |= self.table.on_event(event);
 
-        if self.btn_term.take_click() {
-            self.send_sig(15, "SIGTERM");
-            return true;
-        }
-        if self.btn_kill.take_click() {
-            self.send_sig(9, "SIGKILL");
-            return true;
-        }
-        if self.btn_stop.take_click() {
-            self.send_sig(19, "SIGSTOP");
-            return true;
-        }
-        if self.btn_cont.take_click() {
-            self.send_sig(18, "SIGCONT");
-            return true;
-        }
-        if self.btn_refresh.take_click() {
-            self.sample_proc();
-            return true;
-        }
-
-        let lr = self.list_rect();
-        let rows_r = Rect::new(lr.x + 4, lr.y + 26, lr.w - 8, lr.h - 30);
-        match event {
-            UiEvent::MouseDown { pos, button: 1 } => {
-                if let Some(hit) = list_item_at(rows_r, 22, self.scroll, self.procs.len(), pos) {
-                    self.selected = Some(hit);
-                    return true;
+        if let Some(act) = self.toolbar.take_action() {
+            match act {
+                "term" => self.send_sig(15, "SIGTERM"),
+                "kill" => self.send_sig(9, "SIGKILL"),
+                "stop" => self.send_sig(19, "SIGSTOP"),
+                "cont" => self.send_sig(18, "SIGCONT"),
+                "refresh" => {
+                    self.sample_proc();
+                    self.statusbar.set_text(0, "Refreshed /proc");
                 }
+                _ => {}
             }
-            UiEvent::Wheel { delta, .. } => {
-                if delta > 0 {
-                    self.scroll = self.scroll.saturating_sub(3);
-                } else if delta < 0 && self.scroll + 1 < self.procs.len() {
-                    self.scroll += 3;
-                }
-                return true;
-            }
-            _ => {}
+            dirty = true;
         }
         dirty
     }
 }
 
 fn main() {
-    let mut client = SpaceClient::connect("Space Tasks", 720, 500).expect("connect failed");
-    let mut app = TasksApp::new(720, 500);
+    let mut client = SpaceClient::connect("Task Manager", 560, 440).expect("connect space-tasks");
+    let mut app = TasksApp::new(560, 440);
     client.run(&mut app);
 }

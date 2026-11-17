@@ -182,11 +182,24 @@ fn draw_text_face<C: Canvas + ?Sized>(
     scale: i32,
     face: FontFace,
 ) {
+    draw_text_face_clipped(canvas, canvas.bounds(), x, y, text, color, scale, face);
+}
+
+fn draw_text_face_clipped<C: Canvas + ?Sized>(
+    canvas: &mut C,
+    clip: Rect,
+    x: i32,
+    y: i32,
+    text: &str,
+    color: Color,
+    scale: i32,
+    face: FontFace,
+) {
     if text.is_empty() {
         return;
     }
     let scale = scale.max(1);
-    let bounds = canvas.bounds();
+    let bounds = canvas.bounds().intersect(clip);
     let x_min = bounds.x.max(0);
     let y_min = bounds.y.max(0);
     let x_max = bounds.right().min(canvas.width() as i32);
@@ -286,6 +299,26 @@ pub fn measure_text_width(text: &str, scale: i32) -> i32 {
 }
 
 /// Draws text clipped to `clip`.
+/// Returns the line height in pixels for `scale`.
+pub fn line_height(scale: i32) -> i32 {
+    FontEngine::px_size(scale.max(1)).ceil() as i32
+}
+
+/// Measures the pixel width of bold `text` at `scale`.
+pub fn measure_text_width_bold(text: &str, scale: i32) -> i32 {
+    if text.is_empty() {
+        return 0;
+    }
+    let mut eng = engine().lock().unwrap();
+    let mut w = 0;
+    for c in text.chars() {
+        if c != '\n' {
+            w += eng.glyph(FontFace::Bold, c, scale.max(1)).advance;
+        }
+    }
+    w
+}
+
 pub fn draw_text_clipped<C: Canvas + ?Sized>(
     canvas: &mut C,
     clip: Rect,
@@ -295,8 +328,18 @@ pub fn draw_text_clipped<C: Canvas + ?Sized>(
     color: Color,
     scale: i32,
 ) {
-    if clip.w <= 0 || clip.h <= 0 {
-        return;
-    }
-    draw_text(canvas, x, y, text, color, scale);
+    draw_text_face_clipped(canvas, clip, x, y, text, color, scale, FontFace::Regular);
+}
+
+/// Draws bold text clipped to `clip`.
+pub fn draw_text_bold_clipped<C: Canvas + ?Sized>(
+    canvas: &mut C,
+    clip: Rect,
+    x: i32,
+    y: i32,
+    text: &str,
+    color: Color,
+    scale: i32,
+) {
+    draw_text_face_clipped(canvas, clip, x, y, text, color, scale, FontFace::Bold);
 }

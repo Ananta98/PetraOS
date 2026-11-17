@@ -2,6 +2,7 @@ mod compositor;
 mod decorator;
 mod panel;
 mod scene;
+mod switcher;
 mod wallpaper;
 
 use compositor::Compositor;

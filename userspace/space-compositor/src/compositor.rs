@@ -3,6 +3,7 @@
 use crate::decorator::{HitPart, WindowDecorator, XpLunaDecorator, BORDER_W, TITLEBAR_H};
 use crate::panel::{DesktopPanel, PanelAction, TASKBAR_H};
 use crate::scene::{LayoutMode, SceneGraph, SurfaceNode};
+use crate::switcher::WindowSwitcher;
 use space_core::font;
 use space_core::icons::{self, IconId};
 use space_core::ipc::{
@@ -73,6 +74,7 @@ pub struct Compositor<R: RenderBackend, I: InputBackend> {
     decorator: XpLunaDecorator,
     wallpaper: Vec<u32>,
     selected_shortcut: Option<usize>,
+    switcher: WindowSwitcher,
     last_shortcut_click: (Option<usize>, u64),
     damage: DamageRegion,
     listen_fd: c_int,
@@ -128,6 +130,7 @@ impl<R: RenderBackend, I: InputBackend> Compositor<R, I> {
             decorator: XpLunaDecorator,
             wallpaper,
             selected_shortcut: None,
+            switcher: WindowSwitcher::new(),
             last_shortcut_click: (None, 0),
             damage,
             listen_fd,
@@ -349,6 +352,21 @@ impl<R: RenderBackend, I: InputBackend> Compositor<R, I> {
                 }
             }
             InputEvent::Key { code, pressed, ch, mods } => {
+                if !pressed && (code == 56 || code == 100) && self.switcher.active {
+                    if let Some(id) = self.switcher.commit() {
+                        self.scene.focus_window(id);
+                        if let Some(node) = self.scene.find_mut(id) {
+                            node.minimized = false;
+                        }
+                    }
+                    self.damage.add(Rect::new(0, 0, sw, sh));
+                    return;
+                }
+                if pressed && mods.alt && code == 15 {
+                    self.switcher.step(&self.scene, mods.shift);
+                    self.damage.add(self.switcher.overlay_rect(sw, sh));
+                    return;
+                }
                 if pressed {
                     // Global hardware shortcuts
                     if mods.super_key {
@@ -449,6 +467,41 @@ impl<R: RenderBackend, I: InputBackend> Compositor<R, I> {
 
         if !pressed {
             if !matches!(self.drag, DragState::None) {
+                if let DragState::Move { win_id, .. } = self.drag {
+                    let work = self.panel.work_area(sw, sh);
+                    let snap_rect = if self.cursor.x <= 12 {
+                        Some(Rect::new(
+                            work.x + BORDER_W,
+                            work.y + TITLEBAR_H,
+                            (work.w / 2 - BORDER_W * 2).max(160),
+                            (work.h - TITLEBAR_H - BORDER_W).max(120),
+                        ))
+                    } else if self.cursor.x >= sw - 12 {
+                        Some(Rect::new(
+                            work.x + work.w / 2 + BORDER_W,
+                            work.y + TITLEBAR_H,
+                            (work.w - work.w / 2 - BORDER_W * 2).max(160),
+                            (work.h - TITLEBAR_H - BORDER_W).max(120),
+                        ))
+                    } else if self.cursor.y <= 12 {
+                        Some(Rect::new(
+                            work.x + BORDER_W,
+                            work.y + TITLEBAR_H,
+                            (work.w - BORDER_W * 2).max(160),
+                            (work.h - TITLEBAR_H - BORDER_W).max(120),
+                        ))
+                    } else {
+                        None
+                    };
+                    if let Some(sr) = snap_rect {
+                        if let Some(node) = self.scene.find_mut(win_id) {
+                            self.damage.add(self.decorator.shadow_rect(node.rect));
+                            node.rect = sr;
+
+                            self.damage.add(self.decorator.shadow_rect(sr));
+                        }
+                    }
+                }
                 self.drag = DragState::None;
                 return;
             }
@@ -757,6 +810,10 @@ impl<R: RenderBackend, I: InputBackend> Compositor<R, I> {
                 || (self.panel.launcher_open && clip.intersects(launcher_r));
             if touches_panel {
                 self.panel.paint(&mut canvas, &self.scene, sw as i32, sh as i32);
+            }
+
+            if self.switcher.active {
+                self.switcher.paint(&mut canvas, sw as i32, sh as i32);
             }
 
             // 4. Crisp Windows XP-style arrow cursor (12x19) with drop shadow

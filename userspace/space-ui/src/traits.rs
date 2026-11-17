@@ -1,6 +1,16 @@
-//! Interface Segregation Principle (ISP): granular UI traits.
+//! Interface Segregation Principle (ISP): granular UI traits and widget state.
 
 use space_core::{Canvas, Point, Rect};
+
+/// Visual interaction state shared across interactive widgets.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WidgetState {
+    Normal,
+    Hovered,
+    Pressed,
+    Focused,
+    Disabled,
+}
 
 #[derive(Debug, Clone, Copy)]
 pub enum UiEvent {
@@ -16,6 +26,11 @@ pub enum UiEvent {
 /// Rendering contract for any drawable UI element.
 pub trait Paintable {
     fn paint(&self, canvas: &mut dyn Canvas);
+
+    /// Theme-aware paint entry point; defaults to [`Self::paint`].
+    fn paint_with(&self, canvas: &mut dyn Canvas, _theme: &crate::theme::Theme) {
+        self.paint(canvas);
+    }
 }
 
 /// Input handling contract for interactive elements.
