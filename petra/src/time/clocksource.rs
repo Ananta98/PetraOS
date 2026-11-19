@@ -104,6 +104,38 @@ pub fn calc_mult_shift(freq_hz: u64) -> (u32, u32) {
     (mult as u32, 0)
 }
 
+/// Calculates fixed-point `(mult, shift)` bounded so that `(cycles * mult) + (1e9 << shift)`
+/// will not overflow a 64-bit unsigned integer for deltas up to `maxsec` seconds.
+pub fn calc_mult_shift_for_maxsec(freq_hz: u64, maxsec: u64) -> (u32, u32) {
+    if freq_hz == 0 {
+        return (1, 0);
+    }
+
+    let mut shift = 31;
+    while shift > 0 {
+        let mult = ((1_000_000_000u128 << shift) + (freq_hz as u128 / 2)) / freq_hz as u128;
+        if mult <= u32::MAX as u128
+            && (maxsec as u128)
+                .saturating_mul(freq_hz as u128)
+                .saturating_mul(mult)
+                .saturating_add(1_000_000_000u128 << shift)
+                <= u64::MAX as u128
+        {
+            return (mult as u32, shift);
+        }
+        shift -= 1;
+    }
+
+    let mult = (1_000_000_000u128 + (freq_hz as u128 / 2)) / freq_hz as u128;
+    (mult.min(u32::MAX as u128) as u32, 0)
+}
+
+/// Calculates vDSO-safe `(mult, shift)` ensuring 64-bit multiplication in `linux_vdso`
+/// cannot overflow within a 60-second window.
+pub fn calc_mult_shift_vdso(freq_hz: u64) -> (u32, u32) {
+    calc_mult_shift_for_maxsec(freq_hz, 60)
+}
+
 // ----------------------------------------------------------------------------
 // Clocksource Manager
 // ----------------------------------------------------------------------------
@@ -139,14 +171,22 @@ impl ClocksourceManager {
 
     /// Returns the current monotonic time in nanoseconds since boot.
     pub fn read_monotonic_ns(&self) -> u64 {
+        self.read_monotonic_and_cycles().0
+    }
+
+    /// Reads an atomic snapshot `(monotonic_ns, raw_cycles)` from the active clocksource.
+    pub fn read_monotonic_and_cycles(&self) -> (u64, u64) {
         if let Some(cs) = &self.active {
             let now = cs.read();
             let delta = now.wrapping_sub(self.cycle_last) & cs.mask();
             let delta_ns = ((delta as u128) * (cs.mult() as u128)) >> cs.shift();
-            self.base_monotonic_ns.saturating_add(delta_ns as u64)
+            (self.base_monotonic_ns.saturating_add(delta_ns as u64), now)
         } else {
             // Fallback to Jiffies
-            ostd::timer::Jiffies::elapsed().as_duration().as_nanos() as u64
+            (
+                ostd::timer::Jiffies::elapsed().as_duration().as_nanos() as u64,
+                ostd::arch::read_tsc(),
+            )
         }
     }
 
@@ -239,9 +279,15 @@ pub fn monotonic_now_ns() -> u64 {
     manager().lock().read_monotonic_ns()
 }
 
+/// Reads a consistent `(monotonic_ns, raw_cycles)` snapshot under a single clocksource lock.
+pub fn monotonic_snapshot() -> (u64, u64) {
+    manager().lock().read_monotonic_and_cycles()
+}
+
 /// Accumulates elapsed cycles to advance the base monotonic time.
 pub fn accumulate_cycles() {
     manager().lock().accumulate();
+    crate::time::maybe_sync_vdso_time();
 }
 
 /// Returns the name of the active clocksource.
@@ -278,5 +324,33 @@ mod tests {
             diff <= 1,
             "Diff {diff} exceeds 1ns for 2.4GHz mult/shift scaling"
         );
+    }
+
+    #[ktest]
+    fn calc_mult_shift_vdso_no_u64_overflow() {
+        for &freq_hz in &[
+            1_000_000_000u64,
+            2_400_000_000u64,
+            3_600_000_000u64,
+            5_000_000_000u64,
+        ] {
+            let (mult, shift) = calc_mult_shift_vdso(freq_hz);
+            let cycles_60s = 60u64 * freq_hz;
+            let prod = cycles_60s
+                .checked_mul(mult as u64)
+                .expect("cycles * mult must not overflow u64 for 60s");
+            let base_shifted = 999_999_999u64 << shift;
+            assert!(
+                base_shifted.checked_add(prod).is_some(),
+                "basetime.nsec + delta*mult overflowed u64 at freq={freq_hz}, mult={mult}, shift={shift}"
+            );
+
+            let ns_1s = ((freq_hz as u128 * mult as u128) >> shift) as u64;
+            let diff = (ns_1s as i64 - 1_000_000_000i64).abs();
+            assert!(
+                diff < 100,
+                "1s diff {diff}ns too large at freq={freq_hz}, mult={mult}, shift={shift}"
+            );
+        }
     }
 }

@@ -1198,3 +1198,56 @@ fn main() {
     let mut app = ControlApp::new(w, h);
     client.run(&mut app);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use space_core::PixelBuffer;
+
+    fn count_non_bg(pb: &PixelBuffer, rect: Rect, bg: u32) -> usize {
+        let mut count = 0;
+        let stride = pb.width as usize;
+        let px = pb.pixels();
+        for y in rect.y.max(0)..rect.bottom().min(pb.height as i32) {
+            for x in rect.x.max(0)..rect.right().min(pb.width as i32) {
+                if px[y as usize * stride + x as usize] != bg {
+                    count += 1;
+                }
+            }
+        }
+        count
+    }
+
+    #[test]
+    fn control_app_paints_toolbar_sidebar_and_body_and_resizes() {
+        let bg = Theme::PETRA_SLATE.bg_window.0;
+        let mut app = ControlApp::new(780, 520);
+        let mut pb = PixelBuffer::new(780, 520, Theme::PETRA_SLATE.bg_window);
+        app.paint(&mut pb);
+
+        // Toolbar buttons ("Home" icon & text around x=10..100, y=28..50)
+        assert!(
+            count_non_bg(&pb, Rect::new(10, 28, 90, 22), bg) > 50,
+            "toolbar button pixels should be painted"
+        );
+        // Left sidebar (x=14..170, y=72..300)
+        assert!(
+            count_non_bg(&pb, Rect::new(14, 72, 156, 228), bg) > 500,
+            "sidebar should be painted"
+        );
+        // Home banner/body (x=200..750, y=70..450)
+        assert!(
+            count_non_bg(&pb, Rect::new(200, 70, 550, 380), bg) > 5000,
+            "home body should be painted"
+        );
+
+        // Resize to 1200x800 and verify content reflows past x > 800
+        assert!(app.handle_event(UiEvent::Resize { width: 1200, height: 800 }));
+        let mut pb_large = PixelBuffer::new(1200, 800, Theme::PETRA_SLATE.bg_window);
+        app.paint(&mut pb_large);
+        assert!(
+            count_non_bg(&pb_large, Rect::new(820, 70, 350, 400), bg) > 2000,
+            "resized body content should span into x > 800"
+        );
+    }
+}

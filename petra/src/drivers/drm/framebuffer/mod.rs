@@ -28,6 +28,6 @@ pub fn init() -> Result<()> {
 crate::module!(
     "DRM Framebuffer Subsystem",
     "Ananta98",
-    crate::modules::InitcallLevel::Device,
+    crate::modules::InitcallLevel::Subsys,
     init
 );

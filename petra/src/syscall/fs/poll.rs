@@ -65,7 +65,7 @@ pub fn sys_poll(
         if timeout_ms > 0 {
             let (waiter, _) = Waiter::new_pair();
             let waker = waiter.waker();
-            let ktimer = crate::kpi::time::arm(
+            let ktimer = crate::time::timer::arm(
                 Duration::from_millis(timeout_ms as u64),
                 Some(Box::new(move || {
                     waker.wake_up();
@@ -132,7 +132,7 @@ pub fn sys_poll(
     let (waiter, _) = Waiter::new_pair();
     let ktimer = if timeout_ms > 0 {
         let waker = waiter.waker();
-        Some(crate::kpi::time::arm(
+        Some(crate::time::timer::arm(
             Duration::from_millis(timeout_ms as u64),
             Some(Box::new(move || {
                 waker.wake_up();
@@ -249,7 +249,7 @@ fn do_select(
         if timeout_ms > 0 {
             let (waiter, _) = Waiter::new_pair();
             let waker = waiter.waker();
-            let ktimer = crate::kpi::time::arm(
+            let ktimer = crate::time::timer::arm(
                 Duration::from_millis(timeout_ms as u64),
                 Some(Box::new(move || {
                     waker.wake_up();
@@ -352,7 +352,7 @@ fn do_select(
     let (waiter, _) = Waiter::new_pair();
     let ktimer = if timeout_ms > 0 {
         let waker = waiter.waker();
-        Some(crate::kpi::time::arm(
+        Some(crate::time::timer::arm(
             Duration::from_millis(timeout_ms as u64),
             Some(Box::new(move || {
                 waker.wake_up();

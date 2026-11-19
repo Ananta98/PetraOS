@@ -68,7 +68,7 @@ impl VirtioDevice for VirtioInputDriver {
 fn virtio_input_poller_entry() {
     loop {
         poll_all();
-        crate::kpi::time::arm(core::time::Duration::from_millis(10), None).wait();
+        crate::time::timer::arm(core::time::Duration::from_millis(10), None).wait();
     }
 }
 

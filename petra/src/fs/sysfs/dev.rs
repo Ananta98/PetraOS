@@ -8,7 +8,10 @@
 
 use alloc::{format, string::String, sync::Arc, vec, vec::Vec};
 
-use crate::fs::sysfs::kobject::{SysNode, SysSymlinkNode, alloc_sysfs_ino};
+use crate::{
+    drivers::core::{DevKind, dev_index_names, dev_index_node},
+    fs::sysfs::kobject::{SysNode, SysSymlinkNode, alloc_sysfs_ino},
+};
 
 /// Linux device major numbers.
 const MEM_MAJOR: u32 = 1;
@@ -160,7 +163,7 @@ impl SysNode for SysDevCharDirNode {
         let maj: u32 = maj_s.parse().ok()?;
         let min: u32 = min_s.parse().ok()?;
 
-        match maj {
+        let resolved: Option<Arc<dyn SysNode>> = match maj {
             DRM_MAJOR => self.resolve_drm(name, min),
             INPUT_MAJOR => self.resolve_input(name, min),
             TTY_MAJOR => self.resolve_tty(name, min),
@@ -169,7 +172,8 @@ impl SysNode for SysDevCharDirNode {
                 Some(Arc::new(SysSymlinkNode::new(name, "../../class/misc/uinput")))
             }
             _ => None,
-        }
+        };
+        resolved.or_else(|| dev_index_node(DevKind::Char, name))
     }
 
     fn list_children(&self) -> Vec<(String, bool)> {
@@ -201,6 +205,12 @@ impl SysNode for SysDevCharDirNode {
 
         // Misc devices
         children.push((format!("{MISC_MAJOR}:223"), false));
+
+        for extra in dev_index_names(DevKind::Char) {
+            if !children.iter().any(|(existing, _)| existing == &extra) {
+                children.push((extra, false));
+            }
+        }
 
         children
     }
@@ -249,16 +259,22 @@ impl SysNode for SysDevBlockDirNode {
                 )));
             }
         }
-        None
+        dev_index_node(DevKind::Block, name)
     }
 
     fn list_children(&self) -> Vec<(String, bool)> {
-        crate::drivers::get_blkdevs()
+        let mut children: Vec<(String, bool)> = crate::drivers::get_blkdevs()
             .into_iter()
             .map(|dev| {
                 let (maj, min) = dev.device_number();
                 (format!("{maj}:{min}"), false)
             })
-            .collect()
+            .collect();
+        for extra in dev_index_names(DevKind::Block) {
+            if !children.iter().any(|(existing, _)| existing == &extra) {
+                children.push((extra, false));
+            }
+        }
+        children
     }
 }

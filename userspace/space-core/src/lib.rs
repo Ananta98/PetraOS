@@ -61,4 +61,31 @@ mod tests {
         assert!(!icons::IconId::list_available().is_empty());
         icons::draw_window_glyph(&mut pb, Rect::new(4, 32, 20, 20), icons::WindowGlyph::Close, Color::WHITE);
     }
+
+    #[test]
+    fn all_space_svg_icons_rasterize_cleanly() {
+        let available = icons::IconId::list_available();
+        let names: Vec<&str> = available.iter().map(|id| id.as_str()).collect();
+        for required in ["home", "display", "control-panel", "services", "refresh"] {
+            assert!(
+                names.contains(&required),
+                "expected SVG icon '{}' to be available, found {:?}",
+                required,
+                names
+            );
+        }
+
+        for id in &available {
+            for sz in [16, 18, 32] {
+                let mut pb = PixelBuffer::new(48, 48, Color::TRANSPARENT);
+                icons::draw_icon(&mut pb, 4, 4, sz, id);
+                assert!(
+                    pb.pixels().iter().any(|&p| (p >> 24) != 0),
+                    "icon '{}' at size {} produced completely empty pixels",
+                    id.as_str(),
+                    sz
+                );
+            }
+        }
+    }
 }

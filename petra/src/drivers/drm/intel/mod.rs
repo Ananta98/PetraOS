@@ -20,7 +20,7 @@ pub mod gtt;
 pub mod ioctl;
 pub mod regs;
 
-use alloc::sync::Arc;
+use alloc::boxed::Box;
 
 pub use device::{IntelGpu, IntelPciDriver};
 pub use regs::{IntelGen, PCI_VENDOR_ID_INTEL};
@@ -31,7 +31,7 @@ use crate::uapi::errno::Result;
 
 /// Registers the Intel `i915` PCI driver with the PCI bus.
 pub fn init() -> Result<()> {
-    pci_register_driver(Arc::new(IntelPciDriver))
+    pci_register_driver(Box::new(IntelPciDriver))
 }
 
 crate::module!(

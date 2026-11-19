@@ -32,7 +32,10 @@ use crate::drivers::drm::{
     DisplayDriver, DrmDevice, DrmFile, Framebuffer, GemObject, KmsPipeline, KmsState,
     register_drm_device,
 };
-use crate::drivers::{BusDevice, Driver};
+use crate::drivers::{
+    BusDevice, Driver,
+    device::{Error as DeviceError, Result as DeviceResult},
+};
 use crate::uapi::drm;
 use crate::uapi::errno::{Errno, Result};
 
@@ -415,8 +418,8 @@ impl Driver<PciBus> for IntelPciDriver {
         &INTEL_PCI_IDS
     }
 
-    fn on_probe(&self, device: &BusDevice<PciBus>) -> Result<()> {
-        let gpu = IntelGpu::from_pci(device.payload())?;
+    fn on_probe(&self, device: &Arc<BusDevice<PciBus>>) -> DeviceResult<()> {
+        let gpu = IntelGpu::from_pci(device.payload()).map_err(DeviceError::from_errno)?;
         let kms = gpu.build_kms();
         gpu.kms.call_once(|| kms);
         let _minor = register_drm_device(gpu);

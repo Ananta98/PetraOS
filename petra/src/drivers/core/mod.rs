@@ -1,31 +1,41 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: MPL-2.0
+//
+// Ported from Asterinas `aster-device` (`kernel/core/comps/device/src`):
+// https://github.com/asterinas/asterinas/tree/e36b5b3b759e616febf2c8f0e88d8cb2c103f266/kernel/core/comps/device/src
+// Copyright (c) Asterinas contributors. Adapted for PetraOS.
 
-//! The kernel device model: device identity, buses, and classes.
+//! The device model: devices, buses, classes, and drivers, and the sysfs view built from them.
 //!
-//! Every concrete device joins the kernel through one of the generic
-//! registries defined here:
+//! Ported from Asterinas `aster-device` (`kernel/core/comps/device/src`, commit `e36b5b3b`).
+//! This subsystem manages devices and their parent-child relationships,
+//! matches devices with drivers through buses ([`bus`]),
+//! presents them to user space through classes ([`class`]),
+//! manages shared device metadata and transactional registration ([`common`]),
+//! and queues `/dev` node requests through configurable [`hooks`].
 //!
-//! - A [`bus::Bus`] owns devices discovered by enumeration (PCI, USB, ...).
-//!   It matches them against registered [`bus::Driver`]s and drives the
-//!   probe/bind/release life cycle of every binding.
-//! - A [`class::Class`] is what a device looks like to user space regardless
-//!   of which bus provided it (`char`, `block`, `net`, ...). It is the single
-//!   place that stores, finds, and unregisters devices of one kind, replacing
-//!   per-subsystem global device lists.
-//!
-//! Both share one identity and lifecycle type ([`base::DeviceBase`]), so the
-//! same registration rules (a device registers exactly once, and cannot be
-//! re-registered after removal) apply everywhere.
+//! Every device is registered to or unregistered from the device model
+//! through [`add_device`] and [`remove_device`].
 
-pub mod base;
 pub mod bus;
 pub mod class;
+pub mod common;
+pub mod hooks;
+#[cfg(ktest)]
+mod test;
 
-pub use base::{AnyDevice, DeviceBase};
-pub use bus::{Bus, BusDevice, BusHandle, Driver};
-pub use class::{Class, ClassDevice, ClassHandle};
+pub use self::bus::{Bus, BusDevice, BusDeviceBuilder, BusHandle, Driver, DriverHandle};
+pub use self::class::{Class, ClassDevice, ClassDeviceBuilder, ClassHandle, ClassObserver};
+pub use self::common::registration::{
+    add as add_device, register_legacy_virtual_node, remove as remove_device,
+};
+pub use self::common::registry::{dev_index_names, dev_index_node};
+pub use self::common::{
+    AnyDevice, Attr, AttrMeta, AttrSet, BareDevice, DevKind, DevNode, DevNum, DeviceBuilder,
+    DeviceId, DeviceType, Error, Result, ShowFn, StoreFn, Subsystem, SubsystemKind, SysPerms,
+    SysStr,
+};
 
-mod privacy {
-    /// Seals [`AnyDevice`]; only the device model may implement it.
-    pub trait Sealed {}
+/// Initializes the device model roots and sysfs registry (idempotent).
+pub fn init() {
+    common::registry::init();
 }

@@ -87,7 +87,7 @@ mod tests {
         let root = devpts.root().expect("devpts root inode");
         assert!(root.is_dir());
 
-        let ptmx = root.lookup("ptmx").expect("devpts /ptmx lookup");
+        let ptmx = root.node_ops.lookup("ptmx").expect("devpts /ptmx lookup");
         assert!(ptmx.is_chr());
 
         let statfs = devpts.statfs().expect("devpts statfs");

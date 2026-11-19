@@ -12,6 +12,9 @@ pc-keyboard = "0.9.0"
 [dependencies.ostd]
 version = "0.19.0"
 
+[dependencies.inventory]
+version = "0.3"
+
 [dependencies.bitflags]
 version = "2"
 
@@ -35,3 +38,10 @@ features = [
     "socket-udp",
     "socket-tcp",
 ]
+
+# Pin `unwinding` to 0.2.10 because 0.2.11 requires `core::intrinsics::abort_immediate`,
+# which is unavailable in the pinned `nightly-2026-07-21` toolchain (`cargo osdk test`
+# resolves dependencies independently of the workspace `Cargo.lock`).
+[target.x86_64-unknown-none.dependencies.unwinding]
+version = "=0.2.10"
+default-features = false

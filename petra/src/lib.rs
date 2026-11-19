@@ -13,7 +13,6 @@
 //! - [`cmdline`]: the kernel command line.
 //! - [`drivers`]: device drivers.
 //! - [`fs`]: filesystems and the virtual file system.
-//! - [`kpi`]: Linux-shaped safe-Rust Kernel Programming Interface backbone.
 //! - [`modules`]: loadable kernel modules and their initcalls.
 //! - [`proc`]: processes, threads, and their lifecycle.
 //! - [`sched`]: task scheduling.
@@ -24,7 +23,7 @@
 //! [`arch`]: arch
 
 #![no_std]
-#![deny(unsafe_code)]
+#![forbid(unsafe_code)]
 #![allow(dead_code)]
 
 extern crate alloc;
@@ -43,7 +42,6 @@ pub mod crypto;
 pub mod drivers;
 pub mod fs;
 pub mod ipc;
-pub mod kpi;
 pub mod modules;
 pub mod net;
 pub mod proc;
@@ -77,7 +75,7 @@ fn kernel_init() {
     fs::init();
     sched::init();
     proc::init();
-    kpi::init().unwrap();
+    proc::workqueue::init().unwrap();
     drivers::init().unwrap();
     modules::init_calls().unwrap();
     vm::reclaim::init_page_reclaim_daemon();

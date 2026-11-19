@@ -5,11 +5,11 @@
 //! Drivers implement [`Driver<PciBus>`] and declare their supported hardware
 //! through [`PciDeviceId`] tables supplied as the bus's match data.
 
-use alloc::sync::Arc;
+use alloc::boxed::Box;
 
-use super::{PciBus, PCI_BUS};
+use super::{PciBus, pci_bus};
 use crate::drivers::device::Driver;
-use crate::uapi::errno::Result;
+use crate::uapi::errno::{Errno, Result};
 
 /// Wildcard value matching any PCI vendor, device, or class ID.
 pub const PCI_ANY_ID: u16 = 0xFFFF;
@@ -80,13 +80,15 @@ impl PciDeviceId {
 ///
 /// The driver is probed against every unbound PCI device already on the bus;
 /// later devices are probed against this driver when they are discovered.
-pub fn pci_register_driver(driver: Arc<dyn Driver<PciBus>>) -> Result<()> {
+pub fn pci_register_driver(driver: Box<dyn Driver<PciBus>>) -> Result<()> {
     ostd::info!("PCI: Registering driver \"{}\"...", driver.name());
-    PCI_BUS.register_driver(driver)?;
+    pci_bus().register_driver(driver).map_err(Errno::from)?;
     Ok(())
 }
 
 /// Unregisters a PCI driver and detaches it from bound devices.
 pub fn pci_unregister_driver(name: &str) -> Result<()> {
-    PCI_BUS.unregister_driver(name)
+    let bus = pci_bus();
+    let driver = bus.find_driver(name).ok_or(Errno::ENOENT)?;
+    bus.unregister_driver(&driver).map_err(Errno::from)
 }

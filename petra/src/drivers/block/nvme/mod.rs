@@ -11,7 +11,7 @@ pub mod namespace;
 pub mod queue;
 pub mod regs;
 
-use alloc::{format, sync::Arc, vec::Vec};
+use alloc::{boxed::Box, format, sync::Arc, vec::Vec};
 use spin::Mutex;
 
 use ostd::{
@@ -28,7 +28,7 @@ use self::{
 use crate::{
     drivers::{
         block::{BlockDeviceCounters, register_block_device},
-        device::{BusDevice, Driver},
+        device::{BusDevice, Driver, Error as DeviceError, Result as DeviceResult},
         bus::pci::{PciBus, PciDevice, PciDeviceId, pci_register_driver, self},
     },
     uapi::errno::{Errno, Result},
@@ -222,13 +222,15 @@ impl Driver<PciBus> for NvmePciDriver {
         &NVME_PCI_IDS
     }
 
-    fn on_probe(&self, device: &BusDevice<PciBus>) -> Result<()> {
-        probe_controller(device).map(|_| ())
+    fn on_probe(&self, device: &Arc<BusDevice<PciBus>>) -> DeviceResult<()> {
+        probe_controller(device)
+            .map(|_| ())
+            .map_err(DeviceError::from_errno)
     }
 }
 
 fn init() -> Result<()> {
-    pci_register_driver(Arc::new(NvmePciDriver))
+    pci_register_driver(Box::new(NvmePciDriver))
 }
 
 crate::module!(

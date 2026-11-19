@@ -21,7 +21,8 @@ pub mod msi;
 pub mod msix;
 pub mod scan;
 
-use alloc::format;
+use alloc::{format, sync::Arc};
+use spin::Once;
 
 pub use address::PciAddress;
 pub use bar::{BarType, PciBar, probe_bar};
@@ -39,13 +40,36 @@ pub use msi::MsiCapability;
 pub use msix::MsixCapability;
 pub use scan::scan_bus;
 
-use crate::drivers::device::{Bus, BusHandle};
-use crate::uapi::errno::Result;
+use crate::drivers::core::{
+    self as device_core, Attr, BareDevice, Bus, BusDevice, BusHandle, add_device, bus,
+};
+use crate::uapi::errno::{Errno, Result};
+
+const PCI_DEV_ATTRS: &[Attr<BusDevice<PciBus>>] = &[
+    Attr::ro("vendor", |dev, w| {
+        writeln!(w, "{:#06x}", dev.vendor_id)?;
+        Ok(())
+    }),
+    Attr::ro("device", |dev, w| {
+        writeln!(w, "{:#06x}", dev.device_id)?;
+        Ok(())
+    }),
+    Attr::ro("class", |dev, w| {
+        writeln!(
+            w,
+            "{:#04x}{:02x}{:02x}",
+            dev.class_code, dev.subclass, dev.prog_if
+        )?;
+        Ok(())
+    }),
+];
 
 /// The PCI bus on the generic device model.
 pub struct PciBus;
 
 impl Bus for PciBus {
+    const NAME: &'static str = "pci";
+
     type Device = PciDevice;
 
     type MatchData = [PciDeviceId];
@@ -53,13 +77,28 @@ impl Bus for PciBus {
     fn matches(&self, device: &PciDevice, driver: &[PciDeviceId]) -> bool {
         driver.iter().any(|id| id.matches(device))
     }
+
+    fn dev_attrs(&self) -> &'static [Attr<BusDevice<Self>>] {
+        PCI_DEV_ATTRS
+    }
 }
 
-/// Global registry of discovered PCI devices and their drivers.
-pub static PCI_BUS: BusHandle<PciBus> = BusHandle::new(PciBus);
+static PCI_BUS: Once<Arc<BusHandle<PciBus>>> = Once::new();
+
+/// Returns the global PCI bus handle, registering it on first access.
+pub fn pci_bus() -> &'static Arc<BusHandle<PciBus>> {
+    PCI_BUS.call_once(|| {
+        device_core::init();
+        bus::register(PciBus).expect("failed to register PCI bus")
+    })
+}
 
 /// Initializes the PCI subsystem, enumerating all connected devices.
 pub fn init() -> Result<()> {
+    let bus = pci_bus();
+    let root = BareDevice::new_root("pci0000:00");
+    add_device(&root).map_err(Errno::from)?;
+
     ostd::info!("Probing PCI bus...");
     let devices = scan_bus();
 
@@ -85,8 +124,11 @@ pub fn init() -> Result<()> {
             );
         }
 
-        let name = format!("{}", payload.address);
-        PCI_BUS.add_device(&name, payload)?;
+        let name = format!("0000:{}", payload.address);
+        let dev = BusDevice::builder(bus, name, payload)
+            .parent(root.clone())
+            .build();
+        add_device(&dev).map_err(Errno::from)?;
     }
 
     Ok(())

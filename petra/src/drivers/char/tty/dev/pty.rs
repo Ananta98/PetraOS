@@ -564,11 +564,11 @@ mod tests {
         assert!(slave_node.is_chr());
 
         // Should be locked initially
-        assert!(slave_node.open(OpenFlags::RDWR).is_err());
+        assert!(slave_node.node_ops.open(OpenFlags::READ | OpenFlags::WRITE).is_err());
 
         // Unlock slave
         pair.unlocked.store(true, Ordering::Release);
-        assert!(slave_node.open(OpenFlags::RDWR).is_ok());
+        assert!(slave_node.node_ops.open(OpenFlags::READ | OpenFlags::WRITE).is_ok());
 
         // Clean up
         PTY_TABLE.lock().remove(&idx);

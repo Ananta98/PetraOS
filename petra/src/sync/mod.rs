@@ -5,8 +5,10 @@
 //! Provides userspace mutex primitives (`futex(2)`), bitset matching,
 //! realtime clock integration, and robust futex list tracking.
 
+pub mod completion;
 pub mod futex;
 pub mod robust;
 
+pub use completion::Completion;
 pub use futex::*;
 pub use robust::*;

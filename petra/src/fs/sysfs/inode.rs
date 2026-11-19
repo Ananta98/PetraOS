@@ -92,7 +92,7 @@ fn child_to_inode(child: &Arc<dyn SysNode>) -> Arc<INode> {
             ino,
             INodeAttr {
                 size: 0,
-                mode: Mode::FILE | attr_mode(child.is_writable()),
+                mode: Mode::FILE | attr_mode(child.is_readable(), child.is_writable()),
                 nlink: 1,
                 ..Default::default()
             },
@@ -100,12 +100,13 @@ fn child_to_inode(child: &Arc<dyn SysNode>) -> Arc<INode> {
     }
 }
 
-/// Mode bits of an attribute file depending on writability.
-fn attr_mode(writable: bool) -> Mode {
-    if writable {
-        rw_file_mode()
-    } else {
-        ro_file_mode()
+/// Mode bits of an attribute file depending on readability and writability.
+fn attr_mode(readable: bool, writable: bool) -> Mode {
+    match (readable, writable) {
+        (true, true) => rw_file_mode(),
+        (true, false) => ro_file_mode(),
+        (false, true) => Mode::FILE | Mode::WUSR,
+        (false, false) => Mode::FILE,
     }
 }
 
@@ -147,10 +148,17 @@ impl SysFsAttrNodeOps {
 
 impl NodeOps for SysFsAttrNodeOps {
     fn open(&self, flags: OpenFlags) -> Result<Box<dyn FileOps>> {
+        if flags.contains(OpenFlags::READ) && !self.node.is_readable() {
+            crate::return_errno!(EACCES, "attribute is write-only");
+        }
         if flags.contains(OpenFlags::WRITE) && !self.node.is_writable() {
             crate::return_errno!(EPERM, "attribute is read-only");
         }
-        let data = self.node.read_attr()?;
+        let data = if self.node.is_readable() {
+            self.node.read_attr()?
+        } else {
+            Vec::new()
+        };
         let ops = if self.node.is_writable() {
             let node = Arc::clone(&self.node);
             let hook = Box::new(move |buf: &[u8]| node.write_attr(buf)) as WriteHook;
@@ -164,7 +172,7 @@ impl NodeOps for SysFsAttrNodeOps {
     fn getattr(&self) -> Result<INodeAttr> {
         Ok(INodeAttr {
             size: 0,
-            mode: Mode::FILE | attr_mode(self.node.is_writable()),
+            mode: Mode::FILE | attr_mode(self.node.is_readable(), self.node.is_writable()),
             nlink: 1,
             ..Default::default()
         })

@@ -123,7 +123,7 @@ pub fn sys_futex(
                     let rem_ns = deadline_ns - now_ns;
                     let waker = waiter.waker();
                     let fired_cb = Arc::clone(&fired);
-                    Some(crate::kpi::time::arm(
+                    Some(crate::time::timer::arm(
                         core::time::Duration::from_nanos(rem_ns),
                         Some(alloc::boxed::Box::new(move || {
                             fired_cb.store(true, Ordering::Release);

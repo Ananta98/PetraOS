@@ -391,6 +391,7 @@ mod tests {
         let (count, is_exclusive) = ep.scan_ready_exclusive(&mut events);
         assert_eq!(count, 1);
         assert!(is_exclusive);
-        assert_eq!(events[0].data, 0xcafe_babe);
+        let data = events[0].data;
+        assert_eq!(data, 0xcafe_babe);
     }
 }

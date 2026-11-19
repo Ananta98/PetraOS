@@ -56,6 +56,11 @@ pub trait SysNode: Send + Sync + 'static {
         crate::return_errno!(EACCES, "attribute is read-only");
     }
 
+    /// Whether this attribute accepts reads.
+    fn is_readable(&self) -> bool {
+        true
+    }
+
     /// Whether this attribute accepts writes.
     fn is_writable(&self) -> bool {
         false
@@ -411,6 +416,7 @@ pub struct SysTree {
     root_dir: Arc<SysDirNode>,
     class_dir: Arc<SysDirNode>,
     devices_dir: Arc<SysDirNode>,
+    virtual_dir: Arc<SysDirNode>,
     bus_dir: Arc<SysDirNode>,
     fs_dir: Arc<SysDirNode>,
     kernel_dir: Arc<SysDirNode>,
@@ -441,7 +447,6 @@ impl SysTree {
         let _ = virtual_dir.add_dir("input");
 
         let bus_dir = root_dir.add_dir("bus");
-        let _ = bus_dir.add_dir("pci");
         let _ = bus_dir.add_dir("platform");
         let _ = bus_dir.add_dir("usb");
 
@@ -460,12 +465,12 @@ impl SysTree {
         let _ = class_dir.add_child(class_tty_dir);
         let class_mem_dir: Arc<dyn SysNode> = Arc::new(super::tty::SysClassMemDirNode::new());
         let _ = class_dir.add_child(class_mem_dir);
-        let _ = class_dir.add_dir("net");
 
         Self {
             root_dir,
             class_dir,
             devices_dir,
+            virtual_dir,
             bus_dir,
             fs_dir,
             kernel_dir,
@@ -485,6 +490,11 @@ impl SysTree {
     /// Accesses the `/sys/devices` branch.
     pub fn devices_dir(&self) -> &Arc<SysDirNode> {
         &self.devices_dir
+    }
+
+    /// Accesses the `/sys/devices/virtual` branch.
+    pub fn virtual_dir(&self) -> &Arc<SysDirNode> {
+        &self.virtual_dir
     }
 
     /// Accesses the `/sys/bus` branch.

@@ -1,0 +1,89 @@
+// SPDX-License-Identifier: MPL-2.0
+//
+// Ported from Asterinas `aster-device` (`kernel/core/comps/device/src`):
+// https://github.com/asterinas/asterinas/tree/e36b5b3b759e616febf2c8f0e88d8cb2c103f266/kernel/core/comps/device/src
+// Copyright (c) Asterinas contributors. Adapted for PetraOS.
+
+//! Devices with neither bus nor class.
+
+use alloc::{
+    sync::{Arc, Weak},
+    vec::Vec,
+};
+
+use super::{AnyDevice, DevNode, DeviceBase, DeviceInternals, impl_device_node};
+use crate::drivers::core::common::{Subsystem, SysStr, attr::TyErasedAttr};
+
+/// A device with neither bus nor class, such as a host bridge or a firmware root.
+///
+/// It has no attributes and is listed in no index; it exists to be the parent of other devices.
+pub struct BareDevice {
+    base: DeviceBase,
+}
+
+impl BareDevice {
+    /// Creates a bare device at the top of `/sys/devices`.
+    ///
+    /// It is not registered until [`add_device`] is called.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `name` is not a valid sysfs node name.
+    ///
+    /// [`add_device`]: crate::drivers::core::add_device
+    pub fn new_root(name: impl Into<SysStr>) -> Arc<Self> {
+        Self::new(name, None)
+    }
+
+    /// Same as [`Self::new_root`], except the device is created under `parent`.
+    pub fn with_parent(name: impl Into<SysStr>, parent: Arc<dyn AnyDevice>) -> Arc<Self> {
+        Self::new(name, Some(parent))
+    }
+
+    fn new(name: impl Into<SysStr>, parent: Option<Arc<dyn AnyDevice>>) -> Arc<Self> {
+        Arc::new_cyclic(|weak: &Weak<BareDevice>| {
+            let weak_self: Weak<dyn AnyDevice> = weak.clone();
+            BareDevice {
+                base: DeviceBase::new(name.into(), parent, None, weak_self),
+            }
+        })
+    }
+}
+
+impl AnyDevice for BareDevice {
+    fn as_any(&self) -> &dyn core::any::Any {
+        self
+    }
+
+    fn subsystem(&self) -> Subsystem {
+        Subsystem::bare()
+    }
+}
+
+impl DeviceInternals for BareDevice {
+    fn base(&self) -> &DeviceBase {
+        &self.base
+    }
+
+    fn type_name(&self) -> Option<&'static str> {
+        None
+    }
+
+    fn attr_groups(&self) -> Vec<TyErasedAttr> {
+        Vec::new()
+    }
+
+    fn devnode_override(&self) -> Option<DevNode> {
+        None
+    }
+}
+
+impl core::fmt::Debug for BareDevice {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("BareDevice")
+            .field("base", &self.base)
+            .finish()
+    }
+}
+
+impl_device_node!(BareDevice);

@@ -142,7 +142,7 @@ pub fn sys_alarm(seconds: u32, _ctx: &mut UserContext) -> Result<usize> {
 
     let timer_clone = Arc::clone(&timer);
     let proc_id = proc.pid;
-    let ktimer = crate::kpi::task::schedule_delayed_work_fn(
+    let ktimer = crate::proc::workqueue::schedule_delayed_work_fn(
         move || {
             on_timer_expire(timer_clone, proc_id, generation);
         },
@@ -249,7 +249,7 @@ pub fn sys_setitimer(
 
     let timer_clone = Arc::clone(&timer);
     let proc_id = proc.pid;
-    let ktimer = crate::kpi::task::schedule_delayed_work_fn(
+    let ktimer = crate::proc::workqueue::schedule_delayed_work_fn(
         move || {
             on_timer_expire(timer_clone, proc_id, generation);
         },
@@ -483,11 +483,11 @@ pub fn sys_timer_settime(
     if delay_ns == 0 {
         inner.ktimer = None;
         drop(inner);
-        crate::kpi::task::schedule_work_fn(move || {
+        crate::proc::workqueue::schedule_work_fn(move || {
             on_timer_expire(timer_clone, proc_id, generation);
         });
     } else {
-        let ktimer = crate::kpi::task::schedule_delayed_work_fn(
+        let ktimer = crate::proc::workqueue::schedule_delayed_work_fn(
             move || {
                 on_timer_expire(timer_clone, proc_id, generation);
             },

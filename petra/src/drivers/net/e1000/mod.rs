@@ -6,14 +6,14 @@ pub mod device;
 pub mod hw;
 pub mod regs;
 
-use alloc::{format, sync::Arc};
+use alloc::{boxed::Box, format, sync::Arc};
 use core::sync::atomic::{AtomicUsize, Ordering};
 use ostd::io::IoMem;
 
 use crate::{
     drivers::{
         bus::pci::{PciBus, PciDevice, PciDeviceId, pci_register_driver},
-        device::{BusDevice, Driver},
+        device::{BusDevice, Driver, Error as DeviceError, Result as DeviceResult},
         net::register_network_device,
     },
     uapi::errno::{Errno, Result},
@@ -54,9 +54,9 @@ impl Driver<PciBus> for E1000PciDriver {
         &E1000_PCI_IDS
     }
 
-    fn on_probe(&self, device: &BusDevice<PciBus>) -> Result<()> {
+    fn on_probe(&self, device: &Arc<BusDevice<PciBus>>) -> DeviceResult<()> {
         let index = self.counter.fetch_add(1, Ordering::Relaxed);
-        probe_device(device, index)
+        probe_device(device, index).map_err(DeviceError::from_errno)
     }
 }
 
@@ -93,7 +93,7 @@ pub fn probe_device(dev: &PciDevice, index: usize) -> Result<()> {
 }
 
 fn init() -> Result<()> {
-    pci_register_driver(Arc::new(E1000PciDriver::new()))
+    pci_register_driver(Box::new(E1000PciDriver::new()))
 }
 
 crate::module!(

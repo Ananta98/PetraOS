@@ -395,7 +395,7 @@ static DRIVERS: Mutex<Vec<Arc<dyn VirtioDevice>>> = Mutex::new(Vec::new());
 
 /// Bring-up: scans the PCI bus for unbound modern virtio devices.
 pub fn init() -> Result<()> {
-    for device in crate::drivers::bus::pci::PCI_BUS.devices() {
+    for device in crate::drivers::bus::pci::pci_bus().devices() {
         // RedHat vendor's modern device ids are `0x1040 + virtio type`.
         if device.vendor_id != 0x1AF4 || !(0x1040..0x1080).contains(&device.device_id) {
             continue;

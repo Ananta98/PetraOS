@@ -9,7 +9,7 @@ pub mod fis;
 pub mod hba;
 pub mod port;
 
-use alloc::{format, sync::Arc, vec::Vec};
+use alloc::{boxed::Box, format, sync::Arc, vec::Vec};
 use ostd::{io::IoMem, irq::IrqLine, mm::VmIoOnce, sync::SpinLock};
 
 use self::{
@@ -19,7 +19,7 @@ use self::{
 use crate::{
     drivers::{
         block::register_block_device,
-        device::{BusDevice, Driver},
+        device::{BusDevice, Driver, Error as DeviceError, Result as DeviceResult},
         bus::pci::{PciBus, PciDevice, PciDeviceId, pci_register_driver, self},
     },
     uapi::errno::{Errno, Result},
@@ -189,13 +189,15 @@ impl Driver<PciBus> for AhciPciDriver {
         &AHCI_PCI_IDS
     }
 
-    fn on_probe(&self, device: &BusDevice<PciBus>) -> Result<()> {
-        probe_controller(device).map(|_| ())
+    fn on_probe(&self, device: &Arc<BusDevice<PciBus>>) -> DeviceResult<()> {
+        probe_controller(device)
+            .map(|_| ())
+            .map_err(DeviceError::from_errno)
     }
 }
 
 fn init() -> Result<()> {
-    pci_register_driver(Arc::new(AhciPciDriver))
+    pci_register_driver(Box::new(AhciPciDriver))
 }
 
 crate::module!(

@@ -10,13 +10,13 @@ pub mod probe;
 pub mod regs;
 pub mod ring;
 
-use alloc::sync::Arc;
+use alloc::{boxed::Box, sync::Arc};
 use ostd::io::IoMem;
 
 use crate::{
     drivers::{
         bus::pci::{PciBus, PciDeviceId, pci_register_driver, self},
-        device::{BusDevice, Driver},
+        device::{BusDevice, Driver, Error as DeviceError, Result as DeviceResult},
     },
     uapi::errno::{Errno, Result},
 };
@@ -45,7 +45,13 @@ impl Driver<PciBus> for XhciPciDriver {
         &XHCI_PCI_IDS
     }
 
-    fn on_probe(&self, device: &BusDevice<PciBus>) -> Result<()> {
+    fn on_probe(&self, device: &Arc<BusDevice<PciBus>>) -> DeviceResult<()> {
+        self.probe_inner(device).map_err(DeviceError::from_errno)
+    }
+}
+
+impl XhciPciDriver {
+    fn probe_inner(&self, device: &BusDevice<PciBus>) -> Result<()> {
         ostd::info!(
             "xHCI: Initializing USB Host Controller at PCI {}",
             device.address
@@ -89,7 +95,7 @@ impl Driver<PciBus> for XhciPciDriver {
 // ----------------------------------------------------------------------------
 
 fn init() -> Result<()> {
-    pci_register_driver(Arc::new(XhciPciDriver))
+    pci_register_driver(Box::new(XhciPciDriver))
 }
 
 crate::module!(

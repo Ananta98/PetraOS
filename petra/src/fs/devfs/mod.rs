@@ -34,17 +34,65 @@ use crate::{
     uapi::errno::{Errno, Result},
     fs::vfs::{FileOps, FileSystem, INode, INodeAttr, Mode, NodeOps, OpenFlags, StatFs},
 };
-use alloc::collections::BTreeMap;
-use alloc::string::String;
+use alloc::collections::{BTreeMap, BTreeSet};
+use alloc::string::{String, ToString};
 use alloc::{boxed::Box, sync::Arc, vec::Vec};
 use spin::RwLock;
 
+use crate::drivers::device::DevKind;
+use crate::drivers::device::hooks::{
+    DevNodeRequest, HookError, KernelHooks, install_hooks,
+};
 use crate::utils::hashmap::HashMap;
 use blk::GenericBlkNodeOps;
 use chr::GenericChrNodeOps;
 use null::NullNodeOps;
 use random::{RandomNodeOps, UrandomNodeOps};
 use zero::ZeroNodeOps;
+
+static DEVNODE_REQUESTS: RwLock<BTreeMap<String, DevNodeRequest>> = RwLock::new(BTreeMap::new());
+
+struct DevFsHooks;
+
+impl KernelHooks for DevFsHooks {
+    fn create_devnode(&self, request: &DevNodeRequest) -> core::result::Result<(), HookError> {
+        if request.path.is_empty() {
+            return Err(HookError);
+        }
+        DEVNODE_REQUESTS
+            .write()
+            .insert(request.path.to_string(), request.clone());
+        Ok(())
+    }
+
+    fn delete_devnode(&self, request: &DevNodeRequest) -> core::result::Result<(), HookError> {
+        DEVNODE_REQUESTS.write().remove(request.path.as_ref());
+        Ok(())
+    }
+}
+
+static DEVFS_HOOKS: DevFsHooks = DevFsHooks;
+
+fn lookup_hook_devnode(name: &str) -> Option<Arc<INode>> {
+    let req = DEVNODE_REQUESTS.read().get(name)?.clone();
+    let file_type = match req.devnum.kind() {
+        DevKind::Char => Mode::CHAR,
+        DevKind::Block => Mode::BLOCK,
+    };
+    let attr = INodeAttr {
+        size: 0,
+        mode: file_type | Mode::from_bits_truncate(req.mode as u32),
+        nlink: 1,
+        uid: 0,
+        gid: 0,
+        rdev: req.devnum.id().to_raw(),
+    };
+    Some(Arc::new(INode::new_with_attr(
+        Box::new(DevSpecialNodeOps { attr }),
+        200,
+        attr,
+    )))
+}
 
 /// Operations on the `/dev` root directory inode.
 pub struct DevFsDirOps {
@@ -169,6 +217,11 @@ impl NodeOps for DevFsDirOps {
 
         // 4. Check driver devices (character, block, network)
         if let Some(node) = lookup_driver_device(name) {
+            return Ok(node);
+        }
+
+        // 5. Check device-model hook requests
+        if let Some(node) = lookup_hook_devnode(name) {
             return Ok(node);
         }
 
@@ -348,46 +401,31 @@ impl FileOps for DevFsDirFileOps {
     }
 
     fn readdir(&self) -> Result<Vec<u8>> {
-        let mut out = Vec::new();
-        out.extend_from_slice(b".\n..\n");
-        out.extend_from_slice(b"null\n");
-        out.extend_from_slice(b"zero\n");
-        out.extend_from_slice(b"random\n");
-        out.extend_from_slice(b"urandom\n");
-        out.extend_from_slice(b"tty\n");
-        out.extend_from_slice(b"console\n");
-        out.extend_from_slice(b"tty0\n");
-        out.extend_from_slice(b"tty1\n");
-        out.extend_from_slice(b"ptmx\n");
-        out.extend_from_slice(b"pts\n");
-        out.extend_from_slice(b"dri\n");
-        out.extend_from_slice(b"input\n");
-
-        for key in self.dynamic_entries.read().keys() {
-            out.extend_from_slice(key.as_bytes());
-            out.push(b'\n');
+        let mut names = BTreeSet::new();
+        for static_name in [
+            "null", "zero", "random", "urandom", "tty", "console", "tty0", "tty1", "ptmx",
+            "pts", "dri", "input",
+        ] {
+            names.insert(String::from(static_name));
+        }
+        names.extend(self.dynamic_entries.read().keys().cloned());
+        names.extend(GLOBAL_DEVFS_REGISTRY.names());
+        names.extend(crate::drivers::get_chrdevs().into_iter().map(|d| d.name()));
+        names.extend(crate::drivers::get_blkdevs().into_iter().map(|d| d.name()));
+        names.extend(crate::drivers::get_netdevs().into_iter().map(|d| d.name()));
+        for path in DEVNODE_REQUESTS.read().keys() {
+            if let Some(top_level) = path.split('/').next()
+                && !top_level.is_empty()
+            {
+                names.insert(String::from(top_level));
+            }
         }
 
-        for name in GLOBAL_DEVFS_REGISTRY.names() {
+        let mut out = Vec::from(b".\n..\n");
+        for name in names {
             out.extend_from_slice(name.as_bytes());
             out.push(b'\n');
         }
-
-        for dev in crate::drivers::get_chrdevs() {
-            out.extend_from_slice(dev.name().as_bytes());
-            out.push(b'\n');
-        }
-
-        for dev in crate::drivers::get_blkdevs() {
-            out.extend_from_slice(dev.name().as_bytes());
-            out.push(b'\n');
-        }
-
-        for dev in crate::drivers::get_netdevs() {
-            out.extend_from_slice(dev.name().as_bytes());
-            out.push(b'\n');
-        }
-
         Ok(out)
     }
 }
@@ -654,6 +692,7 @@ pub fn init() -> Result<()> {
     ));
     let dev_mount = Arc::new(Mount::new(Arc::clone(&mount_dentry), devfs));
     target_node.mount(dev_mount)?;
+    install_hooks(&DEVFS_HOOKS);
 
     ostd::info!("VFS: Mounted devfs on /dev");
     Ok(())

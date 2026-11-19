@@ -87,9 +87,9 @@ pub fn notify() {
     ) {
         POLL_WAITQ.wake_all();
     } else {
-        if crate::kpi::task::is_initialized() {
+        if crate::proc::workqueue::is_initialized() {
             if !NOTIFY_PENDING.swap(true, Ordering::SeqCst) {
-                crate::kpi::task::schedule_work_fn(|| {
+                crate::proc::workqueue::schedule_work_fn(|| {
                     NOTIFY_PENDING.store(false, Ordering::SeqCst);
                     POLL_WAITQ.wake_all();
                 });

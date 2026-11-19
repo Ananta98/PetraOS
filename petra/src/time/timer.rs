@@ -1,79 +1,78 @@
 // SPDX-License-Identifier: GPL-2.0
 
-//! One-shot Linux-style timers (`timer_list`): a wheel of deadlines that
-//! expire on timer ticks, complete a [`KCompletion`], and optionally run a
-//! small callback in interrupt context.
+//! Kernel soft timer wheel (`KernelTimer`): one-shot deadlines that expire on
+//! periodic timer ticks, complete a [`Completion`], and optionally invoke a
+//! short non-blocking callback in interrupt context.
 //!
-//! Callbacks run in the timer interrupt on the BSP, mirroring Linux soft
-//! timer semantics: they must not sleep or take blocking locks; longer work
-//! should hand off to `schedule_work`.
+//! Callbacks execute in the BSP timer interrupt handler; they must not sleep
+//! or take blocking locks. Longer work should be deferred to
+//! [`crate::proc::workqueue`].
 //!
-//! The deadline granularity is one timer tick (1 ms at OSTD's
+//! Deadline resolution is one timer tick (1 ms at OSTD's
 //! [`ostd::timer::TIMER_FREQ`] of 1000 Hz), rounded up.
 
 use alloc::{boxed::Box, collections::BTreeMap, sync::Arc, vec::Vec};
 use core::time::Duration;
 use ostd::cpu::{CpuId, PinCurrentCpu};
+use ostd::irq;
+use ostd::sync::{LocalIrqDisabled, SpinLock};
 use ostd::timer::Jiffies;
-use ostd::{irq, sync::{LocalIrqDisabled, SpinLock}};
 
-use super::sync::KCompletion;
+use crate::sync::Completion;
 
 /// A boxed timer callback executed in interrupt context on expiry.
 pub type TimerCallback = Box<dyn Fn() + Send + Sync>;
 
 struct Entry {
     callback: Option<TimerCallback>,
-    expired: KCompletion,
+    expired: Completion,
 }
 
-/// The timer wheel, keyed by deadline in jiffies. Entries with the same
-/// deadline expire together, one bucket scan per tick. Timers never migrate
-/// buckets after insertion.
+/// Timer wheel keyed by deadline in jiffies. Entries sharing a deadline expire
+/// together on the BSP timer tick.
 static EXPIRIES: SpinLock<BTreeMap<u64, Vec<Arc<Entry>>>, LocalIrqDisabled> =
     SpinLock::new(BTreeMap::new());
 
-/// An armed one-shot timer.
+/// An armed one-shot kernel timer.
 #[derive(Clone)]
-pub struct KTimer(Arc<Entry>);
+pub struct KernelTimer(Arc<Entry>);
 
 /// Arms a one-shot timer expiring `after` from now.
 ///
-/// Expiry completes the timer: [`KTimer::wait`] unblocks and, if given, the
-/// callback runs in interrupt context — keep it brief and non-sleeping.
-pub fn arm(after: Duration, callback: Option<TimerCallback>) -> KTimer {
+/// Expiry completes the timer: [`KernelTimer::wait`] unblocks and, if given,
+/// the callback runs in interrupt context — keep it brief and non-sleeping.
+pub fn arm(after: Duration, callback: Option<TimerCallback>) -> KernelTimer {
     let deadline = Jiffies::elapsed().as_u64() + jiffies_for(after);
     let entry = Arc::new(Entry {
         callback,
-        expired: KCompletion::new(),
+        expired: Completion::new(),
     });
     EXPIRIES
         .lock()
         .entry(deadline)
         .or_default()
         .push(Arc::clone(&entry));
-    KTimer(entry)
+    KernelTimer(entry)
 }
 
-impl KTimer {
-    /// Sleeps until the timer expires (depending on completion counts it can
-    /// also return promptly if a prior wait has not consumed the expiry).
+impl KernelTimer {
+    /// Sleeps until the timer expires.
     pub fn wait(&self) {
         self.0.expired.wait();
     }
 
-    /// Consumes the expiry without sleeping; false if not yet expired.
+    /// Consumes the expiry without sleeping; returns `false` if still pending.
     pub fn try_wait(&self) -> bool {
         self.0.expired.try_wait()
     }
 
-    /// Returns the timer's completion, for combining with other waits.
-    pub fn completion(&self) -> &KCompletion {
+    /// Returns the underlying completion for combining with other waits.
+    pub fn completion(&self) -> &Completion {
         &self.0.expired
     }
 
-    /// Removes the timer from the wheel if not yet expired, returning whether
-    /// it was still pending. Expiry already in progress cannot be cancelled.
+    /// Cancels the timer if it has not yet expired, returning whether it was
+    /// removed while still pending.
     pub fn cancel(&self) -> bool {
         let mut map = EXPIRIES.lock();
         for entries in map.values_mut() {
@@ -87,12 +86,12 @@ impl KTimer {
     }
 }
 
-/// Returns the current elapsed timer ticks (jiffies).
+/// Returns the elapsed timer ticks (jiffies) since boot.
 pub fn jiffies() -> u64 {
     Jiffies::elapsed().as_u64()
 }
 
-/// Linux `msleep`: puts the calling thread to sleep for `ms` milliseconds.
+/// Sleeps for at least `ms` milliseconds.
 pub fn msleep(ms: u64) {
     if ms == 0 {
         return;
@@ -100,7 +99,7 @@ pub fn msleep(ms: u64) {
     arm(Duration::from_millis(ms), None).wait();
 }
 
-/// Linux `usleep_range`: sleeps for a duration between `min_us` and `max_us` microseconds.
+/// Sleeps for a duration between `min_us` and `max_us` microseconds.
 pub fn usleep_range(min_us: u64, max_us: u64) {
     let us = if max_us > min_us {
         min_us + (max_us - min_us) / 2
@@ -113,7 +112,7 @@ pub fn usleep_range(min_us: u64, max_us: u64) {
     arm(Duration::from_micros(us), None).wait();
 }
 
-/// Linux `udelay`: short busy wait delay in microseconds.
+/// Short busy-wait delay in microseconds.
 pub fn udelay(us: u64) {
     let start = jiffies();
     let ticks = jiffies_for(Duration::from_micros(us));
@@ -122,28 +121,24 @@ pub fn udelay(us: u64) {
     }
 }
 
-/// Linux `mdelay`: busy wait delay in milliseconds.
+/// Short busy-wait delay in milliseconds.
 pub fn mdelay(ms: u64) {
     udelay(ms.saturating_mul(1000));
 }
 
-/// Linux `ktime_get_ns`: monotonic elapsed time in nanoseconds.
+/// Returns monotonic elapsed time in nanoseconds derived from jiffies.
 pub fn ktime_get_ns() -> u64 {
     (jiffies().saturating_mul(1_000_000_000)) / ostd::timer::TIMER_FREQ
 }
 
-/// Converts a duration to tick counts, rounding up so a timer never fires
-/// before its deadline.
+/// Converts a duration to tick counts, rounding up so a timer never fires early.
 fn jiffies_for(after: Duration) -> u64 {
     let nanos = after.as_nanos() as u64;
     ((nanos * ostd::timer::TIMER_FREQ + 999_999_999) / 1_000_000_000).max(1)
 }
 
-/// Expires due timers once per tick, on the BSP where jiffies advance.
+/// Expires due timers once per tick on the BSP where jiffies advance.
 fn process_expired() {
-    // Expiry runs on one CPU by design, like Linux's soft timer base: expiry
-    // work is serialized and the wheel has a single writer, which keeps it
-    // simple enough to reason about soundness.
     let irq_guard = irq::disable_local();
     if irq_guard.current_cpu() != CpuId::bsp() {
         return;
@@ -159,7 +154,6 @@ fn process_expired() {
             }
             due.extend(map.remove(&deadline).expect("key just observed"));
         }
-        drop(map);
         due
     };
 
@@ -171,7 +165,7 @@ fn process_expired() {
     }
 }
 
-/// Hooks expiry processing into the periodic timer interrupt.
+/// Registers soft timer expiry processing on the periodic timer interrupt.
 pub(crate) fn init() {
     ostd::timer::register_callback_on_cpu(process_expired);
 }

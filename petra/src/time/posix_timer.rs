@@ -34,7 +34,7 @@ pub struct PosixTimerInner {
     pub next_deadline_ns: u64,
     pub overrun: i32,
     pub generation: u64,
-    pub ktimer: Option<crate::kpi::time::KTimer>,
+    pub ktimer: Option<crate::time::KernelTimer>,
 }
 
 /// A POSIX per-process timer descriptor.
@@ -158,7 +158,7 @@ pub fn on_timer_expire(timer: Arc<PosixTimer>, proc_id: Pid, generation: u64) {
                 old.cancel();
             }
             let timer_clone = Arc::clone(&timer);
-            let ktimer = crate::kpi::task::schedule_delayed_work_fn(
+            let ktimer = crate::proc::workqueue::schedule_delayed_work_fn(
                 move || {
                     on_timer_expire(timer_clone, proc_id, generation);
                 },

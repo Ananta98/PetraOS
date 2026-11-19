@@ -13,6 +13,7 @@ pub mod seccomp;
 pub mod signal;
 pub mod thread;
 pub mod types;
+pub mod workqueue;
 
 use alloc::sync::Arc;
 use ostd::sync::SpinLock;

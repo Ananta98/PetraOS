@@ -19,12 +19,14 @@ pub mod input;
 pub mod net;
 
 use alloc::{string::String, sync::Arc, vec::Vec};
+use spin::Once;
 
 pub use audio::AudioDevice;
 pub use self::core::{BusDevice, Driver};
 pub use net::NetDevice;
 
-use crate::uapi::errno::Result;
+use self::core::{Attr, ClassDevice, ClassHandle, DevNum, DeviceId};
+use crate::uapi::errno::{Errno, Result};
 
 // ---------------------------------------------------------------------------
 // Device payload traits
@@ -156,34 +158,86 @@ pub trait BlockDevice: Send + Sync {
 pub struct CharClass;
 
 impl device::Class for CharClass {
-    type Device = dyn CharacterDevice;
+    const NAME: &'static str = "char";
+    type Device = Arc<dyn CharacterDevice>;
 }
 
 /// The class of block storage devices.
 pub struct BlockClass;
 
 impl device::Class for BlockClass {
-    type Device = dyn BlockDevice;
+    const NAME: &'static str = "block";
+    type Device = Arc<dyn BlockDevice>;
 }
 
 /// The class of network interfaces.
 pub struct NetClass;
 
+const NET_CLASS_ATTRS: &[Attr<ClassDevice<NetClass>>] = &[
+    Attr::ro("address", |dev, w| {
+        let mac = dev.payload().mac_address();
+        writeln!(
+            w,
+            "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+            mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]
+        )?;
+        Ok(())
+    }),
+    Attr::ro("mtu", |dev, w| {
+        writeln!(w, "{}", dev.payload().mtu())?;
+        Ok(())
+    }),
+];
+
 impl device::Class for NetClass {
-    type Device = dyn NetDevice;
+    const NAME: &'static str = "net";
+    type Device = Arc<dyn NetDevice>;
+
+    fn dev_attrs(&self) -> &'static [Attr<ClassDevice<Self>>] {
+        NET_CLASS_ATTRS
+    }
 }
 
 /// The class of audio PCM devices.
 pub struct AudioClass;
 
 impl device::Class for AudioClass {
-    type Device = dyn AudioDevice;
+    const NAME: &'static str = "sound";
+    type Device = Arc<dyn AudioDevice>;
 }
 
-static CHAR_CLASS: device::ClassHandle<CharClass> = device::ClassHandle::new();
-static BLOCK_CLASS: device::ClassHandle<BlockClass> = device::ClassHandle::new();
-static NET_CLASS: device::ClassHandle<NetClass> = device::ClassHandle::new();
-static AUDIO_CLASS: device::ClassHandle<AudioClass> = device::ClassHandle::new();
+static CHAR_CLASS: Once<Arc<ClassHandle<CharClass>>> = Once::new();
+static BLOCK_CLASS: Once<Arc<ClassHandle<BlockClass>>> = Once::new();
+static NET_CLASS: Once<Arc<ClassHandle<NetClass>>> = Once::new();
+static AUDIO_CLASS: Once<Arc<ClassHandle<AudioClass>>> = Once::new();
+
+fn char_class() -> &'static Arc<ClassHandle<CharClass>> {
+    CHAR_CLASS.call_once(|| {
+        core::init();
+        device::class::register(CharClass).expect("failed to register char class")
+    })
+}
+
+fn block_class() -> &'static Arc<ClassHandle<BlockClass>> {
+    BLOCK_CLASS.call_once(|| {
+        core::init();
+        device::class::register(BlockClass).expect("failed to register block class")
+    })
+}
+
+fn net_class() -> &'static Arc<ClassHandle<NetClass>> {
+    NET_CLASS.call_once(|| {
+        core::init();
+        device::class::register(NetClass).expect("failed to register net class")
+    })
+}
+
+fn audio_class() -> &'static Arc<ClassHandle<AudioClass>> {
+    AUDIO_CLASS.call_once(|| {
+        core::init();
+        device::class::register(AudioClass).expect("failed to register sound class")
+    })
+}
 
 // ---------------------------------------------------------------------------
 // Registration helpers (also the module ABI entry points)
@@ -192,97 +246,126 @@ static AUDIO_CLASS: device::ClassHandle<AudioClass> = device::ClassHandle::new()
 /// Registers a Character Device in the character device class.
 pub fn register_chrdev(device: Arc<dyn CharacterDevice>) -> Result<()> {
     let name = device.name();
-    CHAR_CLASS.register(&name, device)?;
-    Ok(())
+    let dev = ClassDevice::builder(char_class(), name, device).build();
+    device::add_device(&dev).map_err(Errno::from)
 }
 
 /// Unregisters a Character Device by name.
 pub fn unregister_chrdev(name: &str) -> Result<()> {
-    CHAR_CLASS.unregister(name)?;
-    Ok(())
+    let dev = char_class().find_device(name).ok_or(Errno::ENODEV)?;
+    device::remove_device(&dev).map_err(Errno::from)
 }
 
 /// Registers a Block Device in the block device class.
 pub fn register_blkdev(device: Arc<dyn BlockDevice>) -> Result<()> {
     let name = device.name();
-    BLOCK_CLASS.register(&name, device)?;
-    Ok(())
+    let (maj, min) = device.device_number();
+    let dev = ClassDevice::builder(block_class(), name, device)
+        .devnum(DevNum::block(DeviceId::new(maj, min)))
+        .build();
+    device::add_device(&dev).map_err(Errno::from)
 }
 
 /// Unregisters a Block Device by name.
 pub fn unregister_blkdev(name: &str) -> Result<()> {
-    BLOCK_CLASS.unregister(name)?;
-    Ok(())
+    let dev = block_class().find_device(name).ok_or(Errno::ENODEV)?;
+    device::remove_device(&dev).map_err(Errno::from)
 }
 
 /// Registers a Network Device in the network device class.
 pub fn register_netdev(device: Arc<dyn NetDevice>) -> Result<()> {
     let name = device.name();
-    NET_CLASS.register(&name, device)?;
-    Ok(())
+    let dev = ClassDevice::builder(net_class(), name, device).build();
+    device::add_device(&dev).map_err(Errno::from)
 }
 
 /// Unregisters a Network Device by name.
 pub fn unregister_netdev(name: &str) -> Result<()> {
-    NET_CLASS.unregister(name)?;
-    Ok(())
+    let dev = net_class().find_device(name).ok_or(Errno::ENODEV)?;
+    device::remove_device(&dev).map_err(Errno::from)
 }
 
 /// Registers an Audio Device in the audio device class.
 pub fn register_audiodev(device: Arc<dyn AudioDevice>) -> Result<()> {
     let name = device.name();
-    AUDIO_CLASS.register(&name, device)?;
-    Ok(())
+    let dev = ClassDevice::builder(audio_class(), name, device).build();
+    device::add_device(&dev).map_err(Errno::from)
 }
 
 /// Unregisters an Audio Device by name.
 pub fn unregister_audiodev(name: &str) -> Result<()> {
-    AUDIO_CLASS.unregister(name)?;
-    Ok(())
+    let dev = audio_class().find_device(name).ok_or(Errno::ENODEV)?;
+    device::remove_device(&dev).map_err(Errno::from)
 }
 
 /// Returns a snapshot of all registered Character Devices.
 pub fn get_chrdevs() -> Vec<Arc<dyn CharacterDevice>> {
-    CHAR_CLASS.payloads()
+    char_class()
+        .devices()
+        .into_iter()
+        .map(|d| Arc::clone(d.payload()))
+        .collect()
 }
 
 /// Finds a Character Device by name.
 pub fn get_chrdev(name: &str) -> Option<Arc<dyn CharacterDevice>> {
-    CHAR_CLASS.find_payload(name)
+    char_class()
+        .find_device(name)
+        .map(|d| Arc::clone(d.payload()))
 }
 
 /// Returns a snapshot of all registered Block Devices.
 pub fn get_blkdevs() -> Vec<Arc<dyn BlockDevice>> {
-    BLOCK_CLASS.payloads()
+    block_class()
+        .devices()
+        .into_iter()
+        .map(|d| Arc::clone(d.payload()))
+        .collect()
 }
 
 /// Finds a Block Device by name.
 pub fn get_blkdev(name: &str) -> Option<Arc<dyn BlockDevice>> {
-    BLOCK_CLASS.find_payload(name)
+    block_class()
+        .find_device(name)
+        .map(|d| Arc::clone(d.payload()))
 }
 
 /// Returns a snapshot of all registered Network Devices.
 pub fn get_netdevs() -> Vec<Arc<dyn NetDevice>> {
-    NET_CLASS.payloads()
+    net_class()
+        .devices()
+        .into_iter()
+        .map(|d| Arc::clone(d.payload()))
+        .collect()
 }
 
 /// Finds a Network Device by name.
 pub fn get_netdev(name: &str) -> Option<Arc<dyn NetDevice>> {
-    NET_CLASS.find_payload(name)
+    net_class()
+        .find_device(name)
+        .map(|d| Arc::clone(d.payload()))
 }
 
 /// Returns a snapshot of all registered Audio Devices.
 pub fn get_audiodevs() -> Vec<Arc<dyn AudioDevice>> {
-    AUDIO_CLASS.payloads()
+    audio_class()
+        .devices()
+        .into_iter()
+        .map(|d| Arc::clone(d.payload()))
+        .collect()
 }
 
 /// Finds an Audio Device by name.
 pub fn get_audiodev(name: &str) -> Option<Arc<dyn AudioDevice>> {
-    AUDIO_CLASS.find_payload(name)
+    audio_class()
+        .find_device(name)
+        .map(|d| Arc::clone(d.payload()))
 }
 
 /// Initializes the driver subsystem and probes system buses.
 pub fn init() -> Result<()> {
     ostd::info!("Initializing driver subsystem...");
+    core::init();
+    let _ = (char_class(), block_class(), net_class(), audio_class());
     bus::pci::init()
 }

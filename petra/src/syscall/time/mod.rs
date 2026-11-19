@@ -40,7 +40,7 @@ pub(super) fn sleep_until_ns<F: Fn() -> u64>(
         let fired = alloc::sync::Arc::new(core::sync::atomic::AtomicBool::new(false));
         let fired_cb = alloc::sync::Arc::clone(&fired);
         let waker = waiter.waker();
-        let ktimer = crate::kpi::time::arm(
+        let ktimer = crate::time::timer::arm(
             core::time::Duration::from_nanos(target_ns - now_ns),
             Some(alloc::boxed::Box::new(move || {
                 fired_cb.store(true, core::sync::atomic::Ordering::Release);

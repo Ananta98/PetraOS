@@ -163,7 +163,7 @@ fn execute_epoll_wait(
         let remaining_ns = dl.remaining_ns();
         if remaining_ns > 0 {
             let waker = waiter.waker();
-            Some(crate::kpi::time::arm(
+            Some(crate::time::timer::arm(
                 core::time::Duration::from_nanos(remaining_ns.max(1_000_000)),
                 Some(alloc::boxed::Box::new(move || {
                     waker.wake_up();

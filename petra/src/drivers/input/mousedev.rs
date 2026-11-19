@@ -75,8 +75,8 @@ impl MouseAccumulator {
             ostd::irq::InterruptLevel::L0
         ) {
             self.waitq.wake_all();
-        } else if crate::kpi::task::is_initialized() {
-            crate::kpi::task::schedule_work_fn(|| {
+        } else if crate::proc::workqueue::is_initialized() {
+            crate::proc::workqueue::schedule_work_fn(|| {
                 let acc = MICE_ACCUMULATOR.lock();
                 acc.waitq.wake_all();
             });

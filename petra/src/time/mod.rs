@@ -8,6 +8,7 @@
 pub mod clocksource;
 pub mod posix_timer;
 pub mod rtc;
+pub mod timer;
 pub mod tsc;
 
 use core::sync::atomic::{AtomicI64, AtomicU64, Ordering};
@@ -19,6 +20,7 @@ pub use clocksource::{
 };
 pub use posix_timer::*;
 pub use rtc::{CmosRtc, RtcDateTime, datetime_to_unix_epoch, get_cmos_epoch, get_cmos_time};
+pub use timer::{KernelTimer, TimerCallback};
 pub use tsc::{JiffiesClocksource, TscClocksource};
 
 use crate::uapi::errno::{Errno, Result};
@@ -388,8 +390,9 @@ pub fn init() -> Result<()> {
     // 2. Initialize TSC and Jiffies clocksources
     tsc::init()?;
 
-    // 3. Register periodic cycle accumulator on timer tick
+    // 3. Register periodic cycle accumulator and soft timer wheel on timer tick
     ostd::timer::register_callback_on_cpu(clocksource::accumulate_cycles);
+    timer::init();
 
     // 4. Synchronize vDSO timekeeping page
     sync_vdso_time();

@@ -38,7 +38,7 @@ pub struct TimerFdInner {
     pub expirations: u64,
     pub armed: bool,
     pub generation: u64,
-    pub ktimer: Option<crate::kpi::time::KTimer>,
+    pub ktimer: Option<crate::time::KernelTimer>,
 }
 
 impl TimerFdInner {
@@ -117,7 +117,7 @@ impl TimerFd {
 
     fn schedule_next_expire_work(timer: &Arc<TimerFd>, generation: u64, delay_ns: u64) {
         let timer_clone = Arc::clone(timer);
-        let ktimer = crate::kpi::task::schedule_delayed_work_fn(
+        let ktimer = crate::proc::workqueue::schedule_delayed_work_fn(
             move || {
                 Self::on_expire(timer_clone, generation);
             },

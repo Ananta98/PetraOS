@@ -424,7 +424,7 @@ where
     let timer = timeout_ns.map(|t| {
         // The timer only unblocks; the condition then re-evaluates and
         // reports `ETIMEDOUT` once the deadline has passed.
-        crate::kpi::time::arm(
+        crate::time::timer::arm(
             Duration::from_nanos(t),
             Some(Box::new(move || wait_queue.wake_all())),
         )

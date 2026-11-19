@@ -33,7 +33,7 @@ fn net_poller_entry() {
         if changed {
             ostd::task::Task::yield_now();
         } else {
-            crate::kpi::time::arm(core::time::Duration::from_millis(1), None).wait();
+            crate::time::timer::arm(core::time::Duration::from_millis(1), None).wait();
         }
     }
 }

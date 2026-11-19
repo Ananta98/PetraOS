@@ -74,9 +74,9 @@ pub fn do_initcalls() -> Result<()> {
         core::mem::take(&mut *list)
     };
 
-    // Stable sort by initcall level so earlier levels execute first while
-    // preserving registration order within a level.
-    entries.sort_by_key(|e| e.level);
+    // Deterministic sort by initcall level and module description so execution
+    // order never depends on linker section order.
+    entries.sort_by_key(|e| (e.level, e.name));
 
     ostd::info!(
         "Executing kernel initcalls ({} registered)...",

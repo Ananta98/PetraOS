@@ -144,7 +144,7 @@ pub struct KernelSocket {
 fn sleep_socket_waiter() -> Result<()> {
     let (waiter, _) = Waiter::new_pair();
     let waker = waiter.waker();
-    let ktimer = crate::kpi::time::arm(
+    let ktimer = crate::time::timer::arm(
         core::time::Duration::from_millis(1),
         Some(Box::new(move || {
             waker.wake_up();
