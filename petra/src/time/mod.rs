@@ -214,6 +214,9 @@ static BOOT_EPOCH_SECS: AtomicU64 = AtomicU64::new(1775563440);
 /// Realtime wall-clock offset in nanoseconds (for adjtime / clock_settime).
 static REALTIME_OFFSET_NS: AtomicI64 = AtomicI64::new(0);
 
+/// Jiffies timestamp of the last periodic vDSO synchronization.
+static LAST_VDSO_SYNC_JIFFIES: AtomicU64 = AtomicU64::new(0);
+
 // ----------------------------------------------------------------------------
 // Time Query APIs
 // ----------------------------------------------------------------------------
@@ -235,26 +238,72 @@ pub fn adjust_realtime_offset(delta_ns: i64) {
     sync_vdso_time();
 }
 
-/// Synchronizes the global vDSO shared data page with current kernel timekeeping parameters.
-pub fn sync_vdso_time() {
+#[inline]
+fn realtime_ns_from_monotonic(mono_ns: u64) -> u64 {
+    let boot_ns = (BOOT_EPOCH_SECS.load(Ordering::Relaxed) as u128) * 1_000_000_000;
+    let offset = REALTIME_OFFSET_NS.load(Ordering::Relaxed) as i128;
+    let total = (boot_ns + mono_ns as u128).saturating_add_signed(offset);
+    total as u64
+}
+
+fn sync_vdso_time_inner(nonblocking: bool) {
     #[cfg(target_arch = "x86_64")]
     {
         let tsc_freq = ostd::arch::tsc_freq();
         if tsc_freq > 1_000_000 {
-            let (mult, shift) = clocksource::calc_mult_shift(tsc_freq);
-            let real_ns = get_realtime_ns();
-            let mono_ns = get_monotonic_ns();
-            crate::vdso::update_time(
-                crate::vdso::VCLOCK_TSC,
-                ostd::arch::read_tsc(),
-                mult,
-                shift,
-                real_ns / 1_000_000_000,
-                real_ns % 1_000_000_000,
-                mono_ns / 1_000_000_000,
-                mono_ns % 1_000_000_000,
-            );
+            let (mult, shift) = clocksource::calc_mult_shift_vdso(tsc_freq);
+            let (mono_ns, cycle_last) = if active_clocksource_name() == "tsc" {
+                clocksource::monotonic_snapshot()
+            } else {
+                (get_monotonic_ns(), ostd::arch::read_tsc())
+            };
+            let real_ns = realtime_ns_from_monotonic(mono_ns);
+            if nonblocking {
+                crate::vdso::try_update_time(
+                    crate::vdso::VCLOCK_TSC,
+                    cycle_last,
+                    mult,
+                    shift,
+                    real_ns / 1_000_000_000,
+                    real_ns % 1_000_000_000,
+                    mono_ns / 1_000_000_000,
+                    mono_ns % 1_000_000_000,
+                );
+            } else {
+                crate::vdso::update_time(
+                    crate::vdso::VCLOCK_TSC,
+                    cycle_last,
+                    mult,
+                    shift,
+                    real_ns / 1_000_000_000,
+                    real_ns % 1_000_000_000,
+                    mono_ns / 1_000_000_000,
+                    mono_ns % 1_000_000_000,
+                );
+            }
         }
+    }
+    #[cfg(not(target_arch = "x86_64"))]
+    let _ = nonblocking;
+}
+
+/// Synchronizes the global vDSO shared data page with current kernel timekeeping parameters.
+pub fn sync_vdso_time() {
+    sync_vdso_time_inner(false);
+}
+
+/// Refreshes the vDSO shared data page at most once per ~100 ms from timer ticks so
+/// `cycle_last` and `basetime` advance continuously without 64-bit delta wraparound.
+pub(crate) fn maybe_sync_vdso_time() {
+    let now_jiffies = ostd::timer::Jiffies::elapsed().as_u64();
+    let interval = (ostd::timer::TIMER_FREQ / 10).max(1);
+    let last = LAST_VDSO_SYNC_JIFFIES.load(Ordering::Relaxed);
+    if now_jiffies.saturating_sub(last) >= interval
+        && LAST_VDSO_SYNC_JIFFIES
+            .compare_exchange(last, now_jiffies, Ordering::AcqRel, Ordering::Relaxed)
+            .is_ok()
+    {
+        sync_vdso_time_inner(true);
     }
 }
 
@@ -278,12 +327,7 @@ pub fn realtime_secs() -> i64 {
 
 /// Returns the current real-time wall-clock time in nanoseconds since UNIX epoch.
 pub fn get_realtime_ns() -> u64 {
-    let boot_ns = (BOOT_EPOCH_SECS.load(Ordering::Relaxed) as u128) * 1_000_000_000;
-    let mono_ns = get_monotonic_ns() as u128;
-    let offset = REALTIME_OFFSET_NS.load(Ordering::Relaxed) as i128;
-
-    let total = (boot_ns + mono_ns).saturating_add_signed(offset);
-    total as u64
+    realtime_ns_from_monotonic(get_monotonic_ns())
 }
 
 /// Returns the current time of day in microsecond precision.

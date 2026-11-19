@@ -9,9 +9,9 @@
 pub mod data;
 
 use alloc::sync::Arc;
-use core::sync::atomic::{AtomicU32, Ordering};
+use core::sync::atomic::{AtomicU32, Ordering, fence};
 use ostd::mm::{PAGE_SIZE, UFrame, VmReader, io::VmIo, io::util::HasVmReaderWriter};
-use ostd::sync::SpinLock;
+use ostd::sync::{LocalIrqDisabled, SpinLock};
 use zerocopy::IntoBytes;
 
 pub use self::data::{
@@ -57,7 +57,7 @@ struct VdsoState {
     data: VdsoData,
 }
 
-static VDSO_STATE: SpinLock<Option<VdsoState>> = SpinLock::new(None);
+static VDSO_STATE: SpinLock<Option<VdsoState>, LocalIrqDisabled> = SpinLock::new(None);
 static VDSO_SEQ: AtomicU32 = AtomicU32::new(0);
 
 /// Initializes the global vDSO frames and backings.
@@ -130,8 +130,8 @@ pub fn get_backings() -> Result<(Arc<dyn Backing>, Arc<dyn Backing>)> {
     }
 }
 
-/// Updates the vDSO timekeeping parameters locklessly using the sequence counter.
-pub fn update_time(
+fn write_vdso_data_locked(
+    state: &mut VdsoState,
     clock_mode: i32,
     cycle_last: u64,
     mult: u32,
@@ -141,14 +141,13 @@ pub fn update_time(
     monotonic_sec: u64,
     monotonic_nsec: u64,
 ) {
-    let mut lock = VDSO_STATE.lock();
-    let Some(state) = lock.as_mut() else {
-        return;
-    };
-
-    // Increment seq to odd (writer active)
+    // Increment seq to odd (writer active) and publish before mutating fields.
     let seq = VDSO_SEQ.fetch_add(1, Ordering::Acquire) + 1;
     state.data.seq = seq;
+    let start_seq_bytes = seq.to_ne_bytes();
+    let mut seq_reader = VmReader::from(&start_seq_bytes[..]).to_fallible();
+    let _ = state.vvar_frame.write(VDSO_DATA_OFFSET, &mut seq_reader);
+    fence(Ordering::Release);
 
     state.data.clock_mode = clock_mode;
     state.data.cycle_last = cycle_last;
@@ -183,15 +182,73 @@ pub fn update_time(
         nsec_info: monotonic_nsec,
     };
 
-    // Write updated state to the vvar page at VDSO_DATA_OFFSET
-    let mut reader = VmReader::from(state.data.as_bytes()).to_fallible();
-    let _ = state.vvar_frame.write(VDSO_DATA_OFFSET, &mut reader);
+    // Write payload after `seq` to the vvar page, then commit even `seq`.
+    let mut reader = VmReader::from(&state.data.as_bytes()[4..]).to_fallible();
+    let _ = state.vvar_frame.write(VDSO_DATA_OFFSET + 4, &mut reader);
+    fence(Ordering::Release);
 
-    // Increment seq to even (writer finished)
     let end_seq = VDSO_SEQ.fetch_add(1, Ordering::Release) + 1;
     state.data.seq = end_seq;
-
     let end_seq_bytes = end_seq.to_ne_bytes();
     let mut seq_reader = VmReader::from(&end_seq_bytes[..]).to_fallible();
     let _ = state.vvar_frame.write(VDSO_DATA_OFFSET, &mut seq_reader);
+    fence(Ordering::Release);
+}
+
+/// Updates the vDSO timekeeping parameters locklessly using the sequence counter.
+pub fn update_time(
+    clock_mode: i32,
+    cycle_last: u64,
+    mult: u32,
+    shift: u32,
+    realtime_sec: u64,
+    realtime_nsec: u64,
+    monotonic_sec: u64,
+    monotonic_nsec: u64,
+) {
+    let mut lock = VDSO_STATE.lock();
+    let Some(state) = lock.as_mut() else {
+        return;
+    };
+    write_vdso_data_locked(
+        state,
+        clock_mode,
+        cycle_last,
+        mult,
+        shift,
+        realtime_sec,
+        realtime_nsec,
+        monotonic_sec,
+        monotonic_nsec,
+    );
+}
+
+/// Non-blocking variant of [`update_time`] safe for periodic IRQ timer callbacks.
+pub fn try_update_time(
+    clock_mode: i32,
+    cycle_last: u64,
+    mult: u32,
+    shift: u32,
+    realtime_sec: u64,
+    realtime_nsec: u64,
+    monotonic_sec: u64,
+    monotonic_nsec: u64,
+) {
+    let Some(mut lock) = VDSO_STATE.try_lock() else {
+        return;
+    };
+    let Some(state) = lock.as_mut() else {
+        return;
+    };
+    write_vdso_data_locked(
+        state,
+        clock_mode,
+        cycle_last,
+        mult,
+        shift,
+        realtime_sec,
+        realtime_nsec,
+        monotonic_sec,
+        monotonic_nsec,
+    );
 }
