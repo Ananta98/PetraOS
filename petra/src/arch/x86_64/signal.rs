@@ -1,54 +1,12 @@
 // SPDX-License-Identifier: GPL-2.0
 
-//! The x86-64 signal frame (Linux `arch/x86/kernel/signal.c`).
+//! x86-64 signal frame (`rt_sigframe`), frame construction, and `rt_sigreturn(2)` restoration.
 //!
-//! When a signal is delivered to a handler, the kernel builds a frame on the
-//! target's stack describing what was interrupted, redirects the register file
-//! at the handler, and remembers where to come back to. This module owns that
-//! layout and the two operations on it: building one, and taking one apart again
-//! when the handler returns through `rt_sigreturn(2)`.
+//! Layout (`560` bytes, 16-byte aligned): `pretcode` (8 B) -> `ucontext` (424 B) -> `siginfo_t` (128 B).
 //!
-//! # The frame
-//!
-//! ```text
-//! struct rt_sigframe {
-//!     char *pretcode;              //   0  where the handler returns to
-//!     struct ucontext uc;          //   8  what was interrupted
-//!     struct siginfo_t info;       // 432  why the signal was sent
-//! };                              // 560 bytes, 16-byte aligned
-//! ```
-//!
-//! `ucontext` is **424** bytes, not 296: on x86-64 it ends with `uc_sigmask`,
-//! the mask that was in force when the signal was taken. That field is documented
-//! as unused on i386, which is what makes it easy to leave out by mistake.
-//!
-//! Three details are easy to get wrong and are worth stating:
-//!
-//! * `gregs` starts at **R8**, not RAX. The order is the one `swapgs` leaves
-//!   behind in a `pt_regs`, not the order the CPU pushes.
-//! * `ucontext` is **296 bytes**, and `mcontext` is 256 of them: `gregs[23]`, a
-//!   pointer, and eight reserved words.
-//! * `pretcode` must hold an address the handler can actually return to. There
-//!   is no vDSO here, so the kernel supplies one: see [`TRAMPOLINE`].
-//!
-//! # What cannot be restored
-//!
-//! OSTD's `UserContext` holds the general registers and nothing else -- there is
-//! no room in it for the segment registers, so `REG_CSGSFS`, `REG_ERR`,
-//! `REG_TRAPNO`, `REG_ORIG_RAX` and `REG_OLDMASK` cannot be read back and can
-//! only be filled in with values that are honest about being unused.
-//!
-//! `REG_ORIG_RAX` is the one that costs something. It holds the syscall number of
-//! an interrupted syscall, and without it there is no way to tell whether a
-//! syscall should be restarted, so [`SA_RESTART`] cannot be honoured: a syscall
-//! interrupted by a signal always reports `EINTR`.
-//!
-//! `REG_FSGS` is the same problem for thread-local storage. The base lives in
-//! `IA32_FS_BASE`, which `ostd` does not carry per task either; see
-//! [`crate::proc::thread::Thread::fs_base`], which keeps it in the thread
-//! instead.
-//!
-//! [`SA_RESTART`]: crate::uapi::signal::flags::SA_RESTART
+//! `OSTD`'s `UserContext` only carries general-purpose registers and `rflags`, so segment
+//! selectors, `REG_ORIG_RAX` (preventing `SA_RESTART`), and FPU state are not captured or
+//! restored; `IA32_FS_BASE` is tracked separately on [`crate::proc::thread::Thread::fs_base`].
 
 use alloc::sync::Arc;
 use core::fmt;
@@ -64,55 +22,28 @@ use crate::{
     vm::{Vmar, flags::MmapFlags, perms::VmPerms},
 };
 
-/// The syscall number a handler returns through: `rt_sigreturn(2)`.
+/// Syscall number for `rt_sigreturn(2)`.
 pub const NR_RT_SIGRETURN: usize = 15;
 
-/// The bytes of that return trampoline.
+/// Fallback `rt_sigreturn(2)` trampoline used when `rt_sigaction(2)` omits `SA_RESTORER`.
 ///
-/// ```text
-///   b8 0f 00 00 00    mov $15, %eax      # __NR_rt_sigreturn
-///   0f 05             syscall
-/// ```
-///
-/// There is no vDSO in this kernel, so there is nowhere else for `sa_restorer`
-/// to point. The kernel writes these seven bytes into a page it maps for the
-/// purpose and hands the address to every `rt_sigaction(2)`.
+/// The kernel's vDSO (`crate::vdso`) only exports timekeeping symbols and does not provide
+/// a signal restorer, so this 9-byte stub is mapped into each process at [`TRAMPOLINE_ADDR`].
 pub const TRAMPOLINE: [u8; 9] = [
     0xb8, 0x0f, 0x00, 0x00, 0x00, // mov eax, 15 (SYS_rt_sigreturn)
     0x0f, 0x05,                   // syscall
     0x0f, 0x0b,                   // ud2 (trap if rt_sigreturn returns)
 ];
 
-/// Where the trampoline page is mapped in a process.
-///
-/// Fixed, because `pretcode` has to name the same address in every address space a
-/// process passes through and has to be mapped before any handler can be
-/// installed.
-///
-/// It must also not collide with anything. It used to sit at
-/// `0x0000_7fff_fffe_f000`, which is *inside* the fixed 8 MiB user stack that
-/// `exec::setup_user_stack` maps at `USER_STACK_BASE..USER_STACK_TOP`: the stack was
-/// mapped second, over the top of it, and every handler returned to a page of stack
-/// holding zeroes. It is now placed below the user stack space.
+/// Fixed user-space address for [`TRAMPOLINE`], placed below the user stack region.
 pub const TRAMPOLINE_ADDR: usize = 0x0000_7fff_0000_0000;
 
-/// The user-mode code segment selector.
-///
-/// Copied from `ostd/src/arch/x86/trap/gdt.rs`, which keeps both of these
-/// `pub(crate)`. OSTD's own `syscall_return` pushes these when it takes the
-/// `iret` path, so a frame carrying them is consistent with the way user space
-/// is entered: a Ring-3 code selector and a Ring-3 data selector.
+// Ring-3 selectors matching `ostd/src/arch/x86/trap/gdt.rs`.
 const USER_CS: usize = 0x2b;
 const USER_SS: usize = 0x23;
-
-/// `REG_CSGSFS` needs both selectors packed together, low 16 bits CS then SS.
 const CSGSFS: usize = (USER_CS << 16) | USER_SS;
 
-/// The index of each register in [`MContext::gregs`].
-///
-/// This order is fixed by the ABI. It is not the order the CPU pushes
-/// registers in: it starts at R8 because that is the order a `pt_regs` arrives
-/// in after a syscall.
+/// Register indices in [`MContext::gregs`] (`pt_regs` order starting at `R8`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(usize)]
 pub enum GReg {
@@ -141,32 +72,22 @@ pub enum GReg {
     Cr2 = 22,
 }
 
-/// The number of entries in `gregs`.
 pub const NGREG: usize = 23;
 
-/// The interrupted machine context (`mcontext_t`).
+/// Interrupted machine context (`mcontext_t`, 256 bytes).
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct MContext {
     pub gregs: [u64; NGREG],
-    /// The saved FPU state.
-    ///
-    /// Always null: `ostd` saves no floating-point context per task, so there is
-    /// nothing here to point at, and `uc_flags` leaves `UC_FP_XSTATE` clear so
-    /// that user space does not try to read it.
+    /// Always null: `ostd` saves no FPU state per task (`UC_FP_XSTATE` stays clear).
     pub fpregs: u64,
     pub reserved: [u64; 8],
 }
 
-/// `mcontext_t` is 256 bytes.
 impl MContext {
     pub const LEN: usize = size_of::<MContext>();
 
-    /// Reads the context out of the interrupted registers.
-    ///
-    /// EFLAGS comes in with the trap and direction flags cleared, because `SFMask`
-    /// already cleared them on the way in and a handler must not inherit them:
-    /// `memcpy` compiled with the direction flag set moves backwards.
+    /// Captures the interrupted register state, clearing DF and TF for handler entry.
     pub fn capture(ctx: &UserContext) -> Self {
         let regs = ctx.general_regs();
         let mut gregs = [0u64; NGREG];
@@ -198,60 +119,43 @@ impl MContext {
     }
 }
 
-/// X86 EFLAGS: direction flag.
 const X86_EFLAGS_DF: usize = 1 << 10;
-/// X86 EFLAGS: trap flag.
 const X86_EFLAGS_TF: usize = 1 << 8;
 
-/// `struct ucontext`.
+/// Signal user context (`ucontext_t`, 424 bytes).
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct UContext {
-    /// One of `UC_FP_XSTATE`; zero here, because there is no saved FP state.
     pub uc_flags: u64,
-    /// The frame this one is nested inside, or null at the outermost level.
     pub uc_link: u64,
     pub uc_stack: SigStack,
     pub uc_mcontext: MContext,
-    /// The mask that was in force when the signal was taken.
-    ///
-    /// Present on x86-64 and unused on i386, which is exactly why it is easy to
-    /// miss. `rt_sigreturn` puts it back, so a handler cannot make a signal
-    /// permanently blocked by accident.
+    /// Signal mask active before delivery, restored by `rt_sigreturn(2)`.
     pub uc_sigmask: crate::uapi::signal::SigSet,
 }
 
-/// `struct ucontext` is 424 bytes on x86-64.
 impl UContext {
     pub const LEN: usize = size_of::<UContext>();
 }
 
-/// `struct rt_sigframe`.
+/// Signal frame (`rt_sigframe`, 560 bytes) pushed onto the user stack.
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct SigFrame {
-    /// Where the handler returns to: the kernel's trampoline.
+    /// Restorer address returned to by the handler (`sa_restorer` or [`TRAMPOLINE_ADDR`]).
     pub pretcode: u64,
     pub uc: UContext,
     pub info: SigInfo,
 }
 
-/// `struct rt_sigframe` is 560 bytes.
 impl SigFrame {
     pub const LEN: usize = size_of::<SigFrame>();
 
-    /// Builds a frame describing `sig` interrupting `ctx`.
-    ///
-    /// `saved_mask` becomes `uc_sigmask`: the mask that was in force when the
-    /// signal was taken, which the kernel restores on the way out so that a
-    /// handler cannot make a signal permanently unblockable by accident.
+    /// Builds a frame for `ctx` with `saved_mask` and restorer `pretcode`.
     pub fn new(ctx: &UserContext, info: SigInfo, saved_mask: &SigSet, pretcode: u64) -> Self {
         let uc = UContext {
-            // `UC_FP_XSTATE` is clear because no FP state is saved, so user space
-            // must not look for any.
             uc_flags: 0,
             uc_link: 0,
-            // Filled in by the caller from the target thread's `sigaltstack`.
             uc_stack: SigStack::default(),
             uc_mcontext: MContext::capture(ctx),
             uc_sigmask: *saved_mask,
@@ -275,12 +179,10 @@ impl SigFrame {
     }
 }
 
-/// Why building a frame failed, in enough detail to log.
+/// Reason signal frame construction failed.
 #[derive(Clone, Copy, Debug)]
 pub enum FrameError {
-    /// There is no room for the frame on either stack.
     NoStack { needed: usize },
-    /// The frame could not be written into the address space.
     Unwritable,
 }
 
@@ -296,21 +198,14 @@ impl fmt::Display for FrameError {
 impl From<FrameError> for Errno {
     fn from(err: FrameError) -> Self {
         match err {
-            // POSIX has no dedicated code for this; EAGAIN is what Linux
-            // reports when an alternate stack cannot be used.
+            // Linux returns EAGAIN when an alternate stack cannot hold the frame.
             FrameError::NoStack { .. } => Errno::EAGAIN,
             FrameError::Unwritable => Errno::EFAULT,
         }
     }
 }
 
-/// Chooses where to build a signal frame and writes it there.
-///
-/// The frame goes on the alternate stack when the handler asked for one
-/// (`SA_ONSTACK`) and the alternate stack is not already in use, and otherwise
-/// on the interrupted thread's own stack. `sp` is that thread's stack pointer,
-/// which is what decides the second case: a fault taken because the stack ran
-/// out has no room left, which is exactly when the alternate stack is the answer.
+/// Builds and writes a signal frame on `altstack` (when `on_stack` and eligible) or the current stack.
 pub fn build_frame(
     vmar: &Arc<Vmar>,
     ctx: &UserContext,
@@ -330,17 +225,11 @@ pub fn build_frame(
     }
 }
 
-/// Builds the frame at the top of the alternate stack.
-///
-/// The alternate stack grows down, so its top is the high end.
 fn build_on_altstack(
     vmar: &Arc<Vmar>,
     altstack: &SigStack,
     frame: &SigFrame,
 ) -> Result<usize, FrameError> {
-    // The alternate stack grows down, so its top is the high end. The frame is
-    // placed so that it begins eight bytes into a sixteen-byte block, which is what
-    // a function's stack pointer looks like at entry.
     let top = altstack.ss_sp + altstack.ss_size;
     let addr = match align_frame_below(top) {
         Some(addr) if addr >= altstack.ss_sp => addr,
@@ -354,16 +243,11 @@ fn build_on_altstack(
     Ok(addr)
 }
 
-/// Builds the frame on the interrupted thread's own stack, below its pointer.
 fn build_on_current_stack(
     vmar: &Arc<Vmar>,
     sp: usize,
     frame: &SigFrame,
 ) -> Result<usize, FrameError> {
-    // Below the current stack pointer. `sp & ~15` is the usual alignment rule for
-    // the interrupted code and is *not* the right one here: the frame is entered by
-    // jumping to a handler, not by a call, so `pretcode` takes the place the return
-    // address would have and the pointer has to sit eight bytes into a block.
     let addr = match align_frame_below(sp) {
         Some(addr) => addr,
         None => {
@@ -372,9 +256,7 @@ fn build_on_current_stack(
             });
         }
     };
-    // RedZone aside, a stack pointer must stay above the guard page; leaving
-    // nothing below the frame is what makes an overflow fault on the *next*
-    // push rather than silently writing into the guard.
+    // Keep the frame above the null/guard page so overflow faults on the next push.
     if addr < PAGE_SIZE {
         return Err(FrameError::NoStack {
             needed: SigFrame::LEN,
@@ -384,9 +266,7 @@ fn build_on_current_stack(
     Ok(addr)
 }
 
-/// Writes the frame into the address space.
 fn write_frame(vmar: &Arc<Vmar>, addr: usize, frame: &SigFrame) -> Result<(), FrameError> {
-    // The stack may not have the frame's pages resident yet.
     let _ = vmar.populate_range(&(addr..addr + SigFrame::LEN));
     vmar.activate();
 
@@ -395,21 +275,11 @@ fn write_frame(vmar: &Arc<Vmar>, addr: usize, frame: &SigFrame) -> Result<(), Fr
         .map_err(|_| FrameError::Unwritable)
 }
 
-/// Maps the return trampoline into `vmar` and makes it executable.
-///
-/// Called once per address space, before any handler can be installed. The
-/// alternative -- relying on every `rt_sigaction(2)` caller to supply its own
-/// restorer -- would leave `pretcode` with nothing to point at for the common
-/// case of a program written against a libc that has no trampoline of its own.
+/// Maps the fallback `rt_sigreturn` trampoline page into `vmar` as read-execute.
 pub fn install_trampoline(vmar: &Arc<Vmar>) -> Result<()> {
     let aligned = TRAMPOLINE_ADDR & !(PAGE_SIZE - 1);
 
-    // Created executable from the start, because `mprotect` can only narrow a
-    // mapping: a page mapped read-write cannot later be given execute. That means
-    // there is a window during setup in which the page is writable *and*
-    // executable, until the bytes are in and it is narrowed. The window is inside
-    // kernel setup, before any user-space mapping exists and while nothing else
-    // can reach the address. It is narrowed to READ | EXEC via mprotect below.
+    // `mprotect` can only narrow permissions, so map RWX briefly to write the stub then drop WRITE.
     vmar.mmap_anonymous(
         aligned,
         PAGE_SIZE,
@@ -425,48 +295,33 @@ pub fn install_trampoline(vmar: &Arc<Vmar>) -> Result<()> {
     Ok(())
 }
 
-/// Reads a frame back out of the address space.
-///
-/// Used by `rt_sigreturn(2)`, where every field is attacker-controlled: the
-/// addresses come from a process that user space has had hold of for as long as
-/// the handler ran.
+/// Reads an untrusted [`SigFrame`] from user space for `rt_sigreturn(2)`.
 pub fn read_frame(vmar: &Arc<Vmar>, addr: usize) -> Result<SigFrame> {
     let mut buf = [0u8; SigFrame::LEN];
     UserPtr::new(addr).read_bytes(vmar, &mut buf)?;
     Ok(SigFrame::from_bytes(&buf))
 }
 
-/// Byte offsets inside a frame.
-///
-/// Derived from the sizes of the structures rather than written as literal
-/// numbers, so a change to any of them moves the offsets with it instead of
-/// silently producing a frame user space misreads.
+/// Byte offsets inside the serialized `rt_sigframe`.
 mod offset {
     use super::{MContext, NGREG, UContext};
     use core::mem::size_of;
 
     pub const PRETCODE: usize = 0;
-    /// The `ucontext`, which follows the restorer address.
     pub const UC: usize = PRETCODE + size_of::<u64>();
 
     pub const UC_FLAGS: usize = UC;
     pub const UC_LINK: usize = UC_FLAGS + size_of::<u64>();
     pub const UC_STACK_SP: usize = UC_LINK + size_of::<u64>();
     pub const UC_STACK_FLAGS: usize = UC_STACK_SP + size_of::<u64>();
-    /// `ss_flags` is 32 bits and `ss_size` 64, so there are four bytes of
-    /// padding between them; taking it as two words keeps the arithmetic
-    /// independent of whether the compiler chose to insert it.
+    // 4 bytes of alignment padding sit between 32-bit `ss_flags` and 64-bit `ss_size`.
     pub const UC_STACK_SIZE: usize = UC_STACK_FLAGS + size_of::<u32>() * 2;
 
-    /// `mcontext`, which follows the stack inside the `ucontext`.
     pub const UC_MCONTEXT: usize = UC_STACK_SIZE;
-    /// The first register of `gregs`, which is `R8`.
     pub const GREGS: usize = UC + UC_MCONTEXT;
     pub const FPREGS: usize = GREGS + NGREG * size_of::<u64>();
 
-    /// The `siginfo_t`, which follows the whole `ucontext`.
     pub const INFO: usize = UC + size_of::<UContext>();
-    /// `uc_sigmask`, at the end of the `ucontext`.
     pub const UC_SIGMASK: usize = UC + UC_MCONTEXT + size_of::<MContext>();
     pub const INFO_SI_ADDR: usize = INFO + 16;
     pub const INFO_SI_PID: usize = INFO + 24;
@@ -496,12 +351,7 @@ pub fn encode_siginfo(info: &SigInfo) -> [u8; 128] {
 }
 
 impl SigFrame {
-    /// The frame as bytes, in the layout user space reads.
-    ///
-    /// Written field by field rather than reinterpreted, because the crate
-    /// forbids `unsafe` and because it makes the coupling to `offset` explicit:
-    /// if a struct changes shape, the sizes below stop matching and the build
-    /// fails instead of a signal arriving corrupted.
+    /// Serializes the frame into the user-space `rt_sigframe` byte layout.
     pub fn to_bytes(&self) -> [u8; Self::LEN] {
         let mut buf = [0u8; Self::LEN];
 
@@ -527,7 +377,7 @@ impl SigFrame {
         buf
     }
 
-    /// The frame from bytes in that layout. The inverse of [`Self::to_bytes`].
+    /// Deserializes a `SigFrame` from user-space bytes.
     pub fn from_bytes(buf: &[u8; Self::LEN]) -> Self {
         let mut gregs = [0u64; NGREG];
         for (i, slot) in gregs.iter_mut().enumerate() {
@@ -616,11 +466,7 @@ fn read_u32(bytes: &[u8]) -> u32 {
     u32::from_le_bytes(bytes.try_into().expect("slice is four bytes"))
 }
 
-/// What a restored frame would set, after it has been checked.
-///
-/// Returning the values rather than applying them is deliberate: everything in
-/// here comes from user space, so it has to be validated as a whole before any
-/// of it reaches the register file.
+/// Validated register state extracted from a user-supplied [`SigFrame`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Restore {
     pub rax: u64,
@@ -644,17 +490,7 @@ pub struct Restore {
 }
 
 impl Restore {
-    /// Checks a restored frame and reads the register values out of it.
-    ///
-    /// Everything here is validated because it came from a process that user
-    /// space has had hold of for as long as the handler ran:
-    ///
-    /// * `pretcode` must be the trampoline. Without this the return path is
-    ///   whatever the process put in the frame.
-    /// * `rip` must be canonical. A non-canonical value faults on the `iret`,
-    ///   which is survivable, but one that is not in user space is not.
-    /// * `rsp` must be canonical too, and must be plausible as a stack pointer.
-    /// * `uc_flags` must be zero: there is no FP state to go with it.
+    /// Validates untrusted frame pointers (`rip` canonical & executable, `rsp` canonical) and extracts registers.
     pub fn from_frame(frame: &SigFrame, vmar: &Arc<Vmar>) -> Result<Self> {
         let g = &frame.uc.uc_mcontext.gregs;
         let rip = g[GReg::Rip as usize];
@@ -695,7 +531,7 @@ impl Restore {
         })
     }
 
-    /// Writes the values into the register file the thread will run with.
+    /// Applies the restored registers to `ctx`.
     pub fn apply(&self, ctx: &mut UserContext) {
         let regs = ctx.general_regs_mut();
         regs.rax = self.rax as usize;
@@ -730,20 +566,12 @@ pub struct Redirect {
 }
 
 impl Redirect {
-    /// The stack pointer a handler starts with: the frame's own base.
-    ///
-    /// Two things force this to be the bottom of the frame rather than the top.
-    /// `pretcode` is at offset zero, and a handler returns with a bare `ret`, which
-    /// pops whatever is at its entry stack pointer -- so that is the only address
-    /// the restorer can be read from. And `iretq` does not push a return address
-    /// of its own: it only loads the stack pointer. Nothing else would write the
-    /// word the handler pops.
+    // Handler returns via `ret`, so RSP starts at `frame_addr` where `pretcode` resides.
     fn stack_top(frame_addr: usize) -> usize {
         frame_addr
     }
 
-    /// The three-argument handler entry: `(int signo, siginfo_t *info,
-    /// ucontext_t *uc)`.
+    /// Three-argument handler entry: `(int signo, siginfo_t *info, ucontext_t *uc)`.
     pub fn with_siginfo(handler: usize, sig: Signal, frame_addr: usize) -> Self {
         Self {
             rip: handler,
@@ -754,7 +582,7 @@ impl Redirect {
         }
     }
 
-    /// The one-argument handler entry: `(int signo)`.
+    /// One-argument handler entry: `(int signo)`.
     pub fn plain(handler: usize, sig: Signal, frame_addr: usize) -> Self {
         Self {
             rip: handler,
@@ -765,43 +593,25 @@ impl Redirect {
         }
     }
 
-    /// Applies the redirect.
-    ///
-    /// `rax` is zeroed because it becomes the handler's return value: it is
-    /// whatever the interrupted code left there, and the handler is expected to
-    /// return a value of its own. `rsp` is the frame address because the frame
-    /// is what the handler's stack grows down into.
+    /// Configures `ctx` to enter the signal handler.
     pub fn apply(&self, ctx: &mut UserContext) {
         let regs = ctx.general_regs_mut();
         regs.rip = self.rip;
         regs.rsp = self.rsp;
+        // Zero RAX (ABI return/varargs) and clear TF to avoid single-stepping handler entry.
         regs.rax = 0;
         regs.rdi = self.rdi;
         regs.rsi = self.rsi;
         regs.rdx = self.rdx;
-        // Leave the trap flag clear: a single-step into a handler would stop
-        // again on the handler's own first instruction.
         ctx.set_rflags(ctx.rflags() & !(1 << 8));
     }
 }
 
-/// The largest address below `limit` at which a signal frame may start, or `None`
-/// if there is no room.
-///
-/// A frame has to start eight bytes into a sixteen-byte block. That is the AMD64
-/// convention for a stack pointer at *function entry*: the System V ABI wants `%rsp`
-/// 16-byte aligned in the body of a function, and 16-byte aligned minus eight once a
-/// return address has been pushed. A handler is entered by a jump rather than a
-/// call, but it returns with a `ret`, so it is a function entry in every way that
-/// matters -- and getting this wrong means the handler's `ret` pops padding instead
-/// of `pretcode` and jumps to zero.
+/// Returns the highest address `<= limit - SigFrame::LEN` aligned to `16n + 8` (function-entry RSP),
+/// so the handler's `ret` pops `pretcode` cleanly.
 fn align_frame_below(limit: usize) -> Option<usize> {
-    // The last 16-byte block at or below `limit`.
     let mut block = limit & !0xf;
-    // `limit` itself may already be eight bytes into a block, in which case the
-    // block is where it is and the frame can start eight bytes above the block's
-    // start. Otherwise that eight bytes would spill past `limit`, so a whole block
-    // is given up instead.
+    // Use `block` directly if `limit` is already at `+8`, otherwise step down one 16-byte block.
     if limit - block != 8 {
         block = block.checked_sub(16)?;
     }
