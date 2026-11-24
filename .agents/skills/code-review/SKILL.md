@@ -52,7 +52,18 @@ Enforce Clean Code principles across all generated and reviewed code to ensure m
 
 *Note: If the workspace or agent environment defines additional project-specific clean code rules or skills, compose and enforce them alongside these baseline review standards.*
 
-### 5. Build & Runtime Verification (Gatekeeper)
+### 5. Security & Correctness Verification (`claude-bughunter`)
+Before declaring any implementation correct, cross-verify the diff using the installed `claude-bughunter` skills:
+
+- [ ] **`triage-validation` & `evidence-hygiene`**: Confirm that any bug fix or security guard closes the root cause with verifiable evidence (no superficial or bypassable checks).
+- [ ] **`bb-methodology`**: Challenge developer assumptions and test What-If edge cases (null pointers, zero/max lengths, unprivileged callers, error rollback paths).
+- [ ] **Targeted `hunt-*` Audits** (apply whichever match the touched subsystem):
+  - `hunt-auth-bypass`: Verify superuser/UID/GID/capability checks on privileged syscalls and resource transitions.
+  - `hunt-race-condition`: Verify check-then-act sequences are atomic under locks (no TOCTOU or lock-order inversions).
+  - `hunt-exceptional-conditions`: Verify checked arithmetic, bounded kernel allocations (`vec!`/`with_capacity`), canonical user addresses, and clean error handling.
+  - `hunt-business-logic` / `hunt-lfi`: Verify POSIX/Linux invariants, VFS path/symlink resolution, and state-machine transitions.
+
+### 6. Build & Runtime Verification (Gatekeeper)
 The review is only successful if the kernel compiles cleanly:
 
 ```bash
@@ -78,4 +89,5 @@ Before declaring any coding task complete, verify:
 - **Structure**: Files in right subsystem directories & registered cleanly in `mod.rs`.
 - **Readability**: Clear names, readable logic, no dead code or leftover debug logs.
 - **Coupling**: Clean abstraction boundaries, minimal visibility, no circular ties.
+- **Security & Correctness**: Verified via `claude-bughunter` skills (`triage-validation`, `evidence-hygiene`, `bb-methodology`, and relevant `hunt-*` checks).
 - **Build**: `cargo osdk check` & `cargo osdk build` pass cleanly.
