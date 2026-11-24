@@ -22,21 +22,21 @@ impl Vmar {
             );
         }
 
-        {
-            let inner = self.inner.read();
-            for mapping in inner.mappings.iter_range(&range) {
-                if !mapping.perms().allows(prot) {
-                    crate::return_errno!(
-                        EACCES,
-                        "{prot:?} exceeds what the mapping at {:#x} may be protected to ({:?})",
-                        mapping.start(),
-                        mapping.perms().may()
-                    );
-                }
+        // Validate ceiling permissions and apply the update under the same write
+        // lock to prevent a TOCTOU race where another thread replaces a mapping
+        // with a more restricted one (e.g., a read-only shared file).
+        let mut inner = self.inner.write();
+        for mapping in inner.mappings.iter_range(&range) {
+            if !mapping.perms().allows(prot) {
+                crate::return_errno!(
+                    EACCES,
+                    "{prot:?} exceeds what the mapping at {:#x} may be protected to ({:?})",
+                    mapping.start(),
+                    mapping.perms().may()
+                );
             }
         }
 
-        let mut inner = self.inner.write();
         let vm_space = &self.vm_space;
         let outcome = inner.carve(&range, |mut piece, _| {
             piece.set_perms(piece.perms().with_granted(prot));

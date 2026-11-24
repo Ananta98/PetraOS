@@ -58,15 +58,18 @@ impl Vmar {
 
         let new_addr = if fixed { new_addr } else { None };
 
-        let old_range = old_addr..old_addr + old_size;
+        let Some(old_end) = old_addr.checked_add(old_size) else {
+            crate::return_errno!(EFAULT, "the old range {old_addr:#x} + {old_size:#x} overflows");
+        };
+        let old_range = old_addr..old_end;
         if !is_mappable_range(&old_range) {
             crate::return_errno!(EFAULT, "the old range {old_range:#x?} is not in user space");
         }
-        if !self.is_fully_mapped(&old_range) {
-            crate::return_errno!(EFAULT, "the old range {old_range:#x?} is not fully mapped");
-        }
         if let Some(new_addr) = new_addr {
-            let new_range = new_addr..new_addr + new_size;
+            let Some(new_end) = new_addr.checked_add(new_size) else {
+                crate::return_errno!(ENOMEM, "the new range {new_addr:#x} + {new_size:#x} overflows");
+            };
+            let new_range = new_addr..new_end;
             if !is_mappable_range(&new_range) {
                 crate::return_errno!(ENOMEM, "the new range {new_range:#x?} is not in user space");
             }
@@ -79,6 +82,9 @@ impl Vmar {
         }
 
         let mut inner = self.inner.write();
+        if !inner.mappings.is_fully_mapped(&old_range) {
+            crate::return_errno!(EFAULT, "the old range {old_range:#x?} is not fully mapped");
+        }
         let before = inner.total_vm;
 
         if keep_old {
@@ -94,7 +100,7 @@ impl Vmar {
         }
 
         if new_size < old_size {
-            inner.unmap_range(&self.vm_space, &(old_addr + new_size..old_addr + old_size));
+            inner.unmap_range(&self.vm_space, &(old_addr + new_size..old_end));
         }
         let kept = old_size.min(new_size);
 
@@ -104,8 +110,10 @@ impl Vmar {
                 return Ok(old_addr);
             }
 
-            if new_size > old_size {
-                let grow = old_addr + old_size..old_addr + new_size;
+            if new_size > old_size
+                && let Some(grow_end) = old_addr.checked_add(new_size)
+            {
+                let grow = old_end..grow_end;
                 let usable = is_mappable_range(&grow) && inner.mappings.count_overlap(&grow) == 0;
                 if usable
                     && let Some(key) = inner.mappings.get(old_range.end - 1).map(VmMapping::start)

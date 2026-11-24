@@ -120,6 +120,9 @@ pub fn sys_sched_getattr(
     if (size as usize) < SchedAttr::MIN_SIZE {
         return Err(Errno::EINVAL);
     }
+    if (size as usize) > MAX_ATTR_SIZE {
+        return Err(Errno::E2BIG);
+    }
 
     let caller = Thread::proc_or_esrch()?;
     let target = resolve_target_proc(&caller, pid)?;
@@ -144,14 +147,15 @@ pub fn sys_sched_getattr(
 
     UserPtr::new(attr_ptr).write_bytes(&vmar, &full_bytes[..write_len])?;
 
-    // If caller requested more than FULL_SIZE, zero out the rest
+    // If caller requested more than FULL_SIZE (capped at MAX_ATTR_SIZE), zero the tail.
     if (size as usize) > SchedAttr::FULL_SIZE {
         let zeroes = [0u8; 128];
         let mut offset = SchedAttr::FULL_SIZE;
         let total = size as usize;
         while offset < total {
             let chunk = (total - offset).min(128);
-            UserPtr::new(attr_ptr + offset).write_bytes(&vmar, &zeroes[..chunk])?;
+            let dst = attr_ptr.checked_add(offset).ok_or(Errno::EFAULT)?;
+            UserPtr::new(dst).write_bytes(&vmar, &zeroes[..chunk])?;
             offset += chunk;
         }
     }

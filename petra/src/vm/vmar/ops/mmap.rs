@@ -188,7 +188,10 @@ impl Vmar {
         let start = if flags.contains(MmapFlags::FIXED) {
             addr
         } else if flags.contains(MmapFlags::FIXED_NOREPLACE) {
-            let wanted = addr..addr + len;
+            let Some(wanted_end) = addr.checked_add(len) else {
+                crate::return_errno!(ENOMEM, "MAP_FIXED_NOREPLACE: {addr:#x} + {len:#x} overflows");
+            };
+            let wanted = addr..wanted_end;
             if inner.mappings.count_overlap(&wanted) != 0 {
                 crate::return_errno!(
                     EEXIST,
@@ -207,7 +210,9 @@ impl Vmar {
             #[cfg(not(target_arch = "x86_64"))]
             let search_high = high_limit;
 
-            let hint = (addr != 0).then(|| addr..addr + len);
+            let hint = (addr != 0)
+                .then(|| addr.checked_add(len).map(|end| addr..end))
+                .flatten();
             match hint {
                 Some(hint)
                     if is_mappable_range(&hint) && inner.mappings.count_overlap(&hint) == 0 =>
@@ -218,7 +223,10 @@ impl Vmar {
             }
         };
 
-        let range = start..start + len;
+        let Some(range_end) = start.checked_add(len) else {
+            crate::return_errno!(ENOMEM, "{start:#x} + {len:#x} overflows");
+        };
+        let range = start..range_end;
         if !is_mappable_range(&range) {
             crate::return_errno!(
                 ENOMEM,

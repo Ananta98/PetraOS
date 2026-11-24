@@ -26,23 +26,11 @@ pub fn sys_sched_setaffinity(
     let caller = Thread::proc_or_esrch()?;
     let vmar = caller.vmspace();
 
+    // Linux ignores bits beyond nr_cpu_ids / CPU_BYTES; avoid looping over an
+    // unbounded user-supplied cpusetsize.
     let read_len = cpusetsize.min(CPU_BYTES);
     let mut raw_buf = [0u8; CPU_BYTES];
     UserPtr::new(mask_ptr).read_bytes(&vmar, &mut raw_buf[..read_len])?;
-
-    // If caller provided a buffer larger than 128 bytes, ensure extra bytes are zero.
-    if cpusetsize > CPU_BYTES {
-        let mut extra = [0u8; 128];
-        let mut offset = CPU_BYTES;
-        while offset < cpusetsize {
-            let chunk = (cpusetsize - offset).min(128);
-            UserPtr::new(mask_ptr + offset).read_bytes(&vmar, &mut extra[..chunk])?;
-            if extra[..chunk].iter().any(|&b| b != 0) {
-                return Err(Errno::EINVAL);
-            }
-            offset += chunk;
-        }
-    }
 
     let mask = CpuMask::from_slice(&raw_buf[..read_len]);
     if mask.is_empty() {
@@ -67,12 +55,11 @@ pub fn sys_sched_getaffinity(
     mask_ptr: usize,
     _ctx: &mut UserContext,
 ) -> Result<usize> {
-    if cpusetsize < MIN_CPUSET_SIZE {
+    if cpusetsize < MIN_CPUSET_SIZE || !cpusetsize.is_multiple_of(MIN_CPUSET_SIZE) {
         return Err(Errno::EINVAL);
     }
     let caller = Thread::proc_or_esrch()?;
     let target = resolve_target_proc(&caller, pid)?;
-    crate::sched::check_sched_permission(&caller, &target)?;
 
     let state = crate::sched::get_sched_state(target.pid);
     let full_mask = state.affinity.to_bytes();
@@ -80,17 +67,6 @@ pub fn sys_sched_getaffinity(
 
     let vmar = caller.vmspace();
     UserPtr::new(mask_ptr).write_bytes(&vmar, &full_mask[..write_len])?;
-
-    // If caller's buffer is larger than CPU_BYTES, zero out the rest
-    if cpusetsize > CPU_BYTES {
-        let zeroes = [0u8; 128];
-        let mut offset = CPU_BYTES;
-        while offset < cpusetsize {
-            let chunk = (cpusetsize - offset).min(128);
-            UserPtr::new(mask_ptr + offset).write_bytes(&vmar, &zeroes[..chunk])?;
-            offset += chunk;
-        }
-    }
 
     Ok(write_len)
 }

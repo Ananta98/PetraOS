@@ -69,20 +69,29 @@ pub fn sys_mmap(
         flags |= MmapFlags::PRIVATE;
     }
 
-    if flags.contains(MmapFlags::ANONYMOUS) || fd < 0 {
+    if flags.contains(MmapFlags::ANONYMOUS) {
         let res = vmar.mmap_anonymous(addr, len, perms, flags)?;
         Ok(res)
     } else {
+        if fd < 0 {
+            return Err(Errno::EBADF);
+        }
         let file = proc.file(fd)?;
 
-        // Linux rule: MAP_SHARED with PROT_WRITE requires the file to be opened for writing
+        // Linux rule: file-backed mappings require the file descriptor to be
+        // readable, and MAP_SHARED with PROT_WRITE additionally requires write access.
         let is_shared = flags.contains(MmapFlags::SHARED);
-        if is_shared && perms.contains(VmPerms::WRITE) {
+        let writable_shared = {
             let open_flags = file.flags.lock();
-            if !open_flags.contains(OpenFlags::WRITE) {
+            if !open_flags.contains(OpenFlags::READ) {
                 return Err(Errno::EACCES);
             }
-        }
+            if is_shared && perms.contains(VmPerms::WRITE) && !open_flags.contains(OpenFlags::WRITE)
+            {
+                return Err(Errno::EACCES);
+            }
+            is_shared && open_flags.contains(OpenFlags::WRITE)
+        };
 
         // Validate memory mapping request with the file description
         file.mmap(offset as u64, len)?;
@@ -92,8 +101,7 @@ pub fn sys_mmap(
         let backing: Arc<dyn Backing> = if let Some(b) = file.mmap_backing(offset as u64, len)? {
             b
         } else {
-            let min_size = offset.saturating_add(len);
-            let writable_shared = is_shared && file.flags.lock().contains(OpenFlags::WRITE);
+            let min_size = offset.checked_add(len).ok_or(Errno::EOVERFLOW)?;
             Arc::new(FileBacking::new_with_min_size(file, min_size, writable_shared)?)
         };
         let res = vmar.mmap_backed(&backing, addr, len, perms, flags, offset)?;

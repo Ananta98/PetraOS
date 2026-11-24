@@ -68,17 +68,14 @@ pub fn sys_brk(new_brk: usize, _ctx: &mut UserContext) -> Result<usize> {
         };
 
         if new_page_end > old_page_end {
-            let grow_range = old_page_end..new_page_end;
-            if vmar.has_overlap(&grow_range) {
-                return Ok(current_brk);
-            }
-
+            // Use FIXED_NOREPLACE so overlap detection and mapping insertion are
+            // atomic under the Vmar write lock (no TOCTOU overwrite).
             if vmar
                 .mmap_anonymous(
                     old_page_end,
                     new_page_end - old_page_end,
                     VmPerms::READ | VmPerms::WRITE,
-                    MmapFlags::PRIVATE | MmapFlags::FIXED | MmapFlags::ANONYMOUS,
+                    MmapFlags::PRIVATE | MmapFlags::FIXED_NOREPLACE | MmapFlags::ANONYMOUS,
                 )
                 .is_err()
             {

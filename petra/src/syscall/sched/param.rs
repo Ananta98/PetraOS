@@ -45,6 +45,9 @@ pub fn sys_sched_setparam(pid: i32, param_ptr: usize, _ctx: &mut UserContext) ->
             if !(RT_PRIO_MIN..=RT_PRIO_MAX).contains(&param.sched_priority) {
                 return Err(Errno::EINVAL);
             }
+            if param.sched_priority > current_state.priority && !caller.cred().is_superuser() {
+                return Err(Errno::EPERM);
+            }
         }
         _ => return Err(Errno::EINVAL),
     }
@@ -81,7 +84,7 @@ pub fn sys_sched_setscheduler(
     let base_policy = policy & !SCHED_RESET_ON_FORK;
 
     match base_policy {
-        SCHED_OTHER | SCHED_FIFO | SCHED_RR | SCHED_BATCH | SCHED_IDLE | SCHED_DEADLINE => {}
+        SCHED_OTHER | SCHED_FIFO | SCHED_RR | SCHED_BATCH | SCHED_IDLE => {}
         _ => return Err(Errno::EINVAL),
     }
 
@@ -93,13 +96,13 @@ pub fn sys_sched_setscheduler(
     let target = resolve_target_proc(&caller, pid)?;
     crate::sched::check_sched_permission(&caller, &target)?;
 
-    let is_rt = matches!(base_policy, SCHED_FIFO | SCHED_RR | SCHED_DEADLINE);
+    let is_rt = matches!(base_policy, SCHED_FIFO | SCHED_RR);
     if (is_rt || reset_on_fork) && !caller.cred().is_superuser() {
         return Err(Errno::EPERM);
     }
 
     match base_policy {
-        SCHED_OTHER | SCHED_BATCH | SCHED_IDLE | SCHED_DEADLINE => {
+        SCHED_OTHER | SCHED_BATCH | SCHED_IDLE => {
             if param.sched_priority != 0 {
                 return Err(Errno::EINVAL);
             }

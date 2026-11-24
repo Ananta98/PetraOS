@@ -97,3 +97,30 @@ This document tracks security-relevant bugs identified in the PetraOS kernel (`p
 - **Remediation:**
   - `sys_mq_timedsend`: reject `msg_len > mq_msgsize` with `Errno::EMSGSIZE` before allocating.
   - `sys_mq_timedreceive`: reject `msg_len < mq_msgsize` with `Errno::EMSGSIZE` and allocate a buffer of size `mq_msgsize` (bounded by `MQ_MAX_MSGSIZE`), rather than the unbounded user-supplied `msg_len`.
+
+---
+
+## Audit Pass 2 — 2026-11-24 (Linux Syscall Parity, VM, Process & Scheduler)
+
+**Scope:** Single-pass audit of virtual memory (`vm/vmar/ops/`, `syscall/mm/`), process resource limits (`syscall/proc/prlimit.rs`), and scheduler syscalls (`syscall/sched/`), verified against `claude-bughunter` (`triage-validation`, `evidence-hygiene`, `bb-methodology`, `hunt-auth-bypass`, `hunt-race-condition`, `hunt-exceptional-conditions`, `hunt-business-logic`).
+
+| ID | Severity | Category | Subsystem / File | Status |
+| :--- | :--- | :--- | :--- | :--- |
+| SEC-008 | High | TOCTOU Permission Bypass (Write to Read-Only File) | `petra/src/vm/vmar/ops/mprotect.rs` | Fixed |
+| SEC-009 | High | Unauthorized Read of `O_WRONLY` File & ABI Mismatches | `petra/src/syscall/mm/mmap.rs` | Fixed |
+| SEC-010 | High | Cross-Process Resource Limit Tampering | `petra/src/syscall/proc/prlimit.rs` | Fixed |
+| SEC-011 | High | Unchecked `addr + len` Integer Overflow Panics | `petra/src/vm/vmar/ops/mmap.rs`, `petra/src/syscall/mm/munmap.rs` | Fixed |
+| SEC-012 | High | Integer Overflow Panics & TOCTOU `total_vm` Underflow | `petra/src/vm/vmar/ops/mremap.rs` | Fixed |
+| SEC-013 | Medium | TOCTOU Concurrent Mapping Overwrite on Heap Growth | `petra/src/syscall/mm/brk.rs` | Fixed |
+| SEC-014 | High | Unbounded Kernel Loop / Overflow Panic (CPU Lockup DoS) | `petra/src/syscall/sched/affinity.rs`, `petra/src/syscall/sched/attr.rs` | Fixed |
+| SEC-015 | Medium | Unprivileged RT Priority Escalation & Invalid `SCHED_DEADLINE` | `petra/src/syscall/sched/param.rs` | Fixed |
+
+### Key Remediation Details
+- **SEC-008 (`Vmar::mprotect`)**: Merged the read-lock permission check and write-lock `carve` into a single `self.inner.write()` critical section so concurrent `mmap(MAP_FIXED)` cannot swap in a read-only shared mapping between check and apply.
+- **SEC-009 (`sys_mmap`)**: Rejected `fd < 0` when `MAP_ANONYMOUS` is not set (`EBADF`), enforced `OpenFlags::READ` for all file-backed mappings (`EACCES`) to match Linux and prevent reading `O_WRONLY` files via `mmap`, and replaced `offset.saturating_add(len)` with `checked_add` (`EOVERFLOW`).
+- **SEC-010 (`sys_prlimit64`)**: Added `can_access_prlimit` enforcing Linux `check_prlimit_permission` (`is_superuser()` or matching real/effective/saved UIDs and GIDs) when targeting another PID (`EPERM`), and rejected `resource >= RLIM_NLIMITS` (16) with `EINVAL`.
+- **SEC-011 (`Vmar::mmap_inner`, `sys_munmap`)**: Replaced unchecked `addr + len` with `checked_add` (`ENOMEM`/`EINVAL`), enforced page alignment, `len != 0`, page-rounding, and `MAX_USERSPACE_VADDR` bounds in `sys_munmap`.
+- **SEC-012 (`Vmar::mremap`)**: Replaced unchecked `old_addr + old_size`, `new_addr + new_size`, and `old_addr + new_size` with `checked_add`, and moved `is_fully_mapped(&old_range)` inside `self.inner.write()` to prevent TOCTOU `total_vm` underflow.
+- **SEC-013 (`sys_brk`)**: Replaced non-atomic `has_overlap` + `MmapFlags::FIXED` with atomic `MmapFlags::FIXED_NOREPLACE`.
+- **SEC-014 (`sys_sched_setaffinity`, `sys_sched_getaffinity`, `sys_sched_getattr`)**: Removed unbounded `cpusetsize` loops in `affinity.rs` (matching Linux by capping reads/writes at `CPU_BYTES` and requiring 8-byte alignment in `getaffinity`), and added `MAX_ATTR_SIZE` (`E2BIG`) + `checked_add` (`EFAULT`) in `sys_sched_getattr`.
+- **SEC-015 (`sys_sched_setparam`, `sys_sched_setscheduler`)**: Required superuser privilege to raise `SCHED_FIFO`/`SCHED_RR` priority in `sys_sched_setparam` (`EPERM`), and rejected `SCHED_DEADLINE` in `sys_sched_setscheduler` (`EINVAL`, Linux only permits `SCHED_DEADLINE` via `sched_setattr`).

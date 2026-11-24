@@ -30,6 +30,27 @@ fn linux_to_resource(res: u32) -> Option<Resource> {
     }
 }
 
+/// Number of Linux `RLIMIT_*` resource slots (`RLIM_NLIMITS`).
+const RLIM_NLIMITS: u32 = 16;
+
+/// Checks Linux `check_prlimit_permission` rules when targeting another process.
+fn can_access_prlimit(caller: &crate::proc::Proc, target: &crate::proc::Proc) -> bool {
+    if caller.pid == target.pid {
+        return true;
+    }
+    let caller_cred = caller.cred();
+    if caller_cred.is_superuser() {
+        return true;
+    }
+    let target_cred = target.cred();
+    caller_cred.cr_ruid == target_cred.cr_ruid
+        && caller_cred.cr_uid == target_cred.cr_uid
+        && caller_cred.cr_svuid == target_cred.cr_svuid
+        && caller_cred.cr_rgid == target_cred.cr_rgid
+        && caller_cred.cr_gid == target_cred.cr_gid
+        && caller_cred.cr_svgid == target_cred.cr_svgid
+}
+
 /// System call `prlimit64(pid, resource, new_limit, old_limit)` (Syscall #302).
 pub fn sys_prlimit64(
     pid: i32,
@@ -38,6 +59,10 @@ pub fn sys_prlimit64(
     old_limit_ptr: usize,
     _ctx: &mut UserContext,
 ) -> Result<usize> {
+    if resource >= RLIM_NLIMITS {
+        return Err(Errno::EINVAL);
+    }
+
     let caller_td = Thread::current().ok_or(Errno::ESRCH)?;
     let caller_proc = caller_td.proc().ok_or(Errno::ESRCH)?;
 
@@ -50,6 +75,10 @@ pub fn sys_prlimit64(
         let target_pid = Pid::from_u32(pid as u32).ok_or(Errno::ESRCH)?;
         allproc_find(target_pid).ok_or(Errno::ESRCH)?
     };
+
+    if !can_access_prlimit(&caller_proc, &target_proc) {
+        return Err(Errno::EPERM);
+    }
 
     let caller_vmar = caller_proc.vmspace();
 
