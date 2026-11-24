@@ -16,6 +16,30 @@ use crate::{
     },
 };
 
+/// Checks whether `caller` is permitted to send `sig` to `target` per POSIX/Linux `kill(2)` rules.
+fn can_signal(caller: &Proc, target: &Proc, sig: Option<Signal>) -> bool {
+    let caller_cred = caller.cred();
+    if caller_cred.is_superuser() {
+        return true;
+    }
+
+    let target_cred = target.cred();
+    if caller_cred.cr_ruid == target_cred.cr_ruid
+        || caller_cred.cr_ruid == target_cred.cr_svuid
+        || caller_cred.cr_uid == target_cred.cr_ruid
+        || caller_cred.cr_uid == target_cred.cr_svuid
+    {
+        return true;
+    }
+
+    // SIGCONT is also allowed between processes in the same session.
+    if sig == Some(Signal::SIGCONT) && caller.sid() == target.sid() {
+        return true;
+    }
+
+    false
+}
+
 /// `kill(2)` (Syscall #62 on x86_64).
 pub fn sys_kill(pid: i32, sig: i32, _ctx: &mut UserContext) -> Result<usize> {
     if sig < 0 || sig > 64 {
@@ -28,16 +52,20 @@ pub fn sys_kill(pid: i32, sig: i32, _ctx: &mut UserContext) -> Result<usize> {
         Some(Signal::from_u32(sig as u32).ok_or(Errno::EINVAL)?)
     };
 
+    let caller = Thread::proc_or_esrch()?;
+
     if pid > 0 {
         let proc =
             allproc_find(Pid::from_u32(pid as u32).ok_or(Errno::EINVAL)?).ok_or(Errno::ESRCH)?;
+        if !can_signal(&caller, &proc, sig_opt) {
+            return Err(Errno::EPERM);
+        }
         if let Some(sig) = sig_opt {
-            send_to(&proc, sig, 0)?;
+            send_to(&proc, sig, caller.pid.as_u32())?;
         }
         return Ok(0);
     }
 
-    let caller = Thread::proc_or_esrch()?;
     let wanted_group = if pid == 0 {
         caller.pgid()
     } else {
@@ -49,14 +77,23 @@ pub fn sys_kill(pid: i32, sig: i32, _ctx: &mut UserContext) -> Result<usize> {
         return Err(Errno::ESRCH);
     }
 
-    if let Some(sig) = sig_opt {
-        let mut found = false;
-        for proc in targets.iter() {
-            found |= send_to(proc, sig, caller.pid.as_u32()).is_ok();
+    let mut permitted = false;
+    let mut delivered = false;
+    for proc in targets.iter() {
+        if !can_signal(&caller, proc, sig_opt) {
+            continue;
         }
-        if !found {
-            return Err(Errno::ESRCH);
+        permitted = true;
+        if let Some(sig) = sig_opt {
+            delivered |= send_to(proc, sig, caller.pid.as_u32()).is_ok();
         }
+    }
+
+    if !permitted {
+        return Err(Errno::EPERM);
+    }
+    if sig_opt.is_some() && !delivered {
+        return Err(Errno::ESRCH);
     }
     Ok(0)
 }
@@ -74,6 +111,7 @@ pub fn sys_tkill(tid: i32, sig: i32, _ctx: &mut UserContext) -> Result<usize> {
         return Err(Errno::EINVAL);
     }
 
+    let caller = Thread::proc_or_esrch()?;
     let tid_val = Tid::from_u32(tid as u32).ok_or(Errno::EINVAL)?;
     let pid_val = Pid::from_u32(tid as u32).ok_or(Errno::EINVAL)?;
 
@@ -82,7 +120,7 @@ pub fn sys_tkill(tid: i32, sig: i32, _ctx: &mut UserContext) -> Result<usize> {
     if let Some(proc) = allproc_find(pid_val) {
         let inner = proc.inner.lock();
         if let Some(t) = inner.threads.iter().find(|t| t.tid == tid_val).cloned() {
-            target = Some(t);
+            target = Some((proc.clone(), t));
         }
     }
 
@@ -94,30 +132,34 @@ pub fn sys_tkill(tid: i32, sig: i32, _ctx: &mut UserContext) -> Result<usize> {
             }
             let inner = proc.inner.lock();
             if let Some(t) = inner.threads.iter().find(|t| t.tid == tid_val).cloned() {
-                target = Some(t);
+                target = Some((proc.clone(), t));
             }
         });
     }
 
-    let target = target.ok_or(Errno::ESRCH)?;
+    let (target_proc, target) = target.ok_or(Errno::ESRCH)?;
+    let sig_opt = if sig == 0 {
+        None
+    } else {
+        Some(Signal::from_u32(sig as u32).ok_or(Errno::EINVAL)?)
+    };
 
-    if sig == 0 {
-        return Ok(0);
+    if !can_signal(&caller, &target_proc, sig_opt) {
+        return Err(Errno::EPERM);
     }
 
-    let sig = Signal::from_u32(sig as u32).ok_or(Errno::EINVAL)?;
-    target.post_signal(SigInfo::from_user(
-        sig,
-        Thread::current_proc().map(|p| p.pid.as_u32()).unwrap_or(0),
-    ));
+    if let Some(sig) = sig_opt {
+        target.post_signal(SigInfo::from_user(sig, caller.pid.as_u32()));
+    }
     Ok(0)
 }
 
 /// `tgkill(2)` (Syscall #234 on x86_64): signal one thread of a process.
 pub fn sys_tgkill(tgid: i32, tid: i32, sig: i32, _ctx: &mut UserContext) -> Result<usize> {
-    if sig < 0 || sig > 64 {
+    if tgid <= 0 || tid <= 0 || sig < 0 || sig > 64 {
         return Err(Errno::EINVAL);
     }
+    let caller = Thread::proc_or_esrch()?;
     let proc =
         allproc_find(Pid::from_u32(tgid as u32).ok_or(Errno::EINVAL)?).ok_or(Errno::ESRCH)?;
 
@@ -131,14 +173,18 @@ pub fn sys_tgkill(tgid: i32, tid: i32, sig: i32, _ctx: &mut UserContext) -> Resu
         .cloned()
         .ok_or(Errno::ESRCH)?;
 
-    if sig == 0 {
-        return Ok(0);
+    let sig_opt = if sig == 0 {
+        None
+    } else {
+        Some(Signal::from_u32(sig as u32).ok_or(Errno::EINVAL)?)
+    };
+
+    if !can_signal(&caller, &proc, sig_opt) {
+        return Err(Errno::EPERM);
     }
 
-    let sig = Signal::from_u32(sig as u32).ok_or(Errno::EINVAL)?;
-    target.post_signal(SigInfo::from_user(
-        sig,
-        Thread::current_proc().map(|p| p.pid.as_u32()).unwrap_or(0),
-    ));
+    if let Some(sig) = sig_opt {
+        target.post_signal(SigInfo::from_user(sig, caller.pid.as_u32()));
+    }
     Ok(0)
 }

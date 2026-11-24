@@ -63,7 +63,9 @@ fn mqdesc_from_fd(mqdes: i32) -> Result<alloc::sync::Arc<MqDesc>> {
     let proc = Thread::proc_or_esrch()?;
     let file = proc.fd_table.lock().get(mqdes)?;
     file.as_mqdesc().ok_or(Errno::EBADF)
-}/// System call `mq_open(const char *name, int oflag, mode_t mode, struct mq_attr *attr)`
+}
+
+/// System call `mq_open(const char *name, int oflag, mode_t mode, struct mq_attr *attr)`
 /// (Syscall #240).
 pub fn sys_mq_open(
     name_ptr: usize,
@@ -135,6 +137,10 @@ pub fn sys_mq_timedsend(
     if msg_ptr == 0 {
         return Err(Errno::EFAULT);
     }
+    let max_msgsize = desc.attr_snapshot().mq_msgsize as usize;
+    if msg_len > max_msgsize {
+        return Err(Errno::EMSGSIZE);
+    }
     let mut payload = alloc::vec![0u8; msg_len];
     if msg_len > 0 {
         UserPtr::new(msg_ptr).read_bytes(&vmar, &mut payload)?;
@@ -163,8 +169,13 @@ pub fn sys_mq_timedreceive(
     let vmar = proc.vmspace();
     let desc = mqdesc_from_fd(mqdes)?;
 
+    let max_msgsize = desc.attr_snapshot().mq_msgsize as usize;
+    if msg_len < max_msgsize {
+        return Err(Errno::EMSGSIZE);
+    }
+
     let timeout_ns = read_relative_timeout(timeout_ptr, &vmar)?;
-    let mut payload = alloc::vec![0u8; msg_len];
+    let mut payload = alloc::vec![0u8; max_msgsize];
     let (received, prio) = desc.recv(&mut payload, timeout_ns)?;
 
     UserPtr::new(msg_ptr).write_bytes(&vmar, &payload[..received])?;

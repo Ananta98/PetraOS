@@ -237,6 +237,12 @@ pub fn sys_keyctl(
 
         // All key-mutating operations need the key to exist first.
         KEYCTL_UPDATE => {
+            if arg4 > KEY_PAYLOAD_MAX {
+                return Err(Errno::EINVAL);
+            }
+            if arg4 > 0 && arg3 == 0 {
+                return Err(Errno::EFAULT);
+            }
             let mut buf = alloc::vec![0u8; arg4];
             if arg4 > 0 {
                 UserPtr::new(arg3).read_bytes(&vmar, &mut buf)?;

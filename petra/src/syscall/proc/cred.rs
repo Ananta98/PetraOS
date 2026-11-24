@@ -88,6 +88,21 @@ const GID_COLS: IdColumns<Gid> = IdColumns {
     set_saved: |c, v| c.cr_svgid = v,
 };
 
+/// Emulates Linux `cap_emulate_setxuid`: clears capabilities when a process
+/// transitions away from UID 0 so dropping privileges cannot retain root caps.
+fn sync_caps_on_uid_change(proc: &Arc<crate::proc::Proc>, old: &Ucred, new: &Ucred) {
+    let had_root = old.cr_ruid.is_root() || old.cr_uid.is_root() || old.cr_svuid.is_root();
+    let has_root = new.cr_ruid.is_root() || new.cr_uid.is_root() || new.cr_svuid.is_root();
+
+    if had_root && !has_root {
+        let mut inner = proc.inner.lock();
+        inner.cap_effective = 0;
+        inner.cap_permitted = 0;
+    } else if old.cr_uid.is_root() && !new.cr_uid.is_root() {
+        proc.inner.lock().cap_effective = 0;
+    }
+}
+
 fn transition_single<Id: CredId>(
     proc: &Arc<crate::proc::Proc>,
     columns: &IdColumns<Id>,
@@ -106,6 +121,7 @@ fn transition_single<Id: CredId>(
         return Err(Errno::EPERM);
     }
 
+    sync_caps_on_uid_change(proc, &old_cred, &new_cred);
     proc.set_cred(Arc::new(new_cred));
     Ok(())
 }
@@ -150,6 +166,7 @@ fn transition_re<Id: CredId>(
         (columns.set_saved)(&mut new_cred, saved);
     }
 
+    sync_caps_on_uid_change(proc, &old_cred, &new_cred);
     proc.set_cred(Arc::new(new_cred));
     Ok(())
 }
@@ -187,6 +204,7 @@ fn transition_res<Id: CredId>(
         (columns.set_saved)(&mut new_cred, Id::wrap(s));
     }
 
+    sync_caps_on_uid_change(proc, &old_cred, &new_cred);
     proc.set_cred(Arc::new(new_cred));
     Ok(())
 }

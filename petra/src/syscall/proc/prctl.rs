@@ -184,6 +184,9 @@ pub fn sys_arch_prctl(code: i32, addr: usize, _ctx: &mut UserContext) -> Result<
     let td = Thread::current().ok_or(Errno::ESRCH)?;
     match code {
         ARCH_SET_FS => {
+            if addr >= ostd::mm::MAX_USERSPACE_VADDR {
+                return Err(Errno::EPERM);
+            }
             td.set_fs_base(addr);
             ostd::arch::cpu::context::FsBase::new(addr).load();
             Ok(0)

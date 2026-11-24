@@ -142,21 +142,27 @@ pub fn sys_capset(hdrp: usize, datap: usize, _ctx: &mut UserContext) -> Result<u
         )
     };
 
-    // POSIX security invariants:
-    // 1. Effective must be a subset of permitted
+    // POSIX/Linux capability invariants (checked and applied atomically under lock):
+    // 1. Effective must be a subset of permitted.
     if (new_eff & !new_perm) != 0 {
         return Err(Errno::EPERM);
     }
 
-    // 2. Unprivileged process cannot raise permitted capabilities beyond its current permitted set
-    let current_perm = caller_proc.inner.lock().cap_permitted;
-    let is_root = caller_proc.cred().cr_uid.as_u32() == 0;
-    if !is_root && (new_perm & !current_perm) != 0 {
-        return Err(Errno::EPERM);
-    }
-
+    const CAP_SETPCAP: u64 = 1 << 8;
     {
         let mut inner = caller_proc.inner.lock();
+        // 2. No process (including root) may raise permitted capabilities beyond
+        //    its current permitted set.
+        if (new_perm & !inner.cap_permitted) != 0 {
+            return Err(Errno::EPERM);
+        }
+        // 3. Without CAP_SETPCAP, inheritable capabilities cannot be raised
+        //    beyond the union of current inheritable and current permitted sets.
+        let has_setpcap = (inner.cap_effective & CAP_SETPCAP) != 0;
+        if !has_setpcap && (new_inh & !(inner.cap_inheritable | inner.cap_permitted)) != 0 {
+            return Err(Errno::EPERM);
+        }
+
         inner.cap_effective = new_eff;
         inner.cap_permitted = new_perm;
         inner.cap_inheritable = new_inh;

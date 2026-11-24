@@ -6,7 +6,7 @@ use alloc::sync::Arc;
 use ostd::arch::cpu::context::UserContext;
 
 use crate::{
-    uapi::errno::Result,
+    uapi::errno::{Errno, Result},
     fs::{
         devfs::DevFs,
         procfs::ProcFs,
@@ -49,6 +49,9 @@ pub fn sys_mount(
     _ctx: &mut UserContext,
 ) -> Result<usize> {
     let proc = Thread::proc_or_esrch()?;
+    if !proc.cred().is_superuser() {
+        return Err(Errno::EPERM);
+    }
     let vmar = proc.vmspace();
 
     let target = UserCStr::new(dir_name_ptr).read_string(&vmar, 4096)?;
@@ -169,6 +172,9 @@ pub fn perform_mount(
 /// System call `umount2(const char *target, int flags)` (Syscall #166).
 pub fn sys_umount2(target_ptr: usize, _flags: i32, _ctx: &mut UserContext) -> Result<usize> {
     let proc = Thread::proc_or_esrch()?;
+    if !proc.cred().is_superuser() {
+        return Err(Errno::EPERM);
+    }
     let vmar = proc.vmspace();
 
     let target = UserCStr::new(target_ptr).read_string(&vmar, 4096)?;
